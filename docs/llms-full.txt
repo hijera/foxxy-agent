@@ -14072,8 +14072,17 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
       ├─ Docker build&push  → образ в ghcr.io/hijera/foxxy-agent
       ├─ IntelliJ plugin    → zip плагина → GitHub Release
       │                      + updatePlugins.xml → docs/ в main и ассет релиза (раздел 5)
-      └─ VS Code extension  → universal .vsix → GitHub Release
+      ├─ VS Code extension  → universal .vsix → GitHub Release
+      └─ Release notes      → «What's Changed» в описание релиза — после Release binaries,
+                              IntelliJ plugin и VS Code extension, даже если какая-то упала
 ```
+
+Описание релиза пишет **отдельный job** (`.github/workflows/release-notes.yaml`), и запускается
+он последним, а не внутри сборок. Три сборки прикладывают ассеты к одному релизу одновременно:
+`softprops/action-gh-release` заводит в каждой свой черновик и оставляет самый ранний. Заметки,
+сгенерированные внутри одной из сборок, пропадали, если первым успевал черновик другой, — так
+вышли пустыми 0.2.87 и 0.2.91. Поэтому в первые минуты после merge у релиза уже есть ассеты, но
+ещё нет описания — это нормально. Уже заполненное описание job не трогает.
 
 Дополнительно `Release binaries` и `Docker build and push` независимо ловят
 **ручной push тега** `X.Y.Z` (`on: push: tags`) и `workflow_dispatch`.
@@ -14136,6 +14145,10 @@ GitHub → **Actions → «Tag release on merge» → Run workflow**:
 - `release_tag = X.Y.Z` — пересобирает уже существующий тег без бампа.
 
 Также можно запустить отдельно **«Release binaries»** с полем `tag`.
+
+Описание релизу, у которого его нет (ручной тег из способа B, релиз после
+пересборки), дописывает **Actions → «Release notes» → Run workflow** с полем
+`tag`. Существующее описание он не перезаписывает.
 
 ---
 
@@ -14237,6 +14250,12 @@ gh run view <run-id> -R hijera/foxxy-agent         # детали + логи д�
 
 - Гейт **«tag must be on main»**: если тег-коммит не является предком
   `origin/main`, сборка бинарников пропускается (в логе `skipping binary release`).
+- **Релиз без «What's Changed»** (на странице только `Release X.Y.Z (auto-tag on PR merge)`).
+  Сразу после merge так и должно быть, пока идут сборки. Если описание не появилось и после них,
+  смотрите job `Release notes / Write the release notes` в запуске `Tag release on merge`, затем
+  допишите описание вручную: **Actions → «Release notes»**, поле `tag`. Что сборки гонялись за
+  создание релиза, видно в логе шага `Upload assets to GitHub Release` / `Attach … to GitHub Release`:
+  `Using release … instead of duplicate draft …`. Это штатно, описание всё равно запишет `Release notes`.
 - Предупреждения **«Node.js 20 is deprecated»** в логах безвредны.
 - Если `gh` показывает не тот репозиторий — добавляй `-R hijera/foxxy-agent`
   (по умолчанию он может резолвить upstream `coddy-project/coddy-agent`).
