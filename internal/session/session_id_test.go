@@ -8,9 +8,9 @@ import (
 
 // TestNewSessionIDFormat checks the minted shape used by folder persistence.
 func TestNewSessionIDFormat(t *testing.T) {
-	id, err := newSessionID()
+	id, err := NewSessionID()
 	if err != nil {
-		t.Fatalf("newSessionID: %v", err)
+		t.Fatalf("NewSessionID: %v", err)
 	}
 	if !strings.HasPrefix(id, "sess_") {
 		t.Fatalf("id %q missing sess_ prefix", id)
@@ -28,7 +28,7 @@ func TestNewSessionIDEntropyFailure(t *testing.T) {
 	randRead = func([]byte) (int, error) { return 0, errors.New("boom") }
 	defer func() { randRead = old }()
 
-	if _, err := newSessionID(); err == nil {
+	if _, err := NewSessionID(); err == nil {
 		t.Fatal("expected error when rand.Read fails")
 	}
 }
