@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-15
+## Unreleased — 2026-09-17
 
 **The settings link to the FoxxyCode website.**
 At the bottom of the settings, next to "API docs", there is now a "Website" link. The site has
@@ -17,6 +17,58 @@ changes of recent releases in English and Russian.
 **Links from the panel open in your browser.**
 "API docs" and the other links the panel opens in a new tab used to open an empty window on top
 of the IDE. They now open in the default browser.
+
+## 0.3.0 — 2026-09-17
+
+**Versions now follow the 0.3.x line.**
+Everything the roadmap assigned to 0.3.x has shipped: Subversion support on a par with git, the
+IntelliJ plugin's own repository, fixes to the Windows build and to session rendering, the Debug
+mode, background commands and subagents. So 0.2.95 is followed by 0.3.0, then 0.3.1, 0.3.2 and so
+on. Updates arrive as usual; nothing needs to be reinstalled. What is planned for 0.4.x and later,
+and what of it is already done, is marked in `ROADMAP.md` in the repository.
+
+**The `.svn` service folder no longer shows up in the project.**
+In a Subversion working copy the client keeps a `.svn` folder with a copy of every file. It used to
+appear in the project tree the agent sees and in the file list for `@` mentions, and its contents
+ended up in the turn's change snapshot. `.svn` is now skipped wherever `.git` is: after an
+`svn update` or `svn commit` run by the agent, editing a message with a file rollback no longer
+tries to "restore" the insides of the working copy.
+
+**A session export names the SVN branch.**
+`/export` and `foxxycode sessions export` wrote only the git branch into the document header. For a
+session in a Subversion working copy the header now shows **SVN branch** (`trunk`,
+`branches/feature-x`), and the JSON gets an `svn_branch` field. The branch is read from the local
+working copy, without contacting the server.
+
+## 0.2.95 — 2026-09-14
+
+**You can send a follow-up while the agent is working.**
+The composer is no longer locked during a turn. A message sent with the usual key or with the round
+button (while the field has text, the button queues the message instead of stopping the turn)
+appears above the composer, and the agent reads it at its next step - between tool calls, not after
+the reply. Until the agent has read it, you can remove it with the cross. With an empty field the
+button stops the turn as before, together with everything waiting in the queue. If this chat's turn
+is running in another IDE window, the message returns to the composer with an explanation.
+
+**Tool rows say what the agent is doing.**
+A collapsed call row names the action in words ("reading a file", "running a command", "loading a
+skill") and shows what it acts on next to it: the path, the command, the skill name or the page
+address. A failed call is marked "(error)" right in the row, with no need to expand it. In the
+expanded card the command sits in its own block after `$` with a copy button, and the header names
+the shell the server runs it with. A loaded skill is shown as formatted text, a call with no
+arguments shows a line with its state instead of `{}`, and the copy buttons became icons. The Copy
+button and the time stay only under the reply that ends the turn.
+
+**Branch working copies are created inside the project.**
+When the agent opens a branch in a separate git worktree, the copy goes to
+`.foxxycode/worktrees/<branch>` inside the project, not to the agent's home directory.
+The folder excludes itself from `git status`, and the IDE does not index it, so search and
+navigation no longer show every class of the project a second time.
+
+**A renamed conversation moves up in History.**
+A pinned title, a change of mode or model now move the conversation to the top of History, just like
+a new message. Long conversations are saved faster: another message no longer makes the whole
+transcript get encoded again.
 
 ## 0.2.94 — 2026-09-14
 

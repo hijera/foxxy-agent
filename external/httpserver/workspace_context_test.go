@@ -12,9 +12,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 func TestDrivesListingPayload(t *testing.T) {
@@ -233,5 +236,31 @@ func TestWorkspaceFolderCreateRejectsTheDriveLevel(t *testing.T) {
 	status, body := postFolderJSON(t, ts, workspaceDrivesPath, "child")
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body %v)", status, body)
+	}
+}
+
+// The tool card names the interpreter a run_command call actually goes through, so
+// the workspace context carries the server's shell alongside the folder facts.
+func TestWorkspaceContextPayloadCarriesTheHostShell(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/foxxycode/workspace/context?path=" + url.QueryEscape(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Shell *string `json:"shell"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Shell == nil || *body.Shell == "" {
+		t.Fatalf("shell = %v, want the resolved interpreter path", body.Shell)
+	}
+	if *body.Shell != platform.CurrentShell().Path {
+		t.Errorf("shell = %q, want %q", *body.Shell, platform.CurrentShell().Path)
 	}
 }

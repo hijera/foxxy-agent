@@ -13,6 +13,7 @@ code_quality
 file_ops
 read_search
 shell_cmds
+git_worktrees
 background_cmds
 web_research
 subagents

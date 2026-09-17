@@ -176,6 +176,17 @@ export type ConsumeComposerSseParams = {
    * profile the session has already left.
    */
   onModeChanged?: (mode: string) => void;
+  /** FoxxyCode extension. What the session message queue holds now (`event: message_queue`). */
+  onMessageQueue?: (queue: QueuedMessageSnapshot) => void;
+};
+
+/** One follow-up still waiting for the running turn to read it. */
+export type QueuedMessageEvt = { id: string; text: string; createdAt?: string };
+
+/** A whole queue plus the version that orders it against other deliveries. */
+export type QueuedMessageSnapshot = {
+  messages: QueuedMessageEvt[];
+  version: number;
 };
 
 /** Profile id of a `event: mode` payload (ACP `current_mode_update`), or "". */
@@ -265,6 +276,7 @@ export async function consumeComposerSseReader(
     onDesignPlan,
     onProviderUsage,
     onModeChanged,
+    onMessageQueue,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -401,6 +413,27 @@ export async function consumeComposerSseReader(
        */
       const markRowAppendedAfterAssistant = () => {
         if (currentAssistantHasContent) pendingBubbleRotation = true;
+      };
+
+      /**
+       * A follow-up from the message queue, read by the agent between two steps.
+       * What is still pending lands above it first - tool rows waiting for a frame,
+       * an open thinking row - and the answer to it starts a bubble of its own below.
+       */
+      const appendQueuedUserMessage = (text: string) => {
+        if (toolQueue.length > 0) flushToolQueue();
+        finishThinking();
+        applyStreamItems((prev) => [
+          ...prev,
+          {
+            id: newId("u"),
+            type: "user_message" as const,
+            content: text,
+            queued: true,
+            createdAtUtc: new Date().toISOString(),
+          },
+        ]);
+        markRowAppendedAfterAssistant();
       };
 
       /** Starts a fresh bubble below the last appended row when one is pending. */
@@ -708,6 +741,46 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          // A queued follow-up the agent has just read enters the conversation
+          // here, where it was read - not at the end, where a transcript reload
+          // would otherwise be the first place it appears.
+          if (ev.event === "user_message") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                content?: { text?: string };
+              };
+              const text = String(raw?.content?.text || "");
+              if (text.trim()) {
+                appendQueuedUserMessage(text);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "message_queue") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                messages?: unknown;
+                version?: unknown;
+              };
+              const rows = Array.isArray(raw.messages) ? raw.messages : [];
+              onMessageQueue?.({
+                messages: rows
+                  .map((r) => r as QueuedMessageEvt)
+                  .filter(
+                    (r) =>
+                      r && typeof r.id === "string" && typeof r.text === "string",
+                  ),
+                version: typeof raw.version === "number" ? raw.version : 0,
+              });
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
@@ -945,6 +1018,46 @@ export async function consumeComposerSseReader(
             }
             continue;
           }
+          // A queued follow-up the agent has just read enters the conversation
+          // here, where it was read - not at the end, where a transcript reload
+          // would otherwise be the first place it appears.
+          if (ev.event === "user_message") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                content?: { text?: string };
+              };
+              const text = String(raw?.content?.text || "");
+              if (text.trim()) {
+                appendQueuedUserMessage(text);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "message_queue") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                messages?: unknown;
+                version?: unknown;
+              };
+              const rows = Array.isArray(raw.messages) ? raw.messages : [];
+              onMessageQueue?.({
+                messages: rows
+                  .map((r) => r as QueuedMessageEvt)
+                  .filter(
+                    (r) =>
+                      r && typeof r.id === "string" && typeof r.text === "string",
+                  ),
+                version: typeof raw.version === "number" ? raw.version : 0,
+              });
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;

@@ -103,6 +103,9 @@ groups:
       - path: features/browser-tool.md
         title: Browser tool
         summary: The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+      - path: features/message-queue.md
+        title: Message queue
+        summary: Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
       - path: features/background-tasks.md
         title: Background tasks
         summary: Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.

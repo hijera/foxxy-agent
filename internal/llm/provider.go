@@ -63,6 +63,11 @@ type Message struct {
 	// CompactionSummary marks the synthetic message holding a concise summary of earlier turns
 	// produced by auto-compaction. Unlike Compacted messages, it IS sent to the model.
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// Queued marks a user message the operator wrote while a turn was running, which that
+	// turn read later (the message queue). It is sent to the model like any user message; a
+	// client re-attaching to the turn uses it to tell the prompt the turn started from apart
+	// from the follow-ups the turn's own stream will replay.
+	Queued bool `json:"queued,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
