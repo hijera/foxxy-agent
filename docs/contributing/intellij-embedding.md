@@ -30,6 +30,32 @@ features: `:has()`, `oklch()`/`oklab()`, `@container`, native CSS nesting,
 `dvh`/`svh` units are allowed only with a preceding `vh` fallback
 declaration for the same property.
 
+## Depending on JCEF (IDE 2026.2 and later)
+
+From build 262 (IDE 2026.2) `com.intellij.ui.jcef.*` is no longer part of the
+platform core: it ships as the bundled plugin **Web Browser (JCEF)**, id
+`com.intellij.modules.jcef`, and its classes reach only plugins that depend on
+it. A plugin that declares nothing but `com.intellij.modules.platform` still
+installs, but the first class with a JCEF type in its signatures fails with
+`NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser` and the tool window
+stays empty.
+
+The dependency must be **optional**, because IDEs before 2025.3.1 have no such
+plugin and would refuse a required one. IntelliJ only accepts an optional
+`<depends>` that names a descriptor, so the plugin ships an empty one:
+
+```xml
+<depends optional="true" config-file="foxxycode-jcef.xml">com.intellij.modules.jcef</depends>
+```
+
+That covers the plugin on every supported IDE, but not a user who disabled Web
+Browser (JCEF). `JcefSupport.isAvailable()` (in `editors/intellij`) resolves the
+JCEF classes by name, without linking a JCEF type, and the tool window factory
+shows a message instead of the browser panel when they are missing.
+`TestPluginDescriptorDependsOnJcefOptionally` and
+`TestToolWindowFactoryGuardsJcef` in `editors/intellij/plugin_build_test.go`
+keep both in place.
+
 ## Serving the UI to JCEF
 
 Run the agent's HTTP server and point `JBCefBrowser` at it:

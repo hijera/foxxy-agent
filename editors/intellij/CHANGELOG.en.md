@@ -18,6 +18,17 @@ changes of recent releases in English and Russian.
 "API docs" and the other links the panel opens in a new tab used to open an empty window on top
 of the IDE. They now open in the default browser.
 
+## 0.3.1 — 2026-09-17
+
+**The FoxxyCode panel opens again in IDE 2026.2.**
+Starting with 2026.2 (IntelliJ IDEA, PhpStorm, PyCharm, OpenIDE and other IDEs on build 262), the
+JCEF embedded browser moved out of the platform core into a separate bundled plugin, "Web Browser
+(JCEF)", and its classes are visible only to plugins that declare a dependency on it. FoxxyCode did
+not declare one, so its tool window stayed empty in these IDEs and the IDE log showed
+`NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser`. The dependency is now declared and the
+panel works; nothing changes in IDEs older than 2025.3. If the "Web Browser (JCEF)" plugin is
+disabled, FoxxyCode shows a message asking to enable it instead of an empty window.
+
 ## 0.3.0 — 2026-09-17
 
 **Versions now follow the 0.3.x line.**
