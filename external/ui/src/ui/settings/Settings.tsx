@@ -22,6 +22,9 @@ import {
 } from "../shellBreakpoint";
 import { setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
 
+// The project website (site/ in the repository, published on GitHub Pages).
+const FOXXYCODE_SITE_URL = "https://hijera.github.io/foxxy-agent/";
+
 type ValidateResponse = { ok: boolean; error?: string };
 
 async function readJSON<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
@@ -397,6 +400,15 @@ export function Settings(props: {
             data-testid="settings-api-docs-link"
           >
             {t("settings.apiDocs")}
+          </a>
+          <a
+            className="settings-footer-link"
+            href={FOXXYCODE_SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="settings-site-link"
+          >
+            {t("settings.siteLink")}
           </a>
           <button
             type="button"

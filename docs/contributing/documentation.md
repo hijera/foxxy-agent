@@ -61,6 +61,10 @@ Capture the real surface, never a mockup and never a re-used older image that no
 
 Screenshots taken as evidence for a pull request (before and after pairs, every theme, every width) belong to the pull request: push them to the orphan `screenshots` branch and link the raw file, or drag them into the description on GitHub. They never go under `docs/assets/`.
 
+## The website
+
+GitHub Pages publishes this `docs/` tree as it is, with [the website](website.md) laid over it, so a page's address never changes because of the site and `updatePlugins.xml` and `config.schema.json` stay where IDEs and configs look for them. Screenshots for the website live in `site/public/screenshots/`, never under `docs/assets/`, and the site may not add a path that `docs/` already has.
+
 ## Assets index
 
 [`docs/assets/INDEX.md`](../assets/INDEX.md) states what belongs in the folder, the capture recipes and the brand files, and carries a generated inventory: every asset with its size and the files that reference it. `make docs-check` fails on an asset nothing references, so a file is either used by a page, the README, `DESIGN.md`, the `Dockerfile` or a capture script, or it is deleted.

@@ -13,6 +13,7 @@ import { bootstrapDesktopFlag } from "./ui/desktopShell";
 import { bootstrapEmbedFlag } from "./ui/embedShell";
 import { installEmbedLocaleBridge } from "./ui/embedLocaleBridge";
 import { installEmbedHostBridge } from "./ui/embedHostBridge";
+import { installEmbedExternalLinks } from "./ui/embedExternalLinks";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
@@ -28,6 +29,7 @@ bootstrapDesktopFlag();
 bootstrapEmbedFlag();
 installEmbedLocaleBridge();
 installEmbedHostBridge();
+installEmbedExternalLinks();
 startActiveHealthMonitor();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

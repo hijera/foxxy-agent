@@ -42,6 +42,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [ui-spa.mdc](../.cursor/rules/ui-spa.mdc) | Embedded UI source and SPA behavior | `external/ui/**/*` |
 | [ui-verification.mdc](../.cursor/rules/ui-verification.mdc) | UI verification and screenshots | `external/ui/**/*` |
 | [release-changelog.mdc](../.cursor/rules/release-changelog.mdc) | Post-merge version and the user-facing changelogs (IntelliJ + VS Code) | `editors/**`, `**/CHANGELOG.md`, `**/CHANGELOG.en.md` |
+| [site.mdc](../.cursor/rules/site.mdc) | The website: copy in both languages, baked data, real screenshots, the `docs/` overlay | `site/**`, `.github/workflows/site.yaml` |
 
 ## Operating rule
 
