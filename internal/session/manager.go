@@ -73,6 +73,11 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+	// queueObservers fan every message queue change out to the surfaces that
+	// have clients of their own (manager_queue.go).
+	queueObserverMu  sync.Mutex
+	queueObservers   map[int]func(acp.MessageQueueUpdate)
+	queueObserverSeq int
 
 	// deleting counts the DeleteSessionTree calls currently covering a
 	// session, so a turn racing the delete is refused instead of recreating
@@ -327,15 +332,10 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
-		// The sub_ prefix marks child sessions; a client may reopen an existing
-		// child bundle (read-only) but never mint an ordinary session under it.
-		if IsSubagentSessionID(preferredConsumed) && (m.store == nil || !m.store.HasPersistedSnapshot(preferredConsumed)) {
-			return nil, fmt.Errorf("session/new: %w: %s", ErrReservedSessionID, preferredConsumed)
-		}
 		id = preferredConsumed
 	} else {
 		var err error
-		if id, err = newSessionID(); err != nil {
+		if id, err = NewSessionID(); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
 	}
@@ -348,8 +348,13 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	// CLI --session-id with an existing snapshot is treated as reopening disk state.
+	// The lookup walks the sessions root for a nested bundle without the rate
+	// limit SessionPath applies: another backend on the same home may have
+	// spawned this child a moment ago, and answering "not stored" here would
+	// put a fresh, writable session over its bundle instead of reopening the
+	// read-only transcript.
 	if m.store != nil && preferredConsumed != "" {
-		if _, err := m.store.ReadSnapshot(id); err == nil {
+		if _, err := m.store.readSnapshotAt(m.store.sessionPath(id, true), id); err == nil {
 			// The replay is parked, not written: the client learns this id from
 			// the response it has not received yet. Over HTTP the same branch is
 			// reachable through manager_load_flight.go, where no ACP dispatch will
@@ -492,7 +497,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
-	if snap.Meta.IsSubagentRun(params.SessionID) {
+	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
 		// and the parent link, the role and tool set are not needed any more.
 		st.SetSubagentMeta(SubagentMeta{
@@ -589,12 +594,18 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 }
 
 // ForgetLiveSession disconnects MCP clients for the id and removes it from the active map (does not touch disk).
+// The store's remembered copy of the history it last wrote for the session goes with it, outside
+// the manager lock: that drop waits for a save of the same file already in flight.
 func (m *Manager) ForgetLiveSession(sessionID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if st, ok := m.sessions[sessionID]; ok {
+	st, ok := m.sessions[sessionID]
+	if ok {
 		st.CloseAll()
 		delete(m.sessions, sessionID)
+	}
+	m.mu.Unlock()
+	if ok && m.store != nil {
+		m.store.ForgetPersistedMessages(st.GetPersistedSessionDir())
 	}
 }
 
@@ -648,6 +659,18 @@ type PromptRunOpts struct {
 	// normally triggers (provider_usage.go). Surfaces that cannot show the
 	// numbers set it: foxxycode -p, the messenger gateway, the background wake.
 	SkipUsagePublish bool
+
+	// SurfaceSystemPrompt is what the surface running this turn wants the model
+	// to know about answering through it: a complete system prompt block,
+	// heading included, appended after the template. A messenger gateway
+	// describes the syntax its chat renders and the shape an answer should
+	// take there; the next integration describes its own.
+	//
+	// It belongs to the turn, not to the session. Nothing of it is persisted,
+	// so the transcript reads the same whoever was answering, and a turn from
+	// another surface on the same session carries a different prefix - which
+	// costs that turn its cached prefix, deliberately.
+	SurfaceSystemPrompt string
 
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
@@ -703,6 +726,10 @@ type turnAdmission struct {
 	// publishUsage says the turn's release refreshes the provider usage of the
 	// session's model, provided the turn reached its runner (MarkTurnRan).
 	publishUsage bool
+	// sender is where this turn publishes its session updates. It is held on
+	// the state for the life of the turn so a message queue change made from
+	// outside the turn's goroutine reaches the clients watching it.
+	sender acp.UpdateSender
 }
 
 // admissionFor derives the admission of a prompt from its options: a
@@ -760,6 +787,14 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			return nil, nil, err
 		}
 	}
+	// From here the session is running a turn, so a follow-up written while it
+	// works has somewhere to go (turn_queue.go), and the clients watching this
+	// turn are told when it changes. The notifier is installed before the queue
+	// opens, so every change of this turn's queue announces itself from one
+	// place - whoever made it, including the turn's own drain.
+	state.SetTurnSender(adm.sender)
+	state.SetQueueNotifier(func() { m.PublishMessageQueue(sessionID, state) })
+	state.OpenMessageQueue()
 	// The ran marker lives on this admission's context, so a concurrent
 	// admission that loses the lock cannot reset it.
 	markedCtx, ran := withTurnRanMarker(ctx)
@@ -769,6 +804,18 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	finish := func() {
 		finishOnce.Do(func() {
 			cancel()
+			// Closed before anything else: the turn is over, so a follow-up
+			// arriving now belongs to the next prompt, not to this one. A
+			// cancelled or failed turn drops what it never got to read, which
+			// is what Stop means, and says so rather than losing it quietly.
+			// The close announces the empty queue through the notifier, which
+			// is why both it and the sender are let go only afterwards.
+			if left := state.CloseMessageQueue(); len(left) > 0 {
+				m.log.Warn("message queue dropped with the turn",
+					"session_id", sessionID, "messages", len(left))
+			}
+			state.SetQueueNotifier(nil)
+			state.SetTurnSender(nil)
 			// The usage refresh is reserved before the turn is released: a
 			// client that pulls the numbers on turn_ended joins that fetch
 			// instead of reading the pre-turn snapshot.
@@ -820,7 +867,7 @@ func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptR
 	if state == nil {
 		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
+	if state.IsSubagentRun() {
 		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
 	}
 	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
@@ -835,7 +882,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
-	if (state.IsSubagentRun() || IsSubagentSessionID(params.SessionID)) && (opts == nil || !opts.subagentTurn) {
+	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
@@ -849,12 +896,21 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		turnBase = context.WithoutCancel(ctx)
 	}
 	lockStart := time.Now()
-	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, admissionFor(opts))
+	adm := admissionFor(opts)
+	adm.sender = sender
+	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, adm)
 	lockWait = time.Since(lockStart)
 	if err != nil {
 		return nil, err
 	}
 	defer finish()
+
+	// What the surface wants the model to know lasts exactly this turn: set
+	// under the turn lock, cleared before it is released, never persisted.
+	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
+		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
+		defer state.SetSurfaceSystemPrompt("")
+	}
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
 	if sessionDir != "" {
@@ -949,8 +1005,65 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, err
 	}
 
+	// The ReAct loop reads the queue between its own steps, which is where a
+	// follow-up is meant to land. What it cannot catch is the last moment of
+	// the turn: a message written while the answer was already being returned.
+	// Rather than hand that one to a turn hours later, the same admitted turn
+	// answers it - no second lock, no second admission, and the drain that
+	// finds nothing closes the queue in the same step, so there is no window
+	// where a message is accepted by a turn that is already over.
+	//
+	// Only a turn that ended with an answer continues. A cancelled turn is a
+	// Stop, and a Stop drops what was waiting rather than answering it; a turn
+	// that stopped for any other reason (its turn cap, a refusal, a hook) has
+	// already said why, and running it again would bury that. The run count is
+	// bounded for the same reason the ReAct loop is: each continuation is a
+	// fresh Agent.Run with its own budget, so without a cap one admission
+	// could hold the session's turn lock indefinitely.
+	for runs := 0; stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil; runs++ {
+		if runs >= maxQueuedFollowUpRuns {
+			left := state.CloseMessageQueue()
+			m.log.Warn("message queue follow-ups capped; the rest is dropped",
+				"session_id", params.SessionID, "runs", runs, "dropped", len(left))
+			break
+		}
+		queued, more := state.TakeQueuedMessagesOrClose()
+		if !more {
+			break
+		}
+		prompt := QueuedPromptBlocks(queued)
+		// The clients watching this turn see the follow-up enter the
+		// conversation where it was read, as they do for one the loop reads
+		// between two steps, and its recorded prompt carries the same marker.
+		if sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeUserMessageChunk,
+				Content:       prompt[0],
+			})
+		}
+		state.MarkNextPromptQueued()
+		stopReason, err = m.runner(turnCtx, state, prompt, sender)
+		state.ClearNextPromptQueued()
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
+			}
+			return nil, err
+		}
+	}
+
 	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
 }
+
+// maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by
+// what arrived in its final moments.
+//
+// Each continuation is a full Agent.Run with its own agent.max_turns budget, so
+// an operator (or a script) writing one follow-up per boundary could otherwise
+// hold the session's turn lock for as long as they keep typing. Past the cap
+// the queue is closed and what is left is dropped with a warning, exactly as a
+// Stop drops it: the alternative is a session no other surface can ever enter.
+const maxQueuedFollowUpRuns = 8
 
 func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetModeParams) error {
 	state := m.getSession(params.SessionID)
@@ -959,7 +1072,7 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	}
 	// A child transcript is read-only: its mode was fixed at spawn time and
 	// nothing may rewrite it afterwards.
-	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+	if state.IsSubagentRun() {
 		return fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
@@ -990,7 +1103,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 	}
 	// A child transcript is read-only: mode, model and permission mode were
 	// fixed at spawn time.
-	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+	if state.IsSubagentRun() {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
@@ -1411,10 +1524,16 @@ func (m *Manager) connectMCPClient(ctx context.Context, cwd string, srv config.M
 // production always uses crypto/rand.
 var randRead = rand.Read
 
-// newSessionID mints a fresh random session id. Entropy failure is returned
-// as an error rather than panicked on: one unlucky session/new must not take
-// down the process serving every other session.
-func newSessionID() (string, error) {
+// NewSessionID returns a fresh session id: sess_ followed by 24 hex
+// characters. Every session carries this shape, whoever started it - a
+// console run, a browser tab, a chat on a messenger gateway, or a subagent
+// run another session spawned - so nothing downstream can read a session's
+// origin off its id. What a session is, is in its bundle.
+//
+// Entropy failure is returned as an error rather than panicked on: one
+// unlucky session/new must not take down the process serving every other
+// session.
+func NewSessionID() (string, error) {
 	b := make([]byte, 12)
 	if _, err := randRead(b); err != nil {
 		return "", fmt.Errorf("generate session id: %w", err)

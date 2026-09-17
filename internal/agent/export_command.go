@@ -12,6 +12,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
 )
 
 // ExportCommandName is the built-in slash command that writes the session
@@ -110,6 +111,7 @@ func (a *Agent) exportTranscript(args exportCommandArgs) string {
 		}
 	}
 	in.GitBranch = gitws.Describe(cwd).Branch
+	in.SVNBranch = toolsvn.BranchFor(context.Background(), a.cfg, cwd)
 
 	res, err := export.ExportSession(in, args)
 	if err != nil {

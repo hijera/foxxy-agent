@@ -93,18 +93,29 @@ jobs:
         id: version
         if: (github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == '') && steps.check.outputs.skip != 'true'
         env:
-          # First release when origin has no SemVer tags yet. Subsequent
-          # releases bump the patch of the highest existing tag.
-          INITIAL_VERSION: "0.2.0"
+          # Floor of the current release line. A release bumps the patch of the
+          # highest existing tag, so the minor version never moves by itself: when
+          # the bumped version is still below this floor (0.2.95 -> 0.2.96 < 0.3.0),
+          # the release gets the floor instead, and later merges bump from there
+          # (0.3.1, 0.3.2, ...). Starting the next line is a change to this value
+          # (and to releaseLineFloor in internal/update/tag_on_merge_workflow_test.go);
+          # a tag pushed by hand would not run the plugin jobs. Also the first
+          # version when origin has no SemVer tags yet.
+          MIN_VERSION: "0.3.0"
         run: |
           set -euo pipefail
           LATEST="$({ git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
           if [ -z "$LATEST" ]; then
-            NEW_VERSION="$INITIAL_VERSION"
+            NEW_VERSION="$MIN_VERSION"
             echo "No existing SemVer tags on origin; starting at ${NEW_VERSION}"
           else
             NEW_VERSION="$(echo "$LATEST" | awk -F. '{$3=$3+1; OFS="."; print $1,$2,$3}')"
-            echo "Bumping ${LATEST} -> ${NEW_VERSION}"
+            if [ "$(printf '%s\n%s\n' "$NEW_VERSION" "$MIN_VERSION" | sort -V | tail -1)" != "$NEW_VERSION" ]; then
+              echo "${LATEST} + 1 = ${NEW_VERSION} is below the release line floor; releasing ${MIN_VERSION}"
+              NEW_VERSION="$MIN_VERSION"
+            else
+              echo "Bumping ${LATEST} -> ${NEW_VERSION}"
+            fi
           fi
           echo "previous=${LATEST:-none}" >> "$GITHUB_OUTPUT"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"

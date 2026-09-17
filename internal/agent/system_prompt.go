@@ -117,6 +117,10 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
 	// like the environment block so a custom template carries it too.
 	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
+	// What the surface running this turn asked the model to know about
+	// answering through it. Last of the appended blocks, so a messenger's
+	// answer format is the nearest instruction to the conversation itself.
+	full = joinNonEmptyPromptBlocks(full, a.surfaceBlock())
 	if _, ok := a.state.(rulesState); ok {
 		// The Conversation estimate mirrors what buildMessages sends: only the window the active
 		// compaction engine still replays.

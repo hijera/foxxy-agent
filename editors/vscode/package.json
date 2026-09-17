@@ -2,7 +2,7 @@
   "name": "foxxycode-vscode",
   "displayName": "%ext.displayName%",
   "description": "%ext.description%",
-  "version": "0.1.6",
+  "version": "0.3.0",
   "publisher": "foxxycode",
   "license": "MIT",
   "engines": {

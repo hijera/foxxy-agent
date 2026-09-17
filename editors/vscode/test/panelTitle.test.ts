@@ -7,7 +7,7 @@ import {
 
 describe("panel chrome naming", () => {
   it("puts the version after the product name in the editor tab title", () => {
-    expect(formatPanelTitle("0.1.6")).toBe("FoxxyCode 0.1.6");
+    expect(formatPanelTitle("0.3.0")).toBe("FoxxyCode 0.3.0");
   });
 
   it("falls back to the bare product name without a version", () => {
@@ -17,7 +17,7 @@ describe("panel chrome naming", () => {
   });
 
   it("view description is the bare version, since VS Code renders it after the name", () => {
-    expect(formatViewDescription("0.1.6")).toBe("0.1.6");
+    expect(formatViewDescription("0.3.0")).toBe("0.3.0");
     expect(formatViewDescription(undefined)).toBe("");
   });
 });

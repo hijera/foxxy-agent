@@ -23,7 +23,8 @@ merge PR в main
       │
       ▼
 Tag release on merge (.github/workflows/tag-on-merge.yaml)
-  • берёт последний semver-тег origin, бампит patch (X.Y.Z+1)
+  • берёт последний semver-тег origin, бампит patch (X.Y.Z+1),
+    но не ниже границы линии MIN_VERSION (сейчас 0.3.0)
   • пушит новый тег
   • через workflow_call запускает дочерние сборки:
       ├─ Release binaries   → CLI-бинарники + desktop .exe + SHA256SUMS → GitHub Release
@@ -60,13 +61,16 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
    (проверка: `gh api repos/hijera/foxxy-agent/pages`). Именно это раздаёт
    `updatePlugins.xml` для IntelliJ (раздел 5), так что источник Pages менять нельзя.
 
-3. **(Опционально) продолжить нумерацию `0.9.x`.** Авто-бамп смотрит на теги
-   **origin**, а там их нет → базой станет `0.1.0` и первый авто-релиз будет
-   `0.1.1`. Чтобы продолжить линию coddy, один раз запушь базовый тег в origin:
-
-   ```bash
-   git push origin 0.9.35     # или актуальную версию
-   ```
+3. **Линия версий.** Авто-бамп поднимает только последнее число, поэтому `0.2.95`
+   сам по себе в `0.3.0` не превратится. Линию задаёт `MIN_VERSION` в шаге
+   «Get latest SemVer tag and bump patch» файла `tag-on-merge.yaml` — нижняя граница
+   версии: пока «старший тег + 1» меньше границы, релиз получает саму границу
+   (`0.2.95` → `0.3.0`), дальше идут `0.3.1`, `0.3.2`… Чтобы начать следующую линию
+   из [дорожной карты](../../ROADMAP.md), подними `MIN_VERSION` (и `releaseLineFloor` в
+   `internal/update/tag_on_merge_workflow_test.go`) обычным PR — его мердж и выйдет
+   как `0.4.0`. Тег руками для этого пушить не надо: ручной push тега собирает только
+   бинарники и Docker-образ, без плагинов, `updatePlugins.xml` и описания релиза.
+   Нумерация форка не связана с upstream-овской `0.9.x`.
 
 ---
 

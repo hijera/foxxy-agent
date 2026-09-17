@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
+import type { QueuedMessage } from "./chat/Composer";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setLlmRetrying } from "./chat/llmRetryState";
@@ -19,6 +20,12 @@ import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { subscribeServerEvents } from "./chat/serverEvents";
+import type { QueuedMessageEvent } from "./chat/serverEvents";
+import {
+  acceptQueueVersion,
+  resetQueueVersion,
+  type QueueVersions,
+} from "./chat/messageQueueState";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -108,6 +115,7 @@ import { probeSwarm } from "./swarm/api";
 import { SwarmView } from "./swarm/SwarmView";
 import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
+import { setHostShell } from "./chat/hostShell";
 import {
   injectBranchNavItems,
   deduplicateBranchNavs,
@@ -918,11 +926,13 @@ export function App() {
     turnEnded: (sid: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
+    messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
   }>({
     turnStarted: () => {},
     turnEnded: () => {},
     providerUsage: () => {},
     configReloaded: () => {},
+    messageQueue: () => {},
   });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
@@ -1023,6 +1033,80 @@ export function App() {
     if (!sid) return false;
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
+
+  /**
+   * The message queue per session: follow-ups the operator wrote while a turn
+   * was running, waiting for it to read them at its next step.
+   *
+   * The server owns the list. Every entry here came back from the queue routes
+   * or from a `message_queue` frame on the turn's own stream, so a second tab
+   * watching the same session shows the same queue, and a message the agent has
+   * just read disappears from it without the client guessing.
+   */
+  const [queueBySid, setQueueBySid] = useState<Record<string, QueuedMessage[]>>(
+    {},
+  );
+  /**
+   * Highest queue version applied per session.
+   *
+   * The same change reaches this client twice - once on the turn's own stream,
+   * once on `GET /foxxycode/events` - and those are separate connections, so the
+   * frames can arrive in either order. The version decides; without it a stale
+   * frame would put a cancelled message back on screen.
+   */
+  const queueVersionBySidRef = useRef<QueueVersions>(new Map());
+  const forgetQueueVersion = useCallback((sid: string) => {
+    resetQueueVersion(queueVersionBySidRef.current, sid);
+  }, []);
+  const applyQueue = useCallback(
+    (sid: string, rows: QueuedMessage[], version: number) => {
+      const key = sid.trim();
+      if (!acceptQueueVersion(queueVersionBySidRef.current, key, version)) {
+        return;
+      }
+      setQueueBySid((prev) => ({ ...prev, [key]: rows }));
+    },
+    [],
+  );
+  const queuedMessages = useMemo(
+    () => queueBySid[sessionId.trim()] ?? [],
+    [queueBySid, sessionId],
+  );
+  /** Reads the queue as it stands, for a tab that attaches to a turn already running. */
+  const refreshQueue = useCallback(
+    async (sid: string) => {
+      const key = sid.trim();
+      if (!key) return;
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/queue`,
+          { headers: { [HDR]: key } },
+        );
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (Array.isArray(data?.messages)) {
+          applyQueue(key, data.messages, data.version ?? 0);
+        }
+      } catch {
+        // The next message_queue frame brings the list.
+      }
+    },
+    [applyQueue],
+  );
+
+  // The queue lives exactly as long as the turn it belongs to, so an idle
+  // session shows nothing waiting.
+  useEffect(() => {
+    if (generating) return;
+    const sid = sessionId.trim();
+    if (!sid) return;
+    setQueueBySid((prev) =>
+      (prev[sid]?.length ?? 0) > 0 ? { ...prev, [sid]: [] } : prev,
+    );
+  }, [generating, sessionId]);
 
   // Poll while the session is working, not merely while this client streams it: a turn
   // recovered from disk, or an autonomous turn woken by a background task, burns context
@@ -1650,7 +1734,10 @@ export function App() {
         headers: sid ? { [HDR]: sid } : {},
       });
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const ctx = (await res.json()) as WorkspaceContext;
+        setWorkspaceCtx(ctx);
+        // Host fact, not a workspace one: the tool cards name the interpreter.
+        setHostShell(ctx.shell);
       }
     } catch {
       // ignore: chips keep the previous context
@@ -2878,6 +2965,9 @@ export function App() {
           type: "user_message",
           content: rawContent,
           ...(cat ? { createdAtUtc: cat } : {}),
+          ...((m as Record<string, unknown>).queued === true
+            ? { queued: true }
+            : {}),
           ...(parsedAssets.length > 0 ? { files: parsedAssets } : {}),
         });
         const mt = memByTurn.get(userTurnIdx);
@@ -3898,6 +3988,10 @@ export function App() {
   serverEventHandlersRef.current = {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
+      // The queue of the previous turn is gone, and a server that restarted
+      // numbers its changes from the beginning: start this session's
+      // high-water mark again rather than dropping the new turn's frames.
+      forgetQueueVersion(sid);
       const key = sid.trim();
       if (!key || key !== viewedSessionIdRef.current.trim()) return;
       if (activeComposerSidRef.current.has(key)) return;
@@ -3915,6 +4009,10 @@ export function App() {
     },
     providerUsage: providerUsageState.applyPushed,
     configReloaded: () => setConfigEpoch((e) => e + 1),
+    // A session is shared: this is what someone else queued, in another
+    // browser or from a console attached over --remote.
+    messageQueue: (sid: string, queue: QueuedMessageEvent) =>
+      applyQueue(sid, queue.messages, queue.version),
   };
 
   useEffect(() => {
@@ -3925,6 +4023,8 @@ export function App() {
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
+      onMessageQueue: (sid, queue) =>
+        serverEventHandlersRef.current.messageQueue(sid, queue),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -4070,6 +4170,12 @@ export function App() {
       }
     };
 
+    // The queue changes this tab missed while it was away arrive on no stream it
+    // will read now: frames on the turn's own stream are replayed only while the
+    // relay still holds them, and GET /foxxycode/events carries changes, not state.
+    forgetQueueVersion(key);
+    void refreshQueue(key);
+
     let reconcileOnExit = true;
     try {
       // Resume after the last frame this tab consumed, so a dropped connection costs
@@ -4126,6 +4232,7 @@ export function App() {
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
         onModeChanged: (m: string) => onServerModeChanged(key, m),
+        onMessageQueue: (q) => applyQueue(key, q.messages, q.version),
       });
 
       const syncAssistantFromServer = async () => {
@@ -4277,7 +4384,19 @@ export function App() {
 
   async function streamResponses(
     text: string,
-    opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
+    opts?: {
+      modeOverride?: string;
+      runPlanSlug?: string;
+      files?: File[];
+      /**
+       * Put the text back in the composer if the server refuses this send as
+       * busy. Set by the message queue's fallback: the queue closes a moment
+       * before the turn releases its admission, so a follow-up written in that
+       * gap is told "no turn is running" and then refused as busy - and what
+       * the operator wrote must not vanish between the two answers.
+       */
+      restoreDraftOnBusy?: boolean;
+    },
   ) {
     const abortCtl = new AbortController();
     let postSessionKey = "";
@@ -4485,6 +4604,9 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+        if (opts?.restoreDraftOnBusy) {
+          setDraft(text);
+        }
         postAbortBySidRef.current.delete(postSessionKey);
         streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
@@ -4590,6 +4712,7 @@ export function App() {
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
         onModeChanged: (m: string) => onServerModeChanged(streamKey, m),
+        onMessageQueue: (q) => applyQueue(streamKey, q.messages, q.version),
       });
 
       const syncAssistantFromServer = async () => {
@@ -5254,6 +5377,105 @@ export function App() {
   const handleStopBackgroundTask = useStableHandler((id: string) => {
     void stopBackgroundTaskById(id);
   });
+
+  /**
+   * Queue the draft for the turn that is running instead of refusing it.
+   *
+   * The turn can end between the keystroke and the request; the server says so
+   * with `no_active_turn`, and what the operator wrote is sent as an ordinary
+   * prompt rather than dropped. Any other refusal puts the text back in the
+   * composer, because losing it is worse than a second attempt.
+   */
+  const handleQueueMessage = useStableHandler((text: string) => {
+    const sid = sessionId.trim();
+    const body = text.trim();
+    if (!sid || !body) return;
+    setDraft("");
+    void (async () => {
+      type QueueAnswer = {
+        messages?: QueuedMessage[];
+        version?: number;
+        error?: { code?: string; message?: string };
+      };
+      let payload: QueueAnswer | null = null;
+      let status = 0;
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
+          {
+            method: "POST",
+            headers: { [HDR]: sid, "Content-Type": "application/json" },
+            body: JSON.stringify({ text: body }),
+          },
+        );
+        status = res.status;
+        payload = (await res.json().catch(() => null)) as QueueAnswer | null;
+      } catch {
+        // Network failure: treated as a refusal below.
+      }
+      if (status === 201 && Array.isArray(payload?.messages)) {
+        applyQueue(sid, payload.messages, payload.version ?? 0);
+        return;
+      }
+      if (payload?.error?.code === "no_active_turn") {
+        // The turn ended between the keystroke and the request. Send it as an
+        // ordinary prompt; if the admission has not been released yet and that
+        // is refused too, the text comes back to the composer rather than
+        // being lost between the two answers.
+        void streamResponses(body, { restoreDraftOnBusy: true });
+        return;
+      }
+      setDraft(body);
+      const code = payload?.error?.code;
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice",
+          level: "error" as const,
+          message:
+            code === "queue_full"
+              ? t("composer.queueFull")
+              : code === "session_busy"
+                ? t("composer.queueBusyElsewhere")
+                : t("composer.queueFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    })();
+  });
+
+  /**
+   * Take one queued follow-up back. The list is updated at once so the card
+   * disappears under the click; the server's answer (or the next
+   * `message_queue` frame) is what it settles on.
+   */
+  const handleCancelQueued = useStableHandler((id: string) => {
+    const sid = sessionId.trim();
+    const messageID = id.trim();
+    if (!sid || !messageID) return;
+    setQueueBySid((prev) => ({
+      ...prev,
+      [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
+    }));
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(messageID)}`,
+          { method: "DELETE", headers: { [HDR]: sid } },
+        );
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (Array.isArray(data?.messages)) {
+          applyQueue(sid, data.messages, data.version ?? 0);
+        }
+      } catch {
+        // The next message_queue frame corrects the list.
+      }
+    })();
+  });
   const handleFetchToolCallFull = useStableHandler(
     async (toolCallId: string) => {
       if (!sessionId) return;
@@ -5525,6 +5747,13 @@ export function App() {
               }
             }}
             onStop={() => stopActiveGeneration()}
+            {...(subagentTranscript
+              ? {}
+              : {
+                  queuedMessages,
+                  onQueue: handleQueueMessage,
+                  onCancelQueued: handleCancelQueued,
+                })}
             onQuestionPromptResolved={resolveQuestionPrompt}
             onPermissionPromptResolved={resolvePermissionPrompt}
             onPlanDocumentExpanded={(itemId, expanded) => {

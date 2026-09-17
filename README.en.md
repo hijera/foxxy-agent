@@ -77,6 +77,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API; **`POST /v1/chat/completions`** itself streams the strict OpenAI contract, so FoxxyCode works as a model in VS Code Copilot ([tutorial](docs/tutorials/foxxycode-as-a-model-in-vs-code.md))
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Background tasks** - `run_command` can detach from the turn (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, the **Background tasks** panel shows what is still running, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a series of similar calls asks once - see [Background tasks](docs/features/background-tasks.md)
+- **Message queue** - a follow-up written while the agent works is not refused: it is queued, and the running turn reads it at its next step, between tool calls rather than after the answer; a queued message can be taken back, and a shared session shows the same queue in every browser, editor panel and console (`/queue`) - see [Message queue](docs/features/message-queue.md)
 - **Subagents** - the model delegates a bounded, self-contained task to a child agent with its own context window and session (`spawn_agent`, foreground or detached); definitions are markdown files with YAML frontmatter under **`~/.foxxycode/agents`** and **`.foxxycode/agents`** (Claude Code's **`.claude/agents`** load too), two built-ins (**`general`**, **`explore`**) ship embedded, project files need a one-time approval (**`foxxycode agents trust <name>`**), tools and permission mode can only narrow, and every run is a background task with a read-only child transcript reachable from the **Tasks** panel - see [Subagents](docs/features/subagents.md)
 - **Transcript export** - any session downloads as **PDF**, **DOCX**, **HTML**, or **JSON**. Markdown in the messages is really rendered: tables, syntax-highlighted code, nested and task lists, blockquotes, links that stay clickable, and images from the session's own `assets/`; a remote `http(s)` image is deliberately never fetched at export time. Editor panels that cannot accept a download get a separate route that writes the document to disk and reveals it in the OS file manager - see [HTTP API](docs/reference/http-api.md)
 - **Reasoning level** - for reasoning models (gpt-5, o-series, gpt-oss, qwen3, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/getting-started/configuration.md)
@@ -596,7 +597,7 @@ See [Architecture docs](docs/contributing/architecture.md) for full details.
 ## Documentation
 
 - [What FoxxyCode adds over coddy-agent](docs/getting-started/foxxycode-and-coddy.md) - fork-specific features vs upstream
-- [Roadmap](ROADMAP.en.md) - plans for 0.3.x, 0.4.x, and 0.5.x
+- [Roadmap](ROADMAP.en.md) - plans for 0.3.x-0.6.x and what has already shipped
 - [Build from source](docs/contributing/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**
 - [Updating FoxxyCode](docs/getting-started/update.md) - **`foxxycode update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/getting-started/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
@@ -611,6 +612,7 @@ See [Architecture docs](docs/contributing/architecture.md) for full details.
 - [Rules](docs/features/rules.md) - project rules (`.cursor/rules`, `.foxxycode/rules`, …)
 - [Skills](docs/features/skills.md) - slash commands and **`skills.dirs`**
 - [Background tasks](docs/features/background-tasks.md) - detached commands, the task pool, timeouts, and the whole-program grant
+- [Message queue](docs/features/message-queue.md) - a follow-up written during a turn, when the turn reads it, taking one back, the composer and console surfaces, the queue routes
 - [Subagents](docs/features/subagents.md) - definition files, project trust receipts, the **`spawn_agent`** tool, capability narrowing, child sessions
 - [Hooks](docs/features/hooks.md) - the event table, the JSON contract on stdin and stdout, project trust receipts, and the CLI and HTTP approval surfaces
 - [Session export](docs/features/session-export.md) - the `/export` command, the `foxxycode sessions export` twin, the formats and what the document holds

@@ -53,6 +53,10 @@
                 factoryClass="dev.foxxycode.intellij.ui.FoxxyCodeToolWindowFactory"/>
 
         <notificationGroup id="FoxxyCode" displayType="BALLOON"/>
+
+        <!-- Git worktrees the agent opens live in <project>/.foxxycode/worktrees; each is a full
+             checkout of another branch, so the index must not read them. -->
+        <directoryIndexExcludePolicy implementation="dev.foxxycode.intellij.project.FoxxyCodeWorktreesExcludePolicy"/>
     </extensions>
 
     <!-- The backend must be dead before the IDE exits or the plugin is replaced: on Windows a
