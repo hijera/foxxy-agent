@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // @ts-check
 // Bakes the data the site renders into src/generated/: the latest downloads from the GitHub
 // Releases API (release.json) and the recent change notes of both plugins in Russian and English

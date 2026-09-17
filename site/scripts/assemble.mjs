@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // @ts-check
 // Assembles what GitHub Pages publishes: the whole docs/ tree as it is, so every address that
 // already works keeps working (updatePlugins.xml, which JetBrains IDEs poll for plugin updates,
