@@ -120,7 +120,7 @@ test("treats markup in selectors and results as text", () => {
 });
 
 test("shows the browser action and arguments before execution", () => {
-  render(
+  const { container } = render(
     <ToolCallMessage
       toolCallId="nav"
       title="foxxycode_browser_navigate"
@@ -129,7 +129,45 @@ test("shows the browser action and arguments before execution", () => {
     />,
   );
   expect(screen.getByText("Open page")).toBeTruthy();
-  expect(screen.getByText("https://example.com")).toBeTruthy();
+  // The URL is the row's target and the card's first line; assert both.
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "https://example.com",
+  );
+  expect(container.querySelector(".browser-action-url")).toHaveTextContent(
+    "https://example.com",
+  );
+});
+
+// The icon travels inside the row's non-wrapping group, so a long URL next to it is
+// clipped instead of dropping the label onto a second line under the icon.
+test("the browser icon sits inside the row's label group", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="nav-icon"
+      title="foxxycode_browser_navigate"
+      status="completed"
+      argsText={'{"url":"https://example.com/a/very/long/path"}'}
+      resultText="navigated to https://example.com/a/very/long/path"
+    />,
+  );
+  const head = container.querySelector(".thinking-head");
+  expect(head?.querySelector(".browser-tool-icon")).not.toBeNull();
+  expect(head?.firstElementChild).toHaveClass("browser-tool-icon");
+});
+
+// A browser failure arrives as an "error:" result; the collapsed row says so like any
+// other failed call.
+test("a browser call that returned an error is marked failed on its row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="nav-err"
+      title="foxxycode_browser_navigate"
+      status="completed"
+      argsText={'{"url":"https://example.invalid"}'}
+      resultText="error: net::ERR_NAME_NOT_RESOLVED"
+    />,
+  );
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent("(failed)");
 });
 
 test("formats and highlights JavaScript and preserves the complete result", async () => {

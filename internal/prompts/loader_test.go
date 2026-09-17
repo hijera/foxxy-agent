@@ -44,6 +44,28 @@ func TestRenderAgentPrompt(t *testing.T) {
 	}
 }
 
+// The agent invents a place for a git worktree unless the prompt names one,
+// and what it invents ends up untracked at the repository root.
+func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render agent: %v", err)
+	}
+	for _, want := range []string{
+		".foxxycode/worktrees",            // the directory itself
+		"main checkout",                   // resolved, not relative to a linked worktree
+		"feature-login",                   // the branch name is mapped to a folder name
+		".foxxycode/worktrees/.gitignore", // the ignore file sits beside the worktrees
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("agent prompt should mention %q so worktrees land where FoxxyCode puts them", want)
+		}
+	}
+}
+
 func TestRenderPlanPrompt(t *testing.T) {
 	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
@@ -563,6 +585,7 @@ func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
 				"## Mode: Agent",
 				"### How to work",
 				"### Reading and searching (context is limited)",
+				"### Git worktrees",
 				"### Background commands (`run_command` with `background: true`)",
 				"### Web research",
 				"{{.CWD}}",

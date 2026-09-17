@@ -9,8 +9,6 @@
 package sessionstore
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // Store maps session keys to FoxxyCode session IDs.
@@ -62,16 +61,21 @@ func SessionKey(gateway string, chatID, userID int64, mode config.IsolationMode,
 }
 
 // Get returns the FoxxyCode session ID for key, creating a new random one when absent.
-func (s *Store) Get(key string) string {
+// Minting an id fails only when the system's entropy source does, and the error is
+// returned rather than panicked on: one chat must not take the bot down.
+func (s *Store) Get(key string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id, ok := s.data[key]; ok {
-		return id
+		return id, nil
 	}
-	id := newID()
+	id, err := newID()
+	if err != nil {
+		return "", err
+	}
 	s.data[key] = id
 	s.saveUnlocked()
-	return id
+	return id, nil
 }
 
 // Peek returns the FoxxyCode session ID mapped to key, or "" when the key has none.
@@ -85,13 +89,16 @@ func (s *Store) Peek(key string) string {
 
 // Reset replaces the session ID for key with a fresh one and returns it.
 // Used by the /clear command.
-func (s *Store) Reset(key string) string {
+func (s *Store) Reset(key string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	id := newID()
+	id, err := newID()
+	if err != nil {
+		return "", err
+	}
 	s.data[key] = id
 	s.saveUnlocked()
-	return id
+	return id, nil
 }
 
 // KnownIDs returns all session IDs currently held in the store.
@@ -146,11 +153,9 @@ func (s *Store) saveUnlocked() {
 	_ = os.Rename(tmpPath, s.savePath)
 }
 
-// newID generates a random session ID with the gw_ prefix.
-func newID() string {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		panic("gateway sessionstore: crypto/rand unavailable: " + err.Error())
-	}
-	return "gw_" + strings.ToLower(hex.EncodeToString(b))
+// newID generates a session ID. A conversation held in a messenger is an
+// ordinary FoxxyCode session - the same id shape a console run or a browser tab
+// gets - so nothing downstream can tell where the person was sitting.
+func newID() (string, error) {
+	return session.NewSessionID()
 }

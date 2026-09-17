@@ -2,11 +2,10 @@ package session
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,18 +14,10 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
-// Child sessions spawned by spawn_agent live under this folder prefix, so a
-// bundle is recognisable as a subagent run even before its meta is complete.
-const subagentSessionPrefix = "sub_"
-
 // ErrSubagentReadOnly is returned for any prompt against a child session that
 // does not come from the child's own task turn: resuming or messaging a
 // subagent is not supported, so its transcript is read-only for every surface.
 var ErrSubagentReadOnly = errors.New("subagent sessions are read-only transcripts")
-
-// ErrReservedSessionID is returned when a caller asks to create an ordinary
-// session under the sub_ prefix, which only CreateSubagentSession may use.
-var ErrReservedSessionID = errors.New("session id uses the reserved subagent prefix")
 
 // ErrSessionDeleting is returned to a turn that arrives while DeleteSessionTree
 // is removing the session.
@@ -51,34 +42,18 @@ var ErrTreeUnstable = errors.New("session tree kept growing while it was being m
 // depth subagents.max_depth allows in practice.
 const maxTreeRescans = 1024
 
-// IsSubagentSessionID reports whether an id uses the reserved child prefix.
-// The prefix is a second line of defence next to the persisted metadata: an
-// id shaped like a child is treated as one even before its bundle says so.
-func IsSubagentSessionID(id string) bool {
-	return strings.HasPrefix(strings.TrimSpace(id), subagentSessionPrefix)
-}
-
 // subagentMCPDialTimeout bounds the MCP handshakes a child performs while it is
 // created. A hung server must not hold the launch, the limiter slot and the
 // parent's foreground wait hostage; a dial that runs out of time is logged and
 // skipped like a failed one.
 const subagentMCPDialTimeout = mcpReloadTimeout
 
-// NewSubagentSessionID returns a fresh child session id (sub_ plus 24 hex).
-func NewSubagentSessionID() string {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		panic("failed to generate subagent session ID: " + err.Error())
-	}
-	return subagentSessionPrefix + hex.EncodeToString(b)
-}
-
 // SubagentSpec describes the child session the runtime asks the manager to
 // create. Every decision (narrowed mode and permission mode, model, tool set,
 // role) is made by the runtime before this call; the manager only builds and
 // registers the session.
 type SubagentSpec struct {
-	// ID is the pre-generated child session id (NewSubagentSessionID).
+	// ID is the pre-generated child session id (NewSessionID).
 	ID string
 	// ParentSessionID is the spawning session.
 	ParentSessionID string
@@ -123,9 +98,6 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		return nil, fmt.Errorf("subagents need session persistence")
 	}
 	id := strings.TrimSpace(spec.ID)
-	if !strings.HasPrefix(id, subagentSessionPrefix) {
-		return nil, fmt.Errorf("subagent session id must start with %q", subagentSessionPrefix)
-	}
 	if err := ValidateFolderSessionID(id); err != nil {
 		return nil, err
 	}
@@ -211,9 +183,11 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	}
 
 	// Everything after the publish rolls back on failure: the live entry goes,
-	// and so does a bundle this call created, so no half-built sub_ snapshot
-	// without its metadata survives to be listed or loaded later.
-	sessionPath := m.store.SessionPath(id)
+	// and so does a bundle this call created, so no half-built child snapshot
+	// without its metadata survives to be listed or loaded later. The child
+	// belongs to the parent's bundle, so its path is the parent's plus the
+	// child folder - known here, before the layout exists.
+	sessionPath := filepath.Join(m.store.SessionPath(parentID), ChildSessionsDirName, id)
 	_, statErr := os.Stat(sessionPath)
 	createdBundle := os.IsNotExist(statErr)
 	failed := true
@@ -227,12 +201,29 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		}
 		m.mu.Unlock()
 		state.CloseAll()
+		m.store.ForgetPersistedMessages(sessionPath)
 		if createdBundle {
 			_ = os.RemoveAll(sessionPath)
+			m.store.ForgetChildDir(id)
+			// Building the layout creates the folders above it too, so a
+			// delete that removed the parent between the checks would find
+			// its bundle back. Remove refuses a directory that holds
+			// anything, so this prunes what this call resurrected and never
+			// touches a parent that is still there.
+			childrenDir := filepath.Dir(sessionPath)
+			_ = os.Remove(childrenDir)
+			_ = os.Remove(filepath.Dir(childrenDir))
 		}
 	}()
 
-	sessionDir, err := m.store.EnsureLayout(id)
+	// The child's bundle is built inside the parent's, so writing it recreates
+	// the parent's own folder when a delete has just removed it. The mark is
+	// read once more here, before anything reaches the disk.
+	if err := m.refuseIfParentDeleting(id, state, parentID); err != nil {
+		return nil, err
+	}
+
+	sessionDir, err := m.store.EnsureChildLayout(parentID, id)
 	if err != nil {
 		return nil, fmt.Errorf("subagent session layout: %w", err)
 	}
@@ -258,12 +249,8 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	// A deletion that ran while this call was in flight has dropped the live
 	// entry or marked the parent; the bundle must not be written after that,
 	// or it would outlive the tree it belongs to.
-	m.mu.Lock()
-	stillLive := m.sessions[id] == state
-	parentDeleting := m.isDeleting(parentID)
-	m.mu.Unlock()
-	if !stillLive || parentDeleting {
-		return nil, fmt.Errorf("%w: parent %s", ErrSessionDeleting, parentID)
+	if err := m.refuseIfParentDeleting(id, state, parentID); err != nil {
+		return nil, err
 	}
 
 	// The first save is what makes the bundle a child on disk; without it a
@@ -274,6 +261,20 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	failed = false
 	m.log.Info("subagent session created", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID)
 	return state, nil
+}
+
+// refuseIfParentDeleting answers ErrSessionDeleting when the child's live entry
+// is gone or its parent is being removed, so nothing of the child is written
+// into a tree that is on its way out.
+func (m *Manager) refuseIfParentDeleting(id string, state *State, parentID string) error {
+	m.mu.Lock()
+	stillLive := m.sessions[id] == state
+	parentDeleting := m.isDeleting(parentID)
+	m.mu.Unlock()
+	if !stillLive || parentDeleting {
+		return fmt.Errorf("%w: parent %s", ErrSessionDeleting, parentID)
+	}
+	return nil
 }
 
 // isDeleting reports whether DeleteSessionTree is removing the session.
@@ -374,9 +375,18 @@ type SessionTreeNode struct {
 	SubagentRun     bool
 }
 
+// legacySubagentPrefix is the id prefix earlier releases of this fork minted
+// spawned sessions under, storing their bundles in the sessions root next to
+// every other session. Nothing migrates those bundles; the prefix is only how
+// SessionTree still finds them for the parent they belong to.
+const legacySubagentPrefix = "sub_"
+
 // SessionTree returns rootID followed by every descendant child session,
-// breadth first (parents before their children). Descendants are found by the
-// parentSessionId their bundles record.
+// breadth first (parents before their children). A child bundle is stored
+// inside its parent's, so the tree on disk is the directory tree under the
+// root's own bundle; a child published but not yet persisted is added from
+// the live map, and a child an earlier release stored in the sessions root
+// under a sub_ id is found through the parent its session.json names.
 func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 	if m.store == nil || m.store.Root == "" {
 		return nil, fmt.Errorf("session store unavailable")
@@ -386,31 +396,29 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 		return nil, err
 	}
 
-	// Index every child bundle by its parent once; the tree is small but the
-	// sessions root can hold many bundles.
 	children := map[string][]SessionTreeNode{}
 	indexed := map[string]bool{}
-	entries, err := os.ReadDir(m.store.Root)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	for _, ent := range entries {
-		if !ent.IsDir() || !strings.HasPrefix(ent.Name(), subagentSessionPrefix) {
-			continue
+	var walk func(parentID, dir string, depth int)
+	walk = func(parentID, dir string, depth int) {
+		if depth >= maxChildNesting {
+			return
 		}
-		snap, err := m.store.ReadSnapshot(ent.Name())
-		if err != nil || strings.TrimSpace(snap.Meta.ParentSessionID) == "" {
-			continue
+		for _, childDir := range m.store.childBundleDirs(dir) {
+			if !isBundleDir(childDir) {
+				continue
+			}
+			id := filepath.Base(childDir)
+			node := SessionTreeNode{ID: id, ParentSessionID: parentID, SubagentRun: true}
+			if snap, err := m.store.readSnapshotAt(childDir, id); err == nil {
+				node.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
+			}
+			children[parentID] = append(children[parentID], node)
+			indexed[id] = true
+			walk(id, childDir, depth+1)
 		}
-		parent := strings.TrimSpace(snap.Meta.ParentSessionID)
-		children[parent] = append(children[parent], SessionTreeNode{
-			ID:              ent.Name(),
-			ParentSessionID: parent,
-			SubagentTaskID:  strings.TrimSpace(snap.Meta.SubagentTaskID),
-			SubagentRun:     true,
-		})
-		indexed[ent.Name()] = true
 	}
+	walk(rootID, m.store.SessionPath(rootID), 0)
+	m.addLegacyChildren(children, indexed)
 	// A child that is published but not yet persisted exists only in the
 	// live map; the tree must see it too, or a delete racing its creation
 	// would leave it behind.
@@ -435,7 +443,7 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 	m.mu.RUnlock()
 
 	root := SessionTreeNode{ID: rootID}
-	if snap, err := m.store.ReadSnapshot(rootID); err == nil && snap.Meta.IsSubagentRun(rootID) {
+	if snap, err := m.store.ReadSnapshot(rootID); err == nil && snap.Meta.IsSubagentRun() {
 		root.SubagentRun = true
 		root.ParentSessionID = strings.TrimSpace(snap.Meta.ParentSessionID)
 		root.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
@@ -459,6 +467,42 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 		}
 	}
 	return out, nil
+}
+
+// addLegacyChildren adds the bundles an earlier release stored in the sessions
+// root under sub_ ids, each under the parent its session.json names. Deleting
+// that parent then takes them with it instead of leaving them orphaned, and
+// only that legacy shape is read, so the cost does not grow with every other
+// session in the root.
+func (m *Manager) addLegacyChildren(children map[string][]SessionTreeNode, indexed map[string]bool) {
+	entries, err := os.ReadDir(m.store.Root)
+	if err != nil {
+		return
+	}
+	for _, ent := range entries {
+		id := ent.Name()
+		if !ent.IsDir() || !strings.HasPrefix(id, legacySubagentPrefix) || indexed[id] {
+			continue
+		}
+		if ValidateFolderSessionID(id) != nil {
+			continue
+		}
+		meta, err := m.store.readMetaAt(filepath.Join(m.store.Root, id))
+		if err != nil {
+			continue
+		}
+		parent := strings.TrimSpace(meta.ParentSessionID)
+		if parent == "" || parent == id {
+			continue
+		}
+		children[parent] = append(children[parent], SessionTreeNode{
+			ID:              id,
+			ParentSessionID: parent,
+			SubagentTaskID:  strings.TrimSpace(meta.SubagentTaskID),
+			SubagentRun:     true,
+		})
+		indexed[id] = true
+	}
 }
 
 // DeleteSessionTree removes a session together with every child session it
@@ -549,9 +593,15 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 	for i := len(nodes) - 1; i >= 0; i-- {
 		n := nodes[i]
 		m.ForgetLiveSession(n.ID)
+		// A node that was not live any more may still have its history
+		// remembered by the store from an earlier save.
+		m.store.ForgetPersistedMessages(m.store.SessionPath(n.ID))
 		if err := os.RemoveAll(m.store.SessionPath(n.ID)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove session %s: %w", n.ID, err)
 		}
+		// The bundle is gone; the index must not answer for it again, or an
+		// id minted later could be resolved to the path this one had.
+		m.store.ForgetChildDir(n.ID)
 	}
 	return nil
 }

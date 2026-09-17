@@ -31,6 +31,11 @@ releases under depends on **what merges before it**. While your PR is open that 
 knowable: if another PR merges first, yours moves up by one and any number you wrote down is
 already wrong.
 
+The minor version moves only when `MIN_VERSION` in `tag-on-merge.yaml` — the floor of the current
+release line, `0.3.0` for the `0.3.x` section of `ROADMAP.md` — is raised: the first merge after
+that releases the floor itself instead of a patch bump. One more reason the number is not yours
+to write.
+
 So do not write one. The newest section is headed:
 
 ```markdown

@@ -43,6 +43,31 @@ func OptionsFor(cfg *config.Config) svnws.Options {
 	}
 }
 
+// DescribeFor inspects dir with the client the vcs.svn section configures. With
+// Subversion support switched off (or no config at all) it reports a plain
+// folder without running svn, so every surface hides SVN the same way.
+func DescribeFor(ctx context.Context, cfg *config.Config, dir string) svnws.Info {
+	if cfg == nil || !cfg.VCS.SVN.SVNEnabled() {
+		return svnws.Info{Path: dir}
+	}
+	return svnws.Describe(ctx, dir, OptionsFor(cfg))
+}
+
+// BranchFor returns the branch of the working copy dir sits in ("trunk",
+// "branches/feature-x"), or "" for a plain folder. It is the Subversion
+// counterpart of gitws.Describe(dir).Branch for callers that only label
+// something with the branch, such as a session export: the answer comes from
+// the local working copy, so the repository's branch list - a server round
+// trip - is never requested, whatever vcs.svn.branch_lookup says.
+func BranchFor(ctx context.Context, cfg *config.Config, dir string) string {
+	if cfg == nil || !cfg.VCS.SVN.SVNEnabled() || strings.TrimSpace(dir) == "" {
+		return ""
+	}
+	opts := OptionsFor(cfg)
+	opts.BranchLookup = false
+	return svnws.Describe(ctx, dir, opts).Branch
+}
+
 // cwd returns the session working directory.
 func cwd(env *tooling.Env) string {
 	if env == nil {
