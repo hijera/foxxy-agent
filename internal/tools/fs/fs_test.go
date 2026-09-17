@@ -871,7 +871,7 @@ func TestApplyUnifiedDiffMultipleHunksValidateContext(t *testing.T) {
 
 func TestPrintTreeRendersDepthLimitedTree(t *testing.T) {
 	root := t.TempDir()
-	for _, d := range []string{filepath.Join(root, "sub", "deep"), filepath.Join(root, ".git")} {
+	for _, d := range []string{filepath.Join(root, "sub", "deep"), filepath.Join(root, ".git"), filepath.Join(root, ".svn", "pristine")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -898,8 +898,10 @@ func TestPrintTreeRendersDepthLimitedTree(t *testing.T) {
 	if strings.Contains(out, "c.md") {
 		t.Errorf("depth=2 must not descend to c.md (depth 3):\n%s", out)
 	}
-	if strings.Contains(out, ".git") {
-		t.Errorf(".git must be skipped:\n%s", out)
+	for _, metadata := range []string{".git", ".svn"} {
+		if strings.Contains(out, metadata) {
+			t.Errorf("%s must be skipped:\n%s", metadata, out)
+		}
 	}
 	if !strings.Contains(out, "── ") {
 		t.Errorf("expected tree branch glyphs:\n%s", out)

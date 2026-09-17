@@ -86,10 +86,7 @@ func (s *Server) svnEnabled() bool {
 // describeSVN inspects cwd with the configured svn client. It returns an empty
 // Info when Subversion support is disabled.
 func (s *Server) describeSVN(ctx context.Context, cwd string) svnws.Info {
-	if !s.svnEnabled() {
-		return svnws.Info{Path: cwd}
-	}
-	return svnws.Describe(ctx, cwd, toolsvn.OptionsFor(s.activeCfg()))
+	return toolsvn.DescribeFor(ctx, s.activeCfg(), cwd)
 }
 
 // foxxycodeWorkspaceContextGet reports the workspace state for ?path= when given

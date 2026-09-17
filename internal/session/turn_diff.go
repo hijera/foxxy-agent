@@ -15,7 +15,7 @@ import (
 
 // ignoredDirs are skipped when walking the workspace.
 var ignoredDirs = map[string]bool{
-	".git": true, "node_modules": true, "__pycache__": true,
+	".git": true, ".svn": true, "node_modules": true, "__pycache__": true,
 	".venv": true, "venv": true, ".tox": true,
 	"vendor": true, ".vendor": true,
 	"dist": true, "build": true, ".next": true, "out": true,

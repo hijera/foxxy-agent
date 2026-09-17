@@ -422,7 +422,7 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(view: vscode.WebviewView): void {
     // VS Code renders the description dimmed right after the view name, so the
-    // header reads "FOXXYCODE  0.1.6" next to the toolbar buttons.
+    // header reads "FOXXYCODE  0.3.0" next to the toolbar buttons.
     view.description = formatViewDescription(extensionVersion);
     this.controller = new FoxxyCodePanelController(view.webview, view, {
       extensionUri: this.extensionUri,

@@ -22,6 +22,7 @@ const (
 // printTreeSkipDirs are noise directories omitted from the tree output.
 var printTreeSkipDirs = map[string]struct{}{
 	".git":         {},
+	".svn":         {},
 	"node_modules": {},
 }
 
@@ -32,7 +33,7 @@ func PrintTreeTool() *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: "print_tree",
 			Description: "Print a directory tree (like the `tree` command): files and subdirectories under `path`, " +
-				"indented, up to `depth` levels deep. Skips .git and node_modules. Prefer this over `ls -R` or " +
+				"indented, up to `depth` levels deep. Skips .git, .svn and node_modules. Prefer this over `ls -R` or " +
 				"`run_command` to explore a repository's layout.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

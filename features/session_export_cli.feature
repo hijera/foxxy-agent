@@ -34,3 +34,9 @@ Feature: Export a stored session from the command line
     And the exported file contains "canned answer 1"
     And the exported file does not contain "README BODY"
     And the exported file does not contain "private thoughts"
+
+  Scenario: A session in a Subversion working copy names its branch
+    Given the session workspace is a Subversion working copy on "branches/feature-x"
+    When I run foxxycode sessions export "sess_export_demo --out chat.md"
+    Then the file "chat.md" exists in the output directory
+    And the exported file contains "**SVN branch**: `branches/feature-x`"
