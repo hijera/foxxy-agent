@@ -8,14 +8,14 @@ A model reads a bounded context window, and a working session outgrows it: every
 /compact [instructions]
 ```
 
-The built-in `/compact` runs on every prompt surface - the console, ACP editors, the web UI composer and `POST /v1/responses` - the way `/export` and `/plugin` do: it is recognised before the text becomes a message, without a turn of the main model. It is listed in the command catalog (`GET /foxxycode/commands`, the ACP `available_commands_update`) only while `compaction.enabled` is true. Anything after the command is handed to the summariser as additional instructions, so `/compact focus on the file paths and the failing test` steers what the summary keeps. Ask mode does not restrict it: the command is an operator action, outside the read-only boundary.
+The built-in `/compact` runs on every prompt surface - the console, ACP editors, the web UI composer and `POST /v1/responses` - the way `/export` and `/plugin` do: it is recognised before the text becomes a message, without a turn of the main model. It is listed in the command catalog (`GET /foxxycode/commands`, the ACP `available_commands_update`) only while `compaction.enable` is true. Anything after the command is handed to the summariser as additional instructions, so `/compact focus on the file paths and the failing test` steers what the summary keeps. Ask mode does not restrict it: the command is an operator action, outside the read-only boundary.
 
 A manual compaction is forced. It folds whatever exists: when the configured number of kept turns leaves nothing to summarise, it retries with fewer kept turns, down to none, so even a short conversation compacts. The command text is persisted as a user row so the transcript shows it, and the reply is one line:
 
 ```text
 Context compacted: 14 message(s) summarized, 6 kept verbatim.
 Nothing to compact: there is no earlier conversation to summarize yet.
-Compaction is disabled in the configuration (compaction.enabled: false).
+Compaction is disabled in the configuration (compaction.enable: false).
 ```
 
 Over HTTP the same action is `POST /foxxycode/sessions/{id}/compact` with an optional body `{"instructions": "..."}`; it answers with the summary and the message counts, `400` when compaction is disabled, `409` while a turn holds the session and for a read-only child session ([HTTP API](../reference/http-api.md)).
@@ -63,12 +63,12 @@ Eviction is the second projection over the same history: the persisted transcrip
 ```yaml
 compaction:
   engine: coddy            # coddy (default) or opencode, see Two engines
-  enabled: true             # master switch: the command and the automatic trigger
+  enable: true             # master switch: the command and the automatic trigger
   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
   keep_recent_turns: 2     # user turns kept verbatim; 0 summarises everything
   model: ""                # models[].model for the summariser; empty = the session's model
   result_eviction:
-    enabled: true
+    enable: true
     keep_recent: 2         # most recent read/grep results kept intact
     min_result_bytes: 2000 # results at or below this size are never evicted
 ```
@@ -76,12 +76,12 @@ compaction:
 | Key | Default | Meaning |
 |---|---|---|
 | `engine` | `coddy` | the implementation: `coddy` inserts a summary row, `opencode` flags and filters older messages |
-| `enabled` | `true` | compaction at all: the command, the REST route and the automatic trigger |
+| `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
 | `threshold_percent` | `80` (`85` for opencode) | the automatic trigger, as a percent of the model's `max_context_tokens` |
 | `max_tokens` | `4096` | the completion cap of the opencode engine's summary |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |
 | `model` | `""` | a `models[].model` for the summariser when the session's model should not summarise its own history |
-| `result_eviction.enabled` | `true` | collapse superseded `read` and `grep` results |
+| `result_eviction.enable` | `true` | collapse superseded `read` and `grep` results |
 | `result_eviction.keep_recent` | `2` | most recent candidates kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
 

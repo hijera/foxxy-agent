@@ -70,7 +70,7 @@ agent:
 httpserver:
   port:
 compaction:
-  enabled: null
+  enable: null
 `))
 	if !rep.Valid() || len(rep.Findings) != 0 {
 		t.Fatalf("a valid config must produce no findings, got %+v", rep.Findings)
@@ -89,42 +89,42 @@ func TestCheckUnknownKeySuggestsTheClosestOne(t *testing.T) {
 	if !strings.Contains(f.Message, `unknown key "enbaled"`) {
 		t.Errorf("message %q does not name the key", f.Message)
 	}
-	if !strings.Contains(f.Fix, `did you mean "enabled"`) {
-		t.Errorf("fix %q does not suggest enabled", f.Fix)
+	if !strings.Contains(f.Fix, `did you mean "enable"`) {
+		t.Errorf("fix %q does not suggest enable", f.Fix)
 	}
 	if !strings.Contains(f.Fix, "allow_insecure") || !strings.Contains(f.Fix, "remotes") {
 		t.Errorf("fix %q does not list the keys allowed under httpserver", f.Fix)
 	}
 }
 
-// coddy spells the switch `enable`. The loader reads it, so the check must not fail the file
-// over it - but an editor validating against the schema flags the key, so it is a warning.
-func TestCheckCoddyEnableIsAWarning(t *testing.T) {
-	rep := checkYAML(t, withModeline("httpserver:\n  port: 8080\n  enable: false\n"))
+// A config written before the rename spells the switch `enabled`. The loader reads it, so
+// the check must not fail the file over it - it points at the current spelling instead.
+func TestCheckLegacyEnabledIsAWarning(t *testing.T) {
+	rep := checkYAML(t, withModeline("httpserver:\n  port: 8080\n  enabled: false\n"))
 	if !rep.Valid() {
-		t.Fatalf("a coddy enable key must not fail the check: %+v", rep.Findings)
+		t.Fatalf("the old spelling of a switch must not fail the check: %+v", rep.Findings)
 	}
 	warns := warningsOf(rep)
 	if len(warns) != 1 {
 		t.Fatalf("want one warning, got %+v", rep.Findings)
 	}
 	w := warns[0]
-	if w.Line != 4 || w.Column != 3 || w.Path != "httpserver.enable" {
-		t.Errorf("warning at %d:%d %q, want 4:3 httpserver.enable", w.Line, w.Column, w.Path)
+	if w.Line != 4 || w.Column != 3 || w.Path != "httpserver.enabled" {
+		t.Errorf("warning at %d:%d %q, want 4:3 httpserver.enabled", w.Line, w.Column, w.Path)
 	}
-	if !strings.Contains(w.Message, `"enabled"`) || !strings.Contains(w.Fix, `"enabled"`) {
-		t.Errorf("warning does not name the FoxxyCode key: %+v", w)
+	if !strings.Contains(w.Message, `"enable"`) || !strings.Contains(w.Fix, `"enable"`) {
+		t.Errorf("warning does not name the current key: %+v", w)
 	}
 }
 
-func TestCheckCoddyEnableBesideEnabledIsIgnored(t *testing.T) {
-	rep := checkYAML(t, withModeline("scheduler:\n  enabled: true\n  enable: false\n"))
+func TestCheckLegacyEnabledBesideTheSwitchIsIgnored(t *testing.T) {
+	rep := checkYAML(t, withModeline("scheduler:\n  enable: true\n  enabled: false\n"))
 	if !rep.Valid() {
 		t.Fatalf("both spellings must not fail the check: %+v", rep.Findings)
 	}
 	warns := warningsOf(rep)
 	if len(warns) != 1 || warns[0].Line != 4 || !strings.Contains(warns[0].Message, "wins") {
-		t.Fatalf("want one warning on the enable line saying enabled wins, got %+v", rep.Findings)
+		t.Fatalf("want one warning on the enabled line saying enable wins, got %+v", rep.Findings)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 		}
 	})
 	t.Run("string for a boolean", func(t *testing.T) {
-		rep := checkYAML(t, withModeline("subagents:\n  enabled: sure\n"))
+		rep := checkYAML(t, withModeline("subagents:\n  enable: sure\n"))
 		f := onlyError(t, rep)
 		if !strings.Contains(f.Message, "boolean") {
 			t.Errorf("message %q", f.Message)
@@ -205,7 +205,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 }
 
 func TestCheckYAML11BooleansAreAWarning(t *testing.T) {
-	rep := checkYAML(t, withModeline("subagents:\n  enabled: yes\n"))
+	rep := checkYAML(t, withModeline("subagents:\n  enable: yes\n"))
 	if !rep.Valid() {
 		t.Fatalf("yes is read as a boolean by the loader, so it must not fail the check: %+v", rep.Findings)
 	}

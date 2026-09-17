@@ -934,7 +934,7 @@ export const messagesEn: Record<string, string> = {
   "scheduler.apiNotAvailable":
     "Scheduler API is not available in this build (rebuild with http,scheduler).",
   "scheduler.disabled":
-    "Scheduler is disabled (set scheduler.enabled or run foxxycode serve --scheduler).",
+    "Scheduler is disabled (set scheduler.enable or run foxxycode serve --scheduler).",
 
   "messages.copyMessage": "Copy message",
   "messages.copyErrorMessage": "Copy error message",

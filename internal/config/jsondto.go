@@ -43,7 +43,7 @@ type VCSJSON struct {
 // SVNJSON mirrors SVNConfig for JSON APIs. Enabled and BranchLookup are pointers
 // so an unset value round-trips as "use default" (true) rather than false.
 type SVNJSON struct {
-	Enabled        *bool  `json:"enabled,omitempty"`
+	Enabled        *bool  `json:"enable,omitempty"`
 	Binary         string `json:"binary,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 	BranchLookup   *bool  `json:"branch_lookup,omitempty"`
@@ -52,7 +52,7 @@ type SVNJSON struct {
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
 // value round-trips as "use default" (true) rather than an explicit false.
 type BrowserJSON struct {
-	Enabled        bool   `json:"enabled,omitempty"`
+	Enabled        bool   `json:"enable,omitempty"`
 	Headless       *bool  `json:"headless,omitempty"`
 	ExecutablePath string `json:"executable_path,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
@@ -60,7 +60,7 @@ type BrowserJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled    *bool  `json:"enabled,omitempty"`
+	Enabled    *bool  `json:"enable,omitempty"`
 	Locale     string `json:"locale,omitempty"`
 	SendMode   string `json:"send_mode,omitempty"`
 	StatusLine *bool  `json:"status_line,omitempty"`
@@ -73,7 +73,7 @@ type GatewaysJSON struct {
 
 // TelegramGatewayJSON mirrors TelegramGatewayConfig.
 type TelegramGatewayJSON struct {
-	Enabled          bool                    `json:"enabled,omitempty"`
+	Enabled          bool                    `json:"enable,omitempty"`
 	Token            string                  `json:"token,omitempty"`
 	Proxy            string                  `json:"proxy,omitempty"`
 	RichMessages     bool                    `json:"rich_messages,omitempty"`
@@ -173,7 +173,7 @@ type PromptsJSON struct {
 // PerProviderPromptsJSON mirrors PerProviderPrompts. Enabled is a pointer so an
 // unset value round-trips as "use default" rather than an explicit false.
 type PerProviderPromptsJSON struct {
-	Enabled *bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enable,omitempty"`
 }
 
 // SkillsJSON mirrors Skills for JSON APIs.
@@ -227,7 +227,7 @@ type ToolsJSON struct {
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
 type ToolBackgroundJSON struct {
-	Enabled               *bool `json:"enabled,omitempty"`
+	Enabled               *bool `json:"enable,omitempty"`
 	MaxConcurrent         int   `json:"max_concurrent,omitempty"`
 	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
 	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
@@ -258,7 +258,7 @@ type LoggerJSON struct {
 // DebugJSON mirrors Debug for JSON APIs. CaptureLLM is a pointer so an unset
 // value round-trips as "follow Enabled" rather than false.
 type DebugJSON struct {
-	Enabled    bool  `json:"enabled"`
+	Enabled    bool  `json:"enable"`
 	CaptureLLM *bool `json:"capture_llm,omitempty"`
 }
 
@@ -275,7 +275,7 @@ type SessionsJSON struct {
 
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
-	Enabled          bool   `json:"enabled,omitempty"`
+	Enabled          bool   `json:"enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	Dir              string `json:"dir,omitempty"`
 	RecallMaxTurns   int    `json:"recall_max_turns,omitempty"`
@@ -289,7 +289,7 @@ type MemoryJSON struct {
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
 	Engine           string `json:"engine,omitempty"`
-	Enabled          *bool  `json:"enabled,omitempty"`
+	Enabled          *bool  `json:"enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
@@ -299,7 +299,7 @@ type CompactionJSON struct {
 }
 
 type ResultEvictionJSON struct {
-	Enabled        *bool `json:"enabled,omitempty"`
+	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
 }
@@ -308,7 +308,7 @@ type ResultEvictionJSON struct {
 // value round-trips as "use the default" rather than an explicit false. Note that Enabled defaults
 // to false here, unlike the other optional sections: suggestions cost tokens per keystroke.
 type AutocompleteJSON struct {
-	Enabled        *bool   `json:"enabled,omitempty"`
+	Enabled        *bool   `json:"enable,omitempty"`
 	Model          string  `json:"model,omitempty"`
 	Mode           string  `json:"mode,omitempty"`
 	Temperature    float64 `json:"temperature,omitempty"`
@@ -325,7 +325,7 @@ type AutocompleteJSON struct {
 // TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
 // "use default" (true) rather than an explicit false.
 type TitleJSON struct {
-	Enabled   *bool  `json:"enabled,omitempty"`
+	Enabled   *bool  `json:"enable,omitempty"`
 	Model     string `json:"model,omitempty"`
 	MaxTokens int    `json:"max_tokens,omitempty"`
 }
@@ -355,7 +355,7 @@ type HTTPServerJSON struct {
 // the config never returns it, and writing the config back without it keeps the
 // hash that is already on disk.
 type HTTPLoginJSON struct {
-	Enabled         *bool  `json:"enabled,omitempty"`
+	Enabled         *bool  `json:"enable,omitempty"`
 	Mode            string `json:"mode,omitempty"`
 	User            string `json:"user,omitempty"`
 	PasswordHash    string `json:"password_hash,omitempty"`
@@ -364,7 +364,7 @@ type HTTPLoginJSON struct {
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
 type HTTPCORSJSON struct {
-	Enabled        bool     `json:"enabled,omitempty"`
+	Enabled        bool     `json:"enable,omitempty"`
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
@@ -436,7 +436,7 @@ type SwarmJoinJSON struct {
 
 // SubagentsJSON mirrors Subagents.
 type SubagentsJSON struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
+	Enabled               *bool    `json:"enable,omitempty"`
 	Dirs                  []string `json:"dirs,omitempty"`
 	ProjectTrust          string   `json:"project_trust,omitempty"`
 	MaxConcurrent         int      `json:"max_concurrent,omitempty"`
@@ -447,7 +447,7 @@ type SubagentsJSON struct {
 
 // HooksJSON mirrors Hooks.
 type HooksJSON struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
+	Enabled               *bool    `json:"enable,omitempty"`
 	Files                 []string `json:"files,omitempty"`
 	ProjectTrust          string   `json:"project_trust,omitempty"`
 	DefaultTimeoutSeconds int      `json:"default_timeout_seconds,omitempty"`
@@ -457,7 +457,7 @@ type HooksJSON struct {
 
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
-	Enabled        bool   `json:"enabled,omitempty"`
+	Enabled        bool   `json:"enable,omitempty"`
 	Dir            string `json:"dir,omitempty"`
 	MaxQueue       int    `json:"max_queue,omitempty"`
 	Timeout        string `json:"timeout,omitempty"`
@@ -983,7 +983,9 @@ func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
 // This lets the UI save an edited, redacted config without wiping tokens it never received.
 func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
 	var j ConfigJSON
-	if err := json.Unmarshal(data, &j); err != nil {
+	// A client written against the old spelling sends `enabled`; it means the same
+	// switch as `enable` (switch_alias.go).
+	if err := json.Unmarshal(normalizeJSONSwitchAliases(data), &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)

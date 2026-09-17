@@ -18,7 +18,7 @@ var debugLog atomic.Pointer[slog.Logger]
 
 // SetDebugCapture enables or disables raw LLM HTTP body logging process-wide.
 // Called from the entry points after the logger is built and from the HTTP
-// server's ReplaceConfig when debug.enabled is toggled at runtime.
+// server's ReplaceConfig when debug.enable is toggled at runtime.
 func SetDebugCapture(on bool) { debugCapture.Store(on) }
 
 // DebugCaptureEnabled reports whether raw LLM HTTP bodies are being logged.

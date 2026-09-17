@@ -27,7 +27,7 @@
 
 - **Нативное настольное окно (WebView2)** с системными уведомлениями, звуковым сигналом и пошаговым знакомством при первом запуске
 - **Глубокая интеграция с IDE** — контекст открытых файлов (`<foxxycode_ide_context>`), отслеживание терминала (`@terminal`), упоминание файлов перетаскиванием, выбор папки проекта, метаданные проекта из `.vscode`/`.idea` и нативные встроенные diff в IntelliJ
-- **Интерактивный браузерный инструмент** — управляет настоящим Chrome через chromedp и возвращает модели снимки экрана; входит в полные сборки (тег `browser`), выключен по умолчанию — включается флагом `browser.enabled`; подробнее в разделе [браузерного инструмента](docs/features/browser-tool.md)
+- **Интерактивный браузерный инструмент** — управляет настоящим Chrome через chromedp и возвращает модели снимки экрана; входит в полные сборки (тег `browser`), выключен по умолчанию — включается флагом `browser.enable`; подробнее в разделе [браузерного инструмента](docs/features/browser-tool.md)
 - **Автоматическое сжатие контекста** — по умолчанию автоматически суммирует длинные диалоги
 - **Русская локализация настроек** и полный ребрендинг дистрибутива в `foxxyCode`
 
@@ -83,7 +83,7 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Улучшение промпта** — кнопка с волшебной палочкой в строке контекста поля ввода переписывает черновик через модель (`POST /foxxycode/enhance-prompt`); **Ctrl+Z** возвращает исходный текст, а неудача оставляет черновик нетронутым — см. [Встроенный интерфейс](docs/surfaces/web-ui.md)
 - **Протокол ACP** — FoxxyCode работает как **ACP-сервер** (`foxxycode acp`); его можно подключить к редактору или скрипту с ACP-клиентом (см. [Интеграцию с редакторами и IDE](#интеграция-с-редакторами-и-ide))
 - **Удалённое выполнение по SSH** — встроенный инструмент `ssh_run_command` выполняет команды на удалённых узлах через реализацию SSH на чистом Go, без внешнего исполняемого файла; аутентификация использует SSH-агент (`SSH_AUTH_SOCK`) или ключи из `~/.ssh` — см. [Настройку](docs/getting-started/configuration.md#ssh-remote-execution)
-- **Поддержка Subversion наравне с git** — когда в рабочей папке найдена рабочая копия SVN, рядом с чипом git появляется чип SVN (ветка `trunk` / `branches/<имя>` и ревизия): ветку можно переключить на месте (`svn switch`) или выгрузить в отдельную папку-ветку. Агент работает через отдельные инструменты `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` — изменяющие спрашивают разрешение. Определение git и svn независимо, поэтому папка-ветка SVN с git-репозиторием внутри работает с обеими системами. Отключается в настройках (`vcs.svn.enabled`); без установленного клиента svn всё просто скрыто — см. [Настройку](docs/reference/config.md#vcs)
+- **Поддержка Subversion наравне с git** — когда в рабочей папке найдена рабочая копия SVN, рядом с чипом git появляется чип SVN (ветка `trunk` / `branches/<имя>` и ревизия): ветку можно переключить на месте (`svn switch`) или выгрузить в отдельную папку-ветку. Агент работает через отдельные инструменты `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` — изменяющие спрашивают разрешение. Определение git и svn независимо, поэтому папка-ветка SVN с git-репозиторием внутри работает с обеими системами. Отключается в настройках (`vcs.svn.enable`); без установленного клиента svn всё просто скрыто — см. [Настройку](docs/reference/config.md#vcs)
 - **Шлюз мессенджеров** — опциональный адаптер Telegram-бота (`-tags gateway.telegram`), отдельные сессии пользователей, режимы изоляции групп и ACL администраторов; архитектуру можно расширить для Discord, Slack и других сервисов — см. [Шлюз мессенджеров](docs/surfaces/gateway.md)
 
 ## Интеграция с редакторами и IDE
@@ -188,15 +188,15 @@ make build-desktop
 
 | Тег | Что включает | Документация |
 |-----|--------------|--------------|
-| **`memory`** | Компонент долговременной памяти (**`memory.enabled`** в YAML); вместе с **`http`** — REST для памяти сессии в **`/foxxycode/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
+| **`memory`** | Компонент долговременной памяти (**`memory.enable`** в YAML); вместе с **`http`** — REST для памяти сессии в **`/foxxycode/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
 | **`http`** | **`foxxycode http`**, REST-шлюз, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](docs/reference/http-api.md) |
 | **`ui`** | Встроенный SPA на **`/`** (требует **`http`**) | [`docs/surfaces/web-ui.md`](docs/surfaces/web-ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Демон планировщика и инструменты **`foxxycode_scheduler_*`**; вместе с **`http`** — REST **`/foxxycode/scheduler`** | [`docs/operate/scheduler.md`](docs/operate/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
-| **`browser`** | Интерактивные браузерные инструменты (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate), управляющие локальным Chrome/Chromium через chromedp; модель видит снимки страницы (**`browser.enabled`** в YAML) | [`docs/features/browser-tool.md`](docs/features/browser-tool.md) |
+| **`browser`** | Интерактивные браузерные инструменты (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate), управляющие локальным Chrome/Chromium через chromedp; модель видит снимки страницы (**`browser.enable`** в YAML) | [`docs/features/browser-tool.md`](docs/features/browser-tool.md) |
 | **`cli`** | Интерактивная консоль-TUI — голый **`foxxycode`** в терминале (или **`foxxycode cli`**): чат с потоковым выводом, карточки инструментов, диалоги разрешений, **`!!<команда>`** выполняет команду локально, и агент её не видит; **`foxxycode -c`** продолжает последнюю сессию, **`foxxycode -p "..."`** выполняет один промпт неинтерактивно, **`--remote <имя|host:port|url>`** (плюс `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) работает против удалённого `foxxycode http` — те же флаги принимает `foxxycode acp`. Визуальное оформление вдохновлено TUI [pi coding agent](https://github.com/badlogic/pi-mono) (MIT, Mario Zechner) | [`docs/surfaces/console.md`](docs/surfaces/console.md) |
 | **`gateway.telegram`** | Адаптер Telegram-бота — подкоманда **`foxxycode gateway`**, отдельные сессии пользователей и контроль доступа | [`docs/surfaces/gateway.md`](docs/surfaces/gateway.md) |
 | **`gateway`** | Все адаптеры мессенджеров (надмножество `gateway.telegram`; позволяет добавлять Discord и Slack без изменений ядра) | [`docs/surfaces/gateway.md`](docs/surfaces/gateway.md) |
-| **`swarm`** | Реле роя: узлы регистрируются в нём, а сами реле сцепляются друг с другом. Поднимается командой **`foxxycode serve`** при **`swarm.enabled: true`**; список **`swarm.join`** работает в любой сборке и делает обычного агента достижимым через реле | [`docs/operate/swarm.md`](docs/operate/swarm.md) |
+| **`swarm`** | Реле роя: узлы регистрируются в нём, а сами реле сцепляются друг с другом. Поднимается командой **`foxxycode serve`** при **`swarm.enable: true`**; список **`swarm.join`** работает в любой сборке и делает обычного агента достижимым через реле | [`docs/operate/swarm.md`](docs/operate/swarm.md) |
 | **`desktop`** | Настольное приложение Windows на WebView2 (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; требует **`http`**, **`ui`** и Windows) | [`docs/contributing/build.md`](docs/contributing/build.md#desktop-windows-webview2) |
 
 Расширенное описание и соответствие Docker-сборке: **[docs/contributing/build.md](docs/contributing/build.md)**.
@@ -542,7 +542,7 @@ make build TAGS="gateway.telegram"
 ```yaml
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [YOUR_USER_ID]
     default_access: "admins"   # all | admins | group:<name>

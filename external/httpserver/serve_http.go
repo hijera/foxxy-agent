@@ -45,7 +45,7 @@ func Serve(ctx context.Context, opts Options) error {
 	// command, rather than discovered by an operator staring at a sign-in screen
 	// that rejects the password they are sure of.
 	if pol := s.loginPolicyNow(); pol.broken {
-		return errors.New("httpserver.login.enabled is true but no account is configured: " +
+		return errors.New("httpserver.login.enable is true but no account is configured: " +
 			"set httpserver.login.user and password_hash (`foxxycode serve set-password`), " +
 			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
 	}

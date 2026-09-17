@@ -22,7 +22,7 @@ function browserSection(missing: boolean): JsonSchema {
         description:
           "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
         properties: {
-          enabled: {
+          enable: {
             type: "boolean",
             title: "Enabled",
             description: "Turns on the interactive browser tools.",
@@ -101,10 +101,10 @@ test("a section whose build tag is present stays editable", () => {
   ).toBe("true");
 });
 
-// An operator may already have browser.enabled: true in a YAML file shared with a
+// An operator may already have browser.enable: true in a YAML file shared with a
 // full build. Showing it as off would be a lie; it is on, and simply inert here.
 test("an already-enabled value is still displayed, just not editable", () => {
-  renderSection(true, { browser: { enabled: true } });
+  renderSection(true, { browser: { enable: true } });
   const toggle = screen.getByRole("switch", { name: "Enabled" }) as HTMLButtonElement;
   expect(toggle.getAttribute("aria-checked")).toBe("true");
   expect(toggle.disabled).toBe(true);

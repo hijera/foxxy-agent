@@ -281,7 +281,7 @@ func (r *runner) webLogin() {
 	}
 	login := &r.req.Cfg.HTTPServer.Login
 	if login.IsExplicitlyDisabled() {
-		r.rep.add(r.check(StatusSkipped, "httpserver.login", "httpserver.login.enabled",
+		r.rep.add(r.check(StatusSkipped, "httpserver.login", "httpserver.login.enable",
 			"web sign-in is switched off", ""))
 		return
 	}
@@ -296,7 +296,7 @@ func (r *runner) webLogin() {
 	}
 	if source == "" {
 		if login.IsExplicitlyEnabled() {
-			r.rep.add(r.check(StatusError, "httpserver.login", "httpserver.login.enabled",
+			r.rep.add(r.check(StatusError, "httpserver.login", "httpserver.login.enable",
 				"web sign-in is enabled but no account is configured",
 				"run `foxxycode serve set-password`, or set "+webauth.LoginUserEnvVar+" and "+
 					webauth.LoginPasswordEnvVar+" (e.g. in <home>/.env)"))

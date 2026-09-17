@@ -70,7 +70,7 @@ requires **`http`**).
 Run **`python scripts/build.py --help`** for the full flag list (Russian descriptions).
 
 
-Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../../external/memory/README.md)).
+Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enable`** in config (see [`external/memory/README.md`](../../external/memory/README.md)).
 
 The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
@@ -166,7 +166,7 @@ Order does not matter for these tags.
 
 | Tag | Enables | Documentation |
 |-----|---------|----------------|
-| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../../external/memory/README.md) |
+| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enable`** | [`external/memory/README.md`](../../external/memory/README.md) |
 | **`http`** | **`foxxycode http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](../reference/http-api.md) · [`external/httpserver/`](../../external/httpserver) |
 | **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/surfaces/web-ui.md`](../surfaces/web-ui.md) · [`DESIGN.md`](../../DESIGN.md) |
 | **`scheduler`** | Scheduler daemon hooks, **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/operate/scheduler.md`](../operate/scheduler.md) · [`external/scheduler/README.md`](../../external/scheduler/README.md) |

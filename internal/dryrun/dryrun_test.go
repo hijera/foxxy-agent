@@ -403,7 +403,7 @@ func TestSwarmPeersAreProbedOnlyForServe(t *testing.T) {
 
 func TestSubsystemErrorIsReported(t *testing.T) {
 	rep := run(t, "agent:\n  max_turns: 3\n", func(r *Request) {
-		r.SubsystemErr = errors.New("httpserver.enabled is true but this binary has no httpserver support")
+		r.SubsystemErr = errors.New("httpserver.enable is true but this binary has no httpserver support")
 	})
 	if c := find(t, rep, "serve"); c.Status != StatusError || !strings.Contains(c.Message, "no httpserver support") {
 		t.Errorf("subsystem %+v", c)

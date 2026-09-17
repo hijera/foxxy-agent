@@ -32,7 +32,7 @@ tools:
   permission_mode: bypass
 
 memory:
-  enabled: true
+  enable: true
   model: "rpa/qwen3.6-35b-a3b"
 
 httpserver:
@@ -40,7 +40,7 @@ httpserver:
   port: 19946
 
 scheduler:
-  enabled: true
+  enable: true
   dir: ""
   max_queue: 10
   timeout: "6m"

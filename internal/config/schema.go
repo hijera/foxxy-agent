@@ -46,6 +46,11 @@ type schemaNode struct {
 	Maximum              *float64               `json:"maximum"`
 	Required             []string               `json:"required"`
 	Default              interface{}            `json:"default"`
+	// Deprecated marks a key the loader still reads but nothing should be written
+	// to any more - the `enabled` alias of a switch (see switch_alias.go). Editors
+	// stay quiet about a file that still uses it; the hints here name the current
+	// spelling instead.
+	Deprecated bool `json:"deprecated"`
 
 	re *regexp.Regexp
 }
@@ -146,7 +151,10 @@ func (s *schemaNode) enumStrings() []string {
 // propertyNames lists the keys a section takes, sorted for stable output.
 func (s *schemaNode) propertyNames() []string {
 	out := make([]string, 0, len(s.Properties))
-	for name := range s.Properties {
+	for name, prop := range s.Properties {
+		if prop != nil && prop.Deprecated {
+			continue
+		}
 		out = append(out, name)
 	}
 	sort.Strings(out)

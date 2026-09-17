@@ -92,11 +92,11 @@ func (s *configTestFlagState) misspelledHTTPServerKey(line int) error {
 	return s.write(body)
 }
 
-// coddyEnableKey writes the switch the way upstream coddy spells it.
-func (s *configTestFlagState) coddyEnableKey(line int) error {
-	body := "httpserver:\n  host: 127.0.0.1\n  enable: false\n"
+// legacyEnabledKey writes the switch under the name it had before the rename.
+func (s *configTestFlagState) legacyEnabledKey(line int) error {
+	body := "httpserver:\n  host: 127.0.0.1\n  enabled: false\n"
 	if got := strings.Count(strings.TrimSuffix(body, "\n"), "\n") + 1; got != line {
-		return fmt.Errorf("the fixture puts enable on line %d, the scenario says %d", got, line)
+		return fmt.Errorf("the fixture puts enabled on line %d, the scenario says %d", got, line)
 	}
 	return s.write(body)
 }
@@ -271,7 +271,7 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a config\.yaml with one provider and one model$`, s.validConfig)
 	sc.Step(`^a config\.yaml whose httpserver section says "enbaled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
-	sc.Step(`^a config\.yaml written for coddy whose httpserver section says "enable: false" on line (\d+)$`, s.coddyEnableKey)
+	sc.Step(`^a config\.yaml whose httpserver section says "enabled: false" on line (\d+)$`, s.legacyEnabledKey)
 	sc.Step(`^a config\.yaml whose logger\.level is "([^"]*)"$`, s.loggerLevel)
 	sc.Step(`^a config\.yaml whose provider entry loses one space of indentation on line (\d+)$`, s.misindentedProviderEntry)
 	sc.Step(`^a config\.yaml with one provider and one model saved as Windows text$`, s.windowsValidConfig)

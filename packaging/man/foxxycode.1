@@ -88,22 +88,22 @@ Swagger UI at
 and the embedded web UI at
 .IR / .
 Governed by
-.BR httpserver.enabled ,
+.BR httpserver.enable ,
 which defaults to true.
 .IP \(bu 2
 .B gateway
 \(em the messenger gateway (Telegram). Governed by
-.BR gateways.telegram.enabled .
+.BR gateways.telegram.enable .
 .IP \(bu 2
 .B swarm
 \(em the stateless relay: nodes register themselves into it, it mounts each of
 them under its own address, and a client pointed at the relay drives any node
 behind it. Governed by
-.BR swarm.enabled .
+.BR swarm.enable .
 .IP \(bu 2
 .B scheduler
 \(em the cron daemon. Governed by
-.BR scheduler.enabled .
+.BR scheduler.enable .
 .PP
 A subsystem enabled in the configuration but missing from the build is a startup
 error naming the tag to rebuild with, never a silent no\-op. A process with

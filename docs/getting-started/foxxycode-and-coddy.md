@@ -101,10 +101,10 @@ are fixed here:
   name, env vars (`FOXXYCODE_HOME` / `FOXXYCODE_CWD` / `FOXXYCODE_CONFIG`), HTTP routes
   (`/foxxycode/*`), home directory (`~/.foxxycode`), tool names (`foxxycode_*`), and CSS tokens
   (`--foxxycode-*`), while staying architecturally close to upstream.
-- **coddy configs keep working** - upstream spells every config switch `enable`, the fork keeps
-  `enabled`; a coddy `config.yaml` is read with `enable` taken as `enabled`, `foxxycode -t` warns
-  about the spelling, and the next save writes `enabled` - see
-  [Checking the file from the command line](configuration.md#checking-the-file-from-the-command-line).
+- **Config switches match upstream** - both agents spell every switch `enable`, so a `config.yaml`
+  moves between them unchanged. FoxxyCode wrote `enabled` until 0.3.x and still reads it: the old key
+  is taken as `enable`, `foxxycode -t` warns about the spelling, and the next save writes `enable` -
+  see [Checking the file from the command line](configuration.md#checking-the-file-from-the-command-line).
 
 ---
 

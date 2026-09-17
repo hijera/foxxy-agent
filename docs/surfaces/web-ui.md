@@ -288,7 +288,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **SVN chip** (**`composer-svn-chip`**) renders next to the git chip whenever **`is_svn_repo`** is true. Git and Subversion are detected independently, so a branch folder checked out from SVN that also holds a git repository shows both chips and each switches only its own VCS. The chip label is the svn branch (**`trunk`**, **`branches/<name>`**), with URL and revision in the tooltip; the menu lists the current branch first, then **`trunk`**, then the rest. Picking one posts **`{"branch", "worktree": <checkbox>, "vcs": "svn"}`**.
 - **SVN branch-folder checkbox** (**`composer-svn-folder-checkbox`**) replaces the worktree idea for Subversion, which has none: off switches the working copy in place (**`svn switch`**), on checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** (reusing an existing checkout) and moves the session there — the branch-folder workflow.
-- With **`vcs.svn.enabled: false`** or no svn client installed, **`is_svn_repo`** is false and neither svn chip renders.
+- With **`vcs.svn.enable: false`** or no svn client installed, **`is_svn_repo`** is false and neither svn chip renders.
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /foxxycode/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
 - Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** and **`features/svn_workspace.feature`** (godog).
@@ -963,7 +963,7 @@ both processes with headroom under a 45-second outer timeout.
   - Then the token usage HUD shows the persisted totals
 
 - Memory copilot row (Playwright MCP)
-  - Given **`memory.enabled: true`** on the **`foxxycode http`** process and at least one Markdown file under global or workspace memory so recall can run
+  - Given **`memory.enable: true`** on the **`foxxycode http`** process and at least one Markdown file under global or workspace memory so recall can run
   - When the user sends a chat message that completes a full ReAct turn
   - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
   - When the user opens the details element

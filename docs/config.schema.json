@@ -234,10 +234,15 @@
       "description": "LLM-backed inline completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab. Editors fetch it over POST /foxxycode/completion, one single-shot LLM call with no tools and no agent loop.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turn on inline suggestions. Unset defaults to false, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
           "default": false
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "model": {
           "type": "string",
@@ -335,10 +340,15 @@
           "description": "Select a system prompt tuned to the active model family (agent.<family>.md), falling back to the shared prompt.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Use a per-family prompt file when one exists. Defaults to true.",
               "default": true
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             }
           }
         }
@@ -554,10 +564,15 @@
           "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the foxxycode process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Offer the background option on run_command and expose the background task tools.",
               "default": true
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "max_concurrent": {
               "type": "integer",
@@ -589,10 +604,15 @@
       "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/subagents.md.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt.",
           "default": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "dirs": {
           "type": "array",
@@ -644,10 +664,15 @@
       "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.foxxycode/hooks.json, .foxxycode/hooks.json, .claude/settings*.json). See https://github.com/hijera/foxxy-agent/blob/main/docs/features/hooks.md.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Load and run hooks at all.",
           "default": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "files": {
           "type": "array",
@@ -778,13 +803,18 @@
     "memory": {
       "type": "object",
       "title": "Long-term memory copilot",
-      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enabled).",
+      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turn on the memory copilot.",
           "default": false
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "model": {
           "type": "string",
@@ -830,10 +860,15 @@
           "enum": ["coddy", "opencode"],
           "default": "coddy"
         },
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turn on auto-compaction. Unset defaults to true; set false to disable.",
           "default": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "model": {
           "type": "string",
@@ -863,10 +898,15 @@
           "description": "Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Master switch for result eviction.",
               "default": true
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "keep_recent": {
               "type": "integer",
@@ -890,10 +930,15 @@
       "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session. Runs backend-side for all clients.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turn on auto-title generation. Unset defaults to true; set false to disable.",
           "default": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "model": {
           "type": "string",
@@ -913,10 +958,15 @@
       "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See https://github.com/hijera/foxxy-agent/blob/main/docs/reference/http-api.md.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "default": true,
           "description": "Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm."
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "host": {
           "type": "string",
@@ -941,9 +991,14 @@
           "description": "Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD. API clients keep using auth_token. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set."
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "mode": {
               "type": "string",
@@ -991,10 +1046,15 @@
           "description": "Cross-origin policy so a browser UI on another origin can call this API.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Turn on CORS handling (preflight + Access-Control-* headers).",
               "default": false
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "allowed_origins": {
               "type": "array",
@@ -1020,13 +1080,18 @@
     "swarm": {
       "type": "object",
       "title": "Swarm relay",
-      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enabled; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/swarm.md.",
+      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/swarm.md.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "default": false,
           "description": "Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay."
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "host": {
           "type": "string",
@@ -1082,10 +1147,15 @@
           "description": "Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
               "default": false
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "allowed_origins": {
               "type": "array",
@@ -1253,10 +1323,15 @@
       "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Run the scheduler daemon and expose the foxxycode_scheduler_* tools. Can also be forced per process with foxxycode acp|http -scheduler-enabled.",
           "default": false
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "dir": {
           "type": "string",
@@ -1291,10 +1366,15 @@
           "description": "Telegram bot adapter.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Activate the Telegram adapter when foxxycode gateway starts.",
               "default": false
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "token": {
               "type": "string",
@@ -1375,10 +1455,15 @@
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available. Unset defaults to true.",
           "default": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "locale": {
           "type": "string",
@@ -1405,10 +1490,15 @@
       "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
           "default": false
+        },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
         },
         "headless": {
           "type": "boolean",
@@ -1444,10 +1534,15 @@
           "description": "Subversion support for SVN working copies and branch folders.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
               "default": true
+            },
+            "enabled": {
+              "type": "boolean",
+              "deprecated": true,
+              "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
             },
             "binary": {
               "type": "string",
@@ -1471,17 +1566,22 @@
     "debug": {
       "type": "object",
       "title": "Debug",
-      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enabled=true at startup.",
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enable=true at startup.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config.",
           "default": false
         },
+        "enabled": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
+        },
         "capture_llm": {
           "type": "boolean",
-          "description": "Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enabled; set to false to keep debug logs while suppressing large bodies.",
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enable; set to false to keep debug logs while suppressing large bodies.",
           "default": true
         }
       }

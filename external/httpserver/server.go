@@ -40,7 +40,7 @@ type Server struct {
 	mgr   *session.Manager
 	log   *slog.Logger
 	// logLevel backs the process logger's slog.LevelVar so PUT /foxxycode/config can
-	// flip verbosity at runtime (debug.enabled forces debug level). Nil when the server
+	// flip verbosity at runtime (debug.enable forces debug level). Nil when the server
 	// was constructed by a caller that did not hand one in (tests).
 	logLevel             *slog.LevelVar
 	defaultCWD           string
@@ -151,7 +151,7 @@ func (s *Server) Drain() {
 
 // New creates an HTTP server wrapper (handlers registered on mux).
 // An optional logLevel lets ReplaceConfig change the process log level at runtime
-// (the debug.enabled toggle forces debug verbosity); tests and callers that do not
+// (the debug.enable toggle forces debug verbosity); tests and callers that do not
 // need runtime toggling may omit it.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string, logLevel ...*slog.LevelVar) *Server {
 	var lv *slog.LevelVar
@@ -234,7 +234,7 @@ func (s *Server) activeCfg() *config.Config {
 // is the reload announced.
 //
 // The diagnostics layer rides along - the process log level and the raw LLM capture
-// flag - so toggling debug.enabled through PUT /foxxycode/config takes effect without a
+// flag - so toggling debug.enable through PUT /foxxycode/config takes effect without a
 // restart.
 func (s *Server) ReplaceConfig(c *config.Config) {
 	if c == nil {

@@ -418,7 +418,7 @@ func svnWorkingCopyAt(ctx context.Context, dir string, opts svnws.Options) bool 
 func (s *Server) applySVNBranchSwitch(ctx context.Context, st *session.State, branch string, separateFolder bool) (int, error) {
 	cwd := st.GetCWD()
 	if !s.svnEnabled() {
-		return http.StatusConflict, fmt.Errorf("subversion support is disabled (vcs.svn.enabled)")
+		return http.StatusConflict, fmt.Errorf("subversion support is disabled (vcs.svn.enable)")
 	}
 	opts := toolsvn.OptionsFor(s.activeCfg())
 	info := svnws.Describe(ctx, cwd, opts)

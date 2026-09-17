@@ -20,7 +20,7 @@ type UIConfig struct {
 	// Enabled toggles serving the embedded SPA at GET / (http,ui builds). A nil pointer means the
 	// default (true). Set false to run foxxycode http as an API-only server (no SPA); /v1/* and
 	// /foxxycode/* stay available. Use IsEnabled to read the effective value.
-	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
+	Enabled *bool `yaml:"enable" json:"enable,omitempty"`
 	// Locale is the UI language: empty (auto-detect), "en", or "ru".
 	Locale string `yaml:"locale" json:"locale"`
 	// SendMode controls how the main composer submits: "enter" (default),

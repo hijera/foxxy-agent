@@ -11,7 +11,7 @@ import (
 
 // debugTraceFileName is the JSONL append-only file holding a session's debug-trace
 // events, one DebugEvent per line. Written only while the diagnostics layer is on
-// (debug.enabled); surfaced read-only through GET /foxxycode/sessions/{id}/debug.
+// (debug.enable); surfaced read-only through GET /foxxycode/sessions/{id}/debug.
 const debugTraceFileName = "debug_trace.jsonl"
 
 // DebugEvent is one structured trace record emitted by the agent loop: turn

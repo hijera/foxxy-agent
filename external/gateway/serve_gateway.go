@@ -29,7 +29,7 @@ func Serve(ctx context.Context, opts Options) error {
 
 	if opts.Cfg.Gateways.Telegram.Enabled {
 		if opts.Cfg.Gateways.Telegram.EffectiveToken() == "" {
-			return errors.New("gateways.telegram.enabled is true but no token was found; set gateways.telegram.token or the " +
+			return errors.New("gateways.telegram.enable is true but no token was found; set gateways.telegram.token or the " +
 				config.TelegramBotTokenEnvVar + " environment variable")
 		}
 		storePath := filepath.Join(opts.Cfg.ResolvedSessionsRoot(), "gateway_sessions.json")
@@ -38,7 +38,7 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 
 	if len(adapters) == 0 {
-		return errors.New("gateway: no adapter is enabled; set gateways.telegram.enabled: true in config")
+		return errors.New("gateway: no adapter is enabled; set gateways.telegram.enable: true in config")
 	}
 
 	NewHub(log, adapters...).Start(ctx)

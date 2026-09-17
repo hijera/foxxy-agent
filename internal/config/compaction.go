@@ -53,7 +53,7 @@ type CompactionConfig struct {
 	// Enabled is a pointer so an unset value defaults to true while an explicit false is
 	// preserved. Use CompactionEnabled to read the effective value. Auto-compaction only fires
 	// when real prompt tokens approach the context window, so leaving it on is a safe default.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 
 	// Model selects a cfg.models entry for the summarization pass. Empty uses agent.model.
 	Model string `yaml:"model"`
@@ -80,7 +80,7 @@ type CompactionConfig struct {
 // ResultEviction controls collapsing stale read and grep results to short
 // placeholders when building an LLM request.
 type ResultEviction struct {
-	Enabled        *bool `yaml:"enabled"`
+	Enabled        *bool `yaml:"enable"`
 	KeepRecent     *int  `yaml:"keep_recent"`
 	MinResultBytes *int  `yaml:"min_result_bytes"`
 }

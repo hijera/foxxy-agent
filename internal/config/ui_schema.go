@@ -68,13 +68,13 @@ func boolPropDefault(title, description string, value bool) map[string]interface
 func browserSchema() map[string]interface{} {
 	out := objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
 		map[string]interface{}{
-			"enabled":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
+			"enable":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
 			"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
 			"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
 			"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
 			"screenshots":     boolPropDefault("Screenshots", "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.", true),
 		},
-		[]string{"enabled", "headless", "screenshots", "executable_path", "timeout_seconds"},
+		[]string{"enable", "headless", "screenshots", "executable_path", "timeout_seconds"},
 		nil)
 	out[SchemaRequiresBuildTag] = BrowserBuildTag
 	return out
@@ -341,7 +341,7 @@ func UISchemaMap() map[string]interface{} {
 		"access": strProp("Access", "Per-chat access override: all, admins, or group:<name>."),
 	}
 	telegramProps := map[string]interface{}{
-		"enabled": boolProp("Enabled", "Run the Telegram bot (requires the gateway or gateway.telegram build tag)."),
+		"enable": boolProp("Enabled", "Run the Telegram bot (requires the gateway or gateway.telegram build tag)."),
 		"token": strProp("Bot token",
 			"BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"rich_messages": boolProp("Rich messages",
@@ -455,7 +455,7 @@ func UISchemaMap() map[string]interface{} {
 		"autocomplete": objectSchema("Autocomplete",
 			"LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.",
 			map[string]interface{}{
-				"enabled": boolProp("Enabled",
+				"enable": boolProp("Enabled",
 					"Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke."),
 				"model": strProp("Completion model",
 					"Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it."),
@@ -491,7 +491,7 @@ func UISchemaMap() map[string]interface{} {
 					"How much of the text after the caret is sent as context (default 2000)."),
 			},
 			[]string{
-				"enabled", "model", "mode", "trigger", "debounce_ms", "max_tokens", "temperature", "timeout_ms",
+				"enable", "model", "mode", "trigger", "debounce_ms", "max_tokens", "temperature", "timeout_ms",
 				"multi_line", "related_files", "max_prefix_bytes", "max_suffix_bytes",
 			},
 			nil),
@@ -531,7 +531,7 @@ func UISchemaMap() map[string]interface{} {
 				"background": objectSchema("Background tasks",
 					"Commands the agent runs detached in the session task pool instead of blocking a turn.",
 					map[string]interface{}{
-						"enabled": map[string]interface{}{
+						"enable": map[string]interface{}{
 							"type":        "boolean",
 							"title":       "Enabled",
 							"description": "Offer the background option on run_command and the background task tools (default true).",
@@ -541,7 +541,7 @@ func UISchemaMap() map[string]interface{} {
 						"max_timeout_seconds":     intProp("Max timeout (s)", "Ceiling applied to any requested or estimated timeout (default 3600)."),
 						"output_buffer_bytes":     intProp("Output buffer (bytes)", "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144)."),
 					},
-					[]string{"enabled", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
+					[]string{"enable", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
 					nil),
 			},
 			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "output_limits", "background"},
@@ -549,7 +549,7 @@ func UISchemaMap() map[string]interface{} {
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
 			map[string]interface{}{
-				"enabled": map[string]interface{}{
+				"enable": map[string]interface{}{
 					"type":        "boolean",
 					"title":       "Enabled",
 					"description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
@@ -571,12 +571,12 @@ func UISchemaMap() map[string]interface{} {
 				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout."),
 				"max_turns":               intProp("Max turns", "ReAct rounds a child may take; 0 follows agent.max_turns."),
 			},
-			[]string{"enabled", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
+			[]string{"enable", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
 			nil),
 		"hooks": objectSchema("Hooks",
 			"Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
 			map[string]interface{}{
-				"enabled": map[string]interface{}{
+				"enable": map[string]interface{}{
 					"type":        "boolean",
 					"title":       "Enabled",
 					"description": "Load and run hooks at all (default true).",
@@ -597,7 +597,7 @@ func UISchemaMap() map[string]interface{} {
 				"stop_loop_limit":         intProp("Stop loop limit", "How many times per turn a Stop hook may send the agent back to work (default 5)."),
 				"max_output_chars":        intProp("Max output chars", "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000)."),
 			},
-			[]string{"enabled", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
+			[]string{"enable", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
@@ -627,7 +627,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
-				"enabled":            boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
+				"enable":            boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
 				"model":              strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
 				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
 				"recall_max_turns":   intProp("Recall max turns", "Bounds recall-side LLM rounds in the memory loop."),
@@ -635,7 +635,7 @@ func UISchemaMap() map[string]interface{} {
 				"copilot_max_tokens": intProp("Copilot max tokens", "Completion token cap for memory copilot calls."),
 				"max_search_hits":    intProp("Max search hits", "Maximum snippets returned by memory search tools."),
 			},
-			[]string{"enabled", "model", "dir", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits"},
+			[]string{"enable", "model", "dir", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits"},
 			nil),
 		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
 			map[string]interface{}{
@@ -645,7 +645,7 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
 					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
 				},
-				"enabled":           boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
+				"enable":           boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
 				"model":             strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
 				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode)."),
 				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2)."),
@@ -653,32 +653,32 @@ func UISchemaMap() map[string]interface{} {
 				"result_eviction": objectSchema("Read/grep result eviction",
 					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
 					map[string]interface{}{
-						"enabled":          boolProp("Enabled", "Master switch for result eviction. Defaults to true."),
+						"enable":          boolProp("Enabled", "Master switch for result eviction. Defaults to true."),
 						"keep_recent":      intProp("Keep recent results", "Most recent evictable results kept as a working window (default 2)."),
 						"min_result_bytes": intProp("Min result bytes", "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate)."),
 					},
-					[]string{"enabled", "keep_recent", "min_result_bytes"},
+					[]string{"enable", "keep_recent", "min_result_bytes"},
 					nil),
 			},
-			[]string{"engine", "enabled", "model", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
+			[]string{"engine", "enable", "model", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
-				"enabled":    boolProp("Enabled", "Turns on backend auto-title generation for all clients."),
+				"enable":    boolProp("Enabled", "Turns on backend auto-title generation for all clients."),
 				"model":      strProp("Title model", "Model override for the title pass; empty uses agent model. A small, cheap model is a good choice."),
 				"max_tokens": intProp("Title max tokens", "Completion token cap for the title generation."),
 			},
-			[]string{"enabled", "model", "max_tokens"},
+			[]string{"enable", "model", "max_tokens"},
 			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag).",
 			map[string]interface{}{
-				"enabled":         boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
+				"enable":         boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
 				"dir":             strProp("Jobs directory", "Directory of job markdown definitions."),
 				"max_queue":       intProp("Max queue", "Maximum concurrent scheduled agent runs."),
 				"timeout":         strProp("Job timeout", "Per-job wall-clock limit, e.g. 30m or 1h30m."),
 				"retain_sessions": intProp("Retain sessions", "How many completed scheduler session folders to keep per job id."),
 			},
-			[]string{"enabled", "dir", "max_queue", "timeout", "retain_sessions"},
+			[]string{"enable", "dir", "max_queue", "timeout", "retain_sessions"},
 			nil),
 		"prompts": objectSchema("Prompts", "Built-in system prompt files relative to dir.",
 			map[string]interface{}{
@@ -689,9 +689,9 @@ func UISchemaMap() map[string]interface{} {
 				"per_provider": objectSchema("Per-provider prompts",
 					"Select a system prompt tuned to the active model family (falls back to the shared prompt).",
 					map[string]interface{}{
-						"enabled": boolProp("Enabled", "Use a per-family prompt file (agent.<family>.md) when available."),
+						"enable": boolProp("Enabled", "Use a per-family prompt file (agent.<family>.md) when available."),
 					},
-					[]string{"enabled"},
+					[]string{"enable"},
 					nil),
 			},
 			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt", "per_provider"},
@@ -743,10 +743,10 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"debug": objectSchema("Debug", "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
 			map[string]interface{}{
-				"enabled":     boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
+				"enable":     boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
 				"capture_llm": boolProp("Capture LLM bodies", "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled."),
 			},
-			[]string{"enabled", "capture_llm"},
+			[]string{"enable", "capture_llm"},
 			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{
@@ -757,7 +757,7 @@ func UISchemaMap() map[string]interface{} {
 		"gateways": objectSchema("Messenger gateways", "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
 			map[string]interface{}{
 				"telegram": objectSchema("Telegram", "Telegram bot adapter settings.", telegramProps,
-					[]string{"enabled", "token", "rich_messages", "proxy", "admins", "default_access", "default_isolation", "user_groups", "chats"},
+					[]string{"enable", "token", "rich_messages", "proxy", "admins", "default_access", "default_isolation", "user_groups", "chats"},
 					nil),
 			},
 			[]string{"telegram"},
@@ -767,19 +767,19 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"svn": objectSchema("Subversion", "Subversion support for SVN working copies and branch folders.",
 					map[string]interface{}{
-						"enabled":         boolProp("Enabled", "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model."),
+						"enable":         boolProp("Enabled", "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model."),
 						"binary":          strProp("SVN client path", "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH."),
 						"timeout_seconds": intProp("Command timeout (seconds)", "Per-command timeout for svn invocations such as update, commit, and merge."),
 						"branch_lookup":   boolProp("List repository branches", "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links."),
 					},
-					[]string{"enabled", "binary", "timeout_seconds", "branch_lookup"},
+					[]string{"enable", "binary", "timeout_seconds", "branch_lookup"},
 					nil),
 			},
 			[]string{"svn"},
 			nil),
 		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
 			map[string]interface{}{
-				"enabled": boolProp("Serve the SPA", "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available."),
+				"enable": boolProp("Serve the SPA", "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available."),
 				"locale": map[string]interface{}{
 					"type":        "string",
 					"title":       "UI language",
@@ -794,7 +794,7 @@ func UISchemaMap() map[string]interface{} {
 				},
 				"status_line": boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
 			},
-			[]string{"enabled", "locale", "send_mode", "status_line"},
+			[]string{"enable", "locale", "send_mode", "status_line"},
 			nil),
 	}
 

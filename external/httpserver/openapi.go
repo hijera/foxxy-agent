@@ -466,7 +466,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List built-in slash commands",
 					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, on their own: **GET /foxxycode/slash-commands** leads with the same rows ahead of the skills, and the remote console merges both lists. " +
-						"**`compact`** appears only while **`compaction.enabled`** is true and **`compaction.engine`** is **`coddy`**, the engine that owns the manual command; **`export`** and **`plugin`** are always present. " +
+						"**`compact`** appears only while **`compaction.enable`** is true and **`compaction.engine`** is **`coddy`**, the engine that owns the manual command; **`export`** and **`plugin`** are always present. " +
 						"Optional **`prefix`** filters by case-insensitive name prefix.",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
@@ -824,7 +824,7 @@ func openAPISpec() map[string]interface{} {
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
 						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host. " +
 						"Subversion is detected independently of git, so a branch folder that also holds a git repository reports both: **`is_svn_repo`** plus an **`svn`** object with **`available`**, **`wc_root`**, **`url`**, **`relative_url`**, **`repository_root`**, **`revision`**, **`branch`** (`trunk`, `branches/<name>`), **`branches`** (when `vcs.svn.branch_lookup` is on), and **`nested`** (the working copy root sits above the folder). " +
-						"With **`vcs.svn.enabled: false`** or no svn client installed, **`is_svn_repo`** is false.",
+						"With **`vcs.svn.enable: false`** or no svn client installed, **`is_svn_repo`** is false.",
 					"operationId": "foxxycodeWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1044,7 +1044,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**, as in **config.yaml**; **`enabled`**, the name FoxxyCode used before 0.3.x, is still accepted in a request body and answered as **`enable`**.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1122,7 +1122,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/debug": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Debug trace for a session",
-					"description": "Returns the persisted debug-trace events (**object** `foxxycode.session_debug`, **sessionId**, **events**) collected while **debug.enabled** is on: one record per turn start, LLM request/response, and tool start/finish boundary. Raw LLM HTTP bodies go to the process log; this endpoint surfaces the lightweight structured timeline. A session with no trace returns **events: null**.",
+					"description": "Returns the persisted debug-trace events (**object** `foxxycode.session_debug`, **sessionId**, **events**) collected while **debug.enable** is on: one record per turn start, LLM request/response, and tool start/finish boundary. Raw LLM HTTP bodies go to the process log; this endpoint surfaces the lightweight structured timeline. A session with no trace returns **events: null**.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1425,7 +1425,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Whether this server wants a sign-in, and whether the caller has one",
 					"description": "Public: this is how the bundled UI decides between the sign-in screen and the app, so it answers without a credential. " +
-						"**login_required** is true when a password account is configured (in `httpserver.login` or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD) and not switched off with `httpserver.login.enabled: false`. " +
+						"**login_required** is true when a password account is configured (in `httpserver.login` or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
 						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
 						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
 					"operationId": "getAuthState",
@@ -1457,7 +1457,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Sign a browser in with the configured account",
 					"description": "Public: it is the way through the gate. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), valid for `httpserver.login.session_ttl_hours`; when that is 0 the cookie is dropped as the browser closes and the server expires its own record after 30 days. " +
-						"A wrong password and an unknown user get the same **401** and the same body; repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enabled` is true with no account behind it. " +
+						"A wrong password and an unknown user get the same **401** and the same body; repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
 						"API clients do not use this route: they present `Authorization: Bearer <token>` instead.",
 					"operationId": "authLogin",
 					"security":    []interface{}{map[string]interface{}{}},
@@ -1797,7 +1797,7 @@ func openAPISpec() map[string]interface{} {
 						"**`vcs`** selects the version control system: **`git`** (default) or **`svn`**. With **`{\"vcs\": \"svn\", \"branch\": b}`** the working copy is switched in place (`svn switch`); " +
 						"Subversion has no worktrees, so **`{\"vcs\": \"svn\", \"branch\": b, \"worktree\": true}`** checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** and moves the session cwd there. An existing checkout of that branch is reused. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
-						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enabled: false`** or no svn client installed. " +
+						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enable: false`** or no svn client installed. " +
 						"The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "foxxycodeSessionWorkspacePost",
 					"parameters": []interface{}{
@@ -2054,7 +2054,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/completion": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Suggest the code to insert at the caret",
-					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enabled`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
+					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enable`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -4126,7 +4126,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"svn": map[string]interface{}{
 							"type":        "object",
-							"description": "Subversion state; present whenever vcs.svn.enabled is on, with available:false when no client is installed. Absent when Subversion support is disabled.",
+							"description": "Subversion state; present whenever vcs.svn.enable is on, with available:false when no client is installed. Absent when Subversion support is disabled.",
 							"properties": map[string]interface{}{
 								"available":       map[string]string{"type": "boolean"},
 								"wc_root":         map[string]string{"type": "string"},

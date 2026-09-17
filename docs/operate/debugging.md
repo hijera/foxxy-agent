@@ -10,17 +10,17 @@ It is **off by default** and costs nothing when off.
 
 ```yaml
 debug:
-  enabled: true      # master switch for the whole layer
-  capture_llm: true  # optional; omit to follow `enabled`
+  enable: true      # master switch for the whole layer
+  capture_llm: true  # optional; omit to follow `enable`
 ```
 
-`enabled: true` does three things at once: it forces the process logger to **debug** level regardless of `logger.level`, turns on raw LLM HTTP capture, and starts writing a per-session trace.
+`enable: true` does three things at once: it forces the process logger to **debug** level regardless of `logger.level`, turns on raw LLM HTTP capture, and starts writing a per-session trace.
 
-`capture_llm` is the one knob that opts out of a part of it. Leave it unset and it follows `enabled`. Set it explicitly to `false` to keep the debug-level logs and the trace while suppressing the request/response bodies — the right setting when the conversation carries content you would rather not have on disk (see [Privacy](#privacy-what-lands-on-disk)).
+`capture_llm` is the one knob that opts out of a part of it. Leave it unset and it follows `enable`. Set it explicitly to `false` to keep the debug-level logs and the trace while suppressing the request/response bodies — the right setting when the conversation carries content you would rather not have on disk (see [Privacy](#privacy-what-lands-on-disk)).
 
 ### The `--debug` flag
 
-| Entry point | `--debug` flag | Honours `debug.enabled` from config |
+| Entry point | `--debug` flag | Honours `debug.enable` from config |
 |---|---|---|
 | `foxxycode acp` | yes | yes |
 | `foxxycode http` | yes | yes |
@@ -32,7 +32,7 @@ The flag only ever turns diagnostics **on**. Passing `--debug=false` does not di
 
 ### Toggling at runtime
 
-`PUT /foxxycode/config` with `debug.enabled` flipped takes effect **immediately, without restarting the process**. The logger is built once over a shared `slog.LevelVar` (`internal/logger`), so `ReplaceConfig` re-levels the existing handler instead of rebuilding it, and the raw-capture switch is an atomic flag read per request (`internal/llm/debug_capture.go`). Turning it off mid-session stops new capture and new trace events; what was already written stays.
+`PUT /foxxycode/config` with `debug.enable` flipped takes effect **immediately, without restarting the process**. The logger is built once over a shared `slog.LevelVar` (`internal/logger`), so `ReplaceConfig` re-levels the existing handler instead of rebuilding it, and the raw-capture switch is an atomic flag read per request (`internal/llm/debug_capture.go`). Turning it off mid-session stops new capture and new trace events; what was already written stays.
 
 This is the intended way to catch a problem you cannot reproduce on demand: leave the server running, turn diagnostics on when the user reports the bad turn, turn it off afterwards.
 
@@ -43,9 +43,9 @@ Three separate outputs, deliberately: the bulky raw bodies go to the process log
 | Output | Where | Gated by |
 |---|---|---|
 | Raw LLM HTTP request/response excerpts | the process log (`logger.outputs` / `logger.file`), at `DEBUG` level | `capture_llm` |
-| Structured turn timeline | `<session bundle>/debug_trace.jsonl` | `enabled` |
-| The same timeline, live | SSE `event: debug` on the composer stream | `enabled` |
-| The same timeline, on demand | `GET /foxxycode/sessions/{id}/debug` | `enabled` |
+| Structured turn timeline | `<session bundle>/debug_trace.jsonl` | `enable` |
+| The same timeline, live | SSE `event: debug` on the composer stream | `enable` |
+| The same timeline, on demand | `GET /foxxycode/sessions/{id}/debug` | `enable` |
 
 ## The trace timeline
 

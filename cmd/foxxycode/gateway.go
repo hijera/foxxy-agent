@@ -30,7 +30,7 @@ func runGateway(args []string) error {
 	gwCWD := fs.String("cwd", "", "default session working directory")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root directory")
 	logLevel := fs.String("log-level", "", "debug|info|warn|error")
-	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of gateway:\n")
 		fs.PrintDefaults()
@@ -60,7 +60,7 @@ func runGateway(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if !cfg.Gateways.Telegram.Enabled {
-		return fmt.Errorf("no gateway enabled; set gateways.telegram.enabled: true in config")
+		return fmt.Errorf("no gateway enabled; set gateways.telegram.enable: true in config")
 	}
 
 	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{Level: strings.TrimSpace(*logLevel)})

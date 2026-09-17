@@ -9,7 +9,7 @@ const BrowserDefaultTimeoutSeconds = 30
 // over the DevTools Protocol via chromedp.
 type BrowserConfig struct {
 	// Enabled turns on the interactive browser tools for eligible builds.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 	// Headless runs the browser without a visible window. Defaults to true when unset;
 	// set explicitly to false to watch the automated session.
 	Headless *bool `yaml:"headless"`

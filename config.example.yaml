@@ -168,7 +168,7 @@ agent:
 # entry from models[] - speed beats cleverness, because a suggestion is worthless
 # once you have typed past it.
 autocomplete:
-  enabled: false
+  enable: false
   # model: "openai/gpt-4o-mini"   # empty falls back to agent.model
   # mode: auto                    # auto = native fill-in-the-middle for known code models (Qwen-Coder,
   #                               #   DeepSeek-Coder, CodeLlama, StarCoder, Codestral) via /v1/completions,
@@ -206,7 +206,7 @@ prompts:
   # Family defaults are built in; per-model files live in dir (this prompts.dir).
   # Enabled by default; set to false to always use the shared agent.md.
   per_provider:
-    enabled: true
+    enable: true
 
 skills:
   # dirs is the list of directories scanned for skills. Searched in order,
@@ -315,7 +315,7 @@ tools:
   # and captured output stay in the session bundle, and a task interrupted by a
   # restart is reported as orphaned. 0 = use the built-in default.
   # background:
-  #   enabled: true
+  #   enable: true
   #   max_concurrent: 5             # concurrent background tasks per session
   #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
   #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
@@ -335,7 +335,7 @@ tools:
 # that file for that workspace on the machine running foxxycode (`foxxycode agents trust <name>`
 # there, or `POST /foxxycode/subagents/{name}/trust`). See docs/features/subagents.md.
 # subagents:
-#   enabled: true
+#   enable: true
 #   dirs:
 #     - "${FOXXYCODE_HOME}/agents"       # your own definitions (user scope)
 #     - "${CWD}/.claude/agents"      # project scope, Claude Code compatible
@@ -355,7 +355,7 @@ tools:
 # machine running foxxycode (`foxxycode hooks trust <file>` there, or `POST /foxxycode/hooks/trust`).
 # See docs/features/hooks.md.
 # hooks:
-#   enabled: true
+#   enable: true
 #   files:
 #     - "${FOXXYCODE_HOME}/hooks.json"            # your own file (user scope)
 #     - "${CWD}/.claude/settings.json"            # project scope, Claude Code compatible (hooks key only)
@@ -371,7 +371,7 @@ tools:
 # `foxxycode serve` starts every subsystem enabled in this file in one process
 # over one set of sessions; `foxxycode http` remains the single-surface form.
 # httpserver:
-#   enabled: true         # omitted means true; false on a node that only polls a bot or relays a swarm
+#   enable: true         # omitted means true; false on a node that only polls a bot or relays a swarm
 #   host: "127.0.0.1"
 #   port: 8080
 #   auth_token: "${FOXXYCODE_HTTP_TOKEN}"  # empty = no auth; ${ENV} expanded at load; or use --auth-token
@@ -380,13 +380,13 @@ tools:
 #   # argon2id and every "$" of it has to be doubled to survive this file's ${ENV} expansion.
 #   # FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD (see ~/.foxxycode/.env) enable the form on their own,
 #   # win over an account here, and are never written into this file. An explicit
-#   # enabled: false switches the form off with those variables still set.
+#   # enable: false switches the form off with those variables still set.
 #   # A form is for browsers: foxxycode --remote, foxxycode acp --remote, a swarm relay and scripts
 #   # keep presenting auth_token, so set both when anything but a browser talks to this server.
 #   # On `foxxycode http` (what the editor plugins and the desktop app run) a client on this
 #   # machine passes the form while no auth_token is set; `foxxycode serve` has no such rule.
 #   login:
-#     enabled: true
+#     enable: true
 #     user: "pasha"
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
@@ -394,7 +394,7 @@ tools:
 #   stream_tickets_only: false  # SSE must use POST /foxxycode/stream-tickets instead of ?access_token=<auth token>
 #   allow_insecure: false   # silence the non-loopback-without-auth startup warning
 #   cors:
-#     enabled: false
+#     enable: false
 #     allowed_origins: ["http://localhost:5173"]  # or ["*"] to allow any (bearer still applies)
 #   remotes:                # remote foxxycode http servers offered in the UI env selector
 #     - name: "staging"
@@ -404,20 +404,20 @@ tools:
 # Jobs live under scheduler.dir (${FOXXYCODE_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
 # (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
 # basename.lock during a run.
-# Enable with scheduler.enabled and/or foxxycode acp|http -scheduler-enabled.
+# Enable with scheduler.enable and/or foxxycode acp|http -scheduler-enabled.
 # scheduler:
-#   enabled: false
+#   enable: false
 #   dir: ""              # empty = ${FOXXYCODE_HOME}/scheduler
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
-# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enabled.
+# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enable.
 # Stores markdown under memory.dir (default ${FOXXYCODE_HOME}/memory) and <session cwd>/memory (project). Injects text into the
 # same {{.Memory}} section as session notes; main agent never sees memory_* tools.
 # memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
 # pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to reuse the session or agent default model.
 # memory:
-#   enabled: false
+#   enable: false
 #   model: ""
 #   dir: "" # default ${FOXXYCODE_HOME}/memory when empty
 #   recall_max_turns: 6
@@ -434,13 +434,13 @@ tools:
 # payload.
 # compaction:
 #   engine: coddy           # coddy (default) | opencode
-#   enabled: true
+#   enable: true
 #   model: ""
 #   threshold_percent: 80   # trigger at this % of the model context window (opencode clamps 50..99)
 #   keep_recent_turns: 2    # most recent user turns kept verbatim
 #   max_tokens: 4096        # completion cap for the summary (opencode engine only)
 #   result_eviction:
-#     enabled: true
+#     enable: true
 #     keep_recent: 2         # working window; 0 keeps none
 #     min_result_bytes: 2000 # smaller results are never evicted
 
@@ -449,7 +449,7 @@ tools:
 # (SPA, IntelliJ, VS Code, ACP, CLI). A user-pinned title always wins and is never overwritten.
 # title.model is used ONLY for the title pass — leave empty to reuse agent.model.
 # title:
-#   enabled: true
+#   enable: true
 #   model: ""
 #   max_tokens: 64          # completion cap for the title
 
@@ -457,7 +457,7 @@ tools:
 # Run the bot with: foxxycode gateway --config config.yaml
 # gateways:
 #   telegram:
-#     enabled: false
+#     enable: false
 #     token: "${TELEGRAM_BOT_TOKEN}"   # optional: omit to read TELEGRAM_BOT_TOKEN from env/.env
 #     # proxy: "socks5h://127.0.0.1:1080"  # optional outbound proxy (http, https, socks5, socks5h)
 #     # proxy: "http://proxy.example.com:3128"
@@ -480,13 +480,13 @@ tools:
 #         access: "admins"
 
 # swarm - a relay that nodes register into, and that chains into other relays.
-# Server side needs -tags swarm and swarm.enabled; the join list below is
+# Server side needs -tags swarm and swarm.enable; the join list below is
 # honoured by every foxxycode serve process, which is what lets an ordinary agent be
 # reached through a relay.
 # Full reference: docs/operate/swarm.md
 # ----------------------------------------------------------------------------
 # swarm:
-#   enabled: false       # run the relay here; independent of the join list below
+#   enable: false       # run the relay here; independent of the join list below
 #   name: "outer"
 #   host: "0.0.0.0"
 #   port: 12346
@@ -498,7 +498,7 @@ tools:
 #   pairing_tokens:
 #     - "${FOXXYCODE_SWARM_PAIRING_TOKEN}"
 #   cors:
-#     enabled: true
+#     enable: true
 #     allowed_origins: ["http://localhost:5173"]
 #   tls:
 #     cert_file: "/etc/foxxycode/relay.crt"
@@ -554,15 +554,15 @@ logger:
 # with model: "debug") - that one changes the model's behaviour, this one changes
 # what FoxxyCode records.
 # debug:
-#   enabled: false
-#   # Gates only the raw body capture; omit to follow `enabled`. Set false to keep
+#   enable: false
+#   # Gates only the raw body capture; omit to follow `enable`. Set false to keep
 #   # debug logs and the trace but not the bodies - a request body carries the whole
 #   # conversation, including the contents of every file the agent read.
 #   capture_llm: false
 
 # Embedded SPA preferences (desktop launcher and HTTP UI, built with -tags http,ui).
 # ui:
-#   enabled: true         # false = API-only server (no SPA at GET /); /v1/* and /foxxycode/* stay up
+#   enable: true         # false = API-only server (no SPA at GET /); /v1/* and /foxxycode/* stay up
 #   locale: ""            # "" = auto-detect system/browser locale; or "en" / "ru"
 #   send_mode: "enter"    # how the main composer submits:
 #                         #   "enter"      Enter sends (Shift/Ctrl+Enter = newline)
@@ -574,7 +574,7 @@ logger:
 # Interactive browser automation tool (built with -tags browser; disabled by default).
 # Drives a local Chrome/Chromium over the DevTools Protocol via chromedp.
 # browser:
-#   enabled: false          # turn on navigate/click/fill/screenshot/... tools
+#   enable: false          # turn on navigate/click/fill/screenshot/... tools
 #   headless: true          # false to watch the automated session in a real window
 #   screenshots: true       # false = text-only: no image, use read_page/evaluate instead
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
@@ -584,7 +584,7 @@ logger:
 # next to the git chip and the svn_* tools when a working copy is detected.
 # vcs:
 #   svn:
-#     enabled: true         # false hides the SVN chip and removes every svn_* tool
+#     enable: true         # false hides the SVN chip and removes every svn_* tool
 #     binary: ""            # "" = resolve "svn" on PATH; or a path to the client
 #     timeout_seconds: 120  # per-command timeout (update, commit, merge, ...)
 #     branch_lookup: true   # list trunk/branches for the chip menu (contacts the server)

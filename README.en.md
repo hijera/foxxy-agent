@@ -27,7 +27,7 @@
 
 - **Native desktop window (WebView2)** with desktop notifications, an audio chime, and a first-run guided tour
 - **Deep IDE integration** - open-files context (`<foxxycode_ide_context>`), terminal tracking (`@terminal`), file drag-drop mentions, project folder picker, `.vscode`/`.idea` project metadata, and native IntelliJ inline diffs
-- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model; shipped in the full builds (`browser` tag) and off by default until `browser.enabled` is set - see [browser tool](docs/features/browser-tool.md)
+- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model; shipped in the full builds (`browser` tag) and off by default until `browser.enable` is set - see [browser tool](docs/features/browser-tool.md)
 - **Automatic context compaction** - auto-summarizes long conversations (on by default)
 - **Russian settings i18n** and a full `foxxyCode` rebrand of the distribution
 
@@ -85,7 +85,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Improve prompt** - a wand button on the composer's context row rewrites the draft through the model (`POST /foxxycode/enhance-prompt`); **Ctrl+Z** restores the original and a failure leaves the draft untouched - see [Embedded UI](docs/surfaces/web-ui.md)
 - **ACP protocol** - FoxxyCode is an **ACP server** (`foxxycode acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 - **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/getting-started/configuration.md#ssh-remote-execution)
-- **Subversion support at the git level** - when an SVN working copy is detected, an SVN chip appears next to the git chip (branch `trunk` / `branches/<name>` plus revision): switch the branch in place (`svn switch`) or check it out into its own branch folder. The agent drives Subversion through dedicated `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` tools; the mutating ones ask for permission. Git and svn detection are independent, so an SVN branch folder that also holds a git repository works with both. Switchable off in the settings (`vcs.svn.enabled`); with no svn client installed everything stays hidden — see [Configuration](docs/reference/config.md#vcs)
+- **Subversion support at the git level** - when an SVN working copy is detected, an SVN chip appears next to the git chip (branch `trunk` / `branches/<name>` plus revision): switch the branch in place (`svn switch`) or check it out into its own branch folder. The agent drives Subversion through dedicated `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` tools; the mutating ones ask for permission. Git and svn detection are independent, so an SVN branch folder that also holds a git repository works with both. Switchable off in the settings (`vcs.svn.enable`); with no svn client installed everything stays hidden — see [Configuration](docs/reference/config.md#vcs)
 - **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/surfaces/gateway.md)
 
 ## Editor and IDE integration
@@ -191,15 +191,15 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 
 | Tag | Enables | Docs |
 |-----|---------|------|
-| **`memory`** | Long-term memory copilot (**`memory.enabled`** in YAML); with **`http`**, session memory REST under **`/foxxycode/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
+| **`memory`** | Long-term memory copilot (**`memory.enable`** in YAML); with **`http`**, session memory REST under **`/foxxycode/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
 | **`http`** | **`foxxycode http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](docs/reference/http-api.md) |
 | **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/surfaces/web-ui.md`](docs/surfaces/web-ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/operate/scheduler.md`](docs/operate/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
-| **`browser`** | Interactive browser tools (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate) driving a local Chrome/Chromium via chromedp; the model sees page screenshots (**`browser.enabled`** in YAML) | [`docs/features/browser-tool.md`](docs/features/browser-tool.md) |
+| **`browser`** | Interactive browser tools (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate) driving a local Chrome/Chromium via chromedp; the model sees page screenshots (**`browser.enable`** in YAML) | [`docs/features/browser-tool.md`](docs/features/browser-tool.md) |
 | **`cli`** | Interactive console TUI — bare **`foxxycode`** on a terminal (or **`foxxycode cli`**): chat with streaming, tool boxes, permission modals, **`!!<command>`** to run a shell command locally that the agent never sees; **`foxxycode -c`** continues the latest session, **`foxxycode -p "..."`** runs one prompt non-interactively, **`--remote <name|host:port|url>`** (+ `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) drives a remote `foxxycode http` server — the same flags work on `foxxycode acp`. Visual design inspired by the [pi coding agent](https://github.com/badlogic/pi-mono) TUI (MIT, Mario Zechner) | [`docs/surfaces/console.md`](docs/surfaces/console.md) |
 | **`gateway.telegram`** | Telegram bot adapter — **`foxxycode gateway`** subcommand, per-user sessions, access control | [`docs/surfaces/gateway.md`](docs/surfaces/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/surfaces/gateway.md`](docs/surfaces/gateway.md) |
-| **`swarm`** | Swarm relay: nodes register into it and relays chain into each other. Run it with **`foxxycode serve`** and **`swarm.enabled: true`**; the **`swarm.join`** list is honoured by any build, which is what makes an ordinary agent reachable through a relay | [`docs/operate/swarm.md`](docs/operate/swarm.md) |
+| **`swarm`** | Swarm relay: nodes register into it and relays chain into each other. Run it with **`foxxycode serve`** and **`swarm.enable: true`**; the **`swarm.join`** list is honoured by any build, which is what makes an ordinary agent reachable through a relay | [`docs/operate/swarm.md`](docs/operate/swarm.md) |
 | **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; needs **`http`**, **`ui`**, Windows) | [`docs/contributing/build.md`](docs/contributing/build.md#desktop-windows-webview2) |
 
 Extended narrative and Docker alignment - **[docs/contributing/build.md](docs/contributing/build.md)**.
@@ -536,7 +536,7 @@ Minimal config addition (`config.yaml`):
 ```yaml
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [YOUR_USER_ID]
     default_access: "admins"   # all | admins | group:<name>

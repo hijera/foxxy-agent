@@ -526,7 +526,7 @@ type SessionTitleUpdate struct {
 
 // DebugUpdate carries one structured debug-trace event from the agent loop (turn boundaries,
 // LLM request/response, tool start/finish) so connected clients can render a live debug view.
-// Emitted only when the diagnostics layer is on (debug.enabled); the raw LLM bodies themselves
+// Emitted only when the diagnostics layer is on (debug.enable); the raw LLM bodies themselves
 // go to the process log, while this carries lightweight structured metadata.
 type DebugUpdate struct {
 	SessionUpdate string                 `json:"sessionUpdate"` // "debug"

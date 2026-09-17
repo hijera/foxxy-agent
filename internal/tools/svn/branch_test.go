@@ -35,7 +35,7 @@ func TestBranchForIsEmptyWhenSubversionSupportIsOff(t *testing.T) {
 	h.cfg.VCS.SVN.Enabled = &off
 
 	if got := toolsvn.BranchFor(context.Background(), h.cfg, h.wc); got != "" {
-		t.Fatalf("BranchFor = %q with vcs.svn.enabled: false, want nothing", got)
+		t.Fatalf("BranchFor = %q with vcs.svn.enable: false, want nothing", got)
 	}
 	if calls, _ := h.fake.Calls(); len(calls) > 0 {
 		t.Fatalf("svn was run although Subversion support is off: %v", calls)

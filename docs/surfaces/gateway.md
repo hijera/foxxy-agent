@@ -110,7 +110,7 @@ In `~/.foxxycode/config.yaml` (or wherever your `config.yaml` lives), add:
 ```yaml
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [98874093]           # your Telegram user ID
     default_access: "all"
@@ -135,7 +135,7 @@ All gateway config lives under the `gateways` key in `config.yaml`. When running
 ```yaml
 gateways:
   telegram:
-    enabled: false
+    enable: false
     # Bot token. Optional: leave empty (or omit) to read it from the TELEGRAM_BOT_TOKEN
     # environment variable (e.g. via .env), the same way provider api_key falls back to
     # NAME_API_KEY. When telegram is enabled but no token can be resolved, the gateway
@@ -555,7 +555,7 @@ Update the `start.go` / `start_stub.go` constraint to include the new tag.
 
 ## The same session in the chat and in the browser
 
-With `httpserver.enabled` and `gateways.telegram.enabled` both on, a Telegram
+With `httpserver.enable` and `gateways.telegram.enable` both on, a Telegram
 conversation and the web UI are two views of one session.
 
 - **The chat session appears in the browser.** A chat conversation is an

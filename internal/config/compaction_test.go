@@ -85,7 +85,7 @@ func TestCompactionExplicitDisablePreserved(t *testing.T) {
 	c := config.CompactionConfig{Enabled: &off}
 	c.ApplyDefaults()
 	if c.CompactionEnabled() {
-		t.Error("explicit compaction.enabled=false must be preserved")
+		t.Error("explicit compaction.enable=false must be preserved")
 	}
 }
 

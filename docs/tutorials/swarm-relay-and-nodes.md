@@ -23,10 +23,10 @@ OPENAI_API_KEY=sk-...
 
 ```yaml
 httpserver:
-  enabled: false
+  enable: false
 
 swarm:
-  enabled: true
+  enable: true
   host: "0.0.0.0"
   port: 12346
   name: "outer"
@@ -50,7 +50,7 @@ agent:
   model: "openai/gpt-5.6-terra"
 
 httpserver:
-  enabled: true
+  enable: true
   auth_token: "${NODE_TOKEN}"
 
 swarm:

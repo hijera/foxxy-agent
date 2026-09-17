@@ -7,6 +7,17 @@
 
 # FoxxyCode plugin changes
 
+## Unreleased — 2026-09-17
+
+**Config switches are now called `enable`, the way coddy-agent spells them.**
+FoxxyCode used to call them `enabled`, so a `config.yaml` did not travel between the
+two agents: a file carried over loaded without complaint, yet every switch stayed at
+its default. `enable` is now the name everywhere - in the file, in the schema your
+editor validates against, in the settings form and in the JSON API. The old `enabled`
+keeps working: it is read as `enable`, `foxxycode -t` only warns about it, and the
+next save from the settings screen rewrites the key together with the comment above
+it. When a section sets both, `enable` wins.
+
 ## 0.3.1 — 2026-09-17
 
 **The FoxxyCode panel opens again in IDE 2026.2.**
@@ -182,8 +193,8 @@ label shows in full. The swarm map opens when a relay is selected as the environ
 
 **The disabled scheduler hint suggests `foxxycode serve --scheduler`.**
 Instead of the `-scheduler-enabled` flag, the scheduler panel now suggests enabling
-`scheduler.enabled` or running `foxxycode serve --scheduler`. For the agent the plugin starts,
-the simplest way is to enable `scheduler.enabled` in the settings.
+`scheduler.enable` or running `foxxycode serve --scheduler`. For the agent the plugin starts,
+the simplest way is to enable `scheduler.enable` in the settings.
 
 ## 0.2.81 — 2026-09-13
 

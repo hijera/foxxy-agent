@@ -28,7 +28,7 @@ type Prompts struct {
 type PerProviderPrompts struct {
 	// Enabled is a pointer so an unset value defaults to true while an explicit
 	// false is preserved. Use PerProviderEnabled to read the effective value.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 }
 
 // PerProviderEnabled reports whether per-family prompt selection is active.

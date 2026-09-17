@@ -39,7 +39,7 @@ type Finding struct {
 	// Line and Column locate the problem in the file (1-based); 0 when the
 	// finding is about the file as a whole.
 	Line, Column int
-	// Path is the dotted key the finding is about ("httpserver.enabled",
+	// Path is the dotted key the finding is about ("httpserver.enable",
 	// "providers[1].type"); empty for a whole-file finding or when Message
 	// already carries it.
 	Path string
@@ -233,9 +233,9 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 		})
 	}
 
-	// coddy's `enable` is read as `enabled` (enable_alias.go); the stages below
+	// the legacy `enabled` is read as `enable` (switch_alias.go); the stages below
 	// see the document the loader decodes.
-	findings = append(findings, enableAliasFindings(normalizeEnableAliases(body))...)
+	findings = append(findings, switchAliasFindings(normalizeSwitchAliases(body))...)
 
 	schemaFindings, err := validateAgainstSchema(body)
 	if err != nil {
@@ -732,7 +732,7 @@ func NewLocator(data []byte) *Locator {
 	if body == nil || body.Kind != yaml.MappingNode {
 		return &Locator{}
 	}
-	normalizeEnableAliases(body)
+	normalizeSwitchAliases(body)
 	return &Locator{body: body}
 }
 

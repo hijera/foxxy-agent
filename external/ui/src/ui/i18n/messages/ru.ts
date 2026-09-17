@@ -964,7 +964,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.apiNotAvailable":
     "API планировщика недоступен в этой сборке (пересоберите с http,scheduler).",
   "scheduler.disabled":
-    "Планировщик отключён (включите scheduler.enabled или запустите foxxycode serve --scheduler).",
+    "Планировщик отключён (включите scheduler.enable или запустите foxxycode serve --scheduler).",
 
   "messages.copyMessage": "Копировать сообщение",
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",

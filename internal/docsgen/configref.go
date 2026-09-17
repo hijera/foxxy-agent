@@ -20,6 +20,10 @@ type schemaNode struct {
 	Items                *schemaNode       `json:"items"`
 	Properties           orderedProps      `json:"properties"`
 	AdditionalProperties json.RawMessage   `json:"additionalProperties"`
+	// Deprecated marks an alias kept in the schema for the files that still use it
+	// (the `enabled` spelling of a switch). The reference documents the key that
+	// replaced it, not the alias.
+	Deprecated bool `json:"deprecated"`
 }
 
 // orderedProps keeps the keys of a "properties" object in file order.
@@ -131,6 +135,9 @@ func fieldRows(path string, node *schemaNode, defaults map[string]string, top bo
 			rows = append(rows, FieldRow{path, kind, "", node.Description})
 		}
 		for _, k := range node.Properties.Keys {
+			if sub := node.Properties.Nodes[k]; sub != nil && sub.Deprecated {
+				continue
+			}
 			rows = append(rows, fieldRows(path+"."+k, node.Properties.Nodes[k], defaults, false)...)
 		}
 	case node.Items != nil && len(node.Items.Properties.Keys) > 0:
