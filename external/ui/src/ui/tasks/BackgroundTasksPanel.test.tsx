@@ -207,7 +207,7 @@ function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
     session_id: "s1",
     kind: "agent",
     label: "agent explore: survey the repo",
-    agent: { name: "explore", session_id: "sub_0a1b2c" },
+    agent: { name: "explore", session_id: "sess_0a1b2c" },
     status: "running",
     started_at: new Date(START_MS).toISOString(),
     timeout_seconds: 1800,
@@ -266,7 +266,7 @@ test("an agent task's detail names the subagent and opens its transcript", () =>
   );
 
   fireEvent.click(screen.getByTestId("bgtask-open-transcript"));
-  expect(onOpenSession).toHaveBeenCalledWith("sub_0a1b2c");
+  expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
 });
 
 test("Open transcript stays disabled until the child session is known", () => {
@@ -286,7 +286,7 @@ test("Open transcript stays disabled until the child session is known", () => {
 function awaitingTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
   return agentTask({
     pending_permission: {
-      sessionId: "sub_0a1b2c",
+      sessionId: "sess_0a1b2c",
       agent_name: "explore",
       asked_at: new Date(START_MS + 10_000).toISOString(),
       toolCall: {
@@ -329,7 +329,7 @@ test("a detached subagent's prompt is answered on its task card", async () => {
   await waitFor(() => expect(calls.length).toBe(1));
   // Answered against the child session - the one actually waiting - not the
   // parent chat the task belongs to.
-  expect(calls[0]?.url).toBe("/foxxycode/sessions/sub_0a1b2c/permission");
+  expect(calls[0]?.url).toBe("/foxxycode/sessions/sess_0a1b2c/permission");
   expect(calls[0]?.body).toBe(
     JSON.stringify({ toolCallId: "call_9", optionId: "allow" }),
   );

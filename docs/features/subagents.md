@@ -131,12 +131,12 @@ The tool is registered when `subagents.enabled` is on and offered in `agent` and
 A **foreground** spawn (the default) blocks the tool call until the child's turn ends and returns the report in an envelope:
 
 ```
-<subagent task="bg_3" session="sub_9f1c…" agent="explore" status="succeeded" turns="4">
+<subagent task="bg_3" session="sess_9f1c…" agent="explore" status="succeeded" turns="4">
 <![CDATA[
 …the child's last assistant message…
 ]]>
 </subagent>
-The user did not see this report: restate what matters in your own reply. The full transcript is session sub_9f1c… (Tasks panel → Open transcript).
+The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Open transcript).
 ```
 
 `status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
@@ -144,7 +144,7 @@ The user did not see this report: restate what matters in your own reply. The fu
 A **background** spawn returns at once:
 
 ```
-Started subagent explore as background task bg_3 (child session sub_9f1c…).
+Started subagent explore as background task bg_3 (child session sess_9f1c…).
 Hard timeout 30m.
 Keep working; follow it with background_list or background_output, and collect the report with background_wait.
 ```
@@ -182,7 +182,7 @@ How the operator's own settings combine with this. A global `tools.permission_mo
 
 `background: true` is a request for a run that outlives the turn that started it, so the gate has to outlive it too. When the spawning turn is gone the relay hands the prompt to a **broker** the surface installs (`agent.DetachedPermissionBroker`, the same seam shape as `SubagentRuntime`) and blocks on it:
 
-- **`foxxycode http`** installs one. The prompt is published on the **background task row** of the run that is blocked (`pending_permission` on `GET /foxxycode/sessions/{id}/background-tasks`), the Tasks panel renders it with the same preview and buttons as an inline prompt, and the answer goes to `POST /foxxycode/sessions/{child}/permission`. That needs no new route: the permission hub is process-wide and keyed by `(session id, tool call id)` rather than by a live turn, and the handler consults it before the guard that rejects `sub_` sessions. The tasks chip flips to an amber "needs your answer" state, because the panel is closed by default and the prompt is in no transcript.
+- **`foxxycode http`** installs one. The prompt is published on the **background task row** of the run that is blocked (`pending_permission` on `GET /foxxycode/sessions/{id}/background-tasks`), the Tasks panel renders it with the same preview and buttons as an inline prompt, and the answer goes to `POST /foxxycode/sessions/{child}/permission`. That needs no new route: the permission hub is process-wide and keyed by `(session id, tool call id)` rather than by a live turn, and the handler consults it before the guard that rejects child sessions. The tasks chip flips to an amber "needs your answer" state, because the panel is closed by default and the prompt is in no transcript.
 - The prompt does **not** take the parent's arbiter slot. That slot exists because the parent holds a single pending record, while a detached prompt hangs on its own task and can wait for minutes; a sibling's live prompt must not queue behind it.
 - Nothing is persisted. The waiter is a goroutine, so a prompt cannot outlive the process that raised it; after a restart the run is gone and the drawer shows its task as orphaned. A record on disk would only invite a resume that a read-only child transcript cannot have.
 - The wait ends with the run's own context, which the pool's timeout, an explicit stop and shutdown all cancel. There is no second timer, and a waiting task still counts against `subagents.max_concurrent` - which is the truth about what it is doing.
@@ -199,12 +199,12 @@ The hard limit for one run is resolved in this order: the call's `timeout_second
 
 ## Child sessions
 
-Every run creates a child session with an id of the form **`sub_<24 hex>`**, generated before the pool is involved so the very first task snapshot already carries it. The child is a real session bundle under the sessions root, built the same way `session/new` builds one (skills, rules catalog, persistence), with its title pinned to the task label and its `session.json` carrying `subagentRun: true`, `parentSessionId`, `subagentName`, `subagentTaskId` and `subagentDepth`. While the child runs it is registered as a live session, so a transcript read is served from the one live state; after it finishes the bundle serves the transcript like any closed session.
+Every run creates a child session with an ordinary session id, generated before the pool is involved so the very first task snapshot already carries it. Nothing about the id says the session was delegated - it is the same **`sess_<24 hex>`** a chat gets - and what marks it is where the bundle sits and what its metadata says. The child is a real session bundle **inside the parent's**, at **`<sessions root>/<parent>/subagents/<child>/`**, built the same way `session/new` builds one (skills, rules catalog, persistence), with its title pinned to the task label and its `session.json` carrying `subagentRun: true`, `parentSessionId`, `subagentName`, `subagentTaskId` and `subagentDepth`. A child that spawns a child of its own nests one level deeper. While the child runs it is registered as a live session, so a transcript read is served from the one live state; after it finishes the bundle serves the transcript like any closed session.
 
 - **Hidden from History.** Child sessions stay out of every default listing: the web UI History, `GET /foxxycode/sessions`, `foxxycode sessions list`, `foxxycode -c`, and ACP `session/list`. `GET /foxxycode/sessions?include_subagents=true` includes them.
-- **Read-only transcripts.** Resuming or messaging a child is out of scope. Any prompt against a `sub_` session that is not the child's own task turn (a composer `POST /v1/responses`, an ACP `session/prompt`, a console prompt, a run-plan request, the background waker) is refused with `subagent sessions are read-only transcripts: <child> belongs to <parent>`; over HTTP that is a **409** naming the parent. The SPA renders the child's transcript with the composer replaced by a notice linking back to the parent chat.
+- **Read-only transcripts.** Resuming or messaging a child is out of scope. Any prompt against a child session that is not the child's own task turn (a composer `POST /v1/responses`, an ACP `session/prompt`, a console prompt, a run-plan request, the background waker) is refused with `subagent sessions are read-only transcripts: <child> belongs to <parent>`; over HTTP that is a **409** naming the parent. The SPA renders the child's transcript with the composer replaced by a notice linking back to the parent chat.
 - **From the Tasks panel.** An agent task shows an `agent` badge with the agent name, the detail pane shows the role name instead of a shell command, and **Open transcript** routes to `#/s/<child id>`. The live progress log in the output pane is the report while it runs; the transcript shows the child's tool calls and its final answer.
-- **Deletion cascades.** `DELETE /foxxycode/sessions/{id}` removes the whole tree through one path: the requested session plus every descendant found by `parentSessionId`, root to leaf. Every node's representing task is stopped and awaited first (a child's task lives under its parent, so this reaches a running child and a running descendant alike), then any remaining tasks of every node, and only then are the bundles removed deepest first, the requested session last. Before any of that, an active turn of any node is cancelled and awaited and a turn arriving during the deletion is refused; a turn that ignores its cancellation past the settle timeout (15 s) aborts the deletion with nothing removed (HTTP `409`). The tree is rescanned after it is marked until no new descendant appears, so a child created while the deletion starts is removed with it rather than orphaned. Nothing writes into a removed bundle afterwards.
+- **Deletion cascades.** `DELETE /foxxycode/sessions/{id}` removes the whole tree through one path: the requested session plus every descendant, found by walking the `subagents/` folders of its bundle, root to leaf. Every node's representing task is stopped and awaited first (a child's task lives under its parent, so this reaches a running child and a running descendant alike), then any remaining tasks of every node, and only then are the bundles removed deepest first, the requested session last. Before any of that, an active turn of any node is cancelled and awaited and a turn arriving during the deletion is refused; a turn that ignores its cancellation past the settle timeout (15 s) aborts the deletion with nothing removed (HTTP `409`). The tree is rescanned after it is marked until no new descendant appears, so a child created while the deletion starts is removed with it rather than orphaned. Nothing writes into a removed bundle afterwards.
 
 ## Lifecycle rules
 
@@ -218,17 +218,17 @@ Every run creates a child session with an id of the form **`sub_<24 hex>`**, gen
 
 ## Task rows and the output log
 
-An agent task row (`background_list`, `GET .../background-tasks`, the persisted `meta.json`) carries `kind: "agent"`, the label `agent <name>: <description>`, the parent's `session_id`, the spawning `tool_call_id` (so the transcript row keeps its live chip), and `agent: {"name": "<name>", "session_id": "sub_…"}`. It reports no pid: the handle behind it is not an OS process, so the survivor probe never mistakes it for one.
+An agent task row (`background_list`, `GET .../background-tasks`, the persisted `meta.json`) carries `kind: "agent"`, the label `agent <name>: <description>`, the parent's `session_id`, the spawning `tool_call_id` (so the transcript row keeps its live chip), and `agent: {"name": "<name>", "session_id": "sess_…"}`. It reports no pid: the handle behind it is not an OS process, so the survivor probe never mistakes it for one.
 
 The child never writes to the parent's stream. Its progress goes to the task's output sink as compact log lines, which is what `background_output` and the panel show while it runs:
 
 ```
-subagent explore (task bg_3, session sub_9f1c…) starting
+subagent explore (task bg_3, session sess_9f1c…) starting
 → grep
 ✓ grep
 [assistant] The runtime is wired in four places…
 === subagent report ===
-agent: explore | task: bg_3 | session: sub_9f1c… | outcome: end_turn | turns: 4 | duration: 41s
+agent: explore | task: bg_3 | session: sess_9f1c… | outcome: end_turn | turns: 4 | duration: 41s
 --- report ---
 …the child's last assistant message…
 ```
@@ -242,7 +242,7 @@ Subagents live where the session manager lives. With the console or `foxxycode a
 - definitions are read from the **server's** `subagents.dirs` (`${FOXXYCODE_HOME}/agents` of the server home and the `.claude/agents` / `.foxxycode/agents` of the session's cwd on the server);
 - a project definition is approved **on the server**: `foxxycode agents trust <name> --cwd <workspace>` on that host, or `POST /foxxycode/subagents/{name}/trust` with the bearer token. The local `foxxycode agents` subcommands read and write the local home only and know nothing about `--remote`;
 - a child's permission prompts travel the same way as the parent's: the relay forwards them under the parent session, the HTTP bridge emits the `permission` SSE event (even when the server itself runs with `tools.permission_mode: bypass`, because the child's own mode is what decides), the remote console or ACP client shows the prompt with the `[subagent <name>]` prefix and answers it over `POST /foxxycode/sessions/{parent}/permission`;
-- the `spawn_agent` call and its report stream back like any tool call, so the console status line reads `Running subagent <name>` in remote mode too; the child's transcript stays on the server and is read from the SPA served by the same host (Tasks panel, Open transcript) or from `GET /foxxycode/sessions/{sub_id}/messages`;
+- the `spawn_agent` call and its report stream back like any tool call, so the console status line reads `Running subagent <name>` in remote mode too; the child's transcript stays on the server and is read from the SPA served by the same host (Tasks panel, Open transcript) or from `GET /foxxycode/sessions/{child id}/messages`;
 - `subagents.*` settings are the server's: edit them in the SPA Settings of that host or with the `configure-foxxycode` skill from the remote session (config tools run on the server); `max_concurrent` applies to the next spawn on every session, whichever turn saved it;
 - the receipt is keyed by the **server-side** session workspace, which for a session created by a remote console or ACP client is the server's default cwd (the `cwd` field of the `GET /foxxycode/sessions` rows, or `GET /foxxycode/workspace/context` with the session header); the remote console footer shows the local folder, not that path. A copy-pasteable approval:
 
@@ -281,7 +281,7 @@ subagents:
 
 - Happy paths are Gherkin specs run by godog: `features/subagents.feature` (definitions offered to the model, foreground and background spawns, isolation of the parent's stream, depth, permission narrowing, project trust refusal and receipts, `deny`, a client-supplied MCP server inherited by a child, the permission relay and arbiter, read-only child sessions, settlement of a child's own tasks, the concurrency cap; harness `internal/agent/bdd_subagents_test.go`, scripted providers over a real `session.Manager`), `features/subagents_http.feature` (the agent task row, hidden and included child sessions, live and finished child transcripts, the catalog and trust routes, tree deletion; `external/httpserver/bdd_subagents_test.go`, `-tags http`), `features/subagents_catalog.feature` (the CLI listing across scopes and trust states; `internal/subagents/bdd_catalog_test.go`), and one scenario in `features/cli_tui.feature` for the `Running subagent <name>` status line (`external/cli/bdd_cli_tui_test.go`, `-tags cli`).
 - Edge cases are ordinary unit tests next to the code: frontmatter aliases and comma-separated tools, `AGENT.md` naming, duplicates, oversized and invalid files, precedence and canonical scope, digests and the receipt store, permission narrowing, tool set intersection and MCP patterns, the limiter (`internal/subagents`); `Launch` ordering and `Snapshot.Agent` persistence (`internal/bgtask`); child session meta, the read-only guard, list filtering and tree deletion (`internal/session`); the spawn hook's exit paths, timeouts, the sink and the CDATA envelope (`internal/agent`); config defaults and validation (`internal/config`).
-- End-to-end against a real model: `examples/acp/acp_e2e_subagents.py`, `examples/httpserver/http_e2e_subagents.py` and `examples/cli/cli_e2e_subagents.py`, wired into the three runners. Each copies the fixture `examples/agents_fixture/.foxxycode/agents/marker-reporter.md` into the workspace, approves it up front (`foxxycode agents trust` for the CLI and ACP runs, `POST /foxxycode/subagents/{name}/trust` for HTTP) so the run stays unattended, writes a marker file, and asks the model to delegate reading it. They assert the `agent` task under the parent's bundle, the `sub_` child bundle with its parent link, the marker in the child's transcript, in the report block and in the parent's final answer; the HTTP script also drives the task row, the read-only child transcript, the sessions list with and without `include_subagents`, and the catalog.
+- End-to-end against a real model: `examples/acp/acp_e2e_subagents.py`, `examples/httpserver/http_e2e_subagents.py` and `examples/cli/cli_e2e_subagents.py`, wired into the three runners. Each copies the fixture `examples/agents_fixture/.foxxycode/agents/marker-reporter.md` into the workspace, approves it up front (`foxxycode agents trust` for the CLI and ACP runs, `POST /foxxycode/subagents/{name}/trust` for HTTP) so the run stays unattended, writes a marker file, and asks the model to delegate reading it. They assert the `agent` task under the parent's bundle, the child bundle inside the parent's with its parent link, the marker in the child's transcript, in the report block and in the parent's final answer; the HTTP script also drives the task row, the read-only child transcript, the sessions list with and without `include_subagents`, and the catalog.
 
 ## Out of scope
 

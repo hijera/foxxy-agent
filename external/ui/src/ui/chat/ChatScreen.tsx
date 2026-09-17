@@ -17,6 +17,7 @@ import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
+import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
@@ -68,6 +69,12 @@ export function ChatScreen(props: {
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
+  /** Follow-ups waiting for the running turn to read them (the message queue). */
+  queuedMessages?: QueuedMessage[];
+  /** Add the draft to that queue instead of starting a turn. */
+  onQueue?: (text: string) => void;
+  /** Take one queued follow-up back before the agent reads it. */
+  onCancelQueued?: (id: string) => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
@@ -374,6 +381,15 @@ export function ChatScreen(props: {
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
+                {...(props.onQueue
+                  ? {
+                      queuedMessages: props.queuedMessages ?? [],
+                      onQueue: props.onQueue,
+                      ...(props.onCancelQueued
+                        ? { onCancelQueued: props.onCancelQueued }
+                        : {}),
+                    }
+                  : {})}
                 {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
                 {...(props.onWorkspacePickFolder
                   ? {
@@ -550,6 +566,15 @@ export function ChatScreen(props: {
                   {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
                   {...(props.generating === true && props.onStop !== undefined
                     ? { generating: true, onStop: props.onStop }
+                    : {})}
+                  {...(props.onQueue
+                    ? {
+                        queuedMessages: props.queuedMessages ?? [],
+                        onQueue: props.onQueue,
+                        ...(props.onCancelQueued
+                          ? { onCancelQueued: props.onCancelQueued }
+                          : {}),
+                      }
                     : {})}
                   {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
                   {...(props.editingFiles && props.editingFiles.length > 0

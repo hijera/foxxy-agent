@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/gitws"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
 	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
@@ -33,6 +34,10 @@ func (s *Server) workspaceContextPayload(ctx context.Context, cwd string) map[st
 		"name":        filepath.Base(info.Path),
 		"is_git_repo": info.IsGitRepo,
 		"is_worktree": info.IsWorktree,
+		// The interpreter run_command goes through. It belongs to the machine, not to
+		// the folder, but this is the host fact the SPA already asks for, and the tool
+		// card names the shell rather than calling everything "Shell".
+		"shell": platform.CurrentShell().Path,
 	}
 	if info.IsGitRepo {
 		payload["repo_root"] = info.RepoRoot
@@ -311,10 +316,6 @@ func (s *Server) foxxycodeSessionWorkspacePost(w http.ResponseWriter, r *http.Re
 	}
 	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, s.defaultCWD)
 	if err != nil {
-		if errors.Is(err, session.ErrReservedSessionID) {
-			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
-			return
-		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
@@ -367,7 +368,8 @@ func (s *Server) foxxycodeSessionWorkspacePost(w http.ResponseWriter, r *http.Re
 // applyBranchSwitch moves the session to branch. A branch already checked out
 // in another worktree (including the main one) switches the session cwd there;
 // otherwise it is either checked out in place or opened in a new worktree
-// under <home>/worktrees/<repo>/. Returns the HTTP status for errors.
+// under the repository's own <repo>/.foxxycode/worktrees/. Returns the HTTP status
+// for errors.
 func (s *Server) applyBranchSwitch(st *session.State, branch string, useWorktree bool) (int, error) {
 	cwd := st.GetCWD()
 	info := gitws.Describe(cwd)
@@ -387,11 +389,7 @@ func (s *Server) applyBranchSwitch(st *session.State, branch string, useWorktree
 		}
 	}
 	if useWorktree {
-		root := filepath.Join(info.RepoRoot, ".foxxycode", "worktrees")
-		if cfg := s.activeCfg(); cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
-			root = filepath.Join(cfg.Paths.Home, "worktrees", filepath.Base(info.RepoRoot))
-		}
-		path, _, err := gitws.EnsureWorktree(info.RepoRoot, branch, root)
+		path, _, err := gitws.EnsureWorktree(info.RepoRoot, branch)
 		if err != nil {
 			return http.StatusConflict, err
 		}
