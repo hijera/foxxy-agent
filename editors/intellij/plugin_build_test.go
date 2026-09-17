@@ -37,6 +37,16 @@ type descriptorRefs struct {
 	id      string
 	name    string
 	depends []string
+	// dependencies keeps the attributes of every <depends> element: an
+	// optional dependency is only useful with the descriptor it points to.
+	dependencies []pluginDependency
+}
+
+// pluginDependency is one <depends> element of plugin.xml.
+type pluginDependency struct {
+	id         string
+	optional   bool
+	configFile string
 }
 
 func parsePluginXML(t *testing.T) descriptorRefs {
@@ -61,6 +71,18 @@ func parsePluginXML(t *testing.T) descriptorRefs {
 			inID = el.Name.Local == "id"
 			inName = el.Name.Local == "name"
 			inDepends = el.Name.Local == "depends"
+			if inDepends {
+				dep := pluginDependency{}
+				for _, a := range el.Attr {
+					switch a.Name.Local {
+					case "optional":
+						dep.optional = a.Value == "true"
+					case "config-file":
+						dep.configFile = a.Value
+					}
+				}
+				refs.dependencies = append(refs.dependencies, dep)
+			}
 			for _, a := range el.Attr {
 				switch a.Name.Local {
 				case "serviceImplementation", "instance", "factoryClass", "implementationClass":
@@ -82,6 +104,7 @@ func parsePluginXML(t *testing.T) descriptorRefs {
 				refs.name = text
 			case inDepends && text != "":
 				refs.depends = append(refs.depends, text)
+				refs.dependencies[len(refs.dependencies)-1].id = text
 			}
 		case xml.EndElement:
 			inID, inName, inDepends = false, false, false
@@ -112,6 +135,76 @@ func TestPluginDescriptor(t *testing.T) {
 	}
 	if len(refs.classes) == 0 {
 		t.Fatal("plugin.xml declares no extension classes; descriptor parsing is likely broken")
+	}
+}
+
+// From build 262 (IDE 2026.2) the embedded browser lives in the bundled "Web
+// Browser (JCEF)" plugin, com.intellij.modules.jcef, and its classes are only
+// visible to plugins that depend on it. Without the dependency the tool window
+// factory dies with NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser and
+// the panel stays empty. The dependency has to be optional: IDEs before
+// 2025.3.1 have no such plugin and would refuse to load FoxxyCode otherwise,
+// and an optional <depends> must name a descriptor that exists in the jar.
+func TestPluginDescriptorDependsOnJcefOptionally(t *testing.T) {
+	refs := parsePluginXML(t)
+	var jcef *pluginDependency
+	for i := range refs.dependencies {
+		if refs.dependencies[i].id == "com.intellij.modules.jcef" {
+			jcef = &refs.dependencies[i]
+		}
+	}
+	if jcef == nil {
+		t.Fatalf("plugin.xml must declare <depends optional=\"true\" config-file=...>com.intellij.modules.jcef</depends>; got %v", refs.depends)
+	}
+	if !jcef.optional {
+		t.Error("the com.intellij.modules.jcef dependency must be optional, or IDEs before 2025.3.1 cannot load the plugin")
+	}
+	if jcef.configFile == "" {
+		t.Fatal("the optional com.intellij.modules.jcef dependency must name a config-file")
+	}
+	path := filepath.Join(resourcesRoot, "META-INF", filepath.FromSlash(jcef.configFile))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("config-file %s of the JCEF dependency: %v", jcef.configFile, err)
+	}
+	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	root := ""
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("%s is not well-formed XML: %v", path, err)
+		}
+		if el, ok := tok.(xml.StartElement); ok && root == "" {
+			root = el.Name.Local
+		}
+	}
+	if root != "idea-plugin" {
+		t.Errorf("%s root element = %q, want idea-plugin", path, root)
+	}
+}
+
+// The tool window factory is the first plugin code to touch the browser panel.
+// If it references a class with JCEF types in its signatures before checking
+// that JCEF can be loaded, a missing or disabled Web Browser (JCEF) plugin
+// turns into an exception and an empty tool window instead of a message.
+func TestToolWindowFactoryGuardsJcef(t *testing.T) {
+	path := filepath.Join(kotlinRoot, "dev", "foxxycode", "intellij", "ui", "FoxxyCodeToolWindowFactory.kt")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	src := string(data)
+	if strings.Contains(src, "com.intellij.ui.jcef") {
+		t.Errorf("%s must not import com.intellij.ui.jcef; check availability through JcefSupport", path)
+	}
+	if !strings.Contains(src, "JcefSupport.isAvailable()") {
+		t.Errorf("%s must check JcefSupport.isAvailable() before creating FoxxyCodeBrowserPanel", path)
+	}
+	if !strings.Contains(src, "LinkageError") {
+		t.Errorf("%s must catch LinkageError from the browser panel and show a message instead of an empty window", path)
 	}
 }
 
