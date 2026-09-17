@@ -32,8 +32,10 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
       ├─ IntelliJ plugin    → zip плагина → GitHub Release
       │                      + updatePlugins.xml → docs/ в main и ассет релиза (раздел 5)
       ├─ VS Code extension  → universal .vsix → GitHub Release
-      └─ Release notes      → «What's Changed» в описание релиза — после Release binaries,
-                              IntelliJ plugin и VS Code extension, даже если какая-то упала
+      ├─ Release notes      → «What's Changed» в описание релиза — после Release binaries,
+      │                       IntelliJ plugin и VS Code extension, даже если какая-то упала
+      └─ Website            → GitHub Pages: сайт + вся docs/ из main (updatePlugins.xml
+                              в том числе) — после тех же сборок, даже если какая-то упала
 ```
 
 Описание релиза пишет **отдельный job** (`.github/workflows/release-notes.yaml`), и запускается
@@ -57,9 +59,22 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
 
 2. **Actions включены** — уже да (проверка: `gh api repos/hijera/foxxy-agent/actions/permissions`).
 
-   **GitHub Pages** — тоже уже да: ветка `main`, папка `/docs`
-   (проверка: `gh api repos/hijera/foxxy-agent/pages`). Именно это раздаёт
-   `updatePlugins.xml` для IntelliJ (раздел 5), так что источник Pages менять нельзя.
+   **GitHub Pages** публикует workflow **Website** (`.github/workflows/site.yaml`),
+   источник — **GitHub Actions** (проверка: `gh api repos/hijera/foxxy-agent/pages --jq .build_type`
+   → `workflow`). Артефакт — это вся папка `docs/` из `main` как есть, поверх которой лежит
+   собранный сайт из `site/`. Поэтому все прежние адреса живы: `updatePlugins.xml` для IntelliJ
+   (раздел 5), `config.schema.json`, страницы документации. Подробности — в
+   [website.md](website.md).
+
+   **Разовый переход с ветки на Actions** (после мерджа PR с `site.yaml`):
+   1. дождаться job `Website` в запуске `Tag release on merge`: пока источник — ветка, он
+      собирает и выкладывает артефакт, но деплой пропускает с notice;
+   2. **Settings → Pages → Build and deployment → Source → GitHub Actions**;
+   3. сразу **Actions → Website → Run workflow** (ветка `main`) и проверить
+      `curl -fsSI https://hijera.github.io/foxxy-agent/updatePlugins.xml`.
+
+   **Откат**: вернуть **Source → Deploy from a branch → `main` / `/docs`**. `docs/` в `main` не
+   менялась, так что откат мгновенный и без потерь.
 
 3. **Линия версий.** Авто-бамп поднимает только последнее число, поэтому `0.2.95`
    сам по себе в `0.3.0` не превратится. Линию задаёт `MIN_VERSION` в шаге
@@ -98,7 +113,9 @@ git push origin main            # если ещё не запушен
 git tag 0.9.36                  # следующая версия
 git push origin 0.9.36
 ```
-Запустятся `Release binaries` + `Docker build and push` по `push: tags`.
+Запустятся `Release binaries` + `Docker build and push` по `push: tags`. Сайт и
+`updatePlugins.xml` на Pages сами не обновятся: после сборок запустите
+**Actions → Website → Run workflow**.
 
 ### C. Вручную из UI (workflow_dispatch)
 
@@ -139,7 +156,7 @@ GitHub Release (`hijera/foxxy-agent/releases`) с ассетами:
 JetBrains-репозиторий плагинов — это **один URL, отдающий `updatePlugins.xml`**. Сам zip
 может лежать где угодно, поэтому отдельный сервер-зеркало не нужен: документ указывает
 прямо на ассет GitHub Release, а роль «сервера обновлений» играет GitHub Pages этого
-репозитория (ветка `main`, папка `docs/`).
+репозитория (папка `docs/` из `main`, её публикует workflow `Website`).
 
 Адрес, который пользователь один раз добавляет в
 **Settings → Plugins → ⚙ → Manage Plugin Repositories → +**:
@@ -168,8 +185,11 @@ IDE, как любой плагин из маркетплейса.
    плагина совпадает с тегом; при расхождении job падает и документ не двигается;
 3. прикладывает `updatePlugins.xml` к релизу — документ появляется только рядом с уже
    опубликованным zip и никогда не рекламирует ассет, которого ещё нет;
-4. коммитит `docs/updatePlugins.xml` в `main` — это то, что раздаёт Pages. Пуш повторяется
-   до трёх раз, если в `main` в этот момент влился соседний PR.
+4. коммитит `docs/updatePlugins.xml` в `main`. Пуш повторяется до трёх раз, если в `main` в
+   этот момент влился соседний PR;
+5. после всех сборок `Tag release on merge` вызывает `Website`, и тот публикует Pages из
+   свежего `main`. Коммит из шага 4 сделан через `GITHUB_TOKEN`, а такой пуш не запускает
+   никаких workflow, поэтому без этого вызова Pages раздавал бы старый документ.
 
 Документ всегда описывает **одну** версию: JetBrains разрешает указывать id плагина в
 `updatePlugins.xml` только один раз. Старые версии никуда не деваются — они остаются
@@ -183,7 +203,8 @@ IDE, как любой плагин из маркетплейса.
 **Actions → IntelliJ plugin repository → Run workflow**, поле `version` — тег `X.Y.Z`.
 Плагин не пересобирается: берётся zip, уже приложенный к этому релизу. Это единственный
 способ указать документу на **более старую** версию — например, когда свежий релиз
-оказался плохим и всем нужно вернуть предыдущий.
+оказался плохим и всем нужно вернуть предыдущий. Pages этот workflow переопубликует сам
+(job `Website` после публикации документа).
 
 ### Если IDE не видит обновление
 
@@ -191,8 +212,10 @@ IDE, как любой плагин из маркетплейса.
 curl -fsS https://hijera.github.io/foxxy-agent/updatePlugins.xml
 ```
 
-- **версия не сдвинулась** — посмотрите job `Publish updatePlugins.xml to GitHub Pages` в
-  запуске `IntelliJ plugin`; Pages пересобирается ещё около минуты после коммита;
+- **версия не сдвинулась** — сначала сравните с `main`: если в `docs/updatePlugins.xml` новая
+  версия, а Pages отдаёт старую, смотрите job `Website` в запуске `Tag release on merge` (или
+  `IntelliJ plugin repository`); если и в `main` старая — шаг `Publish updatePlugins.xml to
+  GitHub Pages` в job `IntelliJ plugin`. Деплой занимает ещё около минуты после job;
 - **`plugin ID mismatch` / `plugin version mismatch` в логе** — в собранном архиве не тот
   `id` или версия не совпала с тегом; проверьте
   `editors/intellij/src/main/resources/META-INF/plugin.xml` и передачу `PLUGIN_VERSION` в

@@ -95,6 +95,7 @@ How FoxxyCode is built, tested, documented and released.
 - [ReAct agent](contributing/react-agent.md) - The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour.
 - [Web UI design](../DESIGN.md) - Tokens, layout and component contracts of the embedded SPA.
 - [Embedding the UI in IntelliJ](contributing/intellij-embedding.md) - How the JCEF panel hosts the SPA - the Chromium 104 baseline, the embed markers, the theme bridge and the window API the plugin calls.
+- [The website](contributing/website.md) - The site on GitHub Pages - React pages in English and Russian, data baked from the releases and the changelog twins, the comparison, the screenshots, and the workflow that publishes it together with docs/.
 - [Release setup](contributing/release-setup.md) - How releases of this fork are published on GitHub - the workflows, the tags and the artefacts, the desktop build included (in Russian).
 - [Codex hooks](contributing/codex-hooks.md) - How the Cursor rules reach a Codex CLI session working on this repository.
 - [OpenCode hooks](contributing/opencode-hooks.md) - Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository.

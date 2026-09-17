@@ -18,6 +18,17 @@ keeps working: it is read as `enable`, `foxxycode -t` only warns about it, and t
 next save from the settings screen rewrites the key together with the comment above
 it. When a section sets both, `enable` wins.
 
+## 0.3.4 — 2026-09-17
+
+**The settings link to the FoxxyCode website.**
+At the bottom of the settings, next to "API docs", there is now a "Website" link. The site has
+the downloads of the plugins and the desktop app, a comparison with other agents, and the
+changes of recent releases in English and Russian.
+
+**Links from the panel open in your browser.**
+"API docs" and the other links the panel opens in a new tab used to open an empty window on top
+of the IDE. They now open in the default browser.
+
 ## 0.3.1 — 2026-09-17
 
 **The FoxxyCode panel opens again in IDE 2026.2.**

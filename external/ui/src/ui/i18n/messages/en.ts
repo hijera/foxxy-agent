@@ -344,6 +344,7 @@ export const messagesEn: Record<string, string> = {
   "settings.saveSectionTitle": "Save the {section} section",
   "settings.loading": "Loading…",
   "settings.apiDocs": "API docs",
+  "settings.siteLink": "Website",
   "settings.reloadTitle": "Reload from server",
   "settings.reloadAriaLabel": "Reload configuration from server",
   "settings.saveAllTitle": "Save all sections",
