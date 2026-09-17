@@ -17,7 +17,7 @@ const workspaceFilesMaxEntries = 50000
 
 func workspaceSkipSubtree(name string) bool {
 	switch name {
-	case ".git", "node_modules", ".foxxycode":
+	case ".git", ".svn", "node_modules", ".foxxycode":
 		return true
 	default:
 		return false

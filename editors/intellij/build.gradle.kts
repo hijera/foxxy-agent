@@ -7,7 +7,7 @@ plugins {
 
 group = "dev.foxxycode"
 // Overridable from CI: ./gradlew buildPlugin -PpluginVersion=1.2.3
-version = (findProperty("pluginVersion") as String?)?.takeIf { it.isNotBlank() } ?: "0.1.3"
+version = (findProperty("pluginVersion") as String?)?.takeIf { it.isNotBlank() } ?: "0.3.0"
 
 repositories {
     mavenCentral()

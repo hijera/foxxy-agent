@@ -35,7 +35,9 @@ const (
 	permissionGrantsVer  = 1
 )
 
-// FileStore persists session state under Root/<sessionId>/.
+// FileStore persists session state under Root/<sessionId>/. A session spawned
+// by another one lives inside its parent's bundle instead, under
+// ChildSessionsDirName; SessionPath is what resolves either shape.
 //
 // Always use *FileStore, never a copy: the embedded mutex must not be copied.
 type FileStore struct {
@@ -43,6 +45,135 @@ type FileStore struct {
 
 	locksMu sync.Mutex
 	locks   map[string]*sync.Mutex
+
+	msgCacheMu sync.Mutex
+	msgCache   map[string]*persistedMessages
+
+	// childMu guards the index of nested bundles: the id of every session
+	// found inside another one, mapped to the directory it lives in.
+	// childScanned is when the sessions root was last walked to fill it, and
+	// childScanMu admits one walker at a time.
+	childMu      sync.RWMutex
+	childDirs    map[string]string
+	childScanned time.Time
+	childScanMu  sync.Mutex
+}
+
+// persistedMessages remembers what was last written to one messages.json. A
+// save compares the state's message revisions against it to tell "nothing
+// moved" from "the tail grew", which is what keeps the cost of persisting a
+// session proportional to the change rather than to the whole conversation.
+type persistedMessages struct {
+	// owner is the State this was written from: revisions start at zero in
+	// every State, so without it a reopened session could reach a revision its
+	// predecessor already wrote and be mistaken for unchanged.
+	owner   uint64
+	rev     uint64
+	editRev uint64
+	count   int
+	bytes   []byte
+
+	// size and modTime are what the file looked like once written. They are
+	// checked before a save decides it need not write: another process over
+	// the same bundle replaces the file without this store hearing about it,
+	// and existence alone would not notice.
+	size    int64
+	modTime time.Time
+}
+
+// matchesFile reports whether path still holds what this entry recorded.
+func (p *persistedMessages) matchesFile(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return st.Size() == p.size && st.ModTime().Equal(p.modTime)
+}
+
+func (f *FileStore) cachedMessages(path string) *persistedMessages {
+	f.msgCacheMu.Lock()
+	defer f.msgCacheMu.Unlock()
+	return f.msgCache[path]
+}
+
+func (f *FileStore) rememberMessages(path string, p *persistedMessages) {
+	f.msgCacheMu.Lock()
+	defer f.msgCacheMu.Unlock()
+	if f.msgCache == nil {
+		f.msgCache = make(map[string]*persistedMessages)
+	}
+	f.msgCache[path] = p
+}
+
+// ForgetPersistedMessages drops what this store remembers about the history it
+// last wrote into a bundle directory. The remembered bytes are a full copy of
+// that history, and a long-lived server - an editor panel, the desktop window -
+// opens many sessions over its life, so the copy goes when the session leaves
+// memory. A later save of a reopened session encodes its history in full, as
+// it would for a store that never wrote it.
+//
+// It waits for a save of the same file that is already running, so that save
+// cannot put the entry back after it was dropped.
+func (f *FileStore) ForgetPersistedMessages(sessionDir string) {
+	if f == nil || strings.TrimSpace(sessionDir) == "" {
+		return
+	}
+	path := filepath.Join(sessionDir, messagesFile)
+	mu := f.pathMutex(path)
+	mu.Lock()
+	defer mu.Unlock()
+	f.msgCacheMu.Lock()
+	delete(f.msgCache, path)
+	f.msgCacheMu.Unlock()
+}
+
+// messagesFileTail is how an encoded history with at least one message ends.
+// Splicing replaces it with the new entries and puts it back.
+const messagesFileTail = "\n  ]\n}\n"
+
+// encodeMessagesFile renders messages.json. When the previous content is known
+// and the history only grew at the end, the new entries are appended to those
+// bytes instead of encoding every earlier message again. The result is
+// byte-for-byte what encoding the whole history would have produced, which
+// TestPersistedHistoryMatchesAFullEncoding holds it to.
+//
+// The second return value is how many messages had to be encoded: the whole
+// history when it could not build on the previous content, and only the new
+// tail when it could. Nothing in the store reads it, but it is what makes the
+// difference between the two paths observable to a test - encoding a long
+// history is slow rather than allocation-heavy, so the work cannot be measured
+// any other way without timing.
+func encodeMessagesFile(msgs []llm.Message, base *persistedMessages) ([]byte, int, error) {
+	if base != nil && base.count > 0 && len(msgs) > base.count {
+		if out, ok := spliceMessages(base.bytes, msgs[base.count:]); ok {
+			return out, len(msgs) - base.count, nil
+		}
+	}
+	data, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: msgs}, "", "  ")
+	if err != nil {
+		return nil, 0, err
+	}
+	return append(data, '\n'), len(msgs), nil
+}
+
+// spliceMessages appends added to an already encoded history. It reports false
+// when prev is not shaped as expected, so the caller falls back to encoding the
+// whole history rather than writing something malformed.
+func spliceMessages(prev []byte, added []llm.Message) ([]byte, bool) {
+	if !bytes.HasSuffix(prev, []byte(messagesFileTail)) {
+		return nil, false
+	}
+	out := make([]byte, 0, len(prev)+len(added)*1024)
+	out = append(out, prev[:len(prev)-len(messagesFileTail)]...)
+	for i := range added {
+		frag, err := json.MarshalIndent(added[i], "    ", "  ")
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, ",\n    "...)
+		out = append(out, frag...)
+	}
+	return append(out, messagesFileTail...), true
 }
 
 // pathMutex returns a per-path mutex, creating it on first use. Holding it
@@ -64,9 +195,46 @@ func (f *FileStore) pathMutex(path string) *sync.Mutex {
 	return m
 }
 
-// SessionPath returns the directory for a session id.
+// SessionPath returns the directory for a session id: Root/<id> for a session
+// somebody started themselves, and the nested bundle under its parent for one
+// a spawn_agent call started.
+//
+// The id must already have passed ValidateFolderSessionID - every entry point
+// that takes one from a client runs it (the HTTP routes, EnsureHTTPSession,
+// session/load, session/new with a preferred id) - because the path is built
+// by joining, and joining only cleans a traversal, it does not refuse one. A bundle in the sessions root wins over a nested
+// one of the same name, which only a collision of two random ids could produce.
+// An id nothing has stored yet resolves to the sessions root, which is where a
+// fresh session belongs.
 func (f *FileStore) SessionPath(sessionID string) string {
-	return filepath.Join(f.Root, sessionID)
+	return f.sessionPath(sessionID, false)
+}
+
+// sessionPath resolves an id; forceScan skips the rate limit on the walk that
+// looks for a nested bundle, which the write path uses so a bundle another
+// process wrote is never answered with a second, top-level path for one id.
+func (f *FileStore) sessionPath(sessionID string, forceScan bool) string {
+	if f == nil {
+		return ""
+	}
+	if dir, ok := f.lookupChildDir(sessionID); ok {
+		return dir
+	}
+	top := filepath.Join(f.Root, sessionID)
+	if isBundleDir(top) {
+		return top
+	}
+	if dir, ok := f.resolveChildDir(sessionID, forceScan); ok {
+		return dir
+	}
+	return top
+}
+
+// isBundleDir reports whether dir holds a session.json, which is what makes a
+// directory a session bundle rather than an ordinary folder.
+func isBundleDir(dir string) bool {
+	fi, err := os.Stat(filepath.Join(dir, sessionMetaFile))
+	return err == nil && !fi.IsDir()
 }
 
 // HasPersistedSnapshot reports whether session.json exists for the id under Root.
@@ -110,6 +278,16 @@ func (f *FileStore) ResolveSessionID(idOrPrefix string) (string, error) {
 		}
 		matches = append(matches, ent.Name())
 	}
+	// A session spawned by another one is stored inside its parent's bundle,
+	// so the top-level scan never sees it. It is still a session an operator
+	// can name, so the nested bundles join the match set.
+	for id, dir := range f.scanChildDirs() {
+		if !strings.HasPrefix(id, q) || !isBundleDir(dir) {
+			continue
+		}
+		f.rememberChildDir(id, dir)
+		matches = append(matches, id)
+	}
 	sort.Strings(matches)
 	switch len(matches) {
 	case 0:
@@ -147,21 +325,31 @@ func AssetThumbnailPath(sessionDir, assetName string) string {
 
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
-	dir = f.SessionPath(sessionID)
+	// A fresh walk, not the rate-limited one: this call is about to write a
+	// bundle, and answering from a stale index would put a second bundle in
+	// the sessions root for an id another process has already stored inside a
+	// parent. It runs once per session, not once per request.
+	dir = f.sessionPath(sessionID, true)
+	return dir, f.ensureLayoutAt(sessionID, dir)
+}
+
+// ensureLayoutAt builds a bundle at an explicit directory, which is what lets
+// a session spawned by another one be created inside its parent's bundle.
+func (f *FileStore) ensureLayoutAt(sessionID, dir string) error {
 	if err := os.MkdirAll(filepath.Join(dir, todosDirName, todosArchiveName), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(AssetsPath(dir), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(AssetThumbnailsPath(dir), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "plans"), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	if _, statErr := os.Stat(metaPath); os.IsNotExist(statErr) {
@@ -173,17 +361,17 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 			UpdatedAt: now,
 		}
 		if wErr := writeJSONAtomic(metaPath, m); wErr != nil {
-			return "", wErr
+			return wErr
 		}
 	}
 	msgPath := filepath.Join(dir, messagesFile)
 	if _, statErr := os.Stat(msgPath); os.IsNotExist(statErr) {
 		wrap := messagesFileData{Version: messagesLayout, Messages: []llm.Message{}}
 		if wErr := writeJSONAtomic(msgPath, wrap); wErr != nil {
-			return "", wErr
+			return wErr
 		}
 	}
-	return dir, nil
+	return nil
 }
 
 // SessionMeta is persisted in session.json.
@@ -237,14 +425,12 @@ func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) b
 	return strings.HasPrefix(s, "sched_")
 }
 
-// IsSubagentRun reports whether this bundle is a child session spawned by
-// another session (by its meta, or by the sub_ folder prefix for a bundle whose
-// meta was never completed).
-func (m SessionMeta) IsSubagentRun(sessionFolderName string) bool {
-	if m.SubagentRun {
-		return true
-	}
-	return strings.HasPrefix(strings.TrimSpace(sessionFolderName), subagentSessionPrefix)
+// IsSubagentRun reports whether this bundle is a session spawned by another
+// session. Nothing about the id says so - every session id is minted the same
+// way - so the bundle's own metadata is the answer, written before the child
+// ever runs.
+func (m SessionMeta) IsSubagentRun() bool {
+	return m.SubagentRun
 }
 
 type messagesFileData struct {
@@ -276,7 +462,19 @@ type LoadedSnapshot struct {
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
-	dir := f.SessionPath(sessionID)
+	return f.readSnapshotAt(f.SessionPath(sessionID), sessionID)
+}
+
+// readSnapshotAt reads a bundle from an explicit directory, which is how a
+// listing walk reads nested bundles it already has the path of.
+//
+// Where the bundle sits is the second line of defence next to its metadata: a
+// bundle inside another session's ChildSessionsDirName is a spawned run even
+// when its session.json does not say so yet, because only a spawn writes one
+// there. Without that, a bundle whose first save never landed - the process
+// died between the layout and the save - would read back as an ordinary,
+// writable session hidden inside its parent.
+func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, error) {
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	metaBytes, err := readFileWithRetry(metaPath)
 	if err != nil {
@@ -323,6 +521,13 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		}
 	}
 
+	if parent, ok := f.childBundleParent(dir); ok {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = parent
+		}
+	}
+
 	return &LoadedSnapshot{
 		Dir:                 dir,
 		Meta:                meta,
@@ -340,14 +545,26 @@ func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
 	if f == nil || f.Root == "" {
 		return SessionMeta{}, fmt.Errorf("session store unavailable")
 	}
-	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
-	b, err := os.ReadFile(metaPath)
+	return f.readMetaAt(f.SessionPath(sessionID))
+}
+
+// readMetaAt reads session.json from an explicit bundle directory and applies
+// the rule readSnapshotAt applies: a bundle inside another session's
+// ChildSessionsDirName is a spawned run even before its session.json says so.
+func (f *FileStore) readMetaAt(dir string) (SessionMeta, error) {
+	b, err := readFileWithRetry(filepath.Join(dir, sessionMetaFile))
 	if err != nil {
 		return SessionMeta{}, err
 	}
 	var meta SessionMeta
 	if err := json.Unmarshal(b, &meta); err != nil {
 		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
+	}
+	if parent, ok := f.childBundleParent(dir); ok {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = parent
+		}
 	}
 	return meta, nil
 }
@@ -375,6 +592,13 @@ type SessionListEntry struct {
 	// Model is the session's own backend override (session.json
 	// selectedModelId); empty when the session ran on the configured default.
 	Model string
+	// SubagentRun marks a session another session spawned, and the three
+	// fields below name the run. They come off the same session.json the row
+	// was built from, so a client that shows children pays no second read.
+	SubagentRun     bool
+	ParentSessionID string
+	SubagentName    string
+	SubagentTaskID  string
 }
 
 // ListOptions selects which persisted sessions ListSnapshotsWith returns.
@@ -383,7 +607,8 @@ type ListOptions struct {
 	CWD string
 	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
 	IncludeSchedulerRuns bool
-	// IncludeSubagents adds child sessions spawned by spawn_agent (sub_ ids).
+	// IncludeSubagents descends into the sessions spawned by spawn_agent,
+	// which are stored inside the bundle of the session that spawned them.
 	IncludeSubagents bool
 }
 
@@ -417,30 +642,11 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		if !ent.IsDir() || strings.HasPrefix(ent.Name(), ".") {
 			continue
 		}
-		id := ent.Name()
-		// session.json only: a full ReadSnapshot would parse every stored transcript,
-		// turning the panel's first paint into a scan of the whole session history.
-		meta, err := f.ReadMeta(id)
-		if err != nil {
-			continue
+		dir := filepath.Join(f.Root, ent.Name())
+		out = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		if opts.IncludeSubagents {
+			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
 		}
-		if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
-			continue
-		}
-		if !opts.IncludeSubagents && meta.IsSubagentRun(id) {
-			continue
-		}
-		if cwdFilter != "" && !matchesWorkspace(cwdFilter, meta.CWD) {
-			continue
-		}
-		out = append(out, SessionListEntry{
-			SessionID: meta.ID,
-			CWD:       meta.CWD,
-			Title:     meta.Title,
-			UpdatedAt: meta.UpdatedAt,
-			CreatedAt: meta.CreatedAt,
-			Model:     meta.SelectedModelID,
-		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		ti, ei := time.Parse(time.RFC3339, out[i].UpdatedAt)
@@ -514,6 +720,51 @@ func (f *FileStore) MessageCount(sessionID string) (int, error) {
 	return 0, nil
 }
 
+// appendBundleRow reads one bundle's session.json and adds its row when opts
+// admit it. Only session.json: a full snapshot would parse every stored
+// transcript, turning the panel's first paint into a scan of the whole
+// session history (TestListSnapshotsDoesNotReadTranscripts).
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
+	meta, err := f.readMetaAt(dir)
+	if err != nil {
+		return out
+	}
+	if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
+		return out
+	}
+	if !opts.IncludeSubagents && meta.IsSubagentRun() {
+		return out
+	}
+	if cwdFilter != "" && !matchesWorkspace(cwdFilter, meta.CWD) {
+		return out
+	}
+	return append(out, SessionListEntry{
+		SessionID:       meta.ID,
+		CWD:             meta.CWD,
+		Title:           meta.Title,
+		UpdatedAt:       meta.UpdatedAt,
+		CreatedAt:       meta.CreatedAt,
+		Model:           meta.SelectedModelID,
+		SubagentRun:     meta.SubagentRun,
+		ParentSessionID: meta.ParentSessionID,
+		SubagentName:    meta.SubagentName,
+		SubagentTaskID:  meta.SubagentTaskID,
+	})
+}
+
+// appendChildRows adds the sessions nested inside dir, and their own children,
+// depth first.
+func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter string, opts ListOptions, depth int) []SessionListEntry {
+	if depth >= maxChildNesting {
+		return out
+	}
+	for _, child := range f.childBundleDirs(dir) {
+		out = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
+	}
+	return out
+}
+
 // FirstUserMessageContent returns trimmed content of the first message with role user
 // in messages.json order (skipping system, assistant, tool, etc. before it).
 func (f *FileStore) FirstUserMessageContent(sessionID string) (content string, found bool, err error) {
@@ -575,10 +826,19 @@ func (f *FileStore) Save(state *State) error {
 	if dir == "" {
 		return fmt.Errorf("session has no SessionDir")
 	}
-	msgs := state.GetMessages()
-	title := persistedConversationTitle(state)
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	msgPath := filepath.Join(dir, messagesFile)
+
+	// The lock comes before the snapshot, not after. Two saves of one session
+	// overlap, and a snapshot taken outside it can be written after a newer one
+	// has already landed - putting an older history on disk and leaving the
+	// cache describing it, which the next append would then splice onto.
+	msgMu := f.pathMutex(msgPath)
+	msgMu.Lock()
+	defer msgMu.Unlock()
+
+	msgs, msgRev, msgEditRev, stateID := state.MessagesForPersist()
+	title := conversationTitle(state, msgs)
 
 	var prevMeta SessionMeta
 	metaExisted := false
@@ -590,29 +850,40 @@ func (f *FileStore) Save(state *State) error {
 	newActivitySeq := state.GetActivitySeq()
 	newReadSeq := state.GetReadActivitySeq()
 
-	wrapPreview := messagesFileData{
-		Version:  messagesLayout,
-		Messages: msgs,
-	}
-	newMsgBytes, encErr := json.Marshal(wrapPreview)
-	oldMsgBytes, oldMsgErr := os.ReadFile(msgPath)
-	preserveUpdatedAt := encErr == nil && oldMsgErr == nil &&
-		bytes.Equal(oldMsgBytes, newMsgBytes) &&
-		newActivitySeq == prevMeta.ActivitySeq
+	// What was last written is remembered rather than read back and compared:
+	// the old code encoded the history a second time only to diff it against
+	// the file, and compared a compact encoding with an indented one, so the
+	// answer was always "changed" and updatedAt moved on every save.
+	//
+	// An entry is only worth anything while it belongs to this State and the
+	// file still holds what this store put there; another writer over the same
+	// bundle replaces it without this store hearing about it.
+	cached := f.cachedMessages(msgPath)
+	usable := cached != nil && cached.owner == stateID && cached.matchesFile(msgPath)
 
-	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
-		updatedAt = prevMeta.UpdatedAt
+	var pending []byte
+	messagesUnchanged := usable && cached.rev == msgRev
+	if !messagesUnchanged {
+		// Only a history that grew purely at the end can be spliced onto what
+		// was written last; an edit or a replacement re-encodes everything.
+		var base *persistedMessages
+		if usable && cached.editRev == msgEditRev {
+			base = cached
+		}
+		data, _, err := encodeMessagesFile(msgs, base)
+		if err != nil {
+			return err
+		}
+		// A revision moves on any edit, including one that changed nothing in
+		// the end. Comparing what was encoded against what is already there
+		// costs a memcmp on a path that has just paid for the encoding, and it
+		// is what makes updatedAt follow the content rather than the bookkeeping.
+		if usable && bytes.Equal(data, cached.bytes) {
+			messagesUnchanged = true
+		} else {
+			pending = data
+		}
 	}
-
-	// The creation stamp is written once and then carried forward. A bundle that
-	// has a session.json but no createdAt was stored by an older build: leave it
-	// empty rather than backdating it to this save.
-	createdAt := strings.TrimSpace(prevMeta.CreatedAt)
-	if createdAt == "" && !metaExisted {
-		createdAt = updatedAt
-	}
-
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
@@ -625,8 +896,6 @@ func (f *FileStore) Save(state *State) error {
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
 		TitleAuto:         strings.TrimSpace(state.GetTitleAuto()),
-		UpdatedAt:         updatedAt,
-		CreatedAt:         createdAt,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true
@@ -645,15 +914,49 @@ func (f *FileStore) Save(state *State) error {
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
 	meta.PermissionMode = state.GetPermissionMode()
+
+	// The stamp stands only when this save puts nothing new anywhere - not the
+	// history, and not a field of the meta either. Pinning a title or switching
+	// mode is something persisted, and docs/features/sessions.md promises the
+	// listing follows it. SessionMeta is all scalars, so the two compare
+	// directly once the stamps are taken out of the question.
+	sameMeta := meta
+	sameMeta.UpdatedAt, sameMeta.CreatedAt = prevMeta.UpdatedAt, prevMeta.CreatedAt
+	preserveUpdatedAt := messagesUnchanged && metaExisted && sameMeta == prevMeta
+
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
+		updatedAt = prevMeta.UpdatedAt
+	}
+	// The creation stamp is written once and then carried forward. A bundle that
+	// has a session.json but no createdAt was stored by an older build: leave it
+	// empty rather than backdating it to this save.
+	createdAt := strings.TrimSpace(prevMeta.CreatedAt)
+	if createdAt == "" && !metaExisted {
+		createdAt = updatedAt
+	}
+	meta.UpdatedAt, meta.CreatedAt = updatedAt, createdAt
+
 	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}
-	wrap := messagesFileData{
-		Version:  messagesLayout,
-		Messages: msgs,
-	}
-	if err := writeJSONAtomic(msgPath, wrap); err != nil {
-		return err
+	switch {
+	case pending != nil:
+		if err := writeBytesAtomic(msgPath, pending); err != nil {
+			return err
+		}
+		entry := &persistedMessages{owner: stateID, rev: msgRev, editRev: msgEditRev, count: len(msgs), bytes: pending}
+		if st, err := os.Stat(msgPath); err == nil {
+			entry.size, entry.modTime = st.Size(), st.ModTime()
+		}
+		f.rememberMessages(msgPath, entry)
+	case usable && (cached.rev != msgRev || cached.editRev != msgEditRev):
+		// The history was touched but came out identical. Carry the revisions
+		// forward so the next append can still build on these bytes instead of
+		// encoding the conversation again.
+		moved := *cached
+		moved.rev, moved.editRev, moved.count = msgRev, msgEditRev, len(msgs)
+		f.rememberMessages(msgPath, &moved)
 	}
 	uiWrap := uiLogFileData{
 		Version: uiLogLayout,
@@ -705,7 +1008,14 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 }
 
 func deriveSessionTitle(s *State) string {
-	for _, msg := range s.GetMessages() {
+	return titleFromMessages(s.GetMessages())
+}
+
+// titleFromMessages derives the title from a history the caller already holds,
+// so a save does not copy the whole conversation a second time just to read
+// its first line.
+func titleFromMessages(msgs []llm.Message) string {
+	for _, msg := range msgs {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := StripInjectedContextBlocks(strings.TrimSpace(msg.Content))
 			// Hydrated @-mention turns also carry <foxxycode_attachment> file bodies;
@@ -811,13 +1121,19 @@ func closeTagOutsideCDATA(s, lowerOpen, lowerClose string) int {
 // persistedConversationTitle selects the snapshot title saved to session.json.
 // Precedence: user pin > LLM auto-title > first-user-message derived title.
 func persistedConversationTitle(s *State) string {
+	return conversationTitle(s, s.GetMessages())
+}
+
+// conversationTitle is persistedConversationTitle over a history the caller
+// already has.
+func conversationTitle(s *State, msgs []llm.Message) string {
 	if p := strings.TrimSpace(s.GetTitlePinned()); p != "" {
 		return p
 	}
 	if a := strings.TrimSpace(s.GetTitleAuto()); a != "" {
 		return a
 	}
-	return deriveSessionTitle(s)
+	return titleFromMessages(msgs)
 }
 
 func truncateRunes(s string, max int) string {

@@ -329,6 +329,9 @@ func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotap
 
 // ensureSession gets or creates the session for this key.
 func (b *Bot) ensureSession(ctx context.Context, key string) (*session.State, error) {
-	sessionID := b.store.Get(key)
+	sessionID, err := b.store.Get(key)
+	if err != nil {
+		return nil, err
+	}
 	return b.runner.EnsureHTTPSession(ctx, sessionID, b.cwd)
 }

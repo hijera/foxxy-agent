@@ -17,6 +17,11 @@
 
     <!-- Platform-only dependency: installs in every IntelliJ-based IDE. -->
     <depends>com.intellij.modules.platform</depends>
+    <!-- From build 262 (IDE 2026.2) the embedded browser is the bundled "Web Browser (JCEF)" plugin,
+         and its classes reach only plugins that depend on it: without this the tool window fails
+         with NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser and stays empty. Optional,
+         because IDEs before 2025.3.1 have no such plugin; foxxycode-jcef.xml is empty on purpose. -->
+    <depends optional="true" config-file="foxxycode-jcef.xml">com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="dev.foxxycode.intellij.settings.FoxxyCodeSettings"/>
@@ -53,6 +58,10 @@
                 factoryClass="dev.foxxycode.intellij.ui.FoxxyCodeToolWindowFactory"/>
 
         <notificationGroup id="FoxxyCode" displayType="BALLOON"/>
+
+        <!-- Git worktrees the agent opens live in <project>/.foxxycode/worktrees; each is a full
+             checkout of another branch, so the index must not read them. -->
+        <directoryIndexExcludePolicy implementation="dev.foxxycode.intellij.project.FoxxyCodeWorktreesExcludePolicy"/>
     </extensions>
 
     <!-- The backend must be dead before the IDE exits or the plugin is replaced: on Windows a

@@ -11,4 +11,6 @@ vitest.config.ts
 package.json.vsce.bak
 package-lock.json.vsce.bak
 CHANGELOG.md.vsce.bak
+# The English twin of CHANGELOG.md is for the project website; VS Code shows CHANGELOG.md.
+CHANGELOG.en.md
 # Keep: out/** (compiled extension), foxxycode-bin/** (bundled binary), media/** (icons) ship in the VSIX.

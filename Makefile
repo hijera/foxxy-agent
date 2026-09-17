@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast
+.PHONY: build build-acp build-desktop icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -185,6 +185,24 @@ docs-check:
 # files, the config tables and the assets inventory.
 docs-fast:
 	go run ./cmd/docsgen -write -skip-cli
+
+# ---- Website (site/, published on GitHub Pages together with docs/) ----
+# site-check is what CI runs on every pull request: the release and changelog data are baked
+# from a fixture (no network) in strict mode, so an untranslated changelog entry fails here.
+# site bakes the live data the way the Website workflow does and assembles the Pages artifact
+# in site/_site. See docs/contributing/website.md.
+SITE_NPM_CI := cd site && npm ci --no-fund --no-audit
+
+site-check:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs --offline test/fixtures/releases.json --strict
+	cd site && npm run typecheck && npm test && npm run build
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+site:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs && npm run build
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:

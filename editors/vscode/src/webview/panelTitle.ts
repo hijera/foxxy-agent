@@ -11,7 +11,7 @@
 
 export const PANEL_PRODUCT_NAME = "FoxxyCode";
 
-/** Editor-panel tab title, e.g. `FoxxyCode 0.1.6`. Falls back to the bare name. */
+/** Editor-panel tab title, e.g. `FoxxyCode 0.3.0`. Falls back to the bare name. */
 export function formatPanelTitle(version: string | undefined | null): string {
   const v = (version || "").trim();
   return v === "" ? PANEL_PRODUCT_NAME : `${PANEL_PRODUCT_NAME} ${v}`;
