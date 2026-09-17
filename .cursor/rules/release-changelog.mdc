@@ -1,6 +1,6 @@
 ---
 description: Post-merge version and the user-facing changelogs (IntelliJ + VS Code) before opening a PR
-globs: editors/**, **/CHANGELOG.md
+globs: editors/**, **/CHANGELOG.md, **/CHANGELOG.en.md
 alwaysApply: false
 ---
 
@@ -10,7 +10,8 @@ Merging a PR into `main` releases immediately: `.github/workflows/tag-on-merge.y
 merge commit and the plugin/binary workflows publish from that tag. There is no separate
 release step where someone writes release notes afterwards — so the notes are part of the PR.
 
-There are **two** changelogs, one per editor plugin, and both follow the same rules:
+There are **two** changelogs, one per editor plugin, and both follow the same rules. Each has an
+**English twin** next to it, `CHANGELOG.en.md`, read by the project website (see §4):
 
 | File | Shown to the user as | Stamped by |
 | --- | --- | --- |
@@ -62,8 +63,8 @@ git ls-remote --tags origin | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tai
 
 That is the tag the previous `## Unreleased` shipped under. Rename its heading to
 `## X.Y.Z — <its own date>`, then add your own `## Unreleased — <today>` above it. Do this in
-**each** changelog that has an `Unreleased` section, even one you are not otherwise touching:
-the previous author's notes shipped under that tag in both plugins. If nobody does this the
+**each** changelog that has an `Unreleased` section, even one you are not otherwise touching, and
+in its English twin: the previous author's notes shipped under that tag in both plugins. If nobody does this the
 notes still ship correctly — the build stamps whatever is on top — the file just keeps coarser
 history, so it is worth doing.
 
@@ -104,7 +105,7 @@ Rules for the text, enforced by both test suites above:
 
 Everything else in the repository — commit messages, `UPSTREAM_SYNC.md`, `docs/` — stays in
 English per `AGENTS.md`. These two files are the deliberate exception, because they are
-product copy shown inside the editor.
+product copy shown inside the editor. Their English twins are covered in §4.
 
 ## 3. Which changelog gets the entry
 
@@ -125,8 +126,31 @@ editor's private plumbing — still produces a version bump on merge, but does n
 section. Fold it into the next entry that does have something to say, or leave the changelog
 alone. Do **not** invent a user-facing line for work that has none.
 
+## 4. The English twin (`CHANGELOG.en.md`)
+
+The project website shows the recent change notes in Russian and English, so every section you
+write in a `CHANGELOG.md` is written a second time, in English, in the `CHANGELOG.en.md` next to
+it, in the same pull request. The editors never read the twins: `build.gradle.kts` renders only
+the Russian file, and `editors/vscode/.vscodeignore` keeps the twin out of the VSIX.
+
+- **Same headings from the top down.** Section *i* of the twin has the same version (or
+  `Unreleased`) and the same date as section *i* of the Russian file. Renaming `Unreleased` to its
+  tag, or adding your own section on top, happens in both files at once. The twin may stop
+  earlier than the Russian file (releases before 0.2.78 were never translated) but may not run
+  ahead of it.
+- **Same entries.** Each paired section has the same number of `**Title.**` entries. Translate the
+  meaning for an English reader rather than word for word.
+- **In English.** Russian may appear only inside code or quotes, for example when an entry is about
+  a label of the Russian interface (`«…»`).
+- **No stubs, no conflict markers**, same as the Russian file.
+
+`editors/intellij/changelog_twin_test.go` and the `CHANGELOG.en.md` block of
+`editors/vscode/test/changelog.test.ts` enforce all of this.
+
 ## References
 
 @AGENTS.md
 @editors/intellij/CHANGELOG.md
 @editors/vscode/CHANGELOG.md
+@editors/intellij/CHANGELOG.en.md
+@editors/vscode/CHANGELOG.en.md
