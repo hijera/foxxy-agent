@@ -114,6 +114,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())
         recentOutput.clear()
+        crashOutput.clear()
         // The backend is a long-running server that prints almost nothing after startup. The
         // default reader polls it as if output were imminent, which the IDE itself warns about
         // ("Process hasn't generated any output for a long time") and which costs CPU for
@@ -203,8 +204,12 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
      * still on screen and still worth reading.
      */
     private fun reportUnexpectedExit(exitCode: Int) {
-        val detail = recentOutputText().trim()
-        val body = FoxxyCodeBundle.message("process.error.backendExited", exitCode) +
+        // A Go crash ends in thousands of idle goroutine frames, so the rolling tail would quote
+        // one of them; the crash capture keeps the headline that says what happened.
+        val crash = crashOutput.text().trim()
+        val detail = crash.ifEmpty { recentOutputText().trim() }
+        val key = if (crashOutput.outOfMemory) "process.error.backendOutOfMemory" else "process.error.backendExited"
+        val body = FoxxyCodeBundle.message(key, exitCode) +
             if (detail.isEmpty()) "" else "<br/><br/>" + htmlEscape(detail)
         ApplicationManager.getApplication().invokeLater {
             FoxxyCodeNotifications.error(
@@ -226,8 +231,12 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     /** Last lines the backend printed, kept so a startup failure can quote them to the user. */
     private val recentOutput = ArrayDeque<String>()
 
+    /** The headline of a Go runtime crash, which the rolling tail above loses. */
+    private val crashOutput = BackendCrashCapture()
+
     private fun rememberOutput(line: String) {
         if (line.isBlank()) return
+        crashOutput.offer(line)
         synchronized(recentOutput) {
             recentOutput.addLast(line)
             while (recentOutput.size > MAX_REMEMBERED_OUTPUT) recentOutput.removeFirst()

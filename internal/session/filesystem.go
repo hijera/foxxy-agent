@@ -48,6 +48,10 @@ type FileStore struct {
 
 	msgCacheMu sync.Mutex
 	msgCache   map[string]*persistedMessages
+	// msgCacheBytes is the sum of len(bytes) over msgCache, and msgCacheTick
+	// the clock that orders its entries by last use.
+	msgCacheBytes int64
+	msgCacheTick  uint64
 
 	// childMu guards the index of nested bundles: the id of every session
 	// found inside another one, mapped to the directory it lives in.
@@ -79,7 +83,17 @@ type persistedMessages struct {
 	// and existence alone would not notice.
 	size    int64
 	modTime time.Time
+
+	// lastUse is the msgCacheTick of the last save that read or wrote this
+	// entry; the smallest is evicted first when the cache is over its budget.
+	lastUse uint64
 }
+
+// msgCacheBudget bounds the bytes of encoded history one FileStore keeps. The
+// HTTP server behind an editor panel never forgets the sessions it opened, so
+// without a bound the copies grew with every conversation over the life of the
+// process. A variable only so tests can shrink it.
+var msgCacheBudget int64 = 64 * 1024 * 1024
 
 // matchesFile reports whether path still holds what this entry recorded.
 func (p *persistedMessages) matchesFile(path string) bool {
@@ -93,16 +107,54 @@ func (p *persistedMessages) matchesFile(path string) bool {
 func (f *FileStore) cachedMessages(path string) *persistedMessages {
 	f.msgCacheMu.Lock()
 	defer f.msgCacheMu.Unlock()
-	return f.msgCache[path]
+	p := f.msgCache[path]
+	if p != nil {
+		f.msgCacheTick++
+		p.lastUse = f.msgCacheTick
+	}
+	return p
 }
 
+// rememberMessages caches what a save wrote, evicting the least recently used
+// histories while the cache is over msgCacheBudget. A history larger than the
+// whole budget is not cached: its next save encodes it in full, as it would for
+// a store that never wrote it.
 func (f *FileStore) rememberMessages(path string, p *persistedMessages) {
 	f.msgCacheMu.Lock()
 	defer f.msgCacheMu.Unlock()
+	f.dropCachedMessagesLocked(path)
+	size := int64(len(p.bytes))
+	if size > msgCacheBudget {
+		return
+	}
 	if f.msgCache == nil {
 		f.msgCache = make(map[string]*persistedMessages)
 	}
+	f.msgCacheTick++
+	p.lastUse = f.msgCacheTick
 	f.msgCache[path] = p
+	f.msgCacheBytes += size
+	for f.msgCacheBytes > msgCacheBudget {
+		oldest := ""
+		for k, e := range f.msgCache {
+			if k != path && (oldest == "" || e.lastUse < f.msgCache[oldest].lastUse) {
+				oldest = k
+			}
+		}
+		if oldest == "" {
+			break
+		}
+		f.dropCachedMessagesLocked(oldest)
+	}
+}
+
+// dropCachedMessagesLocked removes one entry and its bytes from the cache.
+// The caller holds msgCacheMu.
+func (f *FileStore) dropCachedMessagesLocked(path string) {
+	if old, ok := f.msgCache[path]; ok {
+		f.msgCacheBytes -= int64(len(old.bytes))
+		delete(f.msgCache, path)
+	}
 }
 
 // ForgetPersistedMessages drops what this store remembers about the history it
@@ -123,7 +175,7 @@ func (f *FileStore) ForgetPersistedMessages(sessionDir string) {
 	mu.Lock()
 	defer mu.Unlock()
 	f.msgCacheMu.Lock()
-	delete(f.msgCache, path)
+	f.dropCachedMessagesLocked(path)
 	f.msgCacheMu.Unlock()
 }
 

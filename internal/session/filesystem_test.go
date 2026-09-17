@@ -1541,3 +1541,121 @@ func TestSavingAfterMarkingReadKeepsUpdatedAt(t *testing.T) {
 		t.Fatalf("marking a chat read moved it in the listing: %q -> %q", before.Meta.UpdatedAt, after.Meta.UpdatedAt)
 	}
 }
+
+// withHistoryCacheBudget shrinks the history cache budget for one test.
+func withHistoryCacheBudget(t *testing.T, budget int64) {
+	t.Helper()
+	old := msgCacheBudget
+	msgCacheBudget = budget
+	t.Cleanup(func() { msgCacheBudget = old })
+}
+
+func saveHistory(t *testing.T, fs *FileStore, id string, n int) *State {
+	t.Helper()
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.ReplaceMessagesWithoutPersist(buildHistory(n))
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func historyCacheUsage(fs *FileStore) (int64, int) {
+	fs.msgCacheMu.Lock()
+	defer fs.msgCacheMu.Unlock()
+	var sum int64
+	for _, e := range fs.msgCache {
+		sum += int64(len(e.bytes))
+	}
+	if sum != fs.msgCacheBytes {
+		return -1, len(fs.msgCache)
+	}
+	return sum, len(fs.msgCache)
+}
+
+// The store keeps the encoded history of every session it saved so an append
+// can be spliced on. The HTTP server behind an editor panel never forgets a
+// session, so without a bound that copy grew with every conversation opened
+// over the life of the process. The cache now evicts the least recently used
+// histories past its budget, and an evicted session is simply encoded in full
+// on its next save.
+func TestHistoryCacheStaysWithinItsBudget(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	probe := saveHistory(t, fs, "sess_probe", 30)
+	one, err := os.ReadFile(filepath.Join(probe.SessionDir, messagesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs.ForgetPersistedMessages(probe.SessionDir)
+	withHistoryCacheBudget(t, int64(len(one))*3)
+
+	var states []*State
+	for i := 0; i < 6; i++ {
+		states = append(states, saveHistory(t, fs, fmt.Sprintf("sess_cache_%d", i), 30))
+	}
+	used, entries := historyCacheUsage(fs)
+	if used < 0 {
+		t.Fatal("msgCacheBytes does not match the bytes the cache holds")
+	}
+	if used > msgCacheBudget {
+		t.Fatalf("history cache holds %d bytes, budget is %d", used, msgCacheBudget)
+	}
+	if entries == 0 || entries >= len(states) {
+		t.Fatalf("history cache has %d entries after saving %d sessions over a 3-history budget", entries, len(states))
+	}
+	last := states[len(states)-1]
+	if fs.cachedMessages(filepath.Join(last.SessionDir, messagesFile)) == nil {
+		t.Error("the most recently saved history was evicted")
+	}
+
+	evicted := states[0]
+	if fs.cachedMessages(filepath.Join(evicted.SessionDir, messagesFile)) != nil {
+		t.Fatal("the least recently used history is still cached")
+	}
+	evicted.AddMessage(llm.Message{Role: llm.RoleUser, Content: "after eviction"})
+	if err := fs.Save(evicted); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(evicted.SessionDir, messagesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: evicted.GetMessages()}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(onDisk, append(want, '\n')) {
+		t.Fatal("an evicted session did not persist as a full encoding")
+	}
+	if used, _ := historyCacheUsage(fs); used < 0 || used > msgCacheBudget {
+		t.Fatalf("history cache holds %d bytes after re-saving an evicted session, budget is %d", used, msgCacheBudget)
+	}
+}
+
+// A single history larger than the whole budget is not cached at all, and
+// forgetting a session gives its bytes back.
+func TestHistoryCacheAccountingOnOversizeAndForget(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	withHistoryCacheBudget(t, 64)
+	big := saveHistory(t, fs, "sess_big", 30)
+	if used, entries := historyCacheUsage(fs); used != 0 || entries != 0 {
+		t.Fatalf("a history over the budget was cached: %d bytes, %d entries", used, entries)
+	}
+	_ = big
+
+	withHistoryCacheBudget(t, 1<<30)
+	a := saveHistory(t, fs, "sess_a", 10)
+	b := saveHistory(t, fs, "sess_b", 10)
+	fs.ForgetPersistedMessages(a.SessionDir)
+	bBytes, err := os.ReadFile(filepath.Join(b.SessionDir, messagesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used, entries := historyCacheUsage(fs); used != int64(len(bBytes)) || entries != 1 {
+		t.Fatalf("after forgetting one of two histories: %d bytes, %d entries; want %d bytes, 1 entry", used, entries, len(bBytes))
+	}
+}
