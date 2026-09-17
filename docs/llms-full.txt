@@ -5213,7 +5213,7 @@ The root carries its own `.gitignore` holding `*`, written when the first worktr
 
 The flip side of living inside the checkout is that the folder is an ignored path in the main working copy, so `git clean` reaches it. Measured on git 2.47: `-xdf` skips the worktrees themselves ("skipping repository") but does delete the `.gitignore`, which FoxxyCode writes again with the next worktree; `-xdff` deletes the whole folder and leaves the entries behind as `prunable`. Run `git worktree list` before reaching for either, and `git worktree prune` after one went through.
 
-Every entry is a whole checkout of another branch, so what walks the main checkout leaves the folder out: the file snapshot a turn takes for branch rollback, the `print_tree` tool, and the IntelliJ plugin, which excludes `<project>/.foxxycode/worktrees` from the index so symbols and search results do not show up once per worktree. A Subversion branch folder is not a worktree and has no self-ignoring equivalent, so it keeps living under `<home>/worktrees/<wc>/`.
+Every entry is a whole checkout of another branch, so what walks the main checkout leaves the folder out: the file snapshot a turn takes for branch rollback, the `print_tree` tool, and the IntelliJ plugin, which excludes `<project>/.foxxycode/worktrees` from the index so symbols and search results do not show up once per worktree. A Subversion branch folder is not a worktree and has no self-ignoring equivalent, so it keeps living under `<home>/worktrees/<wc>/`. The same walkers skip the metadata of the version control client itself - `.git`, and `.svn` with its pristine copy of every file - so an `svn update` the agent ran is not something a branch rollback tries to undo.
 
 The same place is what the agent is told to use for a worktree it creates by hand (`internal/prompts/sections/agent/git_worktrees.md`), so a branch opened from the composer and a branch opened by a shell command land side by side. The web UI opens one through the worktree checkbox ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn-chips)); over HTTP it is `POST /foxxycode/sessions/{id}/workspace` with `{"branch":b,"worktree":true}` ([HTTP API](../reference/http-api.md)).
 
@@ -7591,6 +7591,8 @@ The export is built before the `/export` row lands in the transcript, so the fil
   ]
 }
 ```
+
+`git_branch` is the branch of the git repository the workspace sits in, as `/export` and `foxxycode sessions export` see it; in a Subversion working copy the header carries `svn_branch` (`"trunk"`, `"branches/feature-x"`) instead, and a folder that is both gets both. The readable formats show them as **Git branch** and **SVN branch**. The SVN branch is read from the local working copy with the client from `vcs.svn`, without contacting the server, and is left out when `vcs.svn.enabled` is `false`.
 
 Empty fields are omitted, with one exception: `tool_calls[].result` is present as `""` when the tool returned nothing and absent when the transcript holds no result for the call (a cancelled or still running turn). `tool_calls[].input` is the call's JSON arguments, or a JSON string when the model produced arguments that are not valid JSON. `tool_result` entries carry `tool_call_id` and `text`.
 
@@ -14065,7 +14067,8 @@ merge PR в main
       │
       ▼
 Tag release on merge (.github/workflows/tag-on-merge.yaml)
-  • берёт последний semver-тег origin, бампит patch (X.Y.Z+1)
+  • берёт последний semver-тег origin, бампит patch (X.Y.Z+1),
+    но не ниже границы линии MIN_VERSION (сейчас 0.3.0)
   • пушит новый тег
   • через workflow_call запускает дочерние сборки:
       ├─ Release binaries   → CLI-бинарники + desktop .exe + SHA256SUMS → GitHub Release
@@ -14102,13 +14105,16 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
    (проверка: `gh api repos/hijera/foxxy-agent/pages`). Именно это раздаёт
    `updatePlugins.xml` для IntelliJ (раздел 5), так что источник Pages менять нельзя.
 
-3. **(Опционально) продолжить нумерацию `0.9.x`.** Авто-бамп смотрит на теги
-   **origin**, а там их нет → базой станет `0.1.0` и первый авто-релиз будет
-   `0.1.1`. Чтобы продолжить линию coddy, один раз запушь базовый тег в origin:
-
-   ```bash
-   git push origin 0.9.35     # или актуальную версию
-   ```
+3. **Линия версий.** Авто-бамп поднимает только последнее число, поэтому `0.2.95`
+   сам по себе в `0.3.0` не превратится. Линию задаёт `MIN_VERSION` в шаге
+   «Get latest SemVer tag and bump patch» файла `tag-on-merge.yaml` — нижняя граница
+   версии: пока «старший тег + 1» меньше границы, релиз получает саму границу
+   (`0.2.95` → `0.3.0`), дальше идут `0.3.1`, `0.3.2`… Чтобы начать следующую линию
+   из [дорожной карты](../../ROADMAP.md), подними `MIN_VERSION` (и `releaseLineFloor` в
+   `internal/update/tag_on_merge_workflow_test.go`) обычным PR — его мердж и выйдет
+   как `0.4.0`. Тег руками для этого пушить не надо: ручной push тега собирает только
+   бинарники и Docker-образ, без плагинов, `updatePlugins.xml` и описания релиза.
+   Нумерация форка не связана с upstream-овской `0.9.x`.
 
 ---
 
