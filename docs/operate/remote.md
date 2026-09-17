@@ -98,7 +98,7 @@ httpserver:
       url: "https://box.example:12345"
 ```
 
-With `cors.enabled` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-FoxxyCode-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /foxxycode/sessions/{id}/composer-stream` and `GET /foxxycode/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication--cors).
+With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-FoxxyCode-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /foxxycode/sessions/{id}/composer-stream` and `GET /foxxycode/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication--cors).
 
 ## The environment chip
 
