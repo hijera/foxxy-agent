@@ -500,6 +500,9 @@ type ExportInput struct {
 	Title     string
 	CWD       string
 	GitBranch string
+	// SVNBranch is the branch of the Subversion working copy the workspace sits in
+	// ("trunk", "branches/feature-x"). Independent of GitBranch: a folder can be both.
+	SVNBranch string
 	Model     string
 	Messages  []llm.Message
 	// Stats is the session stats.json content when available.
@@ -527,6 +530,7 @@ type ExportSessionInfo struct {
 	Title        string            `json:"title,omitempty"`
 	CWD          string            `json:"cwd,omitempty"`
 	GitBranch    string            `json:"git_branch,omitempty"`
+	SVNBranch    string            `json:"svn_branch,omitempty"`
 	Model        string            `json:"model,omitempty"`
 	StartedAt    string            `json:"started_at,omitempty"`
 	ExportedAt   string            `json:"exported_at"`
@@ -741,6 +745,7 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 		Title:        strings.Join(strings.Fields(in.Title), " "),
 		CWD:          in.CWD,
 		GitBranch:    in.GitBranch,
+		SVNBranch:    in.SVNBranch,
 		Model:        in.Model,
 		ExportedAt:   exportedAt.UTC().Format(time.RFC3339),
 		MessageCount: len(in.Messages),
@@ -986,6 +991,7 @@ func renderExportMarkdown(doc ExportDocument) []byte {
 	item("Title", s.Title)
 	item("Workspace", markdownCodeSpan(s.CWD))
 	item("Git branch", markdownCodeSpan(s.GitBranch))
+	item("SVN branch", markdownCodeSpan(s.SVNBranch))
 	item("Model", markdownCodeSpan(s.Model))
 	item("Started", s.StartedAt)
 	item("Exported", s.ExportedAt)
