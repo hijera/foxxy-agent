@@ -213,11 +213,10 @@ Mobile layout
 - On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--foxxycode-mobile-top-inset`**) while **`body`** scrolls the chat.
 - On mobile the brand stays on a single line.
 
-Header links
+Footer links
 
-- GitHub link to `https://github.com/hijera/foxxy-agent` (**new tab**, `rel=noopener`).
-- API docs link to `/docs/` (**new tab**, `rel=noopener`).
-- Links live in the nav rail for this milestone.
+- The Settings footer carries **API docs** (`/docs/`) and **Website** (`https://hijera.github.io/foxxy-agent/`), both in a **new tab** (`rel=noopener`).
+- In the editor plugins a new tab is not an option: the IntelliJ panel hands the link to the system browser, and in VS Code the SPA posts it to the extension, which opens it with `vscode.env.openExternal` (`external/ui/src/ui/embedExternalLinks.ts`).
 
 Narrow-rail tooltips (desktop)
 

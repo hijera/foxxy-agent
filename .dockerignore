@@ -64,3 +64,6 @@ Thumbs.db
 /external/ui/app.js
 /external/ui/app.js.map
 .playwright-mcp/
+
+# The website is published by .github/workflows/site.yaml, never built into the image.
+site/

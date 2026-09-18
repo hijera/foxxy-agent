@@ -1,0 +1,126 @@
+# Build the website (site/) and publish it on GitHub Pages together with docs/.
+#
+# Pages serves the artifact this job assembles: the whole docs/ tree as it is on main, with the
+# built site laid over it. That keeps every address docs/ already had, most importantly
+# updatePlugins.xml (JetBrains IDEs poll it for plugin updates) and config.schema.json (FoxxyCode
+# writes its URL into every config it saves). site/scripts/assemble.mjs refuses a build that would
+# overwrite either, and publishes docs/ alone when the site itself failed to build.
+#
+# Triggers:
+#   - workflow_call from "Tag release on merge", after the build jobs, so the release's assets
+#     exist and intellij-plugin.yaml has committed the new updatePlugins.xml to main. A push made
+#     with GITHUB_TOKEN never starts a workflow, which is why nothing else would deploy it.
+#   - workflow_call from "IntelliJ plugin repository", after a manual rollback or re-sync.
+#   - workflow_dispatch: redeploy by hand, e.g. after a manually pushed tag or a docs-only push.
+#
+# Until Settings -> Pages -> Source is switched to "GitHub Actions" the legacy branch build keeps
+# serving main:/docs; this job then builds and uploads the artifact but skips the deploy.
+# editors/intellij/updateplugins/pages_workflow_test.go pins how this file and its callers fit.
+# Guide: docs/contributing/website.md.
+
+name: Website
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pages:
+    name: Build and deploy GitHub Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    # Build and deploy share this job and group, so a slower older run can never deploy after a
+    # newer one.
+    concurrency:
+      group: github-pages-deploy
+      cancel-in-progress: false
+
+    steps:
+      # main, not the commit that started the run: the release pipeline commits updatePlugins.xml
+      # to main after its merge commit. Full history for the tags the changelog lookup reads.
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install the website dependencies
+        working-directory: site
+        run: npm ci --no-fund --no-audit
+
+      - name: Bake the release and changelog data
+        working-directory: site
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SITE_REPO: ${{ github.repository }}
+        run: node scripts/build-data.mjs
+
+      # Allowed to fail: the plugin repository document and docs/ still go out below, and the
+      # last step fails the run so the breakage is not missed.
+      - name: Build the website
+        id: build
+        continue-on-error: true
+        working-directory: site
+        env:
+          SITE_BASE: /${{ github.event.repository.name }}/
+        run: npm run typecheck && npm run build
+
+      - name: Assemble the Pages artifact
+        env:
+          SITE_BUILT: ${{ steps.build.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$SITE_BUILT" = "success" ]; then
+            node site/scripts/assemble.mjs --docs docs --dist site/dist --out _site
+          else
+            echo "::error::The website did not build; publishing docs/ alone so updatePlugins.xml and config.schema.json stay current."
+            node site/scripts/assemble.mjs --docs docs --out _site
+          fi
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Check the Pages source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          build_type="$(gh api "repos/${REPO}/pages" --jq .build_type 2>/dev/null || echo unknown)"
+          if [ "$build_type" = "legacy" ]; then
+            echo "::notice::Pages still deploys main:/docs from the branch, which keeps serving updatePlugins.xml. The artifact is uploaded but not deployed. Switch Settings -> Pages -> Source to GitHub Actions to publish the website."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        if: steps.source.outputs.deploy == 'true'
+        uses: actions/deploy-pages@v4
+
+      - name: Fail the run when the website did not build
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "The website build failed; only docs/ was published. See the step \"Build the website\"." >&2
+          exit 1
