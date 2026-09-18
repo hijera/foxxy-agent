@@ -8,7 +8,15 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-17
+## Unreleased — 2026-09-18
+
+**The reasoning level in the composer follows the interface language.**
+The reasoning level button next to the model picker showed "Minimal", "Low", "Medium" and
+"High" even in a Russian interface. The button and its menu now read «Минимальный»,
+«Низкий», «Средний» and «Высокий». A level the interface has no name for is still shown the
+way it is written in the model settings.
+
+## 0.3.4 — 2026-09-17
 
 **The settings link to the FoxxyCode website.**
 At the bottom of the settings, next to "API docs", there is now a "Website" link. The site has
