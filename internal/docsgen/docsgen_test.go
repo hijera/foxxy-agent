@@ -186,11 +186,12 @@ func TestChecksReadACRLFCheckout(t *testing.T) {
 	}
 }
 
-// A committed symlink under docs/assets (foxxycode-favicon.svg) is a real link
-// on Linux and, with core.symlinks=false, a small text file holding the target
-// path on Windows. The inventory has to size both the same, by the link itself:
-// following it on Linux listed the target's bytes, and CI read the Windows-made
-// index as stale.
+// A committed symlink under docs/assets is a real link on Linux and, with
+// core.symlinks=false, a small text file holding the target path on Windows.
+// The inventory has to size both the same, by the link itself: following it on
+// Linux listed the target's bytes, and CI read the Windows-made index as stale.
+// foxxycode-favicon.svg used to be such a link before it became a file of its
+// own; nothing under docs/assets is one today, and this keeps the behaviour.
 func TestAssetInventorySizesASymlinkByTheLinkItself(t *testing.T) {
 	root := t.TempDir()
 	assets := filepath.Join(root, "docs", "assets")

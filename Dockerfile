@@ -16,7 +16,7 @@ COPY external/ui/ ./
 # stopped at [UNRESOLVED_IMPORT] and 0.2.94 to 0.3.1 published no image.
 # TestDockerBuildContextHoldsWhatTheSPAImports now fails on an import that leaves
 # external/ui without a copy here.
-COPY docs/assets/foxxycode-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+COPY docs/assets/foxxycode-favicon.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
 COPY docs/assets/foxxycode-logo-wordmark.svg docs/assets/foxxycode-logo-wordmark-light.svg /docs/assets/
 RUN npm run build:go
 

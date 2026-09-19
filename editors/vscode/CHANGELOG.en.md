@@ -10,6 +10,15 @@
 
 ## Unreleased — 2026-09-18
 
+**The fox mark replaces a faceless icon.**
+The activity bar showed a pair of `</>` chevrons, and the extension's
+Marketplace page had a grey placeholder instead of a logo. Both now carry the
+orange FoxxyCode fox, the same one the application icon uses. The image in the
+walkthrough is fixed along the way: it was drawn black on black and was
+invisible.
+
+## 0.3.6 — 2026-09-18
+
 **The reasoning level in the composer follows the interface language.**
 The reasoning level button next to the model picker showed "Minimal", "Low", "Medium" and
 "High" even in a Russian interface. The button and its menu now read «Минимальный»,

@@ -69,6 +69,15 @@ export default defineConfig({
     // Lightning CSS (Vite 8 default) can drop unprefixed `backdrop-filter` when `-webkit-backdrop-filter`
     // is present, which breaks blur in Firefox (and some stacks). Esbuild preserves both declarations.
     cssMinify: "esbuild",
+    // Every asset the bundle imports must be inlined, whatever its size.
+    // scripts-sync-to-go.mjs ships index.html, styles.css and app.js and
+    // nothing else, so an asset Vite emits as its own file is missing from the
+    // go:embed set and 404s at runtime. That is not hypothetical: when the
+    // brand mark became a traced fox the wordmarks grew past the 4 KB default
+    // and the sign-in screen - the one page a browser sees before it has any
+    // credential, so it cannot fetch anything anyway - rendered a broken image.
+    // The sync script fails the build on an unexpected file in dist/ as well.
+    assetsInlineLimit: () => true,
     outDir: "../dist",
     emptyOutDir: true,
     sourcemap: true,
