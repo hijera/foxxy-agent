@@ -718,6 +718,12 @@ func (a *Agent) runReActLoop(
 		// Whether any delta reached the client during this attempt. Atomic because a
 		// transport is free to deliver chunks from its own goroutine.
 		var sawDelta atomic.Bool
+		// Calls announced by name only (llm.StreamChunk.ToolCallNamed). An
+		// announcement does not count as output, so the provider may replay a
+		// stream that died under it, and the replay names the call under a new
+		// id. Whatever was announced and never arrived is retracted below.
+		var namedMu sync.Mutex
+		namedOnly := map[string]string{}
 		var firstTokenTimer *time.Timer
 		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
@@ -885,23 +891,36 @@ func (a *Agent) runReActLoop(
 			} else if chunk.TextDelta != "" {
 				emitText(chunk.TextDelta, now, false)
 			}
-			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
+			// A call the model has only named yet announces the same pending row:
+			// the arguments can take seconds to stream, and without the row the
+			// transcript stands still with nothing but a Stop button. The row is
+			// keyed by the call id, so the complete call updates it in place.
+			announce := chunk.ToolCall
+			if announce == nil {
+				announce = chunk.ToolCallNamed
+			}
+			if announce != nil && announce.Name != "" {
+				if chunk.ToolCall == nil {
+					namedMu.Lock()
+					namedOnly[announce.ID] = announce.Name
+					namedMu.Unlock()
+				}
 				maybeMarkReasonEnd(now)
 				if st := sessionStatePtr(a.state); st != nil {
-					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(chunk.ToolCall.ID) != "" {
-						_ = session.WriteToolCallMeta(sd, chunk.ToolCall.ID, session.ToolCallMeta{
-							ToolCallID: strings.TrimSpace(chunk.ToolCall.ID),
-							Name:       chunk.ToolCall.Name,
-							Kind:       toolKind(chunk.ToolCall.Name),
+					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(announce.ID) != "" {
+						_ = session.WriteToolCallMeta(sd, announce.ID, session.ToolCallMeta{
+							ToolCallID: strings.TrimSpace(announce.ID),
+							Name:       announce.Name,
+							Kind:       toolKind(announce.Name),
 							Status:     "pending",
 						})
 					}
 				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
 					SessionUpdate: acp.UpdateTypeToolCall,
-					ToolCallID:    chunk.ToolCall.ID,
-					Title:         chunk.ToolCall.Name, // plain name, no "Calling: " prefix
-					Kind:          toolKind(chunk.ToolCall.Name),
+					ToolCallID:    announce.ID,
+					Title:         announce.Name, // plain name, no "Calling: " prefix
+					Kind:          toolKind(announce.Name),
 					Status:        "pending",
 				})
 				noteProgress(now)
@@ -910,6 +929,9 @@ func (a *Agent) runReActLoop(
 		stopFirstTokenTimer()
 		stopStallTimer()
 		streamCancel()
+		namedMu.Lock()
+		a.retractUnarrivedToolCalls(sessionID, namedOnly, response)
+		namedMu.Unlock()
 
 		// One auditable copy of the emitted contract every branch below depends on:
 		// a call that delivered nothing may be replayed, a call that delivered
@@ -1561,6 +1583,43 @@ func (a *Agent) recordSkippedToolCalls(messages *[]llm.Message, calls []llm.Tool
 		})
 	}
 	a.refreshConversationContextUsage(true)
+}
+
+// retractUnarrivedToolCalls closes the pending rows of calls that were announced
+// by name while their arguments streamed and then never arrived: the stream was
+// cut, or the provider replayed it and the model named the call under another
+// id. Nothing was executed or persisted for them, so the row is all there is to
+// take back.
+func (a *Agent) retractUnarrivedToolCalls(sessionID string, named map[string]string, response *llm.Response) {
+	if len(named) == 0 {
+		return
+	}
+	arrived := map[string]bool{}
+	if response != nil {
+		for _, tc := range response.ToolCalls {
+			arrived[tc.ID] = true
+		}
+	}
+	for id, name := range named {
+		if arrived[id] {
+			continue
+		}
+		if st := sessionStatePtr(a.state); st != nil {
+			if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(id) != "" {
+				_ = session.WriteToolCallMeta(sd, id, session.ToolCallMeta{
+					ToolCallID: strings.TrimSpace(id),
+					Name:       name,
+					Kind:       toolKind(name),
+					Status:     "cancelled",
+				})
+			}
+		}
+		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+			SessionUpdate: acp.UpdateTypeToolCallUpdate,
+			ToolCallID:    id,
+			Status:        "cancelled",
+		})
+	}
 }
 
 // loopAbortChannelName labels the streamed channel that looped, for logs.
