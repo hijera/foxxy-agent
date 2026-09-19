@@ -8,6 +8,18 @@
 
 # FoxxyCode for VS Code changes
 
+## Unreleased — 2026-09-19
+
+**Agent edit highlights are back on the lines that changed.**
+When the agent edited the same file more than once in a turn, the highlight of the
+second and later edits slid down by exactly the number of inserted lines and covered
+the code below the insertion. It was a race: the file was already open, the edit event
+arrived before VS Code re-read the file from disk, the lines were marked in the old
+text, and the reload then carried them off. Highlights are now placed against the text
+the editor actually holds and redrawn as soon as VS Code picks up the new version of
+the file. A line the editor does not contain - because of unsaved changes, say - stays
+unhighlighted instead of painting its neighbour.
+
 ## 0.3.9 — 2026-09-19
 
 **Config switches are now called `enable`, the way coddy-agent spells them.**
