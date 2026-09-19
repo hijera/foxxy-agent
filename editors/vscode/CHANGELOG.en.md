@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-19
+## 0.3.9 — 2026-09-19
 
 **Config switches are now called `enable`, the way coddy-agent spells them.**
 FoxxyCode used to call them `enabled`, so a `config.yaml` did not travel between the

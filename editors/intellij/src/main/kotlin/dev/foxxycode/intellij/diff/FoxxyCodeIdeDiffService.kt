@@ -3,8 +3,6 @@ package dev.foxxycode.intellij.diff
 import com.google.gson.JsonObject
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
-import com.intellij.diff.comparison.ComparisonManager
-import com.intellij.diff.comparison.ComparisonPolicy
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.ide.actions.RevealFileAction
 import com.intellij.notification.NotificationAction
@@ -14,24 +12,23 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diff.DiffColors
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.MarkupModel
 import com.intellij.openapi.editor.markup.RangeHighlighter
-import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.FileTypeManager
-import com.intellij.openapi.progress.DumbProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.ui.JBColor
+import com.intellij.openapi.vfs.VfsUtil
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
-import java.awt.Color
 import java.io.File
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -154,6 +151,10 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
     /** Opens the file and highlights changed line ranges; returns the editor (or null). */
     private fun openAndHighlight(ev: FoxxyCodeEditEvent, useAfterRanges: Boolean): Editor? {
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(ev.path)) ?: return null
+        // An applied edit is already on disk, but a file that is open (or merely cached by the
+        // VFS) keeps its old document until a refresh notices the change. Refresh now, so the
+        // document is reloaded before it is highlighted rather than after.
+        if (useAfterRanges) VfsUtil.markDirtyAndRefresh(false, false, false, vf)
         val editor = FileEditorManager.getInstance(project)
             .openTextEditor(OpenFileDescriptor(project, vf), true) ?: return null
 
@@ -161,23 +162,16 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
         val model = editor.markupModel
         val list = ArrayList<RangeHighlighter>()
         val doc = editor.document
-        val fragments = try {
-            ComparisonManager.getInstance()
-                .compareLines(ev.before, ev.after, ComparisonPolicy.DEFAULT, DumbProgressIndicator.INSTANCE)
-        } catch (e: Exception) {
-            log.debug("compareLines failed: ${e.message}")
-            emptyList()
-        }
-        for (f in fragments) {
-            val startLine = if (useAfterRanges) f.startLine2 else f.startLine1
-            val endLine = if (useAfterRanges) f.endLine2 else f.endLine1
-            if (endLine <= startLine) continue // pure deletion has no line in this side
-            val last = doc.lineCount
-            if (startLine >= last) continue
-            val from = doc.getLineStartOffset(startLine.coerceIn(0, last - 1))
-            val to = doc.getLineEndOffset((endLine - 1).coerceIn(0, last - 1))
+        val side = if (useAfterRanges) ChangedLineRanges.Side.AFTER else ChangedLineRanges.Side.BEFORE
+        // Ranges are computed against the document's actual text, not taken from the event's
+        // line numbers: if the reload has still not happened (unsaved changes in the editor),
+        // lines the document does not contain stay unhighlighted instead of landing elsewhere.
+        for (r in ChangedLineRanges.inDocument(ev.before, ev.after, doc.immutableCharSequence, side)) {
+            if (r.start >= doc.lineCount) continue
+            val from = doc.getLineStartOffset(r.start)
+            val to = doc.getLineEndOffset(minOf(r.end, doc.lineCount) - 1)
             val hl = model.addRangeHighlighter(
-                from, to, HighlighterLayer.ADDITIONAL_SYNTAX, changedLineAttributes(),
+                attributesKey(r.kind), from, to, HighlighterLayer.ADDITIONAL_SYNTAX,
                 HighlighterTargetArea.LINES_IN_RANGE,
             )
             list.add(hl)
@@ -196,9 +190,17 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
         }
     }
 
-    private fun changedLineAttributes(): TextAttributes {
-        val bg = JBColor(Color(0xE6, 0xFF, 0xE6), Color(0x2A, 0x3A, 0x2A)) // subtle green, light/dark
-        return TextAttributes().apply { backgroundColor = bg }
+    /**
+     * The diff viewer's own color keys. A key is resolved against the editor's color scheme on
+     * every paint, so the highlight suits whichever scheme is active and follows a theme switch
+     * while it is on screen. The fixed JBColor used before did neither: it picks its variant from
+     * the look-and-feel flag, not the editor scheme, and could paint dark green behind the dark
+     * text of a light scheme.
+     */
+    private fun attributesKey(kind: ChangedLineRanges.Kind): TextAttributesKey = when (kind) {
+        ChangedLineRanges.Kind.INSERTED -> DiffColors.DIFF_INSERTED
+        ChangedLineRanges.Kind.DELETED -> DiffColors.DIFF_DELETED
+        ChangedLineRanges.Kind.MODIFIED -> DiffColors.DIFF_MODIFIED
     }
 
     // ---- notifications / decisions ----------------------------------------------------
