@@ -252,6 +252,9 @@ func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
 	for time.Now().Before(deadline) && !strings.Contains(out.String(), "event: permission") {
 		time.Sleep(2 * time.Millisecond)
 	}
+	if !strings.Contains(out.String(), "event: permission") {
+		t.Fatal("a relayed prompt must still be forwarded as a permission event")
+	}
 	if session.PendingPermissionHeld(dir) {
 		t.Fatal("a relayed prompt must not write pending_permission.json")
 	}
@@ -278,10 +281,58 @@ func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
 	if !session.PendingPermissionHeld(dir) {
 		t.Fatal("the parent's own prompt must be recorded")
 	}
+	// The record is written only once the wait is registered, so an answer
+	// posted the moment it appears always lands.
 	if !CompletePermissionAnswer("s1", "own-1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {
 		t.Fatal("CompletePermissionAnswer failed")
 	}
 	<-done
+}
+
+// The record is how clients that are not reading the stream learn a prompt
+// exists, so it may only appear once the wait is registered: an answer that
+// finds no wait is reported as handled by the resume path and then dropped,
+// because the live turn still holds the session. Answering from inside the
+// write, the earliest instant anyone could read the record, checks that
+// ordering outright instead of racing it.
+func TestRequestPermissionRegistersTheWaitBeforeWritingTheRecord(t *testing.T) {
+	dir := t.TempDir()
+	sender := NewSender(&config.Config{}, &syncBuffer{}, true, "agent-model")
+	sender.SetSessionDir(dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wrote, answered bool
+	write := writePendingPermission
+	writePendingPermission = func(sessionDir string, params acp.PermissionRequestParams, toolName, argsJSON string) error {
+		err := write(sessionDir, params, toolName, argsJSON)
+		wrote = true
+		answered = CompletePermissionAnswer(params.SessionID, params.ToolCall.ToolCallID, &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+		if !answered {
+			// Nothing else will answer: end the prompt so the test reports
+			// instead of hanging.
+			cancel()
+		}
+		return err
+	}
+	defer func() { writePendingPermission = write }()
+
+	got, err := sender.RequestPermission(ctx, acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "early-1", Title: "Run: run_command", Status: "pending"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wrote {
+		t.Fatal("the parent's own prompt must be recorded")
+	}
+	if !answered {
+		t.Fatal("an answer posted as pending_permission.json was written found no wait: the record went out before the prompt was listening")
+	}
+	if got == nil || got.OptionID != "allow" {
+		t.Fatalf("answer = %#v, want the allow posted off the record", got)
+	}
 }
 
 func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
@@ -351,6 +402,52 @@ func TestRequestPermissionClearsTheRecordWhenTheContextEnds(t *testing.T) {
 	if session.PendingPermissionHeld(dir) {
 		t.Fatal("a prompt ended by context cancellation left pending_permission.json behind")
 	}
+	if permissionWaitRegistered("s1", "tc-1") {
+		t.Fatal("a prompt ended by context cancellation left its wait registered")
+	}
+}
+
+// A prompt whose permission event cannot be written returns at once, and the
+// agent finishes the tool call with a denial. That early return ends the gate
+// like every other way out, so it must leave neither the wait nor the record
+// behind - for the parent's own prompt and for a relayed one alike.
+func TestRequestPermissionLeavesNothingBehindWhenTheEventCannotBeWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		title string
+		mode  string
+	}{
+		{name: "own prompt", title: "Run: run_command"},
+		{name: "relayed prompt", title: "[subagent explore] Run: run_command", mode: config.PermModeAsk},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sender := NewSender(&config.Config{}, failingResponseWriter{httptest.NewRecorder()}, true, "agent-model")
+			sender.SetSessionDir(dir)
+			_, err := sender.RequestPermission(context.Background(), acp.PermissionRequestParams{
+				SessionID:               "s1",
+				ToolCall:                acp.PermissionToolCall{ToolCallID: "unsent-1", Title: tc.title, Status: "pending"},
+				EffectivePermissionMode: tc.mode,
+			})
+			if err == nil {
+				t.Fatal("a permission event that cannot be written must fail the request")
+			}
+			if permissionWaitRegistered("s1", "unsent-1") {
+				t.Fatal("the wait outlived a prompt that never reached the stream")
+			}
+			if session.PendingPermissionHeld(dir) {
+				t.Fatal("pending_permission.json outlived a prompt that never reached the stream")
+			}
+		})
+	}
+}
+
+// permissionWaitRegistered reports whether a prompt is listening for this answer.
+func permissionWaitRegistered(sessionID, toolCallID string) bool {
+	permissionWaitsMu.Lock()
+	defer permissionWaitsMu.Unlock()
+	_, ok := permissionWaits[permissionWaitKey{sessionID: sessionID, toolCallID: toolCallID}]
+	return ok
 }
 
 // The strict OpenAI view on POST /v1/chat/completions (openai_stream.go). The
