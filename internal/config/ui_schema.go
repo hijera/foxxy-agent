@@ -68,7 +68,7 @@ func boolPropDefault(title, description string, value bool) map[string]interface
 func browserSchema() map[string]interface{} {
 	out := objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
 		map[string]interface{}{
-			"enable":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
+			"enable":          boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
 			"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
 			"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
 			"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
@@ -627,7 +627,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
-				"enable":            boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
+				"enable":             boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
 				"model":              strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
 				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
 				"recall_max_turns":   intProp("Recall max turns", "Bounds recall-side LLM rounds in the memory loop."),
@@ -645,7 +645,7 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
 					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
 				},
-				"enable":           boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
+				"enable":            boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
 				"model":             strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
 				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode)."),
 				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2)."),
@@ -653,7 +653,7 @@ func UISchemaMap() map[string]interface{} {
 				"result_eviction": objectSchema("Read/grep result eviction",
 					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
 					map[string]interface{}{
-						"enable":          boolProp("Enabled", "Master switch for result eviction. Defaults to true."),
+						"enable":           boolProp("Enabled", "Master switch for result eviction. Defaults to true."),
 						"keep_recent":      intProp("Keep recent results", "Most recent evictable results kept as a working window (default 2)."),
 						"min_result_bytes": intProp("Min result bytes", "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate)."),
 					},
@@ -664,7 +664,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
-				"enable":    boolProp("Enabled", "Turns on backend auto-title generation for all clients."),
+				"enable":     boolProp("Enabled", "Turns on backend auto-title generation for all clients."),
 				"model":      strProp("Title model", "Model override for the title pass; empty uses agent model. A small, cheap model is a good choice."),
 				"max_tokens": intProp("Title max tokens", "Completion token cap for the title generation."),
 			},
@@ -672,7 +672,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag).",
 			map[string]interface{}{
-				"enable":         boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
+				"enable":          boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
 				"dir":             strProp("Jobs directory", "Directory of job markdown definitions."),
 				"max_queue":       intProp("Max queue", "Maximum concurrent scheduled agent runs."),
 				"timeout":         strProp("Job timeout", "Per-job wall-clock limit, e.g. 30m or 1h30m."),
@@ -743,7 +743,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"debug": objectSchema("Debug", "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
 			map[string]interface{}{
-				"enable":     boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
+				"enable":      boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
 				"capture_llm": boolProp("Capture LLM bodies", "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled."),
 			},
 			[]string{"enable", "capture_llm"},
@@ -767,7 +767,7 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"svn": objectSchema("Subversion", "Subversion support for SVN working copies and branch folders.",
 					map[string]interface{}{
-						"enable":         boolProp("Enabled", "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model."),
+						"enable":          boolProp("Enabled", "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model."),
 						"binary":          strProp("SVN client path", "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH."),
 						"timeout_seconds": intProp("Command timeout (seconds)", "Per-command timeout for svn invocations such as update, commit, and merge."),
 						"branch_lookup":   boolProp("List repository branches", "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links."),
