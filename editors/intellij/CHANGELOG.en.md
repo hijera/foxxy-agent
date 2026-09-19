@@ -7,7 +7,34 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-17
+## Unreleased — 2026-09-19
+
+**A permission answer is no longer lost.**
+Rarely, but it happened: Allow or Reject could come to nothing when the answer
+arrived in the fraction of a second while the prompt was already visible but not
+yet ready to take it. The chat reported the answer as delivered while the turn
+went on waiting for its timeout. That gap is gone. A session also stops carrying
+the "waiting for permission" mark when the prompt itself could not be shown
+because the connection had dropped.
+
+## 0.3.7 — 2026-09-18
+
+**The fox mark replaces a faceless icon.**
+The tool window stripe showed a pair of `</>` chevrons, and the card in
+`Settings | Plugins` and on the JetBrains Marketplace was a grey placeholder
+with no logo at all. Both now carry the orange FoxxyCode fox, the same one the
+application icon uses. The tool window icon gained a separate dark variant, so
+it reads equally well in Light and in Darcula.
+
+## 0.3.6 — 2026-09-18
+
+**The reasoning level in the composer follows the interface language.**
+The reasoning level button next to the model picker showed "Minimal", "Low", "Medium" and
+"High" even in a Russian interface. The button and its menu now read «Минимальный»,
+«Низкий», «Средний» and «Высокий». A level the interface has no name for is still shown the
+way it is written in the model settings.
+
+## 0.3.4 — 2026-09-17
 
 **Config switches are now called `enable`, the way coddy-agent spells them.**
 FoxxyCode used to call them `enabled`, so a `config.yaml` did not travel between the

@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -56,12 +56,29 @@ endif
 DESKTOP_TAGS := http ui scheduler memory desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
-# Regenerate the Windows app icon resource from the source PNG. Run manually when
-# foxxycode2-Photoroom.png changes; the generated .syso is committed so routine
-# builds don't need this step. cmd/foxxycode/rsrc_windows_amd64.syso is auto-linked
-# by every windows/amd64 go build (desktop shell and CLI) as the .exe file icon.
-icon:
-	go run internal/desktop/icon/gen.go foxxycode2-Photoroom.png build/foxxycode.ico
+# ---- Brand assets ----
+#
+# Everything the product is recognised by - the favicons, the social preview,
+# the editor plugin icons and the Windows executable icon - is rendered from one
+# vector, docs/assets/foxxycode-logo-glyph.svg. Both targets need a local Chrome
+# (the generator rasterises through chromedp) and are run by hand: the output is
+# committed, so an ordinary build and CI never see this step.
+#
+# `brand` also rewrites docs/assets/brand.lock.json, which internal/brand's test
+# reads. Editing a brand vector without re-running this fails `make test`, which
+# is how the social preview kept the upstream product's name for months.
+#
+# The fox itself is traced from docs/assets/brand/foxxycode-mark-1024.png by
+# scripts/brand/trace.py; that step is only needed when the artwork changes.
+# See docs/contributing/brand.md.
+brand:
+	go run scripts/brand/gen.go
+
+# icon adds the Windows executable resource on top: rsrc wraps build/foxxycode.ico
+# (written by `brand`) into cmd/foxxycode/rsrc_windows_amd64.syso, which every
+# windows/amd64 go build links as the .exe file icon and internal/desktop shows
+# on the WebView2 window.
+icon: brand
 	go run github.com/akavel/rsrc -arch amd64 -ico build/foxxycode.ico -o cmd/foxxycode/rsrc_windows_amd64.syso
 
 build-desktop: ui-build

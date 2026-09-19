@@ -16,7 +16,9 @@ import type { FoxxyCodePermissionOption } from "./permissionTypes";
  * unrecognised shape falls back to the backend's own text, which is still
  * correct, merely untranslated.
  */
-export function permissionOptionLabel(opt: FoxxyCodePermissionOption): string {
+export function permissionOptionLabel(
+  opt: Pick<FoxxyCodePermissionOption, "optionId" | "name">,
+): string {
   switch (opt.optionId) {
     case "allow":
       return t("prompts.allow");
