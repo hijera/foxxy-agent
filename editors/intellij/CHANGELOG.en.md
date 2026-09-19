@@ -7,7 +7,17 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-18
+## Unreleased — 2026-09-19
+
+**A permission answer is no longer lost.**
+Rarely, but it happened: Allow or Reject could come to nothing when the answer
+arrived in the fraction of a second while the prompt was already visible but not
+yet ready to take it. The chat reported the answer as delivered while the turn
+went on waiting for its timeout. That gap is gone. A session also stops carrying
+the "waiting for permission" mark when the prompt itself could not be shown
+because the connection had dropped.
+
+## 0.3.7 — 2026-09-18
 
 **The fox mark replaces a faceless icon.**
 The tool window stripe showed a pair of `</>` chevrons, and the card in
