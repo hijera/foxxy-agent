@@ -109,7 +109,7 @@ type Env struct {
 	// spawns past subagents.max_depth.
 	SubagentDepth int
 
-	// BackgroundEnabled mirrors tools.background.enabled. A wired pool with this
+	// BackgroundEnabled mirrors tools.background.enable. A wired pool with this
 	// off means background execution is configured away rather than missing, so
 	// the tools can say which of the two it is.
 	BackgroundEnabled bool

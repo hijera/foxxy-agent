@@ -126,7 +126,7 @@ Approval surfaces:
 | `timeout_seconds` | Hard limit for the run. |
 | `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/features/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
-The tool is registered when `subagents.enabled` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
+The tool is registered when `subagents.enable` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
 
 A **foreground** spawn (the default) blocks the tool call until the child's turn ends and returns the report in an envelope:
 
@@ -151,7 +151,7 @@ Keep working; follow it with background_list or background_output, and collect t
 
 With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome. From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
 
-Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enabled: false` the tool is not registered at all. A surface without a session manager (a scheduled run) is never advertised the tool, and a call anyway answers that subagents are not available in this session.
+Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enable: false` the tool is not registered at all. A surface without a session manager (a scheduled run) is never advertised the tool, and a call anyway answers that subagents are not available in this session.
 
 ## How capabilities narrow
 
@@ -263,7 +263,7 @@ All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is
 
 ```yaml
 subagents:
-  enabled: true
+  enable: true
   dirs:
     - "${FOXXYCODE_HOME}/agents"
     - "${CWD}/.claude/agents"

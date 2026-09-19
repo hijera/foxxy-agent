@@ -11,7 +11,7 @@ import (
 
 // TestNewReturnsLevelVar proves the handler level can be flipped at runtime via the
 // returned *slog.LevelVar without rebuilding the logger — the contract ReplaceConfig
-// relies on for the debug.enabled toggle.
+// relies on for the debug.enable toggle.
 func TestNewReturnsLevelVar(t *testing.T) {
 	var buf bytes.Buffer
 	lv := NewLevelVar(config.LogLevelWarn)

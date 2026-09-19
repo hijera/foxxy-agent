@@ -447,7 +447,7 @@ func isolatedLogger(cfg *config.Config, home, level, file string) (*slog.Logger,
 		return nil, nil, fmt.Errorf("log: %w", err)
 	}
 	// The console honours the diagnostics master switch the same way the other entry
-	// points do: debug.enabled (or --debug) forces debug verbosity and turns on raw
+	// points do: debug.enable (or --debug) forces debug verbosity and turns on raw
 	// LLM HTTP capture, which lands in this same log file.
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)

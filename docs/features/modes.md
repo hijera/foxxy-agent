@@ -37,7 +37,7 @@ Made for finding the cause of a failure before changing anything. The tool set i
 
 ### What they share
 
-The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enabled` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded prompt sections (`internal/prompts/sections/<mode>`), replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt`, `docs_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
+The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded prompt sections (`internal/prompts/sections/<mode>`), replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt`, `docs_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
 
 ## Plan mode and the plan document
 

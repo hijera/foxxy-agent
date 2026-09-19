@@ -126,7 +126,7 @@ Usage of acp:
   -cwd string
     	default session cwd when the client sends an empty cwd (FOXXYCODE_CWD, default process cwd)
   -debug
-    	enable diagnostics: forces debug log level (sets debug.enabled=true)
+    	enable diagnostics: forces debug log level (sets debug.enable=true)
   -dry-run
     	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
@@ -148,7 +148,7 @@ Usage of acp:
   -remote-token string
     	bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)
   -scheduler-enabled
-    	set scheduler.enabled=true in this process (build with -tags scheduler)
+    	set scheduler.enable=true in this process (build with -tags scheduler)
   -session-id string
     	if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name
   -sessions-dir string
@@ -175,7 +175,7 @@ Usage of http:
   -cwd string
     	default session cwd when the client omits cwd (FOXXYCODE_CWD, default process cwd)
   -debug
-    	enable diagnostics: forces debug log level (sets debug.enabled=true)
+    	enable diagnostics: forces debug log level (sets debug.enable=true)
   -dry-run
     	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
@@ -197,7 +197,7 @@ Usage of http:
   -port string
     	listen port (alias of -P) (default "12345")
   -scheduler-enabled
-    	set scheduler.enabled=true in this process (build with -tags scheduler)
+    	set scheduler.enable=true in this process (build with -tags scheduler)
   -session-id string
     	optional session id for new sessions (folder name)
   -sessions-dir string
@@ -227,13 +227,13 @@ Usage of serve (runs every subsystem enabled in config.yaml):
   -dry-run
     	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -gateway
-    	run the messenger gateway; overrides gateways.*.enabled
+    	run the messenger gateway; overrides gateways.*.enable
   -home string
     	agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
   -host string
     	alias of -H
   -http
-    	run the HTTP API in this process; overrides httpserver.enabled (default true)
+    	run the HTTP API in this process; overrides httpserver.enable (default true)
   -log-file string
     	log file path when output includes file (default from config)
   -log-format string
@@ -247,7 +247,7 @@ Usage of serve (runs every subsystem enabled in config.yaml):
   -port string
     	alias of -P
   -scheduler
-    	run the cron scheduler; overrides scheduler.enabled
+    	run the cron scheduler; overrides scheduler.enable
   -session-id string
     	optional session id for new sessions (folder name)
   -sessions-dir string
@@ -255,7 +255,7 @@ Usage of serve (runs every subsystem enabled in config.yaml):
   -skills-auto-discovery
     	model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config (default true)
   -swarm
-    	run the swarm relay; overrides swarm.enabled
+    	run the swarm relay; overrides swarm.enable
   -swarm-allow-insecure
     	permit binding the relay off loopback without a client token
   -swarm-auth-token string

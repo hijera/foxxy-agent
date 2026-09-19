@@ -9,8 +9,8 @@ Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the *
 the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry the
 relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm"`.
 
-The relay is not a command of its own: `foxxycode serve` runs it when `swarm.enabled` is true, next to
-whatever else the configuration enables. A binary built without the tag refuses `swarm.enabled` at
+The relay is not a command of its own: `foxxycode serve` runs it when `swarm.enable` is true, next to
+whatever else the configuration enables. A binary built without the tag refuses `swarm.enable` at
 startup and names the tag; the agent-side join hook is a stub that starts no goroutine and opens no
 connection, and the binary otherwise behaves exactly as it did before the feature existed.
 
@@ -49,7 +49,7 @@ connection.
 ```yaml
 # a relay
 swarm:
-  enabled: true
+  enable: true
 ```
 
 ```bash
@@ -229,7 +229,7 @@ opened from any node and pointed at the relay.
 
 | What | Where |
 |---|---|
-| Whether this process relays at all | `swarm.enabled` in `config.yaml`, or `--swarm` / `--swarm=false` |
+| Whether this process relays at all | `swarm.enable` in `config.yaml`, or `--swarm` / `--swarm=false` |
 | Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
 | Which relays this process joins | `swarm.join` in `config.yaml` - honoured whether or not this process relays |
 | Relays offered in the UI environment menu | `httpserver.remotes` (name and URL only; tokens stay in the browser) |

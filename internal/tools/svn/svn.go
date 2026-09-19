@@ -2,7 +2,7 @@
 // SVN counterpart of driving git through run_command: the model gets explicit,
 // permission-gated tools instead of assembling raw command lines.
 //
-// Every tool is registered only when vcs.svn.enabled is on and an svn client is
+// Every tool is registered only when vcs.svn.enable is on and an svn client is
 // installed (see register.go), and every tool refuses to run outside a working
 // copy with an explanatory message.
 package svn

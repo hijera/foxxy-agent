@@ -134,10 +134,19 @@ func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, 
 			}
 			checkSchemaNodeMatchesType(t, path+"."+name, ft, sub)
 		}
-		for name := range props {
-			if _, ok := want[name]; !ok {
-				t.Errorf("%s: schema has property %q not present in the Go config structs (remove it or add the field)", path, name)
+		for name, prop := range props {
+			if _, ok := want[name]; ok {
+				continue
 			}
+			// A property marked deprecated is an alias of a key that does have a
+			// field - the `enabled` spelling of a switch, kept so an editor does
+			// not flag every config written before the rename (switch_alias.go).
+			if sub, ok := prop.(map[string]interface{}); ok {
+				if dep, _ := sub["deprecated"].(bool); dep {
+					continue
+				}
+			}
+			t.Errorf("%s: schema has property %q not present in the Go config structs (remove it or add the field)", path, name)
 		}
 	}
 }

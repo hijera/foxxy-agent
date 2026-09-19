@@ -27,7 +27,7 @@ What it checks, end to end and over the real HTTP surface:
 9. ``foxxycode serve set-password`` writes an account into ``config.yaml`` that a
    **restarted** server accepts - the hash survives the file's ``${ENV}``
    expansion - and ``login_source`` is then ``config``.
-10. ``httpserver.login.enabled: false`` turns the form off with the environment
+10. ``httpserver.login.enable: false`` turns the form off with the environment
     variables still set, and the server is open exactly as it was before.
 
 Requires ``build/foxxycode`` built with ``-tags http`` (see ``examples/build_foxxycode.sh``).
@@ -382,13 +382,13 @@ def check_set_password_and_switch_off(binary: Path, port: int) -> None:
     with (home / "config.yaml").open("a", encoding="utf-8") as f:
         f.write("\n")
     text = (home / "config.yaml").read_text(encoding="utf-8")
-    (home / "config.yaml").write_text(text.replace("enabled: true", "enabled: false", 1), encoding="utf-8")
+    (home / "config.yaml").write_text(text.replace("enable: true", "enable: false", 1), encoding="utf-8")
     proc, base = boot_server(binary, port, home, work, env_account=True)
     try:
         browser = Client(base, cookies=True)
         code, me, _ = browser.call("GET", "/foxxycode/auth/me")
         if code != 200 or me.get("login_required"):
-            fail(f"login.enabled: false did not beat the environment variables: {me}")
+            fail(f"login.enable: false did not beat the environment variables: {me}")
         code, _, _ = browser.call("GET", "/v1/models")
         if code != 200:
             fail(f"the API is still gated after the form was switched off: {code}")
@@ -408,7 +408,7 @@ def main() -> int:
     check_env_account(binary, port)
     check_set_password_and_switch_off(binary, port)
 
-    print("ok http login e2e (env account, gate, cookie, CSRF, redaction, sign-out, bearer parity, set-password, enabled:false)")
+    print("ok http login e2e (env account, gate, cookie, CSRF, redaction, sign-out, bearer parity, set-password, enable:false)")
     return 0
 
 

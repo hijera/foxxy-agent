@@ -78,24 +78,24 @@ func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 	}
 	return []Subsystem{
 		{
-			Kind: KindHTTP, ConfigKey: "httpserver.enabled", BuildTag: "http", Available: true,
+			Kind: KindHTTP, ConfigKey: "httpserver.enable", BuildTag: "http", Available: true,
 			Enabled:    func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
 			RestartKey: func(c *config.Config) string { return c.HTTPServer.DefaultListenPortString() },
 			Run:        block(KindHTTP),
 		},
 		{
-			Kind: KindGateway, ConfigKey: "gateways.telegram.enabled", BuildTag: "gateway", Available: gatewayAvailable,
+			Kind: KindGateway, ConfigKey: "gateways.telegram.enable", BuildTag: "gateway", Available: gatewayAvailable,
 			Enabled:     func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
 			Fingerprint: func(c *config.Config) string { return c.Gateways.Telegram.Token },
 			Run:         block(KindGateway),
 		},
 		{
-			Kind: KindSwarm, ConfigKey: "swarm.enabled", BuildTag: "swarm", Available: true,
+			Kind: KindSwarm, ConfigKey: "swarm.enable", BuildTag: "swarm", Available: true,
 			Enabled: func(c *config.Config) bool { return c.Swarm.Enabled },
 			Run:     block(KindSwarm),
 		},
 		{
-			Kind: KindScheduler, ConfigKey: "scheduler.enabled", BuildTag: "scheduler", Available: true,
+			Kind: KindScheduler, ConfigKey: "scheduler.enable", BuildTag: "scheduler", Available: true,
 			Enabled:     func(c *config.Config) bool { return c.Scheduler.Enabled },
 			Fingerprint: func(c *config.Config) string { return c.Scheduler.Dir },
 			Run:         block(KindScheduler),

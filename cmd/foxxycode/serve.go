@@ -71,10 +71,10 @@ func runServe(args []string) error {
 	swarmPairing := fs.String("swarm-pairing-token", "", "credential nodes must present to register (else "+swarm.PairingEnvVar+", else swarm.pairing_tokens)")
 	swarmInsecure := fs.Bool("swarm-allow-insecure", false, "permit binding the relay off loopback without a client token")
 
-	httpOn := fs.Bool("http", true, "run the HTTP API in this process; overrides httpserver.enabled")
-	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enabled")
-	swarmOn := fs.Bool("swarm", false, "run the swarm relay; overrides swarm.enabled")
-	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enabled")
+	httpOn := fs.Bool("http", true, "run the HTTP API in this process; overrides httpserver.enable")
+	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enable")
+	swarmOn := fs.Bool("swarm", false, "run the swarm relay; overrides swarm.enable")
+	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enable")
 
 	daemon := fs.Bool("daemon", false, "run in the background under a dispatcher that restarts the process if it dies (see `foxxycode serve status|stop|restart`)")
 	fs.BoolVar(daemon, "d", false, "alias of --daemon")
@@ -410,7 +410,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	return []serve.Subsystem{
 		{
 			Kind:      serve.KindHTTP,
-			ConfigKey: "httpserver.enabled",
+			ConfigKey: "httpserver.enable",
 			BuildTag:  "http",
 			Available: httpserver.Available,
 			Enabled:   func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
@@ -438,7 +438,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 		},
 		{
 			Kind:      serve.KindGateway,
-			ConfigKey: "gateways.telegram.enabled",
+			ConfigKey: "gateways.telegram.enable",
 			BuildTag:  "gateway",
 			Available: gateway.Available,
 			Enabled:   func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
@@ -455,7 +455,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 		},
 		{
 			Kind:       serve.KindSwarm,
-			ConfigKey:  "swarm.enabled",
+			ConfigKey:  "swarm.enable",
 			BuildTag:   "swarm",
 			Available:  swarm.Available,
 			Enabled:    func(c *config.Config) bool { return c.Swarm.Enabled },
@@ -469,7 +469,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 		},
 		{
 			Kind:      serve.KindScheduler,
-			ConfigKey: "scheduler.enabled",
+			ConfigKey: "scheduler.enable",
 			BuildTag:  "scheduler",
 			Available: scheduler.Available,
 			Enabled:   func(c *config.Config) bool { return c.SchedulerEffectiveEnabled() },

@@ -83,7 +83,7 @@ func runServeSetPassword(args []string) error {
 	// previous file is kept as a snapshot the same way every other config
 	// commit keeps one.
 	cmds := []config.UCICommand{
-		{Op: config.UCIOpSet, Path: "httpserver.login.enabled", Value: "true"},
+		{Op: config.UCIOpSet, Path: "httpserver.login.enable", Value: "true"},
 		{Op: config.UCIOpSet, Path: "httpserver.login.user", Value: account},
 		{Op: config.UCIOpSet, Path: "httpserver.login.password_hash", Value: escapeConfigDollar(hash)},
 	}

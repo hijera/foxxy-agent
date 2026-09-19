@@ -521,7 +521,7 @@ Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancel
 
 ### `memory_phase` - Memory copilot phase boundary
 
-When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
+When `memory.enable` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
 
 Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`foxxycode_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
 
@@ -555,7 +555,7 @@ See `external/memory/README.md` (including **Related work** and the link to [Mem
 
 ### `debug` - Diagnostics trace event
 
-Emitted only when the diagnostics layer is on (**`debug.enabled`**, the **`--debug`** flag, or a runtime toggle through **`PUT /foxxycode/config`**). One record per boundary in the ReAct loop, so a client can render a live debug timeline. The HTTP bridge forwards these as SSE **`event: debug`**; the same records are persisted to **`<session>/debug_trace.jsonl`** and served by **`GET /foxxycode/sessions/{id}/debug`**.
+Emitted only when the diagnostics layer is on (**`debug.enable`**, the **`--debug`** flag, or a runtime toggle through **`PUT /foxxycode/config`**). One record per boundary in the ReAct loop, so a client can render a live debug timeline. The HTTP bridge forwards these as SSE **`event: debug`**; the same records are persisted to **`<session>/debug_trace.jsonl`** and served by **`GET /foxxycode/sessions/{id}/debug`**.
 
 **`phase`** is one of **`turn_start`**, **`llm_request`**, **`llm_response`**, **`tool_start`**, **`tool_finish`**. **`title`** names the subject of the phase where there is one (the session mode on **`turn_start`**, the tool name on **`tool_start`** / **`tool_finish`**). **`_meta`** carries lightweight per-phase metadata (mode, model, message and tool counts, token usage, stop reason, tool call id and status) — never the raw LLM bodies, which go to the process log instead. Tracing is best-effort and never affects the turn.
 

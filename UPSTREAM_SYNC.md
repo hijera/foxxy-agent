@@ -64,13 +64,13 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
   - Гейты зелёные: default / `http` / `http,memory` / `memory` / `scheduler`, `build:go`.
 - **Волна 2 — Remote control / http-auth / env-selector — ГОТОВО (backend `60af986` + UI).**
   - Config: `internal/config/http.go` (+`auth_token`/`public_docs`/`allow_insecure`/`cors`/`remotes`
-    + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enabled` влит в форковый `UIConfig`;
+    + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enable` влит в форковый `UIConfig`;
     jsondto (редакция токена + `ParseConfigJSONPreservingSecrets`); docs schema/reference/example
     + RU-оверлей + фикстура.
   - HTTP: `external/httpserver/auth.go` (bearer-gate, realm `foxxycode`, SSE `?access_token=`,
     **IDE-роуты `/foxxycode/ide/*` освобождены** от auth), `cors.go` (`X-FoxxyCode-Session-ID`),
     `Handler()` = `corsMiddleware(authGate(mux))`, `--auth-token`/`FOXXYCODE_HTTP_TOKEN` +
-    non-loopback-warning в `StartHTTP`, `ui.enabled`-гейт SPA-root, openapi `bearerAuth`.
+    non-loopback-warning в `StartHTTP`, `ui.enable`-гейт SPA-root, openapi `bearerAuth`.
     Тесты: 13 auth/CORS + IDE-exemption unit. Docs: `docs/remote-control.md`, `docs/http-api.md`.
   - UI env-selector: `env/remoteEnv.ts` (fetch-shim, per-env storage), `env/activeHealth.ts`,
     `env/remoteErrors.ts`, `env/EnvHealthBanner.tsx`, `chat/EnvironmentChip.tsx` (чип в
@@ -491,7 +491,7 @@ Upstream пробует pid через `os.FindProcess`, что отвечает
 
 ### Коммит 2 — инструменты, права, агент (`98c809a`)
 
-`run_command` плюс пять `background_*` тулов за `tools.background.enabled`, `BackgroundWaker`,
+`run_command` плюс пять `background_*` тулов за `tools.background.enable`, `BackgroundWaker`,
 `permission.Options` вместо трёх захардкоженных опций, `program.go` с `allow_always_program`.
 Гранты сессии больше не делят префиксный матч с конфиговым allowlist: грант расширяется только
 на кандидата, который сам является «простым вызовом», поэтому одобрение `curl https://trusted`
@@ -585,9 +585,9 @@ permission-карточки рендерили `opt.name` с бэкенда, т�
 - **Лимиты и таймаут.** При `max_concurrent: 5` стартовали ровно 5 задач, шестая
   отбита: `background task pool is full for this session (limit 5)`.
   `timeout_seconds: 5` против `Start-Sleep -Seconds 60` дал статус `timed_out`.
-- **`tools.background.enabled: false`.** Инструменты исчезают из определений
+- **`tools.background.enable: false`.** Инструменты исчезают из определений
   (модель отвечает «NONE AVAILABLE»), `background: true` отбивается внятным
-  «background tasks are disabled (tools.background.enabled is false)».
+  «background tasks are disabled (tools.background.enable is false)».
 - **Права.** Для `Start-Sleep …; Write-Output …` (метасимволы) четвёртая кнопка
   **не** предлагается — верно. Для `git status` карточка даёт четыре кнопки, включая
   локализованную «Всегда разрешать git status». После неё `git status --short`
@@ -1543,7 +1543,7 @@ README-ханк upstream пропущен (описывает coddy-специф
 `App.cfgAt atomic.Pointer` + `replaceConfig`, `newTurnAgent` с `SetConfigReloader`;
 консоль дренирует turn-воркер перед обходом бандла сессии. Скрипты `examples/cli/*` взяты
 в финальном виде; `examples/config.demo.yaml` → `rpa/qwen3.6-35b-a3b`. В стаб-конфигах
-консольных тестов пришлось выключить форковую автогенерацию заголовка (`title.enabled:
+консольных тестов пришлось выключить форковую автогенерацию заголовка (`title.enable:
 false`) — она съедала шаги scripted-провайдера.
 
 ### Коммит 3 — ask-режим: набор инструментов «как в coddy» (upstream `0145bf76` + куски `79070b0c`, наш `c26c706f`)
@@ -1716,7 +1716,7 @@ ResizeObserver loop limit exceeded». Два источника: (1) `content-vi
   не в `EnsureHTTPSession` (иначе существующие дети не отдавались по HTTP).
 - Windows fail-fast turn-лок + `runWakeTurn`-ретрай уже были в форке; 409 read-only
   ребёнка **не** ретраится (`isSubagentReadOnly` различается от busy).
-- Автогенерация заголовка выключена в стаб-стендах (`title.enabled: false`).
+- Автогенерация заголовка выключена в стаб-стендах (`title.enable: false`).
 - `:has()` → маркер-класс; layout-тест мерит content-box.
 - i18n сразу en+ru, все новые TSX через `t()`/`tp()`; `schema.ru.ts` дополнен блоком
   `subagents` и строками endpoint-пикера/ask_prompt.
@@ -1787,7 +1787,7 @@ read-only детский транскрипт, Settings → Субагенты, 
 | Объём | Портируем всё, включая swarm, hooks и serve |
 | Экспорт сессии | У форка **уже был** свой экспорт (20 файлов `session_export_*.go`), у upstream — слэш-команда с теми же именами файлов. Сведены в один движок `internal/export`; шесть форматов на обеих поверхностях; дефолты разные (UI — только диалог, `/export` — с инструментами) |
 | `foxxycode codex` | Upstream команду удалил; здесь осталась псевдонимом с предупреждением |
-| Ключи-переключатели | Upstream переименовал `cors.enabled` → `enable` и завёл новые как `enable`. Здесь везде `enabled`: шестнадцать ключей форка уже так читаются, и переименование молча сломало бы существующие конфиги |
+| Ключи-переключатели | Upstream переименовал `cors.enabled` → `enable` и завёл новые как `enable`. Форк держался за `enabled` до 0.3.x, теперь тоже пишет `enable` — в YAML, в схеме, в форме настроек и в JSON API, так что конфиг переносится между агентами без правок. Старое написание `enabled` читается как алиас (`internal/config/switch_alias.go`): `-t` предупреждает, схема помечает ключ `deprecated`, ближайшая запись переименовывает его |
 | Адрес по умолчанию | `foxxycode http` остаётся на `0.0.0.0`; узкий loopback-фоллбек (`ServeListenHost`) — только для `foxxycode serve`, где один процесс поднимает все подсистемы |
 | `wait_for_limit_reset` | Как в upstream: выключено по умолчанию. Взаимодействие с форковым `llm_stall_retry` описано в `docs/config-reference.md` |
 | `$id` JSON-схемы | GitHub Pages форка, включён из `main:/docs`. `docs/config.schema.json` **и есть** публикуемый файл — копии нет, поэтому upstream-скрипт `sync-site-schema.sh` не портирован |
@@ -1870,7 +1870,7 @@ upstream — починка релизного конвейера.
 | --- | --- |
 | Объём | Портируем всё |
 | Расположение схемы | `internal/config/config.schema.json` встраивается (`go:embed` не выходит за каталог пакета), `docs/config.schema.json` остаётся побайтовой копией для Pages форка. Upstream публикует в отдельный репозиторий сайта, которого у форка нет; здесь дрейф стережёт `TestPublishedSchemaMatchesTheEmbeddedOne`, а чинит `make site-schema` |
-| Ключи-переключатели | Остаются `enabled`. `53e71f7c` взят **без** половины `enabled → enable`; у форка это правильный ключ, поэтому во всех фикстурах опечаткой стало `enbaled`, а подсказкой — `enabled` |
+| Ключи-переключатели | Были `enabled`, с 0.3.x — `enable`, как в upstream (старое имя читается алиасом). `53e71f7c` взят **без** половины `enabled → enable`; у форка это правильный ключ, поэтому во всех фикстурах опечаткой стало `enbaled`, а подсказкой — `enable` |
 | Мгновенный повтор vs `llm_stall_retry` | Повтор встроен первой ступенью форковой лестницы и подчиняется тому же выключателю: `llm_stall_retry: false` означает «вызов без вывода завершает ход», как и до обеих фич |
 | `foxxycode http` / `gateway` | Upstream их удалил — их место занял `serve` (upstream issue #188). Форк сохраняет: `http` — команда, которую запускают плагины IntelliJ и VS Code. Прозу переименовали только там, где речь о серверном процессе вообще; `internal/config/http.go` в месте про саму подкоманду `http` не тронут. Флаги, которые upstream вводит для `serve`, получает и `http`, если они нужны тому, кто его запускает (`-t`, `--dry-run`) |
 | Скриншоты | Пять PNG upstream (`scheduler-disabled-*`, `issue-195-update-notes-*`) не берём — кадры с брендингом coddy |
@@ -1944,7 +1944,7 @@ upstream — починка релизного конвейера.
   Upstream считает этот флаг несуществующим — у форка он есть, на `acp`, `http` и `desktop`.
   Строка всё равно переписана на `foxxycode serve --scheduler`: это рекомендуемый способ
   запустить сервер, а голый `-scheduler-enabled` читался как глобальный флаг. Плагины
-  запускают `http`, и в панели IDE работает первая половина подсказки — `scheduler.enabled`.
+  запускают `http`, и в панели IDE работает первая половина подсказки — `scheduler.enable`.
 - **i18n:** весь новый пользовательский текст переведён сразу; `messagesParity` и
   `noHardcodedStrings` зелёные.
 
@@ -1991,7 +1991,7 @@ first-parent отдельными коммитами; первый вошёл в
 | Вход на `foxxycode http` | `httpserver.login` работает как на `serve`, но прямой локальный клиент (loopback-адрес и `Host`, без `Forwarded`/`X-Forwarded-*`/`X-Real-IP`) считается вошедшим — панели IDE и desktop не меняются; `serve` ведёт себя как у upstream |
 | Git worktree | Как у upstream: `<основной checkout>/.foxxycode/worktrees`, плюс исправления форка (папка пропускается снимком хода и `print_tree`, IntelliJ её не индексирует) |
 | Нарезка | Три PR на стеке веток, см. таблицу выше |
-| Переключатели | Остаются `enabled` (новый `httpserver.login.enabled`) |
+| Переключатели | Остаются `enabled` (новый `httpserver.login.enable`) |
 | `foxxycode http` | Остаётся: его запускают плагины. Флаги и проверки, которые upstream вводит для `serve`, получает и `http`, если они нужны тому, кто его запускает |
 | Скриншоты | Кадры с брендингом coddy не берём; на страницах документации — собственные снимки форка (вход, таблица сессий, делегирование в консоли, очередь сообщений) |
 

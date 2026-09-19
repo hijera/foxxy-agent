@@ -64,7 +64,7 @@ foxxycode --dry-run          # asks each provider for its model list, checks eve
 
 **Symptom.** `foxxycode serve` exits with a bind error, `foxxycode serve --dry-run` reports the `httpserver` address together with the line that set it, or `http://127.0.0.1:12345/` refuses the connection while the process runs.
 
-**Cause.** The address comes from `-H` / `-P`, then `httpserver.host` / `httpserver.port`, then `127.0.0.1:12345`. Another process holds the port - often a `foxxycode serve --daemon` started earlier - or the HTTP API is switched off for this process with `httpserver.enabled: false` or `--http=false`. The default bind is loopback, so a browser on another machine is refused by design.
+**Cause.** The address comes from `-H` / `-P`, then `httpserver.host` / `httpserver.port`, then `127.0.0.1:12345`. Another process holds the port - often a `foxxycode serve --daemon` started earlier - or the HTTP API is switched off for this process with `httpserver.enable: false` or `--http=false`. The default bind is loopback, so a browser on another machine is refused by design.
 
 **Fix.**
 
@@ -94,9 +94,9 @@ make build TAGS="http ui scheduler memory cli gateway swarm"
 
 **Symptom.** `GET /` returns a short plaintext 404 while `/docs/`, `/v1/models` and the rest of the API work.
 
-**Cause.** Either the binary was linked with `http` but without `ui` - the single-page app is embedded at build time from assets that `make ui-build` generates with npm - or `ui.enabled: false` runs the server in API-only mode on purpose.
+**Cause.** Either the binary was linked with `http` but without `ui` - the single-page app is embedded at build time from assets that `make ui-build` generates with npm - or `ui.enable: false` runs the server in API-only mode on purpose.
 
-**Fix.** Rebuild with both tags, `make build TAGS="http ui"` at least, with Node.js and npm on `PATH`; check `ui.enabled` in the file. After a rebuild a normal browser reload picks up the new assets. Release binaries carry the UI. See [Build from source](../contributing/build.md) and [HTTP API](../reference/http-api.md).
+**Fix.** Rebuild with both tags, `make build TAGS="http ui"` at least, with Node.js and npm on `PATH`; check `ui.enable` in the file. After a rebuild a normal browser reload picks up the new assets. Release binaries carry the UI. See [Build from source](../contributing/build.md) and [HTTP API](../reference/http-api.md).
 
 ## An MCP server does not start
 
@@ -118,7 +118,7 @@ foxxycode --dry-run              # resolves stdio commands in PATH, contacts rem
 
 **Symptom.** The bot never answers, or a `/model` or `/mode` tap changes nothing.
 
-**Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enabled` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only.
+**Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only.
 
 **Fix.** `foxxycode --dry-run` checks the token against the Bot API and names the bot. A connected bot logs `telegram bot connected` at `info`. For a dropped update raise that one component:
 
@@ -132,7 +132,7 @@ or the same in the file under `logger.levels`. At `debug` every update is record
 
 **Symptom.** A hook in `<workspace>/.foxxycode/hooks.json` (or the Claude Code `.claude/settings.json`) never runs and the transcript shows a notice that a hooks file is held; `spawn_agent` answers that a definition comes from a project file that is not approved for this workspace; `foxxycode hooks list` or `foxxycode agents list` shows `needs_approval`.
 
-**Cause.** Files at or under the session cwd are project scope and follow `hooks.project_trust` and `subagents.project_trust`. Under the default `ask` they are parsed and listed, but nothing runs or spawns until you approve that exact file for that workspace on the machine running FoxxyCode; the receipt is bound to a digest of the file, so editing it asks again. Your own files (`~/.foxxycode/hooks.json`, `${FOXXYCODE_HOME}/agents`) never need approval. `hooks.enabled: false` or `subagents.enabled: false` switches the feature off entirely, only the `hooks` key of a Claude Code settings file is read, and `spawn_agent` is never offered in ask mode.
+**Cause.** Files at or under the session cwd are project scope and follow `hooks.project_trust` and `subagents.project_trust`. Under the default `ask` they are parsed and listed, but nothing runs or spawns until you approve that exact file for that workspace on the machine running FoxxyCode; the receipt is bound to a digest of the file, so editing it asks again. Your own files (`~/.foxxycode/hooks.json`, `${FOXXYCODE_HOME}/agents`) never need approval. `hooks.enable: false` or `subagents.enable: false` switches the feature off entirely, only the `hooks` key of a Claude Code settings file is read, and `spawn_agent` is never offered in ask mode.
 
 **Fix.**
 

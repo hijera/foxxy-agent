@@ -10,7 +10,7 @@
      port: 12345
      auth_token: "${FOXXYCODE_HTTP_TOKEN}"
      cors:
-       enabled: true
+       enable: true
        allowed_origins: ["http://localhost:12345"]   # the origin the laptop's UI is served from
    ```
 

@@ -165,7 +165,7 @@
           "title": "Debounce ms",
           "type": "integer"
         },
-        "enabled": {
+        "enable": {
           "default": false,
           "description": "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
           "title": "Enabled",
@@ -242,7 +242,7 @@
       "title": "Autocomplete",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "mode",
         "trigger",
@@ -260,7 +260,7 @@
       "additionalProperties": false,
       "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
       "properties": {
-        "enabled": {
+        "enable": {
           "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
           "title": "Enabled",
           "type": "boolean"
@@ -292,7 +292,7 @@
       "title": "Browser tool",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "headless",
         "screenshots",
         "executable_path",
@@ -304,7 +304,7 @@
       "additionalProperties": false,
       "description": "Summarize older turns when the conversation approaches the model context window.",
       "properties": {
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Turns on auto-compaction; only fires near the context window.",
           "title": "Enabled",
@@ -341,7 +341,7 @@
           "additionalProperties": false,
           "description": "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
           "properties": {
-            "enabled": {
+            "enable": {
               "description": "Master switch for result eviction. Defaults to true.",
               "title": "Enabled",
               "type": "boolean"
@@ -360,7 +360,7 @@
           "title": "Read/grep result eviction",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "keep_recent",
             "min_result_bytes"
           ]
@@ -376,7 +376,7 @@
       "type": "object",
       "x-foxxycode-property-order": [
         "engine",
-        "enabled",
+        "enable",
         "model",
         "threshold_percent",
         "keep_recent_turns",
@@ -393,7 +393,7 @@
           "title": "Capture LLM bodies",
           "type": "boolean"
         },
-        "enabled": {
+        "enable": {
           "default": false,
           "description": "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).",
           "title": "Enabled",
@@ -403,7 +403,7 @@
       "title": "Debug",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "capture_llm"
       ]
     },
@@ -481,7 +481,7 @@
               "title": "Default isolation",
               "type": "string"
             },
-            "enabled": {
+            "enable": {
               "description": "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
               "title": "Enabled",
               "type": "boolean"
@@ -539,7 +539,7 @@
           "title": "Telegram",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "token",
             "rich_messages",
             "proxy",
@@ -567,7 +567,7 @@
           "title": "Default timeout (s)",
           "type": "integer"
         },
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Load and run hooks at all (default true).",
           "title": "Enabled",
@@ -614,7 +614,7 @@
       "title": "Hooks",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "files",
         "project_trust",
         "default_timeout_seconds",
@@ -864,7 +864,7 @@
           "title": "Memory root",
           "type": "string"
         },
-        "enabled": {
+        "enable": {
           "description": "Turns on the memory copilot for eligible builds.",
           "title": "Enabled",
           "type": "boolean"
@@ -896,7 +896,7 @@
       "title": "Long-term memory",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "dir",
         "recall_max_turns",
@@ -1008,7 +1008,7 @@
           "additionalProperties": false,
           "description": "Select a system prompt tuned to the active model family (falls back to the shared prompt).",
           "properties": {
-            "enabled": {
+            "enable": {
               "default": true,
               "description": "Use a per-family prompt file (agent.\u003cfamily\u003e.md) when available.",
               "title": "Enabled",
@@ -1018,7 +1018,7 @@
           "title": "Per-provider prompts",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled"
+            "enable"
           ]
         },
         "plan_prompt": {
@@ -1130,7 +1130,7 @@
           "title": "Jobs directory",
           "type": "string"
         },
-        "enabled": {
+        "enable": {
           "description": "When true, this process may run the scheduler daemon and REST.",
           "title": "Enabled",
           "type": "boolean"
@@ -1157,7 +1157,7 @@
       "title": "Scheduler",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "dir",
         "max_queue",
         "timeout",
@@ -1244,7 +1244,7 @@
           "title": "Definition directories",
           "type": "array"
         },
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
           "title": "Enabled",
@@ -1282,7 +1282,7 @@
       "title": "Subagents",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "dirs",
         "project_trust",
         "max_concurrent",
@@ -1295,7 +1295,7 @@
       "additionalProperties": false,
       "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
       "properties": {
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Turns on backend auto-title generation for all clients.",
           "title": "Enabled",
@@ -1316,7 +1316,7 @@
       "title": "Automatic session title",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "max_tokens"
       ]
@@ -1334,7 +1334,7 @@
               "title": "Default timeout (s)",
               "type": "integer"
             },
-            "enabled": {
+            "enable": {
               "description": "Offer the background option on run_command and the background task tools (default true).",
               "title": "Enabled",
               "type": "boolean"
@@ -1358,7 +1358,7 @@
           "title": "Background tasks",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "max_concurrent",
             "default_timeout_seconds",
             "max_timeout_seconds",
@@ -1476,7 +1476,7 @@
       "additionalProperties": false,
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "properties": {
-        "enabled": {
+        "enable": {
           "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.",
           "title": "Serve the SPA",
           "type": "boolean"
@@ -1511,7 +1511,7 @@
       "title": "UI",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "locale",
         "send_mode",
         "status_line"
@@ -1536,7 +1536,7 @@
               "title": "List repository branches",
               "type": "boolean"
             },
-            "enabled": {
+            "enable": {
               "default": true,
               "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
               "title": "Enabled",
@@ -1552,7 +1552,7 @@
           "title": "Subversion",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "binary",
             "timeout_seconds",
             "branch_lookup"

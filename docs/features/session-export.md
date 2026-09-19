@@ -80,7 +80,7 @@ The export is built before the `/export` row lands in the transcript, so the fil
 }
 ```
 
-`git_branch` is the branch of the git repository the workspace sits in, as `/export` and `foxxycode sessions export` see it; in a Subversion working copy the header carries `svn_branch` (`"trunk"`, `"branches/feature-x"`) instead, and a folder that is both gets both. The readable formats show them as **Git branch** and **SVN branch**. The SVN branch is read from the local working copy with the client from `vcs.svn`, without contacting the server, and is left out when `vcs.svn.enabled` is `false`.
+`git_branch` is the branch of the git repository the workspace sits in, as `/export` and `foxxycode sessions export` see it; in a Subversion working copy the header carries `svn_branch` (`"trunk"`, `"branches/feature-x"`) instead, and a folder that is both gets both. The readable formats show them as **Git branch** and **SVN branch**. The SVN branch is read from the local working copy with the client from `vcs.svn`, without contacting the server, and is left out when `vcs.svn.enable` is `false`.
 
 Empty fields are omitted, with one exception: `tool_calls[].result` is present as `""` when the tool returned nothing and absent when the transcript holds no result for the call (a cancelled or still running turn). `tool_calls[].input` is the call's JSON arguments, or a JSON string when the model produced arguments that are not valid JSON. `tool_result` entries carry `tool_call_id` and `text`.
 

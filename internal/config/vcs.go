@@ -18,7 +18,7 @@ type VCSConfig struct {
 type SVNConfig struct {
 	// Enabled turns Subversion support on. Defaults to true when unset; turning
 	// it off hides the SVN chip and removes every svn_* tool from the model.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 	// Binary is an explicit path to the svn client. Empty resolves "svn" on PATH,
 	// which covers most installs; set it when the client ships outside PATH.
 	Binary string `yaml:"binary"`

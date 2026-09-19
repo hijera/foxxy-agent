@@ -52,7 +52,7 @@ type StartParams struct {
 	// -plan-no-self-run flag was passed). Editor plugins set it so their panels
 	// forbid the model from leaving plan mode by itself.
 	PlanNoSelfRun *bool
-	// Debug forces debug.enabled=true when non-nil and true (the -debug flag was
+	// Debug forces debug.enable=true when non-nil and true (the -debug flag was
 	// passed). Enables verbose diagnostics for this process.
 	Debug *bool
 	// ProjectTrust overrides mcp.project_trust when non-empty (the
@@ -205,7 +205,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 	if pol := s.loginPolicyNow(); pol.broken {
 		_ = logCloser.Close()
-		return nil, errors.New("httpserver.login.enabled is true but no account is configured: " +
+		return nil, errors.New("httpserver.login.enable is true but no account is configured: " +
 			"set httpserver.login.user and password_hash (`foxxycode serve set-password`), " +
 			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
 	}
@@ -388,10 +388,10 @@ func Run(args []string, deps CommandDeps) error {
 	port := fs.String("P", "12345", "listen port for HTTP")
 	fs.StringVar(host, "host", "0.0.0.0", "bind address for HTTP (alias of -H)")
 	fs.StringVar(port, "port", "12345", "listen port (alias of -P)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enable=true in this process (build with -tags scheduler)")
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
-	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)
 	dryRun := dryrun.AddFlag(fs)

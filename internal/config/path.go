@@ -112,6 +112,9 @@ func parseConfigDocument(raw []byte) (*yaml.Node, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config root must be a mapping")
 	}
+	// A path names the current key, and a write renders it; the legacy `enabled`
+	// becomes that key here rather than a second one beside it.
+	normalizeSwitchAliases(root)
 	return &doc, nil
 }
 

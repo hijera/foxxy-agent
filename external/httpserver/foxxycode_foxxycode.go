@@ -660,7 +660,7 @@ func (s *Server) foxxycodeSessionStatsGet(w http.ResponseWriter, r *http.Request
 }
 
 // foxxycodeSessionDebugGet returns the persisted debug-trace events for a session
-// (one record per turn/LLM/tool boundary), collected only while debug.enabled is on.
+// (one record per turn/LLM/tool boundary), collected only while debug.enable is on.
 // The raw LLM HTTP bodies are written to the process log; this endpoint surfaces the
 // lightweight structured timeline. A missing trace is reported as events: null.
 func (s *Server) foxxycodeSessionDebugGet(w http.ResponseWriter, r *http.Request) {

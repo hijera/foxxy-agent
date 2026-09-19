@@ -24,7 +24,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_subagents`** | **`httpserver/http_e2e_subagents.py`** (trust route, `spawn_agent` run as an `agent` task, read-only child transcript, `include_subagents`, catalog) | **`acp/acp_e2e_subagents.py`** (`foxxycode agents trust`, persisted `agent` task plus `sub_*` child bundle with the parent link) |
 | **`e2e_hooks`** | **`httpserver/http_e2e_hooks.py`** (catalog with the held project file, the notice row in the transcript, `POST /foxxycode/hooks/trust` then a turn that runs the approved hook, `untrust`) | **`acp/acp_e2e_hooks.py`** (user-scope `PreToolUse` / `PostToolUse` recorder hooks see a real `run_command`, the project-scope hook stays held until `foxxycode hooks trust .foxxycode/hooks.json`, then runs on the next turn) |
 | **`e2e_config`** | **`httpserver/http_e2e_config.py`** (stage, confirm-commit, rollback; server config ends unchanged) | **`acp/acp_e2e_config.py`** (temp config copy; staged file, commit snapshot, rollback) |
-| **`e2e_login`** | **`httpserver/http_e2e_login.py`** (self-boots servers behind the web UI sign-in: the account from `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD` and from `foxxycode serve set-password`, the anonymous 401s, the cookie, the CSRF refusal, config redaction, sign-out, bearer parity, `login.enabled: false`) | (HTTP-only) |
+| **`e2e_login`** | **`httpserver/http_e2e_login.py`** (self-boots servers behind the web UI sign-in: the account from `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD` and from `foxxycode serve set-password`, the anonymous 401s, the cookie, the CSRF refusal, config redaction, sign-out, bearer parity, `login.enable: false`) | (HTTP-only) |
 
 ## Layout
 

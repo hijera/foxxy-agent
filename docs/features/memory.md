@@ -13,7 +13,7 @@ If you tell it not to consult the notes for this message, it skips recall and an
 
 ## When it runs
 
-Two switches: the binary must be built with the `memory` tag (the release binaries and the Docker image carry it; from source, `make build TAGS="... memory ..."`, see [Build from source](../contributing/build.md)) and `memory.enabled` must be true in `config.yaml`. With both, the copilot runs on every turn; in agent and plan mode it has the full tool set. In **ask mode** the pass is recall-only: the copilot gets the search, list and read tools, its prompt says that saving is unavailable, and it never creates, saves or deletes a note, so a read-only session cannot change what is stored. Without the tag the memory keys are accepted and nothing runs.
+Two switches: the binary must be built with the `memory` tag (the release binaries and the Docker image carry it; from source, `make build TAGS="... memory ..."`, see [Build from source](../contributing/build.md)) and `memory.enable` must be true in `config.yaml`. With both, the copilot runs on every turn; in agent and plan mode it has the full tool set. In **ask mode** the pass is recall-only: the copilot gets the search, list and read tools, its prompt says that saving is unavailable, and it never creates, saves or deletes a note, so a read-only session cannot change what is stored. Without the tag the memory keys are accepted and nothing runs.
 
 The copilot uses `memory.model` when set, otherwise the session's effective model, through the same retry policy as the main agent; its completions are capped at `copilot_max_tokens` and the loop runs at most the larger of `recall_max_turns` and `persist_max_turns` model rounds. A pass that fails is logged and the main agent answers without memory context.
 
@@ -63,7 +63,7 @@ A binary built with both `http` and `memory` serves the two roots of a session a
 
 ```yaml
 memory:
-  enabled: false
+  enable: false
   model: ""                # models[].model for the copilot only; empty = the session's model
   dir: ""                  # global root; empty = ${FOXXYCODE_HOME}/memory
   recall_max_turns: 6
@@ -74,7 +74,7 @@ memory:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` | run the copilot at all (needs the `memory` build tag) |
+| `enable` | `false` | run the copilot at all (needs the `memory` build tag) |
 | `model` | `""` | pin the copilot to one `models[].model`; the main agent is unaffected |
 | `dir` | `""` | the global root |
 | `recall_max_turns`, `persist_max_turns` | `6`, `12` | bound the model rounds of a pass; the effective cap is the larger of the two |

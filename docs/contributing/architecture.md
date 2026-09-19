@@ -194,7 +194,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 - **`internal/tools/svn`** - Subversion working copy tools (**`svn_info`**, **`svn_status`**, **`svn_diff`**,
   **`svn_log`**, **`svn_list`**, **`svn_add`**, **`svn_revert`**, **`svn_resolve`**, **`svn_update`**,
   **`svn_commit`**, **`svn_switch`**, **`svn_merge`**, **`svn_checkout`**) over **`internal/svnws`**.
-  Registered only when **`vcs.svn.enabled`** is on (default) **and** an svn client is installed; the
+  Registered only when **`vcs.svn.enable`** is on (default) **and** an svn client is installed; the
   registry is rebuilt every prompt turn, so unchecking the setting removes them without a restart.
   Mutating tools require permission; detection is independent of git, so a branch folder that also
   holds a git repository works with both.
@@ -202,7 +202,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
   **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)
 - **`internal/tools/spawn_agent.go`** - **`spawn_agent`**, delegation of a self-contained task to a subagent
-  (registered when **`subagents.enabled`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
+  (registered when **`subagents.enable`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
   that **`internal/agent`** wires, so the registry stays below the session layer; the runtime, the project
   trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
   **`internal/session`**. It is offered in **`agent`**, **`plan`** and **`debug`** turns and never in **`ask`**
@@ -304,7 +304,7 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 
 ### Diagnostics (`debug`)
 
-An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enabled` forces the process logger to debug level, turns on raw LLM HTTP capture, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/operate/debugging.md`**.
+An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enable` forces the process logger to debug level, turns on raw LLM HTTP capture, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/operate/debugging.md`**.
 
 The three moving parts:
 
@@ -379,4 +379,4 @@ Top level after **`git clone`** (folder name is arbitrary; **`foxxy-agent`** is 
 └── README.md
 ```
 
-Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/contributing/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enabled`** when the binary was built with **`memory`**.
+Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/contributing/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enable`** when the binary was built with **`memory`**.
