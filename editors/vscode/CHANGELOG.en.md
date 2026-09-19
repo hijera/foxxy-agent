@@ -10,6 +10,17 @@
 
 ## Unreleased — 2026-09-19
 
+**Config switches are now called `enable`, the way coddy-agent spells them.**
+FoxxyCode used to call them `enabled`, so a `config.yaml` did not travel between the
+two agents: a file carried over loaded without complaint, yet every switch stayed at
+its default. `enable` is now the name everywhere - in the file, in the schema your
+editor validates against, in the settings form and in the JSON API. The old `enabled`
+keeps working: it is read as `enable`, `foxxycode -t` only warns about it, and the
+next save from the settings screen rewrites the key together with the comment above
+it. When a section sets both, `enable` wins.
+
+## 0.3.8 — 2026-09-19
+
 **A permission answer is no longer lost.**
 Rarely, but it happened: Allow or Reject could come to nothing when the answer
 arrived in the fraction of a second while the prompt was already visible but not
@@ -34,17 +45,6 @@ The reasoning level button next to the model picker showed "Minimal", "Low", "Me
 "High" even in a Russian interface. The button and its menu now read «Минимальный»,
 «Низкий», «Средний» and «Высокий». A level the interface has no name for is still shown the
 way it is written in the model settings.
-
-## 0.3.4 — 2026-09-17
-
-**Config switches are now called `enable`, the way coddy-agent spells them.**
-FoxxyCode used to call them `enabled`, so a `config.yaml` did not travel between the
-two agents: a file carried over loaded without complaint, yet every switch stayed at
-its default. `enable` is now the name everywhere - in the file, in the schema your
-editor validates against, in the settings form and in the JSON API. The old `enabled`
-keeps working: it is read as `enable`, `foxxycode -t` only warns about it, and the
-next save from the settings screen rewrites the key together with the comment above
-it. When a section sets both, `enable` wins.
 
 ## 0.3.4 — 2026-09-17
 
