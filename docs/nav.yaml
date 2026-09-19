@@ -187,6 +187,9 @@ groups:
       - path: contributing/documentation.md
         title: Writing documentation
         summary: Page types, the navigation map, screenshots, the assets index, generated references and the checks that guard them.
+      - path: contributing/brand.md
+        title: Brand assets
+        summary: The one vector every icon and the social preview are generated from, make brand, and the lock file that fails when an export goes stale.
       - path: contributing/architecture.md
         title: Architecture
         summary: System design and component overview, package boundaries, session modes, the directory structure.

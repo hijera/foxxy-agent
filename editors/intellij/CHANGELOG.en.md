@@ -9,6 +9,15 @@
 
 ## Unreleased — 2026-09-18
 
+**The fox mark replaces a faceless icon.**
+The tool window stripe showed a pair of `</>` chevrons, and the card in
+`Settings | Plugins` and on the JetBrains Marketplace was a grey placeholder
+with no logo at all. Both now carry the orange FoxxyCode fox, the same one the
+application icon uses. The tool window icon gained a separate dark variant, so
+it reads equally well in Light and in Darcula.
+
+## 0.3.6 — 2026-09-18
+
 **The reasoning level in the composer follows the interface language.**
 The reasoning level button next to the model picker showed "Minimal", "Low", "Medium" and
 "High" even in a Russian interface. The button and its menu now read «Минимальный»,

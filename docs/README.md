@@ -89,6 +89,7 @@ How FoxxyCode is built, tested, documented and released.
 
 - [Contributing guide](../CONTRIBUTING.md) - The development environment, the branch and pull request flow, what every change must carry.
 - [Writing documentation](contributing/documentation.md) - Page types, the navigation map, screenshots, the assets index, generated references and the checks that guard them.
+- [Brand assets](contributing/brand.md) - The one vector every icon and the social preview are generated from, make brand, and the lock file that fails when an export goes stale.
 - [Architecture](contributing/architecture.md) - System design and component overview, package boundaries, session modes, the directory structure.
 - [Build from source](contributing/build.md) - Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
 - [Custom tools](contributing/custom-tools.md) - Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.
