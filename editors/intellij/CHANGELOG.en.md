@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-19
+## 0.3.10 — 2026-09-19
 
 **Agent edit highlights are readable in a light theme.**
 Lines the agent changed were painted with one dark green background, which left black
