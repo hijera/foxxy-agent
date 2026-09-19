@@ -9,6 +9,22 @@
 
 ## Unreleased — 2026-09-19
 
+**Agent edit highlights are readable in a light theme.**
+Lines the agent changed were painted with one dark green background, which left black
+code unreadable in a light theme. The colors now come from the editor's color scheme,
+the same ones the diff viewer uses: inserted, modified and removed lines each get their
+own color. Switching the theme recolors the highlights at once, without another edit.
+
+**Highlights sit on the lines the agent changed.**
+When the file was open in the editor during the edit, the highlight was placed on line
+numbers of the new version while the editor still held the old text, and after the file
+reloaded it drifted below the insertion, onto lines the agent never touched. The plugin
+now reloads the file from disk first and matches the changed lines against the text in
+the editor. A line the editor does not contain (because of unsaved changes, say) is not
+highlighted at all, rather than painting its neighbour.
+
+## 0.3.9 — 2026-09-19
+
 **Config switches are now called `enable`, the way coddy-agent spells them.**
 FoxxyCode used to call them `enabled`, so a `config.yaml` did not travel between the
 two agents: a file carried over loaded without complaint, yet every switch stayed at
