@@ -1287,6 +1287,7 @@ export const messagesRu: Record<string, string> = {
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.chatBusyReattached":
     "Этот чат ещё выполняет прошлый запрос — открываю его. Сообщение вернулось в поле ввода, отправьте его, когда запрос завершится.",
+  "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.requestFailed": "Ошибка запроса",
   "app.requestFailedWithStatus": "Ошибка запроса ({status})",

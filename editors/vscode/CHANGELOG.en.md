@@ -8,7 +8,25 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-19
+## Unreleased — 2026-09-20
+
+**Stop and the queue follow the session's turn, not this tab.**
+When someone else started the turn in a chat - a second tab, the console, the
+scheduler - or the tab lost its stream and has not re-attached yet, the composer
+still shows Stop, and what you type is queued for that turn. Such a tab used to
+offer a plain send and get a "chat is busy" refusal.
+
+**A Stop that failed is visible and can be retried.**
+Stop now waits for the server's answer and only then drops the local stream. If the
+request did not get through, the transcript says "Could not stop generation. Try
+again.", the turn keeps rendering and the button stays available. The tab used to
+detach silently while the turn went on.
+
+**A draft never lands in another chat or over what you typed.**
+Text the server refused to queue or send returns to the composer of the chat it was
+written in only, and only if nothing new has been typed there.
+
+## 0.3.11 — 2026-09-19
 
 **Agent edit highlights are back on the lines that changed.**
 When the agent edited the same file more than once in a turn, the highlight of the

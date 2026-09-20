@@ -1250,6 +1250,7 @@ export const messagesEn: Record<string, string> = {
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.chatBusyReattached":
     "This chat is still working on the previous request — reopening it. Your message is back in the composer; send it when the turn finishes.",
+  "app.stopFailed": "Could not stop generation. Try again.",
   "app.emptyResponseBody": "Empty response body",
   "app.requestFailed": "Request failed",
   "app.requestFailedWithStatus": "Request failed ({status})",
