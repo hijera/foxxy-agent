@@ -3,7 +3,7 @@ package agent
 // Godog harness for features/ask_mode.feature: drives the real Agent.Run in
 // ask mode with a fake LLM provider. One scenario checks the tool definitions
 // the model is offered; another replays a call to a hidden tool and verifies
-// the execution-time refusal, which is what keeps the read-only promise when a
+// the execution-time refusal, which is what keeps the workspace untouched when a
 // model echoes a call from history recorded in another mode. A control
 // scenario runs the same call in agent mode so the refusal is provably the
 // only thing standing between the call and the file.
@@ -30,6 +30,9 @@ import (
 var bddAskReadOnlyTools = map[string]bool{
 	"read": true, "keep_result": true, "glob": true, "grep": true, "print_tree": true,
 	"websearch": true, "webfetch": true, "question": true, "load_skill": true,
+	// Filing writes the session's own title and tags. Nothing a reader of the
+	// repository could see changes, so the promise of the mode holds.
+	"session_describe": true,
 }
 
 const (

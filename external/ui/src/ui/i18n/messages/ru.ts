@@ -1411,4 +1411,17 @@ export const messagesRu: Record<string, string> = {
   "chat.archived.notice":
     "Этот диалог в архиве. Разархивируйте его, чтобы продолжить работу.",
   "chat.archived.unarchive": "Разархивировать",
+  "sessions.manage.tagsFailed": "Не удалось сохранить теги: {error}",
+  "sessions.rename": "Переименовать",
+  "sessions.tags.edit": "Теги",
+  "sessions.tags.editorAria": "Теги сессии {title}",
+  "sessions.tags.placeholder": "добавить тег",
+  "sessions.tags.remove": "Убрать тег {tag}",
+  "sessions.tags.full": "не больше {max} тегов",
+  "sessions.tags.addHint": "Enter добавит как {tag}",
+  "sessions.tags.add": "Добавить тег",
+  "sessions.tags.failed": "Теги не сохранились",
+  "sessions.tags.editRow": "Править теги",
+  "sessions.tags.done": "Готово",
+  "tool.name.session_describe": "правлю название и теги сессии",
 };

@@ -380,7 +380,7 @@ Best for: keeping README and `docs/` aligned with the code, updating operator gu
 
 Read-only question-answering and investigation mode:
 
-- The model is offered only **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, and **`load_skill`**
+- The model is offered only **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`** and **`session_describe`** (the session's own title and tags; nothing in the working copy changes)
 - No shell, no plan/todo/config tools, no MCP tools, no file or documentation writers, no scheduler, SSH, browser automation, or memory mutations (the memory copilot runs recall-only)
 - A tool call outside that set (for example one replayed from history recorded in agent mode) is refused at execution time with a read-only notice instead of running
 - Running a saved plan through **`metadata.runPlanSlug`** or **Run plan** is refused with 409 in ask mode; switch to agent first

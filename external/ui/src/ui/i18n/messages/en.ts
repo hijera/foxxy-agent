@@ -1367,4 +1367,17 @@ export const messagesEn: Record<string, string> = {
   "chat.archived.notice":
     "This conversation is archived. Take it out of the archive to keep working in it.",
   "chat.archived.unarchive": "Unarchive",
+  "sessions.manage.tagsFailed": "Could not save the tags: {error}",
+  "sessions.rename": "Rename",
+  "sessions.tags.edit": "Tags",
+  "sessions.tags.editorAria": "Tags of {title}",
+  "sessions.tags.placeholder": "add a tag",
+  "sessions.tags.remove": "Remove the tag {tag}",
+  "sessions.tags.full": "at most {max} tags",
+  "sessions.tags.addHint": "Enter files it as {tag}",
+  "sessions.tags.add": "Add a tag",
+  "sessions.tags.failed": "The tags were not saved",
+  "sessions.tags.editRow": "Edit the tags",
+  "sessions.tags.done": "Done",
+  "tool.name.session_describe": "filing the session",
 };
