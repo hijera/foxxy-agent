@@ -382,7 +382,7 @@
         },
         "sources": {
           "type": "array",
-          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://hijera.github.io/foxxy-agent/features/skills.html.",
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/skills.md.",
           "items": { "type": "string" }
         },
         "auto_discovery": {
