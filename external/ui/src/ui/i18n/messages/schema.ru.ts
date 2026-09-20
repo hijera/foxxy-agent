@@ -344,8 +344,8 @@ export const schemaTextRu: Record<string, string> = {
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
   "Compaction engine": "Движок сжатия",
-  'Which compaction implementation to use. "coddy" (default) keeps a summary row and replays only the window after it, and supports the /compact command. "opencode" flags older turns and filters them from the payload.':
-    'Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё, поддерживает команду /compact. «opencode» помечает старые шаги и исключает их из отправляемого контекста.',
+  "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
+    "Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",

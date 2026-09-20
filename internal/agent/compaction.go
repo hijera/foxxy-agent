@@ -3,13 +3,13 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"strings"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
-	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -71,37 +71,16 @@ func compactionBoundary(history []llm.Message, keepLastTurns int) int {
 	return boundary
 }
 
-// compactionProvider returns the provider used for the summarization pass: a dedicated model when
-// compaction.model is configured, otherwise the passed-in main provider. Any resolution error
-// falls back to the main provider rather than failing the turn.
-func (a *Agent) compactionProvider(fallback llm.Provider) llm.Provider {
-	ref := strings.TrimSpace(a.cfg.Compaction.Model)
-	if ref == "" {
-		return fallback
-	}
-	rm, err := a.cfg.ResolveLLM(ref)
-	if err != nil || rm == nil {
-		return fallback
-	}
-	if cap := a.cfg.Compaction.MaxTokens; cap > 0 && (rm.MaxTokens <= 0 || rm.MaxTokens > cap) {
-		rm.MaxTokens = cap
-	}
-	mk := a.providerFactory
-	if mk == nil {
-		mk = llm.NewProvider
-	}
-	p, err := mk(a.llmProviderInput(rm))
-	if err != nil || p == nil {
-		return fallback
-	}
-	return p
-}
-
-// maybeCompact checks whether the conversation is close enough to the context window to summarize
-// older turns, and if so performs the compaction: it rewrites the persisted history so [0..boundary)
-// are marked Compacted (excluded from the model payload but kept for UI/replay) and a single
-// CompactionSummary message is inserted. Returns true when a compaction happened. Failures are
-// non-fatal — the caller continues with the full history.
+// maybeCompact is the opencode engine's trigger. It checks whether the conversation is close
+// enough to the context window to summarize older turns, against the provider's real input-token
+// count of the previous call where there is one, and if so compacts. Returns true when a
+// compaction happened. Failures are non-fatal - the caller continues with the full history.
+//
+// The trigger is this engine's own; the compaction is not. It goes through the same door as the
+// coddy engine's (compactSession in compact.go), which is what gives this engine the PreCompact /
+// PostCompact hooks, the summarizer chain with its fallbacks, the fold in passes for a head that
+// outgrew the summarizer's window, and the live row. provider is the turn's provider: it stands in
+// for the session model's summarizer.
 func (a *Agent) maybeCompact(ctx context.Context, provider llm.Provider, lastInputTokens int) (bool, error) {
 	if !a.cfg.Compaction.CompactionEnabled() {
 		return false, nil
@@ -136,65 +115,120 @@ func (a *Agent) maybeCompact(ctx context.Context, provider llm.Provider, lastInp
 	if threshold <= 0 || current < threshold {
 		return false, nil
 	}
-
-	boundary := compactionBoundary(history, a.cfg.Compaction.EffectiveKeepRecentTurns())
-	if boundary <= 0 {
+	if compactionBoundary(history, a.cfg.Compaction.EffectiveKeepRecentTurns()) <= 0 {
 		return false, nil
 	}
 
+	_, err := a.compactSession(ctx, "", false, compactionRun{opencode: true, turnProvider: provider})
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, ErrNothingToCompact), errors.Is(err, ErrEmptyCompactionSummary), errors.Is(err, ErrCompactionBlocked):
+		// Nothing was discarded and nothing is wrong with the turn: it goes on
+		// with the full window and the trigger asks again next step.
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
+// compactOpenCode is the opencode engine's half of compactSession: it folds history[:boundary]
+// and writes the result back by flagging those messages Compacted and inserting one
+// CompactionSummary message in front of the kept tail. The persisted transcript keeps every
+// original row; the model payload drops the flagged ones (isLLMHistoryMessage).
+func (a *Agent) compactOpenCode(
+	ctx context.Context,
+	history []llm.Message,
+	instructions string,
+	run compactionRun,
+	mode, trigger string,
+) (*CompactionResult, error) {
+	// compactionBoundary never keeps fewer than one turn, so the floor is the same for the
+	// manual command and the trigger: this engine has no "summarize everything".
+	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
+	boundary := compactionBoundary(history, keep)
+	for k := keep - 1; boundary <= 0 && k >= 1; k-- {
+		boundary = compactionBoundary(history, k)
+	}
+	if boundary <= 0 {
+		return nil, ErrNothingToCompact
+	}
+
+	// What is folded is what the model could still see before the boundary: the messages an
+	// earlier compaction flagged are gone from the payload already, and the summary that
+	// replaced them is part of the head - it is carried into the new summary instead of being
+	// dropped with the rest, which is how a second compaction used to forget the first.
+	visible := a.llmVisibleMessages()
+	headLen := 0
+	for i := 0; i < boundary; i++ {
+		if isLLMHistoryMessage(history[i]) {
+			headLen++
+		}
+	}
+	projected := a.prunedForSummary(visible)
+	if headLen > len(projected) {
+		headLen = len(projected)
+	}
+	head := projected[:headLen]
+
+	chain, err := a.compactionChainFor(run)
+	if err != nil {
+		return nil, fmt.Errorf("compaction model: %w", err)
+	}
+	if deduped, dropped := dedupeCompactionHead(head); dropped > 0 {
+		a.log.Info("compaction dropped repeated lines from the history it is folding",
+			"lines", dropped, "messages", len(head))
+		head = deduped
+	}
+	window, _ := a.contextWindowFor(chain[0].modelID)
+	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
+
 	sessionID := a.state.GetID()
+	before := session.EstimateTokens(conversationText(history)) + session.EstimateTokens(compactionSummaryText(history))
 	_ = a.server.SendSessionUpdate(sessionID, acp.CompactionUpdate{
 		SessionUpdate: acp.UpdateTypeCompaction,
 		Phase:         acp.CompactionPhaseStart,
-		TokensBefore:  current,
+		TokensBefore:  before,
 	})
-
-	summary, err := a.summarize(ctx, provider, history[:boundary])
-	if err != nil {
-		return false, err
+	// A client that was told a compaction started is always told how it ended, whatever
+	// happened in between: the start frame is what raises its "compacting" state.
+	done := acp.CompactionUpdate{
+		SessionUpdate: acp.UpdateTypeCompaction,
+		Phase:         acp.CompactionPhaseDone,
+		TokensBefore:  before,
+		TokensAfter:   before,
 	}
-	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		// Never discard history without a usable summary.
-		return false, nil
+	defer func() { _ = a.server.SendSessionUpdate(sessionID, done) }()
+
+	row := a.newCompactionRow()
+	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
+	if err != nil {
+		row.failed(err)
+		return nil, err
 	}
 
 	newHistory := buildCompactedHistory(history, boundary, summary)
 	a.state.ReplaceMessagesAndPersist(newHistory)
 	// Republish the shrunken window so the context HUD drops without waiting for the next
-	// system-prompt rebuild (the coddy engine does the same inside CompactSession).
+	// system-prompt rebuild.
 	a.refreshConversationContextUsage(true)
+	a.runPostCompactHooks(ctx, mode, trigger, summary)
 
-	after := session.EstimateTokens(conversationText(newHistory)) +
+	done.RemovedMessages = boundary
+	done.TokensAfter = session.EstimateTokens(conversationText(newHistory)) +
 		session.EstimateTokens(compactionSummaryText(newHistory))
-	_ = a.server.SendSessionUpdate(sessionID, acp.CompactionUpdate{
-		SessionUpdate:   acp.UpdateTypeCompaction,
-		Phase:           acp.CompactionPhaseDone,
-		RemovedMessages: boundary,
-		TokensBefore:    current,
-		TokensAfter:     after,
-	})
-	if a.log != nil {
-		a.log.Info("context compacted", "removed_messages", boundary, "tokens_before", current, "tokens_after", after)
-	}
-	return true, nil
-}
+	a.log.Info("context compacted", "engine", "opencode", "removed_messages", boundary,
+		"tokens_before", before, "tokens_after", done.TokensAfter, "steps", steps)
 
-// summarize runs a single non-streaming completion that condenses old into a plain-prose summary.
-func (a *Agent) summarize(ctx context.Context, provider llm.Provider, old []llm.Message) (string, error) {
-	p := a.compactionProvider(provider)
-	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: prompts.WithIdentity(compactionSystemPrompt)},
-		{Role: llm.RoleUser, Content: conversationText(old)},
+	res := &CompactionResult{
+		Summary:           summary,
+		CompactedMessages: len(head),
+		KeptMessages:      len(history) - boundary,
+		Model:             modelID,
+		Steps:             steps,
 	}
-	resp, err := p.Complete(ctx, msgs, nil)
-	if err != nil {
-		return "", err
-	}
-	if resp == nil {
-		return "", nil
-	}
-	return resp.Content, nil
+	row.done(compactionOutcomeText(res))
+	return res, nil
 }
 
 // buildCompactedHistory marks [0..boundary) as Compacted, inserts one CompactionSummary message,

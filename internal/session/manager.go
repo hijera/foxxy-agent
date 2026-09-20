@@ -1281,7 +1281,7 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 	}
 	sums := skills.ListSkills(st.GetSkills())
 	cfg := m.activeCfg()
-	builtins := skills.BuiltinCommands(cfg.Compaction.IsEnabled() && cfg.Compaction.EngineIsCoddy())
+	builtins := skills.BuiltinCommands(cfg.Compaction.IsEnabled())
 	cmds := make([]acp.AvailableCommand, 0, len(sums)+len(builtins))
 	for _, b := range builtins {
 		cmds = append(cmds, acp.AvailableCommand{Name: b.Name, Description: b.Description})

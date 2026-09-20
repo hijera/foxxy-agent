@@ -535,7 +535,7 @@ func (s *compactHTTPFeatureState) slashCatalogOffersCompact() error {
 		return err
 	}
 	if !strings.Contains(raw, `"name":"compact"`) {
-		return fmt.Errorf("the coddy engine does not advertise /compact: %s", raw)
+		return fmt.Errorf("the %q engine does not advertise /compact: %s", s.engine, raw)
 	}
 	return nil
 }

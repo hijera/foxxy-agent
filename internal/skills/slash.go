@@ -23,8 +23,8 @@ type SkillSummary struct {
 // BuiltinCommands returns the deterministic built-in slash commands (they run
 // without an LLM turn, unlike skills). Shared by the ACP available-commands
 // update and the HTTP commands endpoint so both surfaces stay in sync. compact
-// is included only when the coddy compaction engine is active (it owns the
-// manual /compact command); the opencode engine compacts automatically. plugin
+// is included while compaction is enabled: both engines answer the manual
+// /compact command. plugin
 // is always present (skill/marketplace management), and so is export.
 func BuiltinCommands(compactEnabled bool) []SkillSummary {
 	cmds := make([]SkillSummary, 0, 3)

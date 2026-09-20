@@ -466,7 +466,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List built-in slash commands",
 					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, on their own: **GET /foxxycode/slash-commands** leads with the same rows ahead of the skills, and the remote console merges both lists. " +
-						"**`compact`** appears only while **`compaction.enable`** is true and **`compaction.engine`** is **`coddy`**, the engine that owns the manual command; **`export`** and **`plugin`** are always present. " +
+						"**`compact`** appears only while **`compaction.enable`** is true (both engines answer the manual command); **`export`** and **`plugin`** are always present. " +
 						"Optional **`prefix`** filters by case-insensitive name prefix.",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{

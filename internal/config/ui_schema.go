@@ -648,7 +648,7 @@ func UISchemaMap() map[string]interface{} {
 				"engine": map[string]interface{}{
 					"type":        "string",
 					"title":       "Compaction engine",
-					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
 					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
 				},
 				"enable": boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),

@@ -419,6 +419,13 @@ func (s *compactionFeatureState) compactSessionOnActiveEngine() error {
 	if s.ag.cfg.Compaction.EngineIsCoddy() {
 		return s.compactSession()
 	}
+	// The fold scenario shrinks the model's window to one token so a pass holds
+	// a single exchange. The opencode trigger's threshold is a percent of that
+	// window and means nothing at one token, so that scenario goes through the
+	// door both engines share; every other one exercises the trigger itself.
+	if s.ag.cfg.Models[0].MaxContextTokens == 1 {
+		return s.compactSession()
+	}
 	// A large lastInputTokens puts the opencode engine over its threshold deterministically.
 	did, err := s.ag.maybeCompact(context.Background(), s.provider, 1_000_000)
 	if err != nil {

@@ -41,6 +41,30 @@ When a turn started from the plan card stopped on a permission prompt, the agent
 on without the plan text after the answer. The plan now stays with the turn until it
 is really over.
 
+**The context ring and automatic compaction measure against the same window.**
+When a model has no window size in the settings, it is now read from the provider's
+model listing instead of borrowing the default model's window. The ring in the
+composer could show 40% while the session was already at its limit, and compaction
+never fired. A window that arrives late is picked up too - the ring is redrawn
+without a reload.
+
+**Compaction copes with a history that does not fit one request.**
+A history that is too long is folded in several passes, each carrying the summary of
+the ones before; while it runs, the transcript shows a row with the pass number. When
+the summarizer model is unavailable the fallbacks are tried
+(`compaction.fallback_models`, and `memory.fallback_models` for memory), with the
+session's own model last.
+
+**The model can compact the context itself.**
+There is a new `compact_context` tool: the agent folds the history when it sees the
+window filling up, without waiting for the threshold. Compaction from the button or
+`/compact` now runs as a turn of the session, so every open tab and the console see it.
+
+**The `/compact` command works on both compaction engines.**
+On the `opencode` engine the command used to answer with a refusal, and compaction
+over the API did not shrink the context. Both engines can now do the same things;
+also, a second compaction on `opencode` no longer loses the first one's summary.
+
 ## 0.3.11 — 2026-09-19
 
 **Agent edit highlights are back on the lines that changed.**
