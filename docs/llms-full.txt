@@ -2763,6 +2763,10 @@ Behavior (unchanged summary)
 - **Enter** submits when idle; **`Shift+Enter`** newline. While **`generating`** the same key queues the draft for the running turn instead of being swallowed (**Composer message queue**); under **`ui.send_mode: ctrl_enter`** that key is **Ctrl/Cmd+Enter**, and with **`off`** only the control queues.
 - **Stop** waits for **`POST /foxxycode/sessions/{id}/cancel`** to succeed before aborting a local reader. Failure remains visible and retryable; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 
+![A failed cancellation remains retryable while the turn still runs](../assets/message-queue/stop-queue-cancel-failed-dark-1280.png)
+
+*The cancel request was refused: the notice says so, the turn still runs and Stop remains available for another attempt.*
+
 Regression
 
 - Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
@@ -7446,6 +7450,9 @@ Such a history is now folded in passes. Each pass carries the summary of everyth
 
 Every compaction, whichever way it started, draws the row a tool call draws: announced as `compact_context` when it begins, updated with the pass it is on while a multi-pass fold runs (`compacting context: pass 3 of 7`), and closed with what it folded. Before this the session simply went quiet for as long as the summariser took, which a fold of several calls over a large history makes hard to sit through.
 
+![The compact_context row while a compaction runs](../assets/compaction/compact-row-running-dark-1280.png)
+*`/compact` sent from the composer on a history that needs several passes: the row and the live line say what is running, and Stop is available. Captured from the running UI with a stand-in provider.*
+
 The row a compaction draws for itself is live: it reaches whoever is watching the session - the composer that sent `/compact`, a second browser tab, a console on `--remote` - and what stays in the transcript afterwards is the compaction summary row. A compaction the model asked for is different, because there the row already exists: the `compact_context` call reuses it, so the passes appear under the call that ordered them, and it stays in the transcript like any other tool call.
 
 ## What is kept and what is summarised
@@ -7461,6 +7468,12 @@ The summary row is a user-role message flagged `compaction_summary` that starts 
 After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /foxxycode/sessions/{id}/stats` returns the same breakdown by category. Every client of a shared session reads the smaller number: the tab that sent the turn from its own stream, another tab watching the turn from `GET /foxxycode/sessions/{id}/composer-stream` (the same frames), and a tab that only views the session from the stats it reloads when `turn_ended` arrives. A compaction folds the turns before the kept tail, so the numbers fall when the bulk of the context sits in older turns; a large last message stays verbatim until newer turns push it past `keep_recent_turns`.
 
 The web UI also updates the session's context window from `usage_update.size` on either stream. If a provider listing arrives after `/v1/models` returned the 128000 fallback, the ring adopts the reported window without a reload. Stats refreshes preserve that live window; selecting a different model or saving the configuration uses the model listing until a fresh usage update arrives. A window received for one session never changes another session's ring.
+
+![Context using the fallback window](../assets/compaction/context-window-before-dark-1280.png)
+*Before the provider's model listing answers: 120000 tokens fill 93.8% of the 128000-token fallback window. Captured from the running UI with a stand-in provider.*
+
+![Context using the window the provider reports](../assets/compaction/context-window-after-dark-1280.png)
+*Once the listing reports a 262144-token window the same tokens are 45.8% of it. Narrow layout: [before](../assets/compaction/context-window-before-dark-390.png) and [after](../assets/compaction/context-window-after-dark-390.png).*
 
 ## What the transcript shows
 

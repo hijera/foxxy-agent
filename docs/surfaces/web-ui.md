@@ -395,6 +395,10 @@ Behavior (unchanged summary)
 - **Enter** submits when idle; **`Shift+Enter`** newline. While **`generating`** the same key queues the draft for the running turn instead of being swallowed (**Composer message queue**); under **`ui.send_mode: ctrl_enter`** that key is **Ctrl/Cmd+Enter**, and with **`off`** only the control queues.
 - **Stop** waits for **`POST /foxxycode/sessions/{id}/cancel`** to succeed before aborting a local reader. Failure remains visible and retryable; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 
+![A failed cancellation remains retryable while the turn still runs](../assets/message-queue/stop-queue-cancel-failed-dark-1280.png)
+
+*The cancel request was refused: the notice says so, the turn still runs and Stop remains available for another attempt.*
+
 Regression
 
 - Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
