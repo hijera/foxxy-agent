@@ -349,6 +349,7 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("foxxycode_memory_search")).toBe("status.memory");
     expect(statusKeyForTool("config_set")).toBe("status.config");
     expect(statusKeyForTool("svn_commit")).toBe("status.vcs");
+    expect(statusKeyForTool("http_request")).toBe("status.httpRequest");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
     expect(statusKeyForTool("")).toBe("status.tool");
   });

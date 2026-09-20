@@ -146,6 +146,12 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "pattern");
     case "websearch":
       return stringArg(args, "query");
+    case "http_request": {
+      // The method is half of what a request does; the url alone reads like a fetch.
+      const method = stringArg(args, "method").toUpperCase();
+      const url = stringArg(args, "url");
+      return method && url ? method + " " + url : url;
+    }
     case "mv":
       return stringArg(args, "src");
     case "spawn_agent":
@@ -193,6 +199,8 @@ function questionForTool(
         : t("prompts.permissionQuestion.rm");
     case "rmdir":
       return t("prompts.permissionQuestion.rmdir");
+    case "http_request":
+      return t("prompts.permissionQuestion.httpRequest");
     default:
       return t("prompts.permissionQuestion.fallback");
   }

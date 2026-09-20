@@ -141,6 +141,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
+		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {

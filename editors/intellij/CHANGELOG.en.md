@@ -48,6 +48,16 @@ on the list but are not asked by default - from a server they answer with a deco
 engine set, the timeouts, the snippet length, the cache, the address of your own SearXNG
 and a Brave API key are all in Settings → Tools → Web search (`tools.websearch`).
 
+**The agent has `http_request`, a curl of its own, and saving settings no longer eats `${VAR}`.**
+The new tool sends any HTTP request - methods, headers, a body, uploaded files, a proxy,
+the response saved to a file - and returns the status line, the headers and the body. It is
+offered in agent and debug mode only, and asks before it goes out unless the address is in
+`tools.http_request.allowlist` or was approved in this session; the card shows the whole
+request - address, headers, files, proxy - and offers to remember either that exact address
+or the whole origin. Saving settings is fixed along the way: a `${BRAVE_API_KEY}` reference
+in `config.yaml` is no longer replaced by its resolved value when you save from the UI, and
+`ssh_connect_timeout` and the web-search section are no longer dropped.
+
 ## 0.3.12 — 2026-09-20
 
 **Stop and the queue follow the session's turn, not this tab.**

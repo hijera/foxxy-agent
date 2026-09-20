@@ -657,8 +657,14 @@ export const schemaTextRu: Record<string, string> = {
   "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.":
     "Базовый адрес вашего экземпляра SearXNG, к которому обращаются по JSON API (включите формат json в его settings.yml). Адреса localhost и локальной сети разрешены.",
   "Brave Search API key": "Ключ Brave Search API",
-  "With a subscription token the brave engine uses the official JSON API instead of reading the public result page.":
-    "С токеном подписки движок brave использует официальный JSON API вместо чтения публичной страницы результатов.",
+  "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.foxxycode/.env.":
+    "С токеном подписки движок brave использует официальный JSON API вместо чтения публичной страницы результатов. Оставьте пустым, чтобы взять BRAVE_API_KEY из окружения или из ~/.foxxycode/.env.",
+  "HTTP requests": "HTTP-запросы",
+  "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.":
+    "Политика инструмента http_request — curl-а агента. В режимах ask и accept_edits запрос спрашивает разрешения, если его назначение не разрешено здесь и не было одобрено в этой сессии; bypass не спрашивает никогда.",
+  "Allowlist": "Список разрешённых",
+  "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.":
+    "Назначения, к которым обращаются без вопроса: хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/); «*» разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат; для прокси нужна своя запись, а сохранение ответа в файл подчиняется политике записи.",
 };
 
 /**

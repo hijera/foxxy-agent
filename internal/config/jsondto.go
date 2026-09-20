@@ -220,9 +220,33 @@ type ToolsJSON struct {
 	CommandAllowlist         []string `json:"command_allowlist,omitempty"`
 	PermissionTimeoutSeconds int      `json:"permission_timeout_seconds,omitempty"`
 	PlanNoSelfRun            *bool    `json:"plan_no_self_run,omitempty"`
+	SSHConnectTimeout        int      `json:"ssh_connect_timeout,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
+	WebSearch    ToolWebSearchJSON    `json:"websearch,omitempty"`
+	HTTPRequest  ToolHTTPRequestJSON  `json:"http_request,omitempty"`
+}
+
+// ToolWebSearchJSON mirrors ToolWebSearch for JSON APIs. BraveAPIKey travels
+// both ways, like a provider's api_key: it is a credential for a third-party
+// service the settings screen edits, not one that grants access to FoxxyCode
+// itself, which is what the write-only fields (httpserver.auth_token, the login
+// hash, the swarm tokens) are. config_get still redacts it from the model.
+type ToolWebSearchJSON struct {
+	Engines              []string `json:"engines,omitempty"`
+	EngineTimeoutSeconds int      `json:"engine_timeout_seconds,omitempty"`
+	TotalTimeoutSeconds  int      `json:"total_timeout_seconds,omitempty"`
+	MaxConcurrentEngines int      `json:"max_concurrent_engines,omitempty"`
+	SnippetChars         int      `json:"snippet_chars,omitempty"`
+	CacheTTLSeconds      int      `json:"cache_ttl_seconds,omitempty"`
+	SearXNGURL           string   `json:"searxng_url,omitempty"`
+	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
+}
+
+// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs.
+type ToolHTTPRequestJSON struct {
+	Allowlist []string `json:"allowlist,omitempty"`
 }
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
@@ -546,6 +570,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CommandAllowlist:         append([]string(nil), c.Tools.CommandAllowlist...),
 		PermissionTimeoutSeconds: c.Tools.PermissionTimeoutSeconds,
 		PlanNoSelfRun:            c.Tools.PlanNoSelfRun,
+		SSHConnectTimeout:        c.Tools.SSHConnectTimeout,
+		WebSearch:                ToolWebSearchJSON(c.Tools.WebSearch),
 		OutputLimits: ToolOutputLimitsJSON{
 			Read: c.Tools.OutputLimits.Read, Grep: c.Tools.OutputLimits.Grep,
 			Glob: c.Tools.OutputLimits.Glob, PrintTree: c.Tools.OutputLimits.PrintTree,
@@ -559,6 +585,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			DefaultTimeoutSeconds: c.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
+		},
+		HTTPRequest: ToolHTTPRequestJSON{
+			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
 		},
 	}
 	out.Logger = LoggerJSON{
@@ -819,6 +848,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CommandAllowlist:         append([]string(nil), j.Tools.CommandAllowlist...),
 		PermissionTimeoutSeconds: j.Tools.PermissionTimeoutSeconds,
 		PlanNoSelfRun:            j.Tools.PlanNoSelfRun,
+		SSHConnectTimeout:        j.Tools.SSHConnectTimeout,
+		WebSearch:                ToolWebSearch(j.Tools.WebSearch),
 		OutputLimits: ToolOutputLimits{
 			Read: j.Tools.OutputLimits.Read, Grep: j.Tools.OutputLimits.Grep,
 			Glob: j.Tools.OutputLimits.Glob, PrintTree: j.Tools.OutputLimits.PrintTree,
@@ -832,6 +863,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
+		HTTPRequest: ToolHTTPRequest{
+			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
 		},
 	}
 	cfg.Logger = Logger{

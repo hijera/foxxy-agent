@@ -1382,4 +1382,8 @@ export const messagesEn: Record<string, string> = {
   "tool.name.session_describe": "filing the session",
   "settings.skills.systemSource":
     "Built into FoxxyCode: in effect without being in config.yaml, and not removable",
+  "prompts.allowAlwaysTarget": "Always allow {target}",
+  "tool.name.http_request": "sending an http request",
+  "prompts.permissionQuestion.httpRequest": "Send this HTTP request?",
+  "status.httpRequest": "Sending a request",
 };
