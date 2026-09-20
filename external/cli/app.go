@@ -31,6 +31,10 @@ type turnDone struct {
 	sessionID string
 	stop      string
 	err       error
+	// text and row are what submitPrompt put on screen, kept so a prompt the
+	// server refused as session_busy can be taken back and queued instead.
+	text string
+	row  tui.Component
 }
 
 // App is the interactive console application: one UI goroutine over a
@@ -79,14 +83,17 @@ type App struct {
 	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
-	switching     bool
-	pendingSwitch func()
-	readyPending  string
-	lastCtrlC     time.Time
-	expanded      bool
-	hideThink     bool
-	themeName     string
-	plain         bool
+	// Remote activity drives Stop/queue but never owns or releases our worker.
+	remoteTurnActive       bool
+	remoteActivityRevision uint64
+	switching              bool
+	pendingSwitch          func()
+	readyPending           string
+	lastCtrlC              time.Time
+	expanded               bool
+	hideThink              bool
+	themeName              string
+	plain                  bool
 
 	// Streaming state.
 	curAssistant *assistantMessage
@@ -289,6 +296,10 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 }
 
 func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOption) {
+	if id != a.sessionID {
+		a.remoteTurnActive, a.remoteActivityRevision = false, 0
+		a.queue.Reset()
+	}
 	a.sessionID = id
 	a.reasoning = ""
 	if modes != nil {
@@ -525,9 +536,13 @@ func (a *App) handleGlobalKey(data []byte) bool {
 			a.stopLocalShell()
 			return true
 		}
-		if a.turnActive {
+		if a.remoteTurnActive || (a.turnActive && a.turnSessionID == a.sessionID) {
 			a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: a.sessionID})
-			a.appendStatus(roleWarning, "Interrupted by escape")
+			if a.remoteURL != "" {
+				a.appendStatus(roleDim, "Requesting stop…")
+			} else {
+				a.appendStatus(roleWarning, "Interrupted by escape")
+			}
 			return true
 		}
 		return false
@@ -656,7 +671,7 @@ func (a *App) onSubmit(text string) {
 }
 
 func (a *App) submitPrompt(text string) {
-	if a.turnActive {
+	if a.turnActive || a.remoteTurnActive {
 		// The moment an operator knows most about what the agent should do next
 		// is while it is working, so a second prompt joins the queue the turn
 		// reads at its next step instead of being refused (queue.go).
@@ -667,8 +682,11 @@ func (a *App) submitPrompt(text string) {
 		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
 		return
 	}
-	a.chat.AddChild(newUserMessage(a.theme, text))
-	a.setQueueRows(nil)
+	row := newUserMessage(a.theme, text)
+	a.chat.AddChild(row)
+	if a.remoteURL == "" {
+		a.setQueueRows(nil)
+	}
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
@@ -688,7 +706,7 @@ func (a *App) submitPrompt(text string) {
 			stop = string(res.StopReason)
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, text: text, row: row}}:
 		case <-a.closed:
 		}
 	}()
@@ -1122,6 +1140,8 @@ func (a *App) onEditorChange(string) {
 }
 
 func (a *App) resetTranscript() {
+	a.remoteTurnActive, a.remoteActivityRevision = false, 0
+	a.queue.Reset()
 	a.chat.Clear()
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
