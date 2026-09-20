@@ -214,11 +214,13 @@ site-check:
 	$(SITE_NPM_CI)
 	cd site && node scripts/build-data.mjs --offline test/fixtures/releases.json --strict
 	cd site && npm run typecheck && npm test && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
 	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
 
 site:
 	$(SITE_NPM_CI)
 	cd site && node scripts/build-data.mjs && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
 	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.

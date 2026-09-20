@@ -2,7 +2,7 @@
 
 FoxxyCode is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, the IntelliJ and VS Code plugins, a desktop window on Windows, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.foxxycode`. FoxxyCode is a fork of [coddy-agent](https://github.com/coddy-project/coddy-agent); what it adds is in [FoxxyCode and coddy-agent](getting-started/foxxycode-and-coddy.md).
 
-New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt) for agents that read documentation. How the pages are organised and what a change to FoxxyCode must carry into them is in [Writing documentation](contributing/documentation.md).
+New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds <https://hijera.github.io/foxxy-agent/llms.txt> and <https://hijera.github.io/foxxy-agent/llms-full.txt> for agents that read documentation, built on every website run and published from there rather than kept here. How the pages are organised and what a change to FoxxyCode must carry into them is in [Writing documentation](contributing/documentation.md).
 
 <!-- docsgen:nav:start -->
 ## Getting started

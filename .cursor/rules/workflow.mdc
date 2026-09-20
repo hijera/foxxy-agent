@@ -48,13 +48,14 @@ When adding or changing behavior (including words like feature, add, implement, 
       or the **`Dockerfile`**; **`make docs-check`** fails on one that is not, so a screenshot leaves
       together with the feature it showed. Screenshots that only prove a pull request go to the pull
       request (the orphan **`screenshots`** branch, linked by raw URL), never under **`docs/assets/`**.
-    - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**, **`docs/llms.txt`**,
-      **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of
+    - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**,
+      the field tables of **`docs/reference/config.md`**, the help screens of
       **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`**; commit the result.
       **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for documentation
       commits) fails on drift, on a page missing from the map, on a broken relative link or anchor and
       on an unused asset. **`make docs-fast`** refreshes everything but the CLI reference, which follows
       the `--help` screens of a full-tag binary and is regenerated on Linux or WSL, where CI checks it.
+      `llms.txt` and `llms-full.txt` are **not kept in this repository**: a concatenation of every page conflicted in every branch that touched one. The website build renders them (`go run ./cmd/docsgen -publish -skip-cli`, run by `make site` / `make site-check` and by the **Website** workflow) into the checkout it publishes, where they are served at **`https://hijera.github.io/foxxy-agent/llms.txt`** and **`https://hijera.github.io/foxxy-agent/llms-full.txt`**; `.gitignore` covers the paths, so a local copy never reaches a commit.
     - **Design records** - **`docs/plans/**`** keep decisions as they were taken and are not rewritten
       to match a later rename; only their link targets are repaired when a page moves. A page that
       moves takes its address with it: there are no redirect stubs, and an old link breaks.

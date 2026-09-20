@@ -1,7 +1,7 @@
 # Documentation map.
 #
 # This file is the single ordered list of the documentation: docs/README.md (the hub),
-# docs/llms.txt and docs/llms-full.txt are generated from it, and the sidebar of the
+# the llms.txt and llms-full.txt the website publishes are generated from it, and the sidebar of the
 # documentation site will be too. Every Markdown page under docs/ must appear here
 # except docs/plans/, the design records, which are ours and not a reader's;
 # `make docs-check` fails when the map and the tree drift apart, and it reports a

@@ -328,10 +328,25 @@ func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotap
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // ensureSession gets or creates the session for this key.
+//
+// A conversation this gateway starts is stamped with where it came from, so a
+// listing can tell a chat somebody is holding in Telegram from one opened on
+// this host. Only a chat the store has never seen is stamped: an id it already
+// knows belongs to a session that was stamped when it began, and an id this
+// gateway did not mint is somebody else's conversation to name.
 func (b *Bot) ensureSession(ctx context.Context, key string) (*session.State, error) {
+	fresh := b.store.Peek(key) == ""
+	// The fork's store reports a failed id generation instead of panicking.
 	sessionID, err := b.store.Get(key)
 	if err != nil {
 		return nil, err
 	}
-	return b.runner.EnsureHTTPSession(ctx, sessionID, b.cwd)
+	st, err := b.runner.EnsureHTTPSession(ctx, sessionID, b.cwd)
+	if err != nil {
+		return nil, err
+	}
+	if fresh {
+		st.SetOrigin(session.GatewayOrigin("telegram"))
+	}
+	return st, nil
 }
