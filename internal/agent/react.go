@@ -127,6 +127,9 @@ type Agent struct {
 	// turnHookContext is what UserPromptSubmit hooks handed over for this
 	// turn's system prompt (hooks.go).
 	turnHookContext string
+	// autoCompactSkipLogged records that this turn already logged an
+	// automatic compaction with nothing to fold (compact.go).
+	autoCompactSkipLogged bool
 	// clock is the wall clock the turn context block reads; nil means
 	// time.Now. Tests that assert on a rendered timestamp set it.
 	clock func() time.Time
@@ -350,6 +353,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		GetPlan:        a.state.GetPlan,
 		SetPlan:        a.state.SetPlan,
 		SetSessionMode: a.setSessionModeAnnounced,
+		CompactSession: a.compactFromTool,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -1517,6 +1521,17 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
+		}
+		// The model folded its own history: the transcript the loop replays is
+		// shorter now, so the outgoing slice is rebuilt from it before the next
+		// call, the way an automatic compaction between steps rebuilds it. Done
+		// after the whole batch, so a tool result already appended is picked up
+		// from the transcript rather than dropped.
+		if toolEnv.ContextCompacted {
+			toolEnv.ContextCompacted = false
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
+			a.refreshContextBreakdown(sys, turnCtx)
 		}
 		if toolEnv.ConfigReloaded {
 			// config_commit or config_rollback replaced the live configuration.

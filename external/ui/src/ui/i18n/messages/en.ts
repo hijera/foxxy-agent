@@ -995,6 +995,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.webfetch": "fetching a page",
   "tool.name.websearch": "searching the web",
   "tool.name.keep_result": "keeping a result",
+  "tool.name.compact_context": "compacting the context",
   "tool.name.plan_exit": "switching to agent mode",
   "tool.name.plan_write": "saving a plan",
   "tool.name.plan_read": "reading a plan",

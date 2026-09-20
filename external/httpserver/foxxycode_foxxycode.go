@@ -638,9 +638,10 @@ func (s *Server) foxxycodeSessionStatsGet(w http.ResponseWriter, r *http.Request
 		if os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"object":    "foxxycode.session_stats",
-				"sessionId": id,
-				"stats":     nil,
+				"object":        "foxxycode.session_stats",
+				"sessionId":     id,
+				"stats":         nil,
+				"contextWindow": s.sessionContextWindow(st),
 			})
 			return
 		}
@@ -656,6 +657,13 @@ func (s *Server) foxxycodeSessionStatsGet(w http.ResponseWriter, r *http.Request
 		"object":    "foxxycode.session_stats",
 		"sessionId": id,
 		"stats":     stats,
+		// The window the breakdown above is a share of, named with the model
+		// it belongs to. A provider listing can answer after GET /v1/models
+		// served its fallback, and a client that was looking at another
+		// session missed the usage_update that carried the correction; asking
+		// the session itself is how it catches up without waiting for the next
+		// turn.
+		"contextWindow": s.sessionContextWindow(st),
 	})
 }
 
@@ -698,6 +706,26 @@ func (s *Server) foxxycodeSessionDebugGet(w http.ResponseWriter, r *http.Request
 		"sessionId": id,
 		"events":    events,
 	})
+}
+
+// sessionContextWindow is the window a session measures against, resolved the
+// way every other reader resolves it, plus the model it belongs to so a client
+// can tell it apart from the window of a model the composer has since switched
+// to.
+func (s *Server) sessionContextWindow(st *session.State) map[string]interface{} {
+	cfg := s.activeCfg()
+	if cfg == nil || st == nil {
+		return nil
+	}
+	tokens, source := st.ContextWindow(cfg)
+	if tokens <= 0 {
+		return nil
+	}
+	return map[string]interface{}{
+		"model":  st.EffectiveModelID(cfg),
+		"tokens": tokens,
+		"source": source,
+	}
 }
 
 func (s *Server) foxxycodeRequireStore(w http.ResponseWriter) *session.FileStore {

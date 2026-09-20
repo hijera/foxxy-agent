@@ -41,9 +41,12 @@ type Manager struct {
 	// deleting marks sessions whose bundles are being removed by
 	// DeleteSessionTree, so a turn racing the delete is refused instead of
 	// usage is the provider usage cache and schedule (provider_usage.go).
-	usage  providerUsageState
-	runner AgentRunner
-	log    *slog.Logger
+	usage providerUsageState
+	// windows caches the context windows provider listings report
+	// (context_window.go).
+	windows contextWindowState
+	runner  AgentRunner
+	log     *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -425,11 +428,12 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 	}
 
 	state := &State{
-		ID:         id,
-		CWD:        cwd,
-		Mode:       ModeAgent,
-		Skills:     loadedSkills,
-		SessionDir: sessionDir,
+		ID:             id,
+		CWD:            cwd,
+		Mode:           ModeAgent,
+		Skills:         loadedSkills,
+		SessionDir:     sessionDir,
+		contextWindows: m,
 	}
 	state.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
 
@@ -487,9 +491,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.mu.Unlock()
 
 	st := &State{
-		ID:         params.SessionID,
-		CWD:        cwd,
-		SessionDir: snap.Dir,
+		ID:             params.SessionID,
+		CWD:            cwd,
+		SessionDir:     snap.Dir,
+		contextWindows: m,
 	}
 
 	mode := Mode(snap.Meta.Mode)
@@ -730,6 +735,10 @@ type turnAdmission struct {
 	// the state for the life of the turn so a message queue change made from
 	// outside the turn's goroutine reaches the clients watching it.
 	sender acp.UpdateSender
+	// noQueue admits work that is not a prompt (BeginSessionWork): the message
+	// queue stays shut, so a follow-up written meanwhile is refused as busy
+	// instead of being accepted by a turn that never reads it.
+	noQueue bool
 }
 
 // admissionFor derives the admission of a prompt from its options: a
@@ -791,10 +800,13 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	// works has somewhere to go (turn_queue.go), and the clients watching this
 	// turn are told when it changes. The notifier is installed before the queue
 	// opens, so every change of this turn's queue announces itself from one
-	// place - whoever made it, including the turn's own drain.
-	state.SetTurnSender(adm.sender)
-	state.SetQueueNotifier(func() { m.PublishMessageQueue(sessionID, state) })
-	state.OpenMessageQueue()
+	// place - whoever made it, including the turn's own drain. Work that is not
+	// a prompt has no step to read a follow-up into and leaves the queue shut.
+	if !adm.noQueue {
+		state.SetTurnSender(adm.sender)
+		state.SetQueueNotifier(func() { m.PublishMessageQueue(sessionID, state) })
+		state.OpenMessageQueue()
+	}
 	// The ran marker lives on this admission's context, so a concurrent
 	// admission that loses the lock cannot reset it.
 	markedCtx, ran := withTurnRanMarker(ctx)
@@ -810,12 +822,14 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			// is what Stop means, and says so rather than losing it quietly.
 			// The close announces the empty queue through the notifier, which
 			// is why both it and the sender are let go only afterwards.
-			if left := state.CloseMessageQueue(); len(left) > 0 {
-				m.log.Warn("message queue dropped with the turn",
-					"session_id", sessionID, "messages", len(left))
+			if !adm.noQueue {
+				if left := state.CloseMessageQueue(); len(left) > 0 {
+					m.log.Warn("message queue dropped with the turn",
+						"session_id", sessionID, "messages", len(left))
+				}
+				state.SetQueueNotifier(nil)
+				state.SetTurnSender(nil)
 			}
-			state.SetQueueNotifier(nil)
-			state.SetTurnSender(nil)
 			// The usage refresh is reserved before the turn is released: a
 			// client that pulls the numbers on turn_ended joins that fetch
 			// instead of reading the pre-turn snapshot.
@@ -832,6 +846,13 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	if err := m.admissible(sessionID, state); err != nil {
 		finish()
 		return nil, nil, err
+	}
+	// The window this turn's compaction trigger and usage_update measure
+	// against: a model without max_context_tokens reads its provider's model
+	// listing, fetched here the first time (bounded) so the first turn of a
+	// session already measures what GET /v1/models reports to the web UI.
+	if cfg := m.activeCfg(); cfg != nil {
+		m.AwaitContextWindows(turnCtx, cfg, []string{state.EffectiveModelID(cfg)}, ContextWindowWait)
 	}
 	return turnCtx, finish, nil
 }
@@ -871,6 +892,25 @@ func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptR
 		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
 	}
 	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
+}
+
+// BeginSessionWork admits work that holds a session the way a turn does
+// without being a prompt - a compaction asked for over REST. It takes the turn
+// lock, installs the cancel a deletion uses and marks the session active, so
+// every client watching the turn edges (GET /foxxycode/events) is told the work
+// started and ended and reloads what it changed: an idle browser tab reads the
+// smaller context stats instead of keeping the old ones. It opens no message
+// queue; a follow-up written meanwhile is refused as busy, like a second turn.
+// The caller runs on the returned context and calls finish when done.
+func (m *Manager) BeginSessionWork(ctx context.Context, sessionID string) (context.Context, func(), error) {
+	state := m.getSession(sessionID)
+	if state == nil {
+		return nil, nil, fmt.Errorf("%w: %s", ErrSessionGone, sessionID)
+	}
+	if state.IsSubagentRun() {
+		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	}
+	return m.beginTurn(ctx, sessionID, state, turnAdmission{publishUsage: true, noQueue: true})
 }
 
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).

@@ -364,6 +364,14 @@ type ModelInfo = {
 
 const PROFILE_MODES = ["agent", "plan", "docs", "ask", "debug"] as const;
 
+// SessionContextWindow is the window GET .../stats reports for a session,
+// named with the model it belongs to.
+type SessionContextWindow = {
+  model: string;
+  tokens: number;
+  source?: string;
+};
+
 type SessionStats = {
   tokenUsageTotal?: {
     inputTokens: number;
@@ -801,6 +809,30 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
+  // A provider listing can arrive after /v1/models returned its fallback.
+  // Keep the live window per session, scoped to its model and config version;
+  // stats refreshes must not replace it with the earlier model-list value.
+  const [sessionContextWindows, setSessionContextWindows] = useState<
+    Record<string, { model: string; epoch: number; size: number }>
+  >({});
+  // The live config version, readable from handlers declared above the state
+  // that holds it.
+  const configEpochRef = useRef(0);
+  // The window GET .../stats reports, which names its own model instead of
+  // borrowing the composer's. It is the authority when the two disagree: a
+  // live frame is labelled with what the tab was showing when it arrived.
+  const recordSessionContextWindow = useStableHandler(
+    (sid: string, w: SessionContextWindow | null | undefined) => {
+      const key = sid.trim();
+      if (!key || !w || !(w.tokens > 0) || !w.model) {
+        return;
+      }
+      setSessionContextWindows((prev) => ({
+        ...prev,
+        [key]: { model: w.model, epoch: configEpochRef.current, size: w.tokens },
+      }));
+    },
+  );
 
   const applySessionStatsPayload = useCallback(
     (
@@ -839,20 +871,27 @@ export function App() {
       if (!key) {
         return;
       }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
+      const statsRes = await fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(key)}/stats`, {
+        headers: { [HDR]: key },
+      });
       if (!statsRes.ok) {
         return;
       }
+      // The session's own window, named with the model it belongs to. Recorded
+      // whether or not this session is the one on screen: a window learnt while
+      // the tab was showing another chat is exactly what would otherwise be
+      // missed, leaving the ring on the model-list fallback until the next turn.
+      recordSessionContextWindow(key, statsRes.data?.contextWindow);
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
         key,
       );
     },
-    [applySessionStatsPayload],
+    [applySessionStatsPayload, recordSessionContextWindow],
   );
 
   const debouncedRefreshSessionStats = useMemo(
@@ -1261,6 +1300,9 @@ export function App() {
    * picker without a page reload.
    */
   const [configEpoch, setConfigEpoch] = useState(0);
+  useEffect(() => {
+    configEpochRef.current = configEpoch;
+  }, [configEpoch]);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -1334,6 +1376,14 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
+    setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+    setSessionContextWindows((prev) => ({
+      ...prev,
+      [sid]: { model: llmModel, epoch: configEpoch, size: u.size },
+    }));
+    debouncedRefreshSessionStats(sid);
+  });
   // Provider account usage for the composer's usage section and banner: read
   // over REST at session open, model change and after each viewed turn, pushed
   // by the events stream in between (chat/useProviderUsage.ts).
@@ -3640,10 +3690,12 @@ export function App() {
       // and one more round trip, and blocking on it is what leaves the panel on a
       // spinner after a reload. Start it here, read it only where it is needed.
       const listPromise = loadSessionsList(true);
-      const statsPromise = fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
-        { headers },
-      );
+      const statsPromise = fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`, {
+        headers,
+      });
 
       const shadowSnap = streamShadowBySidRef.current.get(sessionId);
       let loaded: TranscriptItem[] | null = null;
@@ -3697,6 +3749,9 @@ export function App() {
       const statsRes = await statsPromise;
       if (lifecycle.signal.aborted) {
         return;
+      }
+      if (statsRes.ok) {
+        recordSessionContextWindow(sessionId, statsRes.data?.contextWindow);
       }
       if (statsRes.ok && statsRes.data?.stats) {
         applySessionStatsPayload(
@@ -4249,8 +4304,7 @@ export function App() {
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
-        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-        debouncedRefreshSessionStats(key);
+        applyContextUsage(key, u);
       }
     };
 
@@ -4564,8 +4618,7 @@ export function App() {
       const branchContextUsage = (u: ContextUsageUpdate) => {
         if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
-          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-          debouncedRefreshSessionStats(streamKey);
+          applyContextUsage(streamKey, u);
         }
       };
 
@@ -5082,9 +5135,13 @@ export function App() {
   }
 
   const maxContextTokens = useMemo(() => {
+    const live = sessionContextWindows[sessionId.trim()];
+    if (live?.model === llmModel && live.epoch === configEpoch) {
+      return live.size;
+    }
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
+  }, [modelInfos, llmModel, sessionId, sessionContextWindows, configEpoch]);
 
   const llmModelMultimodal = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);

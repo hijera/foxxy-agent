@@ -1024,6 +1024,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.keep_result": "сохраняю результат",
+  "tool.name.compact_context": "сжимаю контекст",
   "tool.name.plan_exit": "перехожу в агентный режим",
   "tool.name.plan_write": "сохраняю план",
   "tool.name.plan_read": "читаю план",

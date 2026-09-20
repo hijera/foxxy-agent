@@ -250,8 +250,8 @@ func UISchemaMap() map[string]interface{} {
 			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
 			"Sampling temperature for this logical model (0 = deterministic, higher = more random)."),
-		"max_context_tokens": intProp("Max context tokens (UI hint)",
-			"Optional UI hint for composer context bar; 0 means derive from provider metadata when available."),
+		"max_context_tokens": intProp("Context window (tokens)",
+			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
 			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model."),
 		"reasoning_levels": map[string]interface{}{
@@ -627,15 +627,21 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
-				"enable":             boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
-				"model":              strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
+				"enable": boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
+				"model":  strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
+				"fallback_models": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"title":       "Fallback memory models",
+					"description": "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.",
+				},
 				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
 				"recall_max_turns":   intProp("Recall max turns", "Bounds recall-side LLM rounds in the memory loop."),
 				"persist_max_turns":  intProp("Persist max turns", "Bounds persist-side LLM rounds in the memory loop."),
 				"copilot_max_tokens": intProp("Copilot max tokens", "Completion token cap for memory copilot calls."),
 				"max_search_hits":    intProp("Max search hits", "Maximum snippets returned by memory search tools."),
 			},
-			[]string{"enable", "model", "dir", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits"},
+			[]string{"enable", "model", "fallback_models", "dir", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits"},
 			nil),
 		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
 			map[string]interface{}{
@@ -645,10 +651,16 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
 					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
 				},
-				"enable":            boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
-				"model":             strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
-				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode)."),
-				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2)."),
+				"enable": boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
+				"model":  strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
+				"fallback_models": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"title":       "Fallback summarizer models",
+					"description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
+				},
+				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode)."),
+				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none."),
 				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation (opencode engine only)."),
 				"result_eviction": objectSchema("Read/grep result eviction",
 					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
@@ -661,7 +673,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enable", "keep_recent", "min_result_bytes", "start_percent"},
 					nil),
 			},
-			[]string{"engine", "enable", "model", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
+			[]string{"engine", "enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
@@ -799,8 +811,11 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 	}
 
+	// Context compaction follows the ReAct agent: it is the same loop deciding
+	// what to send the model, and an operator who has just set max_turns is the
+	// one who reads the threshold next.
 	rootOrder := []string{
-		"providers", "models", "agent", "autocomplete", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"providers", "models", "agent", "compaction", "autocomplete", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory", "title", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 

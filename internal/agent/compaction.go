@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -15,25 +16,24 @@ import (
 //go:embed prompts/compaction.md
 var compactionSystemPrompt string
 
-// compactionDefaultContextWindow is the assumed context window when models[].max_context_tokens
-// is unset, matching the UI HUD fallback. Without it, auto-compaction could never trigger for
-// configs that omit the window.
-const compactionDefaultContextWindow = 128000
-
 // summaryPrefix precedes the generated summary in the synthetic message sent to the model. It is
 // deliberately short and in English (the summary body follows in the conversation's language).
 const summaryPrefix = "Summary of the earlier conversation (older turns were compacted to save context):\n\n"
 
 // resolveContextWindow returns the model's context window and per-completion output cap.
-// Falls back to a default window when max_context_tokens is unset.
+//
+// The window is the one the whole product measures against (contextWindow in
+// context_usage.go): max_context_tokens, else what the provider's model listing
+// reports, else config.DefaultContextWindowTokens. This engine used to keep a
+// ladder of its own, which is how the ring in the web UI and the trigger here
+// could disagree about how full the same session was (upstream issue #245).
 func (a *Agent) resolveContextWindow() (maxContext, maxOutput int) {
-	modelID := a.state.EffectiveModelID(a.cfg)
-	if rm, err := a.cfg.ResolveLLM(modelID); err == nil && rm != nil {
-		maxContext = rm.MaxContextTokens
+	if rm, err := a.cfg.ResolveLLM(a.state.EffectiveModelID(a.cfg)); err == nil && rm != nil {
 		maxOutput = rm.MaxTokens
 	}
+	maxContext, _ = a.contextWindow()
 	if maxContext <= 0 {
-		maxContext = compactionDefaultContextWindow
+		maxContext = config.DefaultContextWindowTokens
 	}
 	return maxContext, maxOutput
 }

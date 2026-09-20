@@ -82,9 +82,27 @@ func (a *Agent) evictionOptions() resultEvictionOptions {
 // again from the next step on because quarantined calls stop producing results.
 // One cache miss per quarantined loop is the price of not replaying the loop.
 func (a *Agent) prunedForLLM(msgs []llm.Message) []llm.Message {
+	return a.projectForLLM(msgs, a.evictionDue(msgs))
+}
+
+// prunedForSummary is the projection a compaction summarizes: the same as
+// prunedForLLM with the start_percent gate lifted. The gate exists to keep the
+// provider's cached prefix alive, and a compaction rewrites that prefix anyway,
+// so there is nothing to protect - while a read made stale by a later write, left
+// in the head, would be summarized as if it were still true.
+//
+// Upstream reaches the same result by accident: its gate reads
+// max_context_tokens and evicts whenever that is unset. Here the gate measures
+// against the resolved window (contextWindow), which is never unset, so the
+// summary path has to say what it wants.
+func (a *Agent) prunedForSummary(msgs []llm.Message) []llm.Message {
+	return a.projectForLLM(msgs, a.cfg.Compaction.ResultEviction.IsEnabled())
+}
+
+func (a *Agent) projectForLLM(msgs []llm.Message, evict bool) []llm.Message {
 	opt := a.evictionOptions()
 	out := dropUnansweredToolCalls(msgs)
-	if a.evictionDue(msgs) {
+	if evict {
 		out = pruneToolResults(out, opt)
 	}
 	return collapseLoopDuplicates(out, a.loopQuarantineSnapshot(), opt.MinResultBytes)
@@ -167,8 +185,8 @@ func (a *Agent) evictionDue(msgs []llm.Message) bool {
 	if start <= 0 {
 		return true
 	}
-	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
-	if ent == nil || ent.MaxContextTokens <= 0 {
+	window, _ := a.contextWindow()
+	if window <= 0 {
 		// Nothing to measure against: keep the projection that protects the
 		// window, since overflowing it is the worse failure.
 		return true
@@ -183,7 +201,7 @@ func (a *Agent) evictionDue(msgs []llm.Message) bool {
 		}
 	}
 	total := overhead + session.EstimateTokens(conversationText(msgs))
-	return total*100 >= start*ent.MaxContextTokens
+	return total*100 >= start*window
 }
 
 // evReadResult is a read tool result eligible for eviction.

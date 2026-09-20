@@ -66,6 +66,13 @@ type CompactionConfig struct {
 	// Model selects a cfg.models entry for the summarization pass. Empty uses agent.model.
 	Model string `yaml:"model"`
 
+	// FallbackModels are the models[].model ids tried, in order, when the
+	// summarizer above them fails. A compaction is what a session out of room
+	// has left, so one unreachable or overloaded model must not be the end of
+	// it; the session's own model is always the last resort, whether or not it
+	// is listed here (upstream issue #247). Both engines walk the same chain.
+	FallbackModels []string `yaml:"fallback_models"`
+
 	// ThresholdPercent triggers compaction when context usage exceeds this percentage of the
 	// model's context window. The default depends on Engine (coddy 80, opencode 85); read the
 	// effective value with EffectiveThresholdPercent.
@@ -73,7 +80,9 @@ type CompactionConfig struct {
 
 	// KeepRecentTurns is the number of most recent user turns preserved verbatim. A nil pointer
 	// means the default (2); an explicit 0 is honored by the coddy engine (opencode clamps to at
-	// least 1). Read the effective value with EffectiveKeepRecentTurns.
+	// least 1). Read the effective value with EffectiveKeepRecentTurns. When the window holds no
+	// more user turns than this, a compaction keeps fewer: the automatic trigger down to the
+	// prompt being answered, the manual command down to none.
 	KeepRecentTurns *int `yaml:"keep_recent_turns"`
 
 	// MaxTokens caps the summary completion size for the opencode engine. The coddy engine issues

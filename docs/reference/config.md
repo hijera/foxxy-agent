@@ -69,7 +69,7 @@ Named model entries the agent and UI can select.
 | `models[].model` | string |  | "provider_name/api_model_id": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes). |
 | `models[].max_tokens` | integer |  | Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens. |
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
-| `models[].max_context_tokens` | integer | 0 | Optional UI hint for the composer context bar; 0 derives it from provider metadata when available. |
+| `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model. |
 | `models[].reasoning_levels` | list of strings |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
@@ -280,7 +280,8 @@ Summarize older turns when the conversation approaches the model's context windo
 | `compaction.engine` | string, one of `coddy`, `opencode` | coddy | Compaction implementation: "coddy" (default) keeps a summary row and replays only the window after it (supports /compact); "opencode" flags older turns and filters them from the payload. |
 | `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
-| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99. |
+| `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |
+| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99. |
 | `compaction.keep_recent_turns` | integer | 2 | Number of most recent user turns preserved verbatim (never summarized). Default 2. |
 | `compaction.max_tokens` | integer | 4096 | Completion token cap for the summary generation (opencode engine only). |
 | `compaction.result_eviction` | object |  | Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete. |
@@ -307,6 +308,7 @@ Optional memory copilot (implementation in external/memory; enable at runtime wi
 |-----|------|---------|-------------|
 | `memory.enable` | boolean | false | Turn on the memory copilot. |
 | `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
+| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not silence the copilot. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~. |
 | `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
 | `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |
