@@ -1485,6 +1485,75 @@
           "description": "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.",
           "title": "Forbid the model from running the plan itself",
           "type": "boolean"
+        },
+        "websearch": {
+          "additionalProperties": false,
+          "description": "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
+          "properties": {
+            "brave_api_key": {
+              "description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page.",
+              "title": "Brave Search API key",
+              "type": "string"
+            },
+            "cache_ttl_seconds": {
+              "description": "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).",
+              "title": "Cache TTL (s)",
+              "type": "integer"
+            },
+            "engine_timeout_seconds": {
+              "description": "Seconds one engine may take before it is reported as unavailable (default 8).",
+              "title": "Engine timeout (s)",
+              "type": "integer"
+            },
+            "engines": {
+              "default": [],
+              "description": "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.",
+              "items": {
+                "enum": [
+                  "brave",
+                  "bing",
+                  "ddg",
+                  "google",
+                  "searxng"
+                ],
+                "type": "string"
+              },
+              "title": "Engines",
+              "type": "array"
+            },
+            "max_concurrent_engines": {
+              "description": "How many engines are asked at once (default 4).",
+              "title": "Max concurrent engines",
+              "type": "integer"
+            },
+            "searxng_url": {
+              "description": "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.",
+              "title": "SearXNG URL",
+              "type": "string"
+            },
+            "snippet_chars": {
+              "description": "Maximum characters of one result description (default 320).",
+              "title": "Snippet length",
+              "type": "integer"
+            },
+            "total_timeout_seconds": {
+              "description": "Seconds the whole search may take, however many engines it asks (default 20).",
+              "title": "Total timeout (s)",
+              "type": "integer"
+            }
+          },
+          "title": "Web search",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "engines",
+            "engine_timeout_seconds",
+            "total_timeout_seconds",
+            "max_concurrent_engines",
+            "snippet_chars",
+            "cache_ttl_seconds",
+            "searxng_url",
+            "brave_api_key"
+          ]
         }
       },
       "title": "Tools and permissions",
@@ -1495,7 +1564,8 @@
         "permission_timeout_seconds",
         "plan_no_self_run",
         "output_limits",
-        "background"
+        "background",
+        "websearch"
       ]
     },
     "ui": {

@@ -133,6 +133,13 @@ type Env struct {
 	// the tools can say which of the two it is.
 	BackgroundEnabled bool
 
+	// WebSearch is the resolved tools.websearch section the websearch tool
+	// reads its engine list and bounds from. It travels on the environment
+	// rather than being captured when the registry is built, so a config
+	// reload reaches the next search without rebuilding the tool set. Nil
+	// means the built-in defaults.
+	WebSearch *WebSearchSettings
+
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
 	// carries the default applied to unlisted (and MCP) tools. A positive value
@@ -228,4 +235,27 @@ type SessionFilingUpdate struct {
 type SessionFilingResult struct {
 	Filing  SessionFiling
 	Changed []string
+}
+
+// WebSearchSettings is the resolved tools.websearch section as the search tool
+// receives it. The field order is part of the contract: internal/tools/web
+// converts this value to its own Settings type directly, which keeps the
+// engine logic in the package that owns it without importing config here.
+type WebSearchSettings struct {
+	// Engines is the backends to ask, in merge order; empty means the default set.
+	Engines []string
+	// EngineTimeoutSeconds bounds one backend, TotalTimeoutSeconds the whole call.
+	EngineTimeoutSeconds int
+	TotalTimeoutSeconds  int
+	// MaxConcurrentEngines caps the fan-out when many engines are configured.
+	MaxConcurrentEngines int
+	// SnippetChars caps one result's description.
+	SnippetChars int
+	// CacheTTLSeconds is how long one engine's answer is reused; negative
+	// turns caching off.
+	CacheTTLSeconds int
+	// SearXNGURL is an operator's own SearXNG instance, asked over its JSON API.
+	SearXNGURL string
+	// BraveAPIKey routes the Brave backend to the official Search API.
+	BraveAPIKey string
 }

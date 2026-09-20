@@ -41,6 +41,14 @@ unedited copy on disk. The old built-in `/generate-rules` is replaced by
 (`EvilFreelancer/rpa-skills`) shows up in Settings → Skills as a system source: it can be
 synced, but not edited away or removed.
 
+**Web search finds things again: Brave and Bing by default, your own SearXNG if you want one.**
+The `websearch` tool now asks several engines at once and merges what they return, with
+each engine's own outcome beside the results: "ok", "empty", or "blocked" with a reason.
+An anti-bot page used to read as "the web has nothing". DuckDuckGo and Google are still
+on the list but are not asked by default - from a server they answer with a decoy. The
+engine set, the timeouts, the snippet length, the cache, the address of your own SearXNG
+and a Brave API key are all in Settings → Tools → Web search (`tools.websearch`).
+
 ## 0.3.12 — 2026-09-20
 
 **Stop and the queue follow the session's turn, not this tab.**

@@ -632,6 +632,33 @@ export const schemaTextRu: Record<string, string> = {
     "Панель лимитов аккаунта",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.":
     "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; затрагивает только провайдеров, у которых есть источник лимитов (neuraldeep).",
+  "Web search": "Веб-поиск",
+  "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".":
+    "Какие поисковые движки опрашивает инструмент websearch, в каком порядке сливаются их результаты и сколько на это можно потратить. Каждый движок сообщает свой исход рядом с результатами, поэтому отказавший бэкенд назван по имени, а не посчитан за «ничего не найдено».",
+  "Engines": "Движки",
+  "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.":
+    "Поисковые движки в порядке слияния результатов (по умолчанию: brave, bing). «ddg» и «google» по умолчанию не опрашиваются: с сервера DuckDuckGo отвечает антибот-страницей, а Google отрисовывает результаты в браузере. Для «searxng» нужен адрес ниже.",
+  "Engine timeout (s)": "Таймаут движка (с)",
+  "Seconds one engine may take before it is reported as unavailable (default 8).":
+    "Сколько секунд отводится одному движку, прежде чем он будет отмечен как недоступный (по умолчанию 8).",
+  "Total timeout (s)": "Общий таймаут (с)",
+  "Seconds the whole search may take, however many engines it asks (default 20).":
+    "Сколько секунд отводится всему поиску, сколько бы движков он ни опрашивал (по умолчанию 20).",
+  "Max concurrent engines": "Движков одновременно",
+  "How many engines are asked at once (default 4).":
+    "Сколько движков опрашивается одновременно (по умолчанию 4).",
+  "Snippet length": "Длина фрагмента",
+  "Maximum characters of one result description (default 320).":
+    "Максимальная длина описания одного результата в символах (по умолчанию 320).",
+  "Cache TTL (s)": "Время жизни кэша (с)",
+  "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).":
+    "Сколько секунд ответ движка переиспользуется, прежде чем движок опросят снова (по умолчанию 300; отрицательное значение выключает кэш).",
+  "SearXNG URL": "Адрес SearXNG",
+  "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.":
+    "Базовый адрес вашего экземпляра SearXNG, к которому обращаются по JSON API (включите формат json в его settings.yml). Адреса localhost и локальной сети разрешены.",
+  "Brave Search API key": "Ключ Brave Search API",
+  "With a subscription token the brave engine uses the official JSON API instead of reading the public result page.":
+    "С токеном подписки движок brave использует официальный JSON API вместо чтения публичной страницы результатов.",
 };
 
 /**
@@ -688,4 +715,9 @@ export const schemaEnumLabelRu: Record<string, string> = {
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",
+  brave: "Brave",
+  bing: "Bing",
+  ddg: "DuckDuckGo",
+  google: "Google",
+  searxng: "SearXNG",
 };
