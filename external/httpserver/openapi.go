@@ -2994,7 +2994,8 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "foxxycode.skills_sources"},
-											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Every source in effect: the built-in ones first, then what skills.sources names."},
+											"system": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The subset of items FoxxyCode brings itself. They are not in config.yaml, DELETE refuses them, and a client should offer no remove control for them."},
 										},
 									},
 								},
@@ -3029,7 +3030,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Remove a remote skill source",
-					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400, and so does a source listed under **`system`** by `GET /foxxycode/skills/sources`: those are built into FoxxyCode and are not in the file.",
 					"operationId": "removeSkillSource",
 					"parameters": []interface{}{
 						map[string]interface{}{

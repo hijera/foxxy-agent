@@ -218,6 +218,9 @@ skills:
   # sources are remote skill sources installed on demand (foxxycode skills sync / /plugin /
   # Settings → Skills, never automatically): owner/repo[@ref], a git URL, or an http(s)
   # marketplace.json. Materialized into ${FOXXYCODE_HOME}/skills.
+  # "EvilFreelancer/rpa-skills", the catalogue the bundled rpa-* skills are published from,
+  # is always in effect as a system source and does not belong here: it is listed and synced
+  # beside this key and cannot be removed.
   # sources: []
   # auto_discovery offers the model-driven load_skill tool (agent pulls a catalogued skill's
   # instructions on its own). Default true.

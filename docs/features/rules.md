@@ -171,7 +171,9 @@ A leading `~` expands, and so do the two placeholders the config understands: `$
 
 ## Generating rules
 
-Use the bundled skill **`/generate-rules`**. It is always available (embedded in the binary) and guides the agent to write focused rule files via filesystem tools, into `.cursor/rules/` when the project already has one, into `.agents/rules/` when the project keeps shared agent configuration there, otherwise into `.foxxycode/rules/`.
+Use **`/rpa-gen-rules`**, one of the skills of the [standard delivery](skills.md#the-standard-delivery), so it is there on a fresh install. It reads the specs, the docs and the code first and derives the rules from what it finds, rather than asking you to describe the project: a layered-cake architecture rule (implement the inner layers that depend on nothing first), BDD-style delivery, and a Rules Sync step that mirrors a change in one agent's tree into every other one. It writes Cursor `.mdc` files under `.cursor/rules/`, the Claude Code pair (`CLAUDE.md` and `.claude/rules/`), and the Codex hook bridge under `.codex/` that attaches the Cursor rules by glob the way Cursor and Claude Code do natively.
+
+Rules FoxxyCode reads itself live in `.foxxycode/rules/` and `.agents/rules/`; both are ordinary discovery roots, so a rule file the skill wrote for another agent is picked up here as well.
 
 There is no `foxxycode rules generate` CLI subcommand.
 

@@ -149,7 +149,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills.dirs` | list of strings | ["~/.agents/skills","${FOXXYCODE_HOME}/skills","${CWD}/.foxxycode/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime. |
-| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. |
+| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://hijera.github.io/foxxy-agent/features/skills.html. |
 | `skills.auto_discovery` | boolean | true | Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true. |
 
 ### `rules`

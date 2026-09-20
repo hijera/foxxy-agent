@@ -24,6 +24,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
@@ -113,6 +114,10 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	// Hand over the standard skill delivery before anything reads skills. Best
+	// effort, like every other surface: a home that cannot be written still gets
+	// the copies the binary carries (skills.Bundled).
+	_, _ = skills.SeedDelivery(cfg)
 	if err := applyStartOverrides(cfg, params); err != nil {
 		return nil, err
 	}

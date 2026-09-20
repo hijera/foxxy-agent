@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -222,6 +222,17 @@ site:
 	cd site && node scripts/build-data.mjs && npm run build
 	go run ./cmd/docsgen -publish -skip-cli
 	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+# The skills FoxxyCode carries inside its binary (internal/skills/bundled). Those
+# that live in their own repositories are vendored rather than fetched at
+# runtime: skills-vendor refreshes the copies from the upstreams named in
+# scripts/bundled-skills.json, skills-vendor-check reports drift without
+# writing. Needs jq, git and network.
+skills-vendor:
+	scripts/vendor-bundled-skills.sh
+
+skills-vendor-check:
+	scripts/vendor-bundled-skills.sh --check
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:

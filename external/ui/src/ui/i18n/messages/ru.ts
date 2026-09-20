@@ -1424,4 +1424,6 @@ export const messagesRu: Record<string, string> = {
   "sessions.tags.editRow": "Править теги",
   "sessions.tags.done": "Готово",
   "tool.name.session_describe": "правлю название и теги сессии",
+  "settings.skills.systemSource":
+    "Встроен в FoxxyCode: работает без записи в config.yaml и не удаляется",
 };

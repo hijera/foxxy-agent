@@ -30,6 +30,17 @@ pinning, renaming, tags, archiving and deletion. An archived chat opens read-onl
 and says so, and neither archiving nor labelling moves a chat up the list as if
 something had just happened in it.
 
+**Ready-made workflows in the box: `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules`.**
+The binary now carries a whole delivery of skills rather than one, and writes it into
+`${FOXXYCODE_HOME}/skills` the first time it sees them missing: getting to know an
+unfamiliar repository, a feature by BDD, a bug fixed from a reproduction, and rules
+generated for the agents. They are ordinary skills - editable, disable-able, deletable -
+a deleted one is not written again, and a release with a newer version replaces an
+unedited copy on disk. The old built-in `/generate-rules` is replaced by
+`/rpa-gen-rules`. The marketplace they are published from
+(`EvilFreelancer/rpa-skills`) shows up in Settings → Skills as a system source: it can be
+synced, but not edited away or removed.
+
 ## 0.3.12 — 2026-09-20
 
 **Stop and the queue follow the session's turn, not this tab.**
