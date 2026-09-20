@@ -218,7 +218,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
@@ -307,6 +307,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				tr.marker("usage", fmt.Sprintf("in=%d out=%d", chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens))
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
+				cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
 			}
 			progress()
 			continue
@@ -377,6 +378,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		if chunk.Usage.TotalTokens > 0 {
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
+			cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
 		}
 
 		var newToolCall string
@@ -425,10 +427,11 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// replaying an invalid call is worse than losing it.
 			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
-					Content:      fullContent,
-					Reasoning:    reasoningBuf.String(),
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
+					Content:           fullContent,
+					Reasoning:         reasoningBuf.String(),
+					InputTokens:       inputTokens,
+					OutputTokens:      outputTokens,
+					CachedInputTokens: cachedInputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
 			return nil, fmt.Errorf("openai stream: %w", streamErr)
@@ -445,11 +448,12 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					}
 				}
 				return &Response{
-					Content:      fullContent,
-					ToolCalls:    toolCalls,
-					StopReason:   sr,
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
+					Content:           fullContent,
+					ToolCalls:         toolCalls,
+					StopReason:        sr,
+					InputTokens:       inputTokens,
+					OutputTokens:      outputTokens,
+					CachedInputTokens: cachedInputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
 		}
@@ -471,10 +475,11 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	return &Response{
-		Content:      fullContent,
-		ToolCalls:    toolCalls,
-		StopReason:   stopReason,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
+		Content:           fullContent,
+		ToolCalls:         toolCalls,
+		StopReason:        stopReason,
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		CachedInputTokens: cachedInputTokens,
 	}, nil
 }

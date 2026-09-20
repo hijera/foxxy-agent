@@ -13,11 +13,16 @@ From top to bottom in the rendered system message:
 
 1. Tools
 2. Skills
-3. Plan context / todo list (mode-dependent)
+3. Plan context (mode-dependent)
 4. **Rules** (project docs + active rules)
 5. Project instructions (`instructions.files`, minus the project docs already in Rules)
 6. Session memory
-7. Current UTC time
+
+A rule a **tool call** activated mid-turn does not rewrite that message: it would throw away the
+provider's cached copy of the whole conversation behind it. It arrives after the history instead, in
+the `<turn_context>` block that also carries the clock and the todo checklist, and the next turn's
+system prompt picks it up from the sticky set. See *The turn context block* in
+[react-agent.md](../contributing/react-agent.md).
 
 ## Discovery
 

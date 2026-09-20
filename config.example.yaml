@@ -443,6 +443,9 @@ tools:
 #     enable: true
 #     keep_recent: 2         # working window; 0 keeps none
 #     min_result_bytes: 2000 # smaller results are never evicted
+#     start_percent: 50      # wait until the context is this full before evicting; 0 = from the
+#                            # first result. A placeholder written into the middle of the history
+#                            # invalidates every token the provider cached behind it.
 
 # Automatic session title: after the first exchange in a fresh, non-pinned session, a hidden
 # internal "title" agent generates a short thread title. Runs backend-side for all clients

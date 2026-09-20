@@ -25,6 +25,21 @@ detach silently while the turn went on.
 Text the server refused to queue or send returns to the composer of the chat it was
 written in only, and only if nothing new has been typed there.
 
+**Long turns are faster and cheaper: the provider's prompt cache no longer resets on every step.**
+The system message is now built once per turn and sent back without a single byte
+changed. It used to carry a clock with seconds and the todo checklist, so the provider
+reprocessed the whole conversation on every step. The time, the checklist and the rules
+a tool activated now travel in a separate block after the history. Eviction of old
+`read`/`grep` results starts only once the context is half full (the
+`compaction.result_eviction.start_percent` setting): until then the history is not
+rewritten and the cache holds. The share of a request served from the cache shows in
+the debug log, on the `llm call usage` line.
+
+**A plan handed over for execution survives a permission prompt.**
+When a turn started from the plan card stopped on a permission prompt, the agent went
+on without the plan text after the answer. The plan now stays with the turn until it
+is really over.
+
 ## 0.3.10 — 2026-09-19
 
 **Agent edit highlights are readable in a light theme.**

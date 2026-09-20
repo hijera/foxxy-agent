@@ -371,6 +371,9 @@ export const schemaTextRu: Record<string, string> = {
   "Min result bytes": "Минимальный размер результата",
   "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).":
     "Результаты этого размера или меньше не вытесняются (по умолчанию 2000; 0 делает кандидатами все результаты).",
+  "Start at (%)": "Начинать с (%)",
+  "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.":
+    "Вытеснять, только когда оценка контекста достигла этого процента окна модели (по умолчанию 50; 0 — с первого результата). До порога история уходит без правок, и кэш промпта у провайдера сохраняется.",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",

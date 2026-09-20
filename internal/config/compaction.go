@@ -38,6 +38,14 @@ const (
 	ResultEvictionDefaultKeepRecent = 2
 	// ResultEvictionDefaultMinResultBytes leaves small results untouched.
 	ResultEvictionDefaultMinResultBytes = 2000
+	// ResultEvictionDefaultStartPercent is the share of the model's context
+	// window the conversation must reach before eviction starts rewriting it.
+	// Below it the history is sent untouched, because every placeholder that
+	// appears mid-history is a byte the provider's prompt cache keyed the rest
+	// of the conversation on: a sliding window would reprocess the whole
+	// transcript on almost every step to save a few thousand tokens nobody was
+	// short of yet.
+	ResultEvictionDefaultStartPercent = 50
 )
 
 // CompactionConfig controls automatic context compaction (summarization of older turns when the
@@ -83,6 +91,11 @@ type ResultEviction struct {
 	Enabled        *bool `yaml:"enable"`
 	KeepRecent     *int  `yaml:"keep_recent"`
 	MinResultBytes *int  `yaml:"min_result_bytes"`
+	// StartPercent is the share of the effective context window the estimated
+	// context must reach before eviction starts (default 50, valid 0..100). 0
+	// evicts from the first result, which is what the projection did before
+	// prompt caching was accounted for.
+	StartPercent *int `yaml:"start_percent"`
 }
 
 func (r *ResultEviction) IsEnabled() bool {
@@ -103,12 +116,23 @@ func (r *ResultEviction) EffectiveMinResultBytes() int {
 	return *r.MinResultBytes
 }
 
+// EffectiveStartPercent returns start_percent with the default applied.
+func (r *ResultEviction) EffectiveStartPercent() int {
+	if r.StartPercent == nil {
+		return ResultEvictionDefaultStartPercent
+	}
+	return *r.StartPercent
+}
+
 func (r *ResultEviction) Validate() error {
 	if r.KeepRecent != nil && *r.KeepRecent < 0 {
 		return fmt.Errorf("compaction.result_eviction.keep_recent: must be >= 0")
 	}
 	if r.MinResultBytes != nil && *r.MinResultBytes < 0 {
 		return fmt.Errorf("compaction.result_eviction.min_result_bytes: must be >= 0")
+	}
+	if r.StartPercent != nil && (*r.StartPercent < 0 || *r.StartPercent > 100) {
+		return fmt.Errorf("compaction.result_eviction.start_percent: must be between 0 and 100")
 	}
 	return nil
 }

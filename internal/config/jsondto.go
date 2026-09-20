@@ -302,6 +302,7 @@ type ResultEvictionJSON struct {
 	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
+	StartPercent   *int  `json:"start_percent,omitempty"`
 }
 
 // AutocompleteJSON mirrors AutocompleteConfig. Enabled and MultiLine are pointers so an unset
@@ -574,6 +575,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		ResultEviction: ResultEvictionJSON{
 			Enabled: c.Compaction.ResultEviction.Enabled, KeepRecent: c.Compaction.ResultEviction.KeepRecent,
 			MinResultBytes: c.Compaction.ResultEviction.MinResultBytes,
+			StartPercent:   c.Compaction.ResultEviction.StartPercent,
 		},
 	}
 	out.Title = TitleJSON{
@@ -846,6 +848,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		ResultEviction: ResultEviction{
 			Enabled: j.Compaction.ResultEviction.Enabled, KeepRecent: j.Compaction.ResultEviction.KeepRecent,
 			MinResultBytes: j.Compaction.ResultEviction.MinResultBytes,
+			StartPercent:   j.Compaction.ResultEviction.StartPercent,
 		},
 	}
 	cfg.Title = TitleConfig{

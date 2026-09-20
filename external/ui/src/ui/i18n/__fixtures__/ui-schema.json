@@ -355,6 +355,11 @@
               "description": "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
               "title": "Min result bytes",
               "type": "integer"
+            },
+            "start_percent": {
+              "description": "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.",
+              "title": "Start at (%)",
+              "type": "integer"
             }
           },
           "title": "Read/grep result eviction",
@@ -362,7 +367,8 @@
           "x-foxxycode-property-order": [
             "enable",
             "keep_recent",
-            "min_result_bytes"
+            "min_result_bytes",
+            "start_percent"
           ]
         },
         "threshold_percent": {

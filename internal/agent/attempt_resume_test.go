@@ -168,7 +168,15 @@ func TestResumedTurnTellsTheModelItWasRepeating(t *testing.T) {
 	if len(first) == 0 {
 		t.Fatal("no request reached the provider")
 	}
-	last := first[len(first)-1].Content
+	// The turn context block trails every request (turn_context.go), so the
+	// notice is the last message in front of it.
+	last := ""
+	for i := len(first) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(first[i].Content, turnContextOpenTag) {
+			last = first[i].Content
+			break
+		}
+	}
 	if !strings.Contains(last, "previous turn") || !strings.Contains(last, "read(PersonService.java)") {
 		t.Errorf("the first request did not carry the resume notice, last message was:\n%s", last)
 	}

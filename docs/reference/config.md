@@ -287,6 +287,7 @@ Summarize older turns when the conversation approaches the model's context windo
 | `compaction.result_eviction.enable` | boolean | true | Master switch for result eviction. |
 | `compaction.result_eviction.keep_recent` | integer | 2 | Most recent evictable results kept as a working window. |
 | `compaction.result_eviction.min_result_bytes` | integer | 2000 | Results at or below this size are never evicted. |
+| `compaction.result_eviction.start_percent` | integer | 50 | Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does. |
 
 ### `title`
 
