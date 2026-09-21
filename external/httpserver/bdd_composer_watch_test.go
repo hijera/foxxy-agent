@@ -204,7 +204,7 @@ func (s *composerWatchState) clientLoadsTranscript() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Messages    []map[string]any `json:"messages"`
 		MessagesRev *uint64          `json:"messagesRev"`
@@ -235,7 +235,7 @@ func (s *composerWatchState) clientSubscribesAfterTranscript() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return errStatus("composer stream not served", res.StatusCode, "")
 	}
