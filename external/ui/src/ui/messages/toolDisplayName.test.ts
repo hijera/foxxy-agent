@@ -61,3 +61,14 @@ test("background is read from the arguments, not guessed", () => {
     "running a command",
   );
 });
+
+// Every scheduler tool is an action on a job; a missing entry left the raw id
+// `foxxycode_scheduler_job_resume` on the row. The fork's dictionary already had
+// it, in the words its other scheduler rows use ("задача планировщика").
+test("resuming a scheduled job is named like the other scheduler actions", () => {
+  expect(toolDisplayName("foxxycode_scheduler_job_resume")).toBe("resuming a scheduled job");
+  setLocale("ru");
+  expect(toolDisplayName("foxxycode_scheduler_job_resume")).toBe(
+    "возобновляю задачу планировщика",
+  );
+});

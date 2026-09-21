@@ -104,6 +104,7 @@ class Backend {
   events: ControlledStream[] = [];
   posts: { sid: string; stream: ControlledStream }[] = [];
   relays: { sid: string; stream: ControlledStream }[] = [];
+  messagesRev = new Map<string, number>();
   abortPostReads = true;
   override?: (request: Request) => Response | Promise<Response> | undefined;
   fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -137,7 +138,7 @@ class Backend {
     const match = path.match(/^\/foxxycode\/sessions\/([^/]+)(.*)$/);
     if (match) {
       const sid = decodeURIComponent(match[1]!);
-      const suffix = match[2];
+      const suffix = match[2]!.split("?")[0];
       if (!suffix) return json({});
       if (suffix === "/activity")
         return json({
@@ -145,7 +146,12 @@ class Backend {
           turnActive: this.activity.get(sid) ?? false,
         });
       if (suffix === "/messages")
-        return json({ messages: this.messages.get(sid) ?? [] });
+        return json({
+          messages: this.messages.get(sid) ?? [],
+          ...(this.messagesRev.has(sid)
+            ? { messagesRev: this.messagesRev.get(sid) }
+            : {}),
+        });
       if (suffix === "/tool-calls") return json({ toolCalls: [] });
       if (suffix === "/branches") return json({ branchPoints: [] });
       if (suffix === "/stats") return json({ stats: {} });
@@ -156,6 +162,18 @@ class Backend {
         return stream.response;
       }
       if (suffix === "/cancel") return json({});
+      if (suffix?.startsWith("/queue/") && request.method === "DELETE") {
+        const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
+        const id = decodeURIComponent(suffix.slice("/queue/".length));
+        if (!queue.messages.some((m) => m.id === id))
+          return json({ error: { code: "not_found" } }, 404);
+        const next = {
+          messages: queue.messages.filter((m) => m.id !== id),
+          version: queue.version + 1,
+        };
+        this.queues.set(sid, next);
+        return json(next);
+      }
       if (suffix === "/queue") {
         const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
         if (request.method === "POST") {
@@ -533,6 +551,102 @@ test("relay EOF preserves partial text when persistence still has only the previ
   });
   expect(screen.getByText("Unpersisted relay answer")).toBeInTheDocument();
   expect(stop()).toBeEnabled();
+});
+
+// A reloaded tab holds the transcript it just loaded, so it asks the relay only for what
+// that transcript lacks; replaying the whole turn put the finished steps on screen twice.
+test("attaching to a running turn asks the relay only for what the loaded transcript lacks", async () => {
+  backend.activity.set(A, true);
+  backend.messagesRev.set(A, 7);
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(
+    backend.requests.some(
+      (r) => r.path === `/foxxycode/sessions/${A}/composer-stream?since_rev=7`,
+    ),
+  ).toBe(true);
+});
+
+// The fork trims the running turn off the loaded transcript on the first relay
+// byte, because a full replay sends that turn again from its start. A relay asked
+// with since_rev sends only what the transcript lacks, so trimming there would drop
+// the finished steps of the turn: they are never sent again, and they vanished from
+// the screen until the turn ended and the transcript was reloaded.
+test("attaching with since_rev keeps the steps the loaded transcript already shows", async () => {
+  backend.activity.set(A, true);
+  backend.messagesRev.set(A, 7);
+  backend.messages.set(A, [
+    { role: "user", content: "Earlier A prompt" },
+    { role: "assistant", content: "Step one is persisted already" },
+  ]);
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(screen.getByText("Step one is persisted already")).toBeInTheDocument();
+  await act(async () => {
+    backend.relays[0]!.stream.text("Step two arrives live");
+  });
+  expect(screen.getByText("Step two arrives live")).toBeInTheDocument();
+  expect(screen.getByText("Step one is persisted already")).toBeInTheDocument();
+});
+
+// Without a revision the relay replays the turn from its start, and the persisted
+// half of it must go on the first byte, or it would render twice.
+test("a full replay still trims the running turn it is about to send again", async () => {
+  backend.activity.set(A, true);
+  backend.messages.set(A, [
+    { role: "user", content: "Earlier A prompt" },
+    { role: "assistant", content: "Replayed step" },
+  ]);
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(
+    backend.requests.some(
+      (r) => r.path === `/foxxycode/sessions/${A}/composer-stream`,
+    ),
+  ).toBe(true);
+  await act(async () => {
+    backend.relays[0]!.stream.text("Replayed step");
+  });
+  expect(screen.getAllByText("Replayed step")).toHaveLength(1);
+});
+
+// A queued message is still the operator's until the agent reads it, and taking it
+// back is how it gets edited: the text returns to the composer rather than vanishing.
+test("taking a queued message back puts its text in the composer", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [{ id: "q1", text: "Use the EU prices" }],
+    version: 3,
+  });
+  await mount();
+  await screen.findByText("Use the EU prices");
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() => expect(composer()).toHaveValue("Use the EU prices"));
+  expect(screen.queryByTestId("composer-queue")).not.toBeInTheDocument();
+});
+
+test("a message the agent read before it was taken back does not return", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [{ id: "q1", text: "Already read" }],
+    version: 3,
+  });
+  await mount();
+  await screen.findByText("Already read");
+  backend.override = (r) =>
+    r.method === "DELETE" && r.path.includes("/queue/")
+      ? json({ error: { code: "not_found" } }, 404)
+      : undefined;
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() =>
+    expect(
+      backend.requests.some((r) => r.method === "DELETE" && r.path.includes("/queue/q1")),
+    ).toBe(true),
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+  expect(composer()).toHaveValue("");
 });
 
 test("reconciliation does not repeatedly abort a slow activity read", async () => {

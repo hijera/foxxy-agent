@@ -206,9 +206,11 @@ test("renders memory copilot foldout", () => {
   expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
 });
 
-test("the live line does not repeat the reasoning row right above it", () => {
-  // The transcript row already says the turn is reasoning and ticks its own
-  // duration; the status line under it said the same word again, one line apart.
+// The live line is on screen for the whole turn and always says what is happening,
+// in general words at least: it used to drop its text under a reasoning row and to
+// vanish altogether once the turn had written any text, which read as a turn that
+// had stopped.
+test("the live line names reasoning under a reasoning row", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "hi" },
     {
@@ -222,8 +224,54 @@ test("the live line does not repeat the reasoning row right above it", () => {
 
   render(<MessageList items={items} generating />);
 
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent("Thinking…");
+});
+
+test("the live line stays while the answer streams and names it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "The price", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Writing the answer",
+  );
+});
+
+test("the live line stays under text written earlier in the turn", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "tc1",
+      title: "webfetch",
+      status: "in_progress",
+      argsText: '{"url":"https://foxxycode.dev/"}',
+      startedAtMs: Date.now(),
+    },
+  ];
+
+  render(<MessageList items={items} generating />);
+
   expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
-  expect(screen.queryByTestId("typing-dots-status")).toBeNull();
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Fetching",
+  );
+});
+
+test("a finished turn carries no live line", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "Done." },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
 });
 
 test("the live line still speaks when the transcript is not already saying it", () => {
@@ -310,9 +358,10 @@ test("a parked turn shows its status under the frozen bubble", () => {
   ).toBeInTheDocument();
 });
 
-// While text is actually arriving there is nothing to announce, and a status row
-// under every streamed answer would be noise.
-test("a live stream shows no status row", () => {
+// The live line stands under the transcript for the whole turn (upstream #282):
+// it used to vanish once the turn had written any text, which read as a turn
+// that had stopped the moment a model paused between two sentences.
+test("a live stream keeps its status row", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "fix the compile errors" },
     { id: "a1", type: "assistant_message", content: "I will fix", streaming: true },
@@ -320,7 +369,7 @@ test("a live stream shows no status row", () => {
 
   render(<MessageList items={items} generating sessionId="sess-1" />);
 
-  expect(document.querySelector(".typing-dots")).toBeNull();
+  expect(document.querySelector(".typing-dots")).toBeTruthy();
 });
 
 // With no bubble on screen the dots keep their original job as the placeholder.
@@ -444,4 +493,17 @@ test("a new turn does not strip the action row off the previous answer", () => {
     screen.getByText("First answer.").closest(".msg-assistant")!
       .querySelector(".msg-assistant-foot"),
   ).not.toBeNull();
+});
+
+// An assistant row holding nothing but whitespace is zero pixels tall and still
+// takes the column's gap, which reads as a hole between the rows around it.
+test("a whitespace-only assistant row takes no place in the transcript", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "t1", type: "tool_call", toolCallId: "tc1", title: "read", status: "completed" },
+    { id: "a1", type: "assistant_message", content: "\n\n", streaming: true },
+    { id: "t2", type: "tool_call", toolCallId: "tc2", title: "read", status: "completed" },
+  ];
+  const { container } = render(<MessageList items={items} />);
+  expect(container.querySelectorAll(".msg-assistant-stack")).toHaveLength(0);
 });

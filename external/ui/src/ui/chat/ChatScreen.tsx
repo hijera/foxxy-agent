@@ -171,11 +171,12 @@ export function ChatScreen(props: {
     const measure = () => Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
     // The reserve is the height of `.chat-scroll-tail` inside the scroll
     // container. Writing it from inside the ResizeObserver callback relayouts
-    // the transcript in the same delivery loop, and with content-visibility
-    // rows that resizes the observed host again before the loop settles:
-    // JCEF (Chromium 104) then raises "ResizeObserver loop limit exceeded"
-    // on every transcript open. So the write waits for the next frame and an
-    // unchanged value is skipped, and the loop cannot feed itself.
+    // the transcript in the same delivery loop, and when the rows still used
+    // content-visibility that resized the observed host again before the loop
+    // settled: JCEF (Chromium 104) raised "ResizeObserver loop limit exceeded"
+    // on every transcript open. The rows lay out plainly now, but the write
+    // still waits for the next frame and an unchanged value is still skipped,
+    // so the loop cannot feed itself whatever the rows do.
     //
     // It is written to the element rather than held as state, which is the
     // other half of the same problem. A setState here does not write the DOM

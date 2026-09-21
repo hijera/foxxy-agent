@@ -81,7 +81,7 @@ const todoStatusLabelKey: Record<string, string> = {
   cancelled: "todoPreview.status.cancelled",
 };
 
-function todoStatusMark(status: string): string {
+export function todoStatusMark(status: string): string {
   switch (status) {
     case "completed":
       return "✓";

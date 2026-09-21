@@ -1335,10 +1335,19 @@ export function App() {
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
-  const sessionsForSidebar = useMemo(
-    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
-  );
+  const sessionsForSidebar = useMemo(() => {
+    const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
+    // The open conversation's row follows this tab's own view of its turn, not the
+    // last listing: the listing is refreshed on a poll, and the activity dot must
+    // not trail a turn the reader is watching start or end.
+    const open = sessionId.trim();
+    if (!open) return rows;
+    return rows.map((row) =>
+      row.id === open && !!row.turnActive !== generating
+        ? { ...row, turnActive: generating }
+        : row,
+    );
+  }, [sessions, clientDraftSessions, sessionId, generating, t]);
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
@@ -3059,6 +3068,17 @@ export function App() {
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
+  /**
+   * The messages revision each transcript returned by loadMessages was read at, for
+   * a transcript that is the server's own snapshot and nothing more. Attaching to a
+   * running turn with it asks the relay only for the frames that snapshot lacks;
+   * a transcript that kept local rows past the snapshot has none, and attaches the
+   * way it always did.
+   */
+  const snapshotRevByTranscript = useRef(
+    new WeakMap<readonly TranscriptItem[], number>(),
+  );
+
   async function loadMessages(
     idOverride?: string,
     opts?: {
@@ -3110,6 +3130,7 @@ export function App() {
       } | null;
       readOnly?: boolean;
       archived?: boolean;
+      messagesRev?: number;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -3357,7 +3378,7 @@ export function App() {
           });
         }
         const content = m.content || "";
-        if (content) {
+        if (content.trim()) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           pendingAssistant = appendDeferredAssistant(
             pendingAssistant,
@@ -3506,6 +3527,8 @@ export function App() {
       localForMerge ?? prevShadow ?? itemsRef.current,
     );
     const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const snapshotRev = res.data.messagesRev;
+    const serverOnly = mergedTranscript === next && appliedRaw === merged;
     const hasPendingPermission = applied.some(
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
@@ -3520,10 +3543,16 @@ export function App() {
         return next;
       });
     }
+    const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
+      if (serverOnly && typeof snapshotRev === "number") {
+        snapshotRevByTranscript.current.set(items, snapshotRev);
+      }
+    };
     if (opts?.skipSetItems) {
       if (canApplySnapshot()) {
         streamShadowBySidRef.current.set(sid, applied);
         evictStaleSessionCaches(viewedSessionIdRef.current);
+        noteSnapshotRev(applied);
       }
       return applied;
     }
@@ -3555,10 +3584,12 @@ export function App() {
       return withBranches;
     }
     // Frames may have arrived while the optional branches request was in flight.
+    const beforeShadowMerge = withBranches;
     withBranches = mergeTranscriptPreferLocalSuffix(
       withBranches,
       streamShadowBySidRef.current.get(sid),
     );
+    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
@@ -4629,12 +4660,26 @@ export function App() {
       setItems([...baseline]);
     }
 
-    // The relay replays the in-flight turn's SSE from the start, so the partial turn
-    // output loaded from disk has to go — otherwise the turn's text renders twice.
-    // The gate trims on the FIRST relay byte, not up front: when no relay answers
-    // (turn already over, backend restarted) the transcript must stay as the user
-    // left it instead of being emptied by a replay that never arrives.
-    const trimOnFirstReplayByte = createTurnReplayTrimGate();
+    // Three ways to attach, and only one of them replays the turn from its start:
+    //  - a frame cursor (Last-Event-ID) resumes after the last frame this tab read;
+    //  - a snapshot revision (?since_rev=) asks only for what the transcript just
+    //    loaded lacks;
+    //  - neither - the rev is unknown: another process, the Windows registry with
+    //    no relay of its own, a remote - and the whole turn is replayed.
+    // A full replay re-sends the partial turn the baseline already shows, so that
+    // part has to go, or the turn's text renders twice. The other two send only
+    // what is missing, and trimming there would drop steps that are never sent
+    // again. The gate trims on the FIRST relay byte, not up front: when no relay
+    // answers (turn already over, backend restarted) the transcript must stay as
+    // the user left it instead of being emptied by a replay that never arrives.
+    const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+    const sinceRev = resumeFrom
+      ? undefined
+      : snapshotRevByTranscript.current.get(baseline);
+    const fullReplay = !resumeFrom && sinceRev === undefined;
+    const trimOnFirstReplayByte = fullReplay
+      ? createTurnReplayTrimGate()
+      : (prev: TranscriptItem[]) => prev;
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
@@ -4683,13 +4728,16 @@ export function App() {
     try {
       // Resume after the last frame this tab consumed, so a dropped connection costs
       // a gap rather than a replay of the whole turn.
-      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
       const headers: Record<string, string> = { [HDR]: key };
       if (resumeFrom) {
         headers["Last-Event-ID"] = resumeFrom;
       }
+      // Without a frame cursor - a reloaded tab - the baseline is the transcript just
+      // loaded, and the relay is asked only for what that snapshot lacks: replaying
+      // the whole turn on top of it put every finished step on screen a second time.
       const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
+        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream` +
+          (sinceRev !== undefined ? `?since_rev=${sinceRev}` : ""),
         { headers, signal: fetchCtl.signal },
       );
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
@@ -6209,6 +6257,7 @@ export function App() {
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const messageID = id.trim();
     if (!sid || !messageID) return;
+    const taken = (queueBySid[sid] ?? []).find((q) => q.id === messageID);
     setQueueBySid((prev) => ({
       ...prev,
       [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
@@ -6225,6 +6274,15 @@ export function App() {
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+        // Taken back before the agent read it: the text returns to the composer to be
+        // edited, ahead of anything typed since. A 404 means the agent read it first,
+        // and it is already in the conversation.
+        const text = taken?.text ?? "";
+        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+          setDraft((current) =>
+            current.trim() ? `${text}\n\n${current}` : text,
+          );
         }
       } catch {
         // The next message_queue frame corrects the list.

@@ -15,7 +15,11 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { letterForOptionIndex } from "../chat/questionTypes";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
-import { webSearchResultMarkdown } from "../chat/webToolResults";
+import {
+  type WebSearchReport,
+  webSearchReport,
+  webSearchResultMarkdown,
+} from "../chat/webToolResults";
 import {
   buildToolCallPreview,
   toolCallTargetIsPath,
@@ -40,19 +44,15 @@ import { SvnAction, SvnIcon } from "./SvnAction";
 import { svnOperation, svnFailed } from "./svnActionDisplay";
 import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
 import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
+import { SchedulerToolCard } from "./SchedulerToolCard";
+import {
+  isSchedulerTool,
+  schedulerReadout,
+} from "../chat/schedulerToolDisplay";
 import { relativeToolTarget } from "../chat/toolTargetPath";
 import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
-
-function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "";
-  if (ms >= 60_000) {
-    const mins = ms / 60_000;
-    const fixed = mins < 10 ? mins.toFixed(1) : mins.toFixed(0);
-    return `${fixed}m`;
-  }
-  return `${Math.round(ms)}ms`;
-}
+import { formatStepDuration } from "./formatStepDuration";
 
 /**
  * What the `question` tool put up, as it put it up: every question with the
@@ -197,6 +197,41 @@ function QuestionToolTimelineReadout(props: {
   );
 }
 
+/**
+ * How each engine answered a search, above its hits: a count for an engine that
+ * answered, the outcome and its reason for one that did not. Without it an empty
+ * list cannot tell "the web has nothing" from "the engines turned us away".
+ */
+function WebSearchEngines(props: { report: WebSearchReport }) {
+  const { t } = useT();
+  return (
+    <div className="web-search-engines" data-testid="web-search-engines">
+      {props.report.engines.map((e) => {
+        let text: string;
+        if (e.status === "ok" || e.status === "empty") {
+          text = `${e.engine}: ${e.results}`;
+        } else {
+          const word =
+            e.status === "blocked"
+              ? t("messages.webSearchEngineBlocked")
+              : e.status === "error"
+                ? t("messages.webSearchEngineError")
+                : e.status;
+          text = `${e.engine}: ${word}${e.reason ? ` (${e.reason})` : ""}`;
+        }
+        return (
+          <span
+            key={e.engine}
+            className={`web-search-engine web-search-engine--${e.status || "unknown"}`}
+          >
+            {text}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
   title?: string | undefined;
@@ -270,6 +305,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [props.argsText, props.kind, props.status, props.title],
   );
 
+  const terminalStatus =
+    status === "completed" || status === "failed" || status === "cancelled";
+
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
     (props.kind || "").toLowerCase() === "question";
@@ -277,6 +315,15 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const rawNameLower = rawName.toLowerCase();
   const kindLower = (props.kind || "").trim().toLowerCase();
   const isLoadSkillTool = rawNameLower === "load_skill";
+  const isWebSearchTool = rawNameLower === "websearch";
+  const isWebFetchTool = rawNameLower === "webfetch";
+  const isSchedulerToolCall = isSchedulerTool(rawNameLower);
+  // The scheduler tools that read - a job, the job list, a job's runs - answer with
+  // a document their card is built from, so like a search they need the whole of it.
+  const isSchedulerReadTool =
+    rawNameLower === "foxxycode_scheduler_job_get" ||
+    rawNameLower === "foxxycode_scheduler_jobs_list" ||
+    rawNameLower === "foxxycode_scheduler_job_runs";
   // The one thing this call acts on - the path it reads, the command it runs, the skill
   // it pulls in - next to the label, so a collapsed row still says what it touched.
   const targetContext = useMemo(
@@ -407,24 +454,24 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         Number.isFinite(props.durationMs) &&
         props.durationMs >= 0
       ) {
-        return formatDuration(props.durationMs);
+        return formatStepDuration(props.durationMs);
       }
       return "-";
     }
     if (permissionWaiting && frozenElapsedMs !== null) {
-      return formatDuration(frozenElapsedMs);
+      return formatStepDuration(frozenElapsedMs);
     }
     if (
       typeof props.startedAtMs === "number" &&
       Number.isFinite(props.startedAtMs)
     ) {
-      return formatDuration(Math.max(0, nowMs - props.startedAtMs));
+      return formatStepDuration(Math.max(0, nowMs - props.startedAtMs));
     }
     if (
       typeof props.durationMs === "number" &&
       Number.isFinite(props.durationMs)
     ) {
-      return formatDuration(props.durationMs);
+      return formatStepDuration(props.durationMs);
     }
     return "-";
   }, [
@@ -439,10 +486,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
 
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [searchFetchFailed, setSearchFetchFailed] = useState(false);
 
   useEffect(() => {
     setShowExpanded(false);
     setLoadingFull(false);
+    setSearchFetchFailed(false);
   }, [props.toolCallId]);
 
   // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
@@ -485,11 +535,36 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     props.toolCallId,
   ]);
 
+  const fetchFull = props.onFetchToolCallFull;
+  // A search is read as its list of hits, and the row's preview is cut inside the
+  // engine report that leads the answer - often before the first hit. Opening the
+  // row is the request for the results, so the whole answer is fetched then, once,
+  // and shown without a More control; a closed row costs nothing. Only a failed
+  // fetch hands the reader the ordinary control to try again.
+  const loadsWholeSearch =
+    (isWebSearchTool || isSchedulerReadTool) &&
+    status === "completed" &&
+    props.resultWasTruncated === true &&
+    !searchFetchFailed;
+  const searchFetchAttemptedRef = useRef(false);
+  useEffect(() => {
+    searchFetchAttemptedRef.current = false;
+  }, [props.toolCallId]);
+  useEffect(() => {
+    if (!loadsWholeSearch || !detailsOpen || full || !fetchFull) return;
+    if (searchFetchAttemptedRef.current) return;
+    searchFetchAttemptedRef.current = true;
+    setLoadingFull(true);
+    fetchFull(props.toolCallId)
+      .catch(() => setSearchFetchFailed(true))
+      .finally(() => setLoadingFull(false));
+  }, [detailsOpen, fetchFull, full, loadsWholeSearch, props.toolCallId]);
+
   const canExpand =
     !isQuestionTool &&
+    !loadsWholeSearch &&
     props.resultWasTruncated === true &&
-    (status === "completed" || status === "failed" || status === "cancelled");
-  const fetchFull = props.onFetchToolCallFull;
+    terminalStatus;
 
   const onLoadMore = useCallback(async () => {
     if (!fetchFull) return;
@@ -517,9 +592,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     setShowExpanded(false);
   }, []);
 
-  const resultBody = showExpanded && full ? full : preview;
+  const resultBody =
+    (showExpanded || loadsWholeSearch) && full ? full : preview;
   const useTallViewport =
-    props.resultWasTruncated === true || (showExpanded && full.trim() !== "");
+    !loadsWholeSearch &&
+    (props.resultWasTruncated === true || (showExpanded && full.trim() !== ""));
 
   const showToggleRow = canExpand && !!fetchFull && !!(preview || full);
   let toggleButton: ReactElement | null = null;
@@ -574,8 +651,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   // which stays raw monospace text. A fetched page is markdown too, and a search
   // answers with a JSON object of hits that reads as a list of links - both are
   // documents, so both render as the prose they are rather than as their source.
-  const isWebSearchTool = rawNameLower === "websearch";
-  const isWebFetchTool = rawNameLower === "webfetch";
   const searchResultMarkdown = useMemo(
     () =>
       isWebSearchTool && status === "completed"
@@ -583,6 +658,28 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         : null,
     [isWebSearchTool, resultBody, status],
   );
+  const searchReport: WebSearchReport | null = useMemo(
+    () =>
+      isWebSearchTool && status === "completed"
+        ? webSearchReport(resultBody)
+        : null,
+    [isWebSearchTool, resultBody, status],
+  );
+  // The whole answer is on its way and the preview holds no hit to show meanwhile:
+  // a loading line reads better than the raw JSON it would otherwise fall back to.
+  // A scheduler call reads as its card - the job and what happened to it - rather
+  // than as its arguments over a line of JSON; null keeps the raw panels.
+  const schedulerCard = useMemo(
+    () =>
+      isSchedulerToolCall
+        ? schedulerReadout(rawNameLower, props.argsText, resultBody, status)
+        : null,
+    [isSchedulerToolCall, props.argsText, rawNameLower, resultBody, status],
+  );
+  const searchLoading =
+    loadsWholeSearch &&
+    !full &&
+    (isWebSearchTool ? searchResultMarkdown === null : schedulerCard === null);
   const markdownResultBody =
     searchResultMarkdown ??
     (isWebFetchTool && status === "completed" ? resultBody : null);
@@ -597,6 +694,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !spawnAgent &&
     !isSvnTool &&
     !isLoadSkillTool &&
+    !schedulerCard &&
     toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
@@ -607,6 +705,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !isPatchTool &&
     !isBrowserTool &&
     !isSvnTool &&
+    (!schedulerCard || searchLoading) &&
     !(
       status === "completed" &&
       (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
@@ -644,6 +743,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     (status === "failed" ||
       (isBrowserTool && /^error:/i.test(preview.trim())));
   const hasBody =
+    !!schedulerCard ||
     !!spawnAgent ||
     isQuestionTool ||
     showBrowserAction ||
@@ -663,6 +763,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       <details
         className="thinking-details foxxycode-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
+        onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
       >
         <summary
           className="thinking-summary"
@@ -789,6 +890,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 toolStatus={status}
               />
             ) : null}
+            {schedulerCard ? (
+              <SchedulerToolCard readout={schedulerCard} status={status} />
+            ) : null}
             {showPatchResult || showResult ? (
               <div
                 className={[
@@ -811,7 +915,17 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                     .filter(Boolean)
                     .join(" ")}
                 >
-                  {showSkillBody ? (
+                  {searchReport && searchReport.engines.length > 0 ? (
+                    <WebSearchEngines report={searchReport} />
+                  ) : null}
+                  {searchLoading ? (
+                    <div
+                      className="tool-result-loading"
+                      data-testid="tool-result-loading"
+                    >
+                      {t("messages.toolLoading")}
+                    </div>
+                  ) : showSkillBody ? (
                     <Markdown text={markdownResultBody ?? resultBody} />
                   ) : (
                     <pre className="tool-result-pre">{resultBody}</pre>

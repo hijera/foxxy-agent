@@ -49,6 +49,16 @@ the option letters and marks the chosen ones, and Enter answers the question. Th
 and the reasoning level are no longer reset when the settings are reloaded, and the
 Russian reasoning rows speak in the first person.
 
+**Reloading a tab mid-turn no longer repeats steps, and the live line stays.**
+A tab opened again while the agent works asks the server only for what its loaded
+transcript lacks, so the turn's finished steps no longer appear twice, and nothing is lost
+when it re-attaches. Replayed events keep the time they happened, so a reasoning block and a
+call's duration read correctly after a reload. The status line under the transcript stands
+for the whole turn instead of vanishing once the model starts writing. Scheduler calls
+render as cards - a job as its fields, a run or a resume as its outcome - and a web search
+shows its parameters and how each engine answered. The activity dot in History lights for
+every running chat, and a message taken back from the queue returns to the composer.
+
 ## 0.3.13 — 2026-09-21
 
 **A chat names and files itself.**

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { Chevron } from "../components/Chevron";
 import type { BackgroundTask } from "./types";
 import { SubagentPermissionCard } from "./SubagentPermissionCard";
 import {
@@ -380,10 +381,7 @@ export function BackgroundTasksPanel(props: {
                   aria-expanded={finishedOpen}
                   onClick={() => setFinishedOpen((v) => !v)}
                 >
-                  <span
-                    className={`bgtask-section-chevron ${finishedOpen ? "is-open" : ""}`}
-                    aria-hidden="true"
-                  />
+                  <Chevron open={finishedOpen} />
                   {t("tasks.sectionFinished", { count: finished.length })}
                 </button>
                 <button
