@@ -9,26 +9,6 @@
 
 ## Unreleased — 2026-09-21
 
-**A chat names and files itself.**
-The pass that used to name a new chat now proposes one to three labels in the same
-answer - one model call for both, and labels a session already carries are left
-alone. During a long conversation the model can also rename the session and fix
-its labels itself: the `session_describe` tool reads the current title and tags
-and changes the parts a call names. It is offered in every mode, docs and ask
-included, because it writes the session's own card and nothing in the working
-copy.
-
-**History: tags, an archive, pinned chats, grouping and a filter.**
-A chat now carries short labels, an archived flag and a place at the top of the
-list. History groups by folder (or by date, by tag, or not at all), searches the
-title, the first message, the folder and the labels, and a filter menu gathers
-four questions in one place: what to show (active, archived, everything), which
-environment, how to group and how to sort. Pinned conversations lead the list as
-one group and are dragged into the order you want; every row has a menu with
-pinning, renaming, tags, archiving and deletion. An archived chat opens read-only
-and says so, and neither archiving nor labelling moves a chat up the list as if
-something had just happened in it.
-
 **Ready-made workflows in the box: `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules`.**
 The binary now carries a whole delivery of skills rather than one, and writes it into
 `${FOXXYCODE_HOME}/skills` the first time it sees them missing: getting to know an
@@ -57,6 +37,28 @@ request - address, headers, files, proxy - and offers to remember either that ex
 or the whole origin. Saving settings is fixed along the way: a `${BRAVE_API_KEY}` reference
 in `config.yaml` is no longer replaced by its resolved value when you save from the UI, and
 `ssh_connect_timeout` and the web-search section are no longer dropped.
+
+## 0.3.13 — 2026-09-21
+
+**A chat names and files itself.**
+The pass that used to name a new chat now proposes one to three labels in the same
+answer - one model call for both, and labels a session already carries are left
+alone. During a long conversation the model can also rename the session and fix
+its labels itself: the `session_describe` tool reads the current title and tags
+and changes the parts a call names. It is offered in every mode, docs and ask
+included, because it writes the session's own card and nothing in the working
+copy.
+
+**History: tags, an archive, pinned chats, grouping and a filter.**
+A chat now carries short labels, an archived flag and a place at the top of the
+list. History groups by folder (or by date, by tag, or not at all), searches the
+title, the first message, the folder and the labels, and a filter menu gathers
+four questions in one place: what to show (active, archived, everything), which
+environment, how to group and how to sort. Pinned conversations lead the list as
+one group and are dragged into the order you want; every row has a menu with
+pinning, renaming, tags, archiving and deletion. An archived chat opens read-only
+and says so, and neither archiving nor labelling moves a chat up the list as if
+something had just happened in it.
 
 ## 0.3.12 — 2026-09-20
 
