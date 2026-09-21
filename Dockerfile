@@ -17,7 +17,11 @@ COPY external/ui/ ./
 # TestDockerBuildContextHoldsWhatTheSPAImports now fails on an import that leaves
 # external/ui without a copy here.
 COPY docs/assets/foxxycode-favicon.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
-COPY docs/assets/foxxycode-logo-wordmark.svg docs/assets/foxxycode-logo-wordmark-light.svg /docs/assets/
+# A glob rather than a list: COPY carries the src/assets symlinks over as
+# links, so every target has to exist at the same path inside the image.
+# This covers every mark and wordmark the SPA links today, and the next one
+# nobody remembers to add here (TestDockerfileStagesEverySymlinkedAsset).
+COPY docs/assets/foxxycode-logo-*.svg /docs/assets/
 RUN npm run build:go
 
 
@@ -44,7 +48,7 @@ ENV GOARCH=${TARGETARCH}
 ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
-COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /src/external/ui/
+COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
 
 RUN mkdir -p /out \
 	/out/ssl-certs \

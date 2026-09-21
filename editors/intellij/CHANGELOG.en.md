@@ -9,6 +9,37 @@
 
 ## Unreleased — 2026-09-21
 
+**A steadier transcript: a jump-to-bottom button, paths relative to the project, honest question cards.**
+Scroll the transcript up and a round button appears above the composer; it glides back
+to the newest message. Tool rows spell paths relative to the session's folder, so the file
+name shows instead of the start of a long path, and a row appears as soon as the model
+names the call. Scrolling up a long transcript no longer jumps: rows no longer skip their
+own layout, which made the height move under the reader (the IntelliJ panel's workaround
+for it is gone too). A question card sits under its own row, an answered question shows
+the option letters and marks the chosen ones, and Enter answers the question. The model
+and the reasoning level are no longer reset when the settings are reloaded, and the
+Russian reasoning rows speak in the first person.
+
+**Reloading a tab mid-turn no longer repeats steps, and the live line stays.**
+A tab opened again while the agent works asks the server only for what its loaded
+transcript lacks, so the turn's finished steps no longer appear twice, and nothing is lost
+when it re-attaches. Replayed events keep the time they happened, so a reasoning block and a
+call's duration read correctly after a reload. The status line under the transcript stands
+for the whole turn instead of vanishing once the model starts writing. Scheduler calls
+render as cards - a job as its fields, a run or a resume as its outcome - and a web search
+shows its parameters and how each engine answered. The activity dot in History lights for
+every running chat, and a message taken back from the queue returns to the composer.
+
+**Many open tabs no longer block each other, and Stop takes effect at once.**
+A browser keeps only six connections to one server for all of its tabs, and each tab used
+to hold one for its events stream - past six tabs, no request went out at all. The tabs of
+one environment now share a single connection. Stop releases the turn's stream right after
+sending the cancel instead of waiting for the answer, so the cancel never waits for a free
+connection. The IntelliJ and VS Code panels, which are a single tab, keep a stream of their
+own.
+
+## 0.3.15 — 2026-09-21
+
 **Ready-made workflows in the box: `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules`.**
 The binary now carries a whole delivery of skills rather than one, and writes it into
 `${FOXXYCODE_HOME}/skills` the first time it sees them missing: getting to know an

@@ -20,7 +20,7 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
-import { subscribeServerEvents } from "./chat/serverEvents";
+import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
@@ -114,6 +114,7 @@ import {
   getEnv,
   getRemoteToken,
   localFetch,
+  notifyLocalApiUnauthorized,
   returnToSwarm,
   snapshotEnv,
   subscribeEnv,
@@ -1229,6 +1230,9 @@ export function App() {
       turnActivity.get(sid) === true &&
       !postAbortBySidRef.current.has(sid) &&
       !relayAbortBySidRef.current.has(sid) &&
+      // A Stop in flight has released the stream on purpose; its outcome
+      // decides whether this turn is watched again.
+      !stopPendingBySidRef.current.has(sid) &&
       stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
     if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
     relayAttachPendingRef.current.add(sid);
@@ -1335,10 +1339,19 @@ export function App() {
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
-  const sessionsForSidebar = useMemo(
-    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
-  );
+  const sessionsForSidebar = useMemo(() => {
+    const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
+    // The open conversation's row follows this tab's own view of its turn, not the
+    // last listing: the listing is refreshed on a poll, and the activity dot must
+    // not trail a turn the reader is watching start or end.
+    const open = sessionId.trim();
+    if (!open) return rows;
+    return rows.map((row) =>
+      row.id === open && !!row.turnActive !== generating
+        ? { ...row, turnActive: generating }
+        : row,
+    );
+  }, [sessions, clientDraftSessions, sessionId, generating, t]);
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
@@ -1566,14 +1579,25 @@ export function App() {
           (x) =>
             !(x.type === "question_prompt" && x.payload.requestId === ridInner),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `qp_${ridInner}`,
-            type: "question_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: `qp_${ridInner}`,
+          type: "question_prompt" as const,
+          payload: p,
+        };
+        // Insert right after the tool call that raised it, like the permission
+        // gate below: the card belongs under its own row, not above it.
+        const tcid = (p.toolCallId || "").trim();
+        const tcIdx = tcid
+          ? withoutDup.findIndex(
+              (x) => x.type === "tool_call" && x.toolCallId === tcid,
+            )
+          : -1;
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],
@@ -1829,6 +1853,18 @@ export function App() {
     }
     return (sessions.find((s) => s.id === sid)?.cwd || "").trim();
   }, [sessionId, sessions]);
+
+  // What a transcript row spells a path against: the session's own directory,
+  // then the worktrees of its workspace. Work inside a worktree reads against
+  // that worktree, so the deepest match wins (relativeToolTarget).
+  const transcriptPathRoots = useMemo(() => {
+    const roots = [currentSessionCwd];
+    for (const worktree of workspaceCtx?.worktrees || []) {
+      const path = (worktree.path || "").trim();
+      if (path) roots.push(path);
+    }
+    return roots.filter((root) => root !== "");
+  }, [currentSessionCwd, workspaceCtx]);
 
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
@@ -2724,22 +2760,35 @@ export function App() {
       return;
     }
     appliedSelectionSidRef.current = openSessionSelection.sid;
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
+    const nextModel = pickLlmModelForOpenSession({
+      backends: llmModelIds,
+      sessionModel: openSessionSelection.model,
+      cookie: readLlmModelCookie(),
+      defaultAgentModel: defaultAgentYamlModel,
+    });
+    setLlmModel(nextModel);
+    // A session carries a reasoning level only once something chose one for it,
+    // and a model that names no `reasoning_default` makes the server report the
+    // effective level as empty. Applied as it comes, that empties the composer
+    // while the turn still runs at the model's default - so it goes through the
+    // same chooser as every other path, with the session's value as the
+    // preference rather than as the answer.
+    const openRow = modelInfos.find((m) => m.id === nextModel);
+    setLlmReasoning(
+      pickReasoningLevel({
+        levels: openRow?.reasoningLevels ?? [],
+        cookie: readReasoningCookie(),
+        sessionLevel: openSessionSelection.reasoning,
+        modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-    setLlmReasoning(openSessionSelection.reasoning);
     // The session profile is stored server-side, so a reopened chat comes back
     // in the mode it was left in instead of dropping to agent.
     const storedMode = openSessionSelection.mode.trim();
     if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
       setMode(storedMode);
     }
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -3023,6 +3072,17 @@ export function App() {
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
+  /**
+   * The messages revision each transcript returned by loadMessages was read at, for
+   * a transcript that is the server's own snapshot and nothing more. Attaching to a
+   * running turn with it asks the relay only for the frames that snapshot lacks;
+   * a transcript that kept local rows past the snapshot has none, and attaches the
+   * way it always did.
+   */
+  const snapshotRevByTranscript = useRef(
+    new WeakMap<readonly TranscriptItem[], number>(),
+  );
+
   async function loadMessages(
     idOverride?: string,
     opts?: {
@@ -3074,6 +3134,7 @@ export function App() {
       } | null;
       readOnly?: boolean;
       archived?: boolean;
+      messagesRev?: number;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -3321,7 +3382,7 @@ export function App() {
           });
         }
         const content = m.content || "";
-        if (content) {
+        if (content.trim()) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           pendingAssistant = appendDeferredAssistant(
             pendingAssistant,
@@ -3470,6 +3531,8 @@ export function App() {
       localForMerge ?? prevShadow ?? itemsRef.current,
     );
     const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const snapshotRev = res.data.messagesRev;
+    const serverOnly = mergedTranscript === next && appliedRaw === merged;
     const hasPendingPermission = applied.some(
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
@@ -3484,10 +3547,16 @@ export function App() {
         return next;
       });
     }
+    const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
+      if (serverOnly && typeof snapshotRev === "number") {
+        snapshotRevByTranscript.current.set(items, snapshotRev);
+      }
+    };
     if (opts?.skipSetItems) {
       if (canApplySnapshot()) {
         streamShadowBySidRef.current.set(sid, applied);
         evictStaleSessionCaches(viewedSessionIdRef.current);
+        noteSnapshotRev(applied);
       }
       return applied;
     }
@@ -3519,10 +3588,12 @@ export function App() {
       return withBranches;
     }
     // Frames may have arrived while the optional branches request was in flight.
+    const beforeShadowMerge = withBranches;
     withBranches = mergeTranscriptPreferLocalSuffix(
       withBranches,
       streamShadowBySidRef.current.get(sid),
     );
+    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
@@ -4471,7 +4542,12 @@ export function App() {
 
   useEffect(() => {
     const ctl = new AbortController();
-    void subscribeServerEvents({
+    const env = getEnv();
+    void subscribeSharedServerEvents({
+      env,
+      onRefused: (status) => {
+        if (status === 401 && env.mode === "local") notifyLocalApiUnauthorized();
+      },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
@@ -4593,12 +4669,26 @@ export function App() {
       setItems([...baseline]);
     }
 
-    // The relay replays the in-flight turn's SSE from the start, so the partial turn
-    // output loaded from disk has to go — otherwise the turn's text renders twice.
-    // The gate trims on the FIRST relay byte, not up front: when no relay answers
-    // (turn already over, backend restarted) the transcript must stay as the user
-    // left it instead of being emptied by a replay that never arrives.
-    const trimOnFirstReplayByte = createTurnReplayTrimGate();
+    // Three ways to attach, and only one of them replays the turn from its start:
+    //  - a frame cursor (Last-Event-ID) resumes after the last frame this tab read;
+    //  - a snapshot revision (?since_rev=) asks only for what the transcript just
+    //    loaded lacks;
+    //  - neither - the rev is unknown: another process, the Windows registry with
+    //    no relay of its own, a remote - and the whole turn is replayed.
+    // A full replay re-sends the partial turn the baseline already shows, so that
+    // part has to go, or the turn's text renders twice. The other two send only
+    // what is missing, and trimming there would drop steps that are never sent
+    // again. The gate trims on the FIRST relay byte, not up front: when no relay
+    // answers (turn already over, backend restarted) the transcript must stay as
+    // the user left it instead of being emptied by a replay that never arrives.
+    const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+    const sinceRev = resumeFrom
+      ? undefined
+      : snapshotRevByTranscript.current.get(baseline);
+    const fullReplay = !resumeFrom && sinceRev === undefined;
+    const trimOnFirstReplayByte = fullReplay
+      ? createTurnReplayTrimGate()
+      : (prev: TranscriptItem[]) => prev;
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
@@ -4647,13 +4737,16 @@ export function App() {
     try {
       // Resume after the last frame this tab consumed, so a dropped connection costs
       // a gap rather than a replay of the whole turn.
-      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
       const headers: Record<string, string> = { [HDR]: key };
       if (resumeFrom) {
         headers["Last-Event-ID"] = resumeFrom;
       }
+      // Without a frame cursor - a reloaded tab - the baseline is the transcript just
+      // loaded, and the relay is asked only for what that snapshot lacks: replaying
+      // the whole turn on top of it put every finished step on screen a second time.
       const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
+        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream` +
+          (sinceRev !== undefined ? `?since_rev=${sinceRev}` : ""),
         { headers, signal: fetchCtl.signal },
       );
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
@@ -4857,7 +4950,12 @@ export function App() {
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
-      if (reconcileOnExit) {
+      // A Stop releases this stream before the server answers (#283), and the
+      // server has not persisted what the turn wrote since its last message yet:
+      // a snapshot applied now would take that text off the screen. The turn's
+      // end reconciles the transcript once the cancel has persisted it, and a
+      // Stop that failed re-attaches through the relay.
+      if (reconcileOnExit && !userStoppedSidRef.current.has(key)) {
         const viewing = viewedSessionIdRef.current.trim();
         void loadMessages(key, { skipSetItems: viewing !== key });
       }
@@ -5455,26 +5553,37 @@ export function App() {
     applyStreamItemsForSession(sid, (prev) =>
       prev.filter((it) => it.id !== errorId),
     );
+    let fenced = false;
     try {
       // Always send the server-side cancel so Stop works even after page reload.
-      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-        signal: cancelCtl.signal,
-      });
+      const cancelled = fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
+      // Release this tab's stream of the turn before the answer, not after it.
+      // Over HTTP/1.1 a browser keeps six connections to a host for all of its
+      // tabs, and a few open tabs of FoxxyCode hold every one of them with event and
+      // turn streams: the cancel request then waits for a connection that only
+      // this abort frees. The turn does not depend on the stream, and a failed
+      // Stop rejoins it through the relay.
+      post?.abort();
+      relay?.abort();
+      const res = await cancelled;
       if (!res.ok) throw new Error(`cancel failed (${res.status})`);
-      // Abort only the captured connections. The acknowledgement neither proves
-      // idle nor gives an old Stop ownership of a newer turn in this session.
-      const current =
+      // The acknowledgement neither proves idle nor gives an old Stop ownership
+      // of a newer turn in this session.
+      fenced =
         !request.superseded &&
         turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
-      if (current) {
+      if (fenced) {
         stoppedTurnBySidRef.current.set(sid, generation);
+        void turnActivity.refresh(sid, false);
       }
-      post?.abort();
-      relay?.abort();
-      if (current) void turnActivity.refresh(sid, false);
     } catch {
       // The turn is still running and still ours to watch: a drop after a Stop
       // that never reached the server must re-attach like any other. Caught
@@ -5492,8 +5601,14 @@ export function App() {
       ]);
     } finally {
       window.clearTimeout(timer);
-      if (stopPendingBySidRef.current.get(sid) === request)
+      if (stopPendingBySidRef.current.get(sid) === request) {
         stopPendingBySidRef.current.delete(sid);
+        // The stream was released for a Stop that did not take this turn: the
+        // request failed, or a successor started meanwhile. Rejoin it without
+        // waiting for the next reconciliation tick, one task later, so the
+        // released stream has let go of the session before the attach looks.
+        if (!fenced) window.setTimeout(() => void turnActivity.refresh(sid), 0);
+      }
     }
   }
 
@@ -5520,13 +5635,21 @@ export function App() {
   // pick when the new model still offers it, else fall back (cookie -> model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
+    // Nothing is known about a model whose row has not arrived - the list is still
+    // in flight, or the id was just set. Clearing the level there loses the one the
+    // session asked for, and the run that follows cannot bring it back: it only
+    // sees the emptied value. Leave the selection alone until the row says what
+    // the model actually offers.
+    if (!row) {
+      return;
+    }
+    const levels = row.reasoningLevels ?? [];
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
         cookie: readReasoningCookie(),
         sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
+        modelDefault: row.reasoningDefault ?? null,
       }),
     );
   }, [llmModel, modelInfos]);
@@ -6165,6 +6288,7 @@ export function App() {
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const messageID = id.trim();
     if (!sid || !messageID) return;
+    const taken = (queueBySid[sid] ?? []).find((q) => q.id === messageID);
     setQueueBySid((prev) => ({
       ...prev,
       [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
@@ -6181,6 +6305,15 @@ export function App() {
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+        // Taken back before the agent read it: the text returns to the composer to be
+        // edited, ahead of anything typed since. A 404 means the agent read it first,
+        // and it is already in the conversation.
+        const text = taken?.text ?? "";
+        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+          setDraft((current) =>
+            current.trim() ? `${text}\n\n${current}` : text,
+          );
         }
       } catch {
         // The next message_queue frame corrects the list.
@@ -6410,6 +6543,7 @@ export function App() {
             unarchiving={unarchiving}
             onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
+            pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}

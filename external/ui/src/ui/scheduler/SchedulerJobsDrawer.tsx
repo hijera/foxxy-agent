@@ -5,7 +5,8 @@ import { SchedulerIconPlus } from "./schedulerToolbarIcons";
 import { appNavHrefSchedulerJob } from "./hashRoute";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
 
-function formatNextRunUtc(iso: string | undefined): string {
+/** Renders next fire as YYYY-MM-DD HH:MM (UTC) for list rows (scheduler uses UTC five-field cron). */
+export function formatNextRunUtc(iso: string | undefined): string {
   if (!iso || !iso.trim()) {
     return translate("scheduler.noNextRun");
   }
@@ -182,7 +183,7 @@ export function SchedulerJobsDrawer(props: {
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
-                    ■
+                    <span className="composer-stop-square" />
                   </span>
                 </button>
               ) : (

@@ -1255,10 +1255,14 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	if st == nil {
 		return
 	}
+	msgs, rev := st.MessagesWithRev()
 	out := map[string]interface{}{
 		"object":    "foxxycode.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, st.GetMessages()),
+		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, msgs),
+		// The revision this history was read at: a client attaching to the composer
+		// relay passes it back as since_rev and is replayed only what it lacks.
+		"messagesRev": rev,
 	}
 	// A child session is a read-only transcript: the SPA drops the composer
 	// and links back to the parent chat and to the task in its drawer.

@@ -4,6 +4,7 @@ import {
   buildPermissionToolPreview,
   buildToolCallPreview,
   permissionPromptToolName,
+  toolCallTargetIsPath,
   toolCallTargetText,
 } from "./permissionToolPreview";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
@@ -214,6 +215,31 @@ test("builds readable transcript previews for read-only Coddy tools", () => {
   });
 });
 
+test("toolCallTargetIsPath tells a path apart from a command, a pattern or a name", () => {
+  // Only a path may be respelt against the session directory; rewriting a command
+  // or a url would change what the row claims the call did.
+  for (const context of [
+    { title: "read", argsText: '{"path":"/repo/a/b.ts"}' },
+    { title: "write", argsText: '{"file_path":"/repo/a/b.ts"}' },
+    { title: "edit", argsText: '{"filePath":"/repo/a/b.ts"}' },
+    { title: "mv", argsText: '{"src":"/repo/a.ts","dst":"/repo/b.ts"}' },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(true);
+  }
+
+  for (const context of [
+    { title: "run_command", argsText: '{"command":"/usr/bin/make docs"}' },
+    { title: "grep", argsText: '{"pattern":"/etc/hosts"}' },
+    { title: "glob", argsText: '{"pattern":"**/*.go"}' },
+    { title: "webfetch", argsText: '{"url":"https://foxxycode.dev/"}' },
+    { title: "load_skill", argsText: '{"name":"rpa-bugfix"}' },
+    { title: "spawn_agent", argsText: '{"agent":"explore"}' },
+    { title: "read", argsText: "" },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(false);
+  }
+});
+
 test("toolCallTargetText picks the identifying argument per tool", () => {
   expect(
     toolCallTargetText({
@@ -386,4 +412,86 @@ test("an empty object is empty however it is spelled, but broken JSON is not", (
       '{"target":"pro',
     ),
   ).toMatchObject({ kind: "code", text: '{"target":"pro' });
+});
+
+// The config family read as bare verbs: "changing the config" with nothing beside
+// it, while every neighbouring row names what it touched. A dotted config path is
+// also not a filesystem path, so it must never be respelt against the session
+// directory.
+test("config calls name the key or the command they act on", () => {
+  expect(
+    toolCallTargetText({
+      title: "config_get",
+      argsText: '{"path":"scheduler.enable"}',
+    }),
+  ).toBe("scheduler.enable");
+  expect(
+    toolCallTargetText({
+      title: "config_set",
+      argsText: '{"commands":["set scheduler.enable=true"]}',
+    }),
+  ).toBe("set scheduler.enable=true");
+  expect(
+    toolCallTargetText({
+      title: "config_set",
+      argsText:
+        '{"commands":["set scheduler.enable=true","set agent.max_turns=20"]}',
+    }),
+  ).toBe("set scheduler.enable=true, set agent.max_turns=20");
+  expect(
+    toolCallTargetText({
+      title: "config_revert",
+      argsText: '{"path":"scheduler.enable"}',
+    }),
+  ).toBe("scheduler.enable");
+  // config_commit, config_changes and config_rollback take no arguments at all.
+  expect(toolCallTargetText({ title: "config_commit", argsText: "{}" })).toBe("");
+
+  for (const context of [
+    { title: "config_get", argsText: '{"path":"scheduler.enable"}' },
+    { title: "config_set", argsText: '{"commands":["set a.b=1"]}' },
+    { title: "config_revert", argsText: '{"path":"skills.dirs.0"}' },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(false);
+  }
+});
+
+// The config family used to fall through to the generic branch and print its own
+// arguments back as a JSON object, next to a row that named nothing at all.
+test("config calls preview the key or the staged commands, not their JSON", () => {
+  expect(
+    buildToolCallPreview({
+      title: "config_get",
+      argsText: JSON.stringify({ path: "scheduler.enable" }),
+    }),
+  ).toMatchObject({
+    header: "scheduler.enable",
+    meta: [],
+    kind: "path",
+  });
+
+  expect(
+    buildToolCallPreview({
+      title: "config_revert",
+      argsText: JSON.stringify({ path: "skills.dirs.0" }),
+    }),
+  ).toMatchObject({ header: "skills.dirs.0", kind: "path" });
+
+  expect(
+    buildToolCallPreview({
+      title: "config_set",
+      argsText: JSON.stringify({
+        commands: ["set scheduler.enable=true", "set agent.max_turns=20"],
+      }),
+    }),
+  ).toMatchObject({
+    header: "",
+    kind: "code",
+    text: "set scheduler.enable=true\nset agent.max_turns=20",
+  });
+
+  // config_commit and its no-argument siblings keep naming the action instead.
+  expect(
+    buildToolCallPreview({ title: "config_commit", argsText: "{}" }),
+  ).toMatchObject({ kind: "action" });
 });

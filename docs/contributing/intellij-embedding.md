@@ -227,14 +227,14 @@ What the two ids share and where they differ:
 | --- | --- | --- |
 | Flat composer chrome (above) | yes | yes |
 | Hide the folder chip, reopen the last project session, History scoped to the project, Enter sends on narrow panels (`isEditorEmbed()`) | yes | yes |
-| Transcript-row `content-visibility` opt-out (Chromium 104 raises "ResizeObserver loop limit exceeded") | yes | no — Electron is current |
 | File drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
 | Host → SPA `@`-mention channel | `window.foxxycodeUi.insertFileMention` via `executeJavaScript` | `postMessage` `{ type: "foxxycode:insertFileMention", paths }` from the parent frame (`embedHostBridge.ts`) |
 
 `embedChromeCss.test.ts` keeps the two CSS families in step: every
-`[data-embed]` rule must name both ids unless it is the `content-visibility`
-workaround, which must name only `intellij`. Any other id is accepted but gets
-none of the CSS overrides.
+`[data-embed]` rule must name both ids. Any other id is accepted but gets none of
+the CSS overrides. (The transcript rows used `content-visibility: auto` until
+upstream #278, and the IntelliJ panel had an opt-out of its own because Chromium
+104 raised "ResizeObserver loop limit exceeded" on it; both are gone.)
 
 ```text
 http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij

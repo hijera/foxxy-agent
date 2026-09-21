@@ -34,7 +34,7 @@ func uiEmbeddedSPAHandler(root http.FileSystem) http.Handler {
 	next := http.FileServer(root)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/", "/index.html", "/app.js", "/styles.css",
+		case "/", "/index.html", "/app.js", "/events-worker.js", "/styles.css",
 			"/foxxycode-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png":
 			w.Header().Set("Cache-Control", "no-cache")
 		default:

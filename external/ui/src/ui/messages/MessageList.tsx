@@ -18,11 +18,7 @@ import {
   snapshotMcpConnecting,
   subscribeMcpConnecting,
 } from "../chat/mcpConnectingState";
-import {
-  deriveLiveStatus,
-  truncateStatusTarget,
-  type LiveStatusKind,
-} from "../chat/liveStatus";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
 import {
   getStatusLineEnabled,
   onStatusLineChange,
@@ -58,27 +54,6 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
-/**
- * States where nothing is arriving: no model call is in flight, so a bubble the
- * provider cut mid-answer will sit there unchanged until one of them clears.
- *
- * They matter because `streaming` is only cleared when the turn ends. Through the
- * whole wait the bubble still counts as streaming, so the dots row - the one place
- * the live status is rendered - stayed hidden, and the operator watched a frozen
- * half-answer with no sign the turn was alive.
- */
-const PARKED_STATUS_KINDS: ReadonlySet<LiveStatusKind> = new Set<LiveStatusKind>([
-  "reconnecting",
-  "llmretry",
-  "mcp",
-]);
-
-function hasStreamingAssistant(items: TranscriptItem[]): boolean {
-  return items.some(
-    (it) => it.type === "assistant_message" && it.streaming === true,
-  );
-}
-
 export function MessageList(props: {
   items: TranscriptItem[];
   generating?: boolean;
@@ -109,6 +84,9 @@ export function MessageList(props: {
   workspacePath?: string | undefined;
   /** Opens the child transcript behind a spawn_agent row. */
   onOpenSubagentTranscript?: (sessionId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -161,6 +139,7 @@ export function MessageList(props: {
     () =>
       props.generating === true && statusLineOn
         ? deriveLiveStatus(props.items, {
+            pathRoots: props.pathRoots || [],
             reconnecting,
             mcpConnecting,
             llmRetrying,
@@ -170,16 +149,12 @@ export function MessageList(props: {
       props.generating,
       statusLineOn,
       props.items,
+      props.pathRoots,
       reconnecting,
       mcpConnecting,
       llmRetrying,
     ],
   );
-
-  // Only the parked kinds earn a row under a bubble that is already on screen:
-  // while text is actually arriving there is nothing to announce.
-  const parked =
-    liveStatus !== null && PARKED_STATUS_KINDS.has(liveStatus.kind);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -316,6 +291,11 @@ export function MessageList(props: {
           );
         }
         if (it.type === "assistant_message") {
+          // Whitespace alone is a zero-height row that still takes the column's
+          // gap, a hole between the rows around it; there is nothing in it to copy.
+          if (!it.content.trim()) {
+            return null;
+          }
           return (
             <AssistantMessage
               key={it.id}
@@ -420,6 +400,9 @@ export function MessageList(props: {
             {...(props.onOpenSubagentTranscript
               ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
               : {})}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}
@@ -461,8 +444,11 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true &&
-      (!hasStreamingAssistant(props.items) || parked) ? (
+      {/* The live line stands under the transcript for the whole turn and always
+          says what is happening, in general words at least. It used to vanish once
+          the turn had written any text and to fall silent under a reasoning row,
+          which read as a turn that had stopped. */}
+      {props.generating === true ? (
         <TypingDotsMessage
           {...(liveStatus
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
