@@ -1566,14 +1566,25 @@ export function App() {
           (x) =>
             !(x.type === "question_prompt" && x.payload.requestId === ridInner),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `qp_${ridInner}`,
-            type: "question_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: `qp_${ridInner}`,
+          type: "question_prompt" as const,
+          payload: p,
+        };
+        // Insert right after the tool call that raised it, like the permission
+        // gate below: the card belongs under its own row, not above it.
+        const tcid = (p.toolCallId || "").trim();
+        const tcIdx = tcid
+          ? withoutDup.findIndex(
+              (x) => x.type === "tool_call" && x.toolCallId === tcid,
+            )
+          : -1;
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],
@@ -1829,6 +1840,18 @@ export function App() {
     }
     return (sessions.find((s) => s.id === sid)?.cwd || "").trim();
   }, [sessionId, sessions]);
+
+  // What a transcript row spells a path against: the session's own directory,
+  // then the worktrees of its workspace. Work inside a worktree reads against
+  // that worktree, so the deepest match wins (relativeToolTarget).
+  const transcriptPathRoots = useMemo(() => {
+    const roots = [currentSessionCwd];
+    for (const worktree of workspaceCtx?.worktrees || []) {
+      const path = (worktree.path || "").trim();
+      if (path) roots.push(path);
+    }
+    return roots.filter((root) => root !== "");
+  }, [currentSessionCwd, workspaceCtx]);
 
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
@@ -2724,22 +2747,35 @@ export function App() {
       return;
     }
     appliedSelectionSidRef.current = openSessionSelection.sid;
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
+    const nextModel = pickLlmModelForOpenSession({
+      backends: llmModelIds,
+      sessionModel: openSessionSelection.model,
+      cookie: readLlmModelCookie(),
+      defaultAgentModel: defaultAgentYamlModel,
+    });
+    setLlmModel(nextModel);
+    // A session carries a reasoning level only once something chose one for it,
+    // and a model that names no `reasoning_default` makes the server report the
+    // effective level as empty. Applied as it comes, that empties the composer
+    // while the turn still runs at the model's default - so it goes through the
+    // same chooser as every other path, with the session's value as the
+    // preference rather than as the answer.
+    const openRow = modelInfos.find((m) => m.id === nextModel);
+    setLlmReasoning(
+      pickReasoningLevel({
+        levels: openRow?.reasoningLevels ?? [],
+        cookie: readReasoningCookie(),
+        sessionLevel: openSessionSelection.reasoning,
+        modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-    setLlmReasoning(openSessionSelection.reasoning);
     // The session profile is stored server-side, so a reopened chat comes back
     // in the mode it was left in instead of dropping to agent.
     const storedMode = openSessionSelection.mode.trim();
     if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
       setMode(storedMode);
     }
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -5520,13 +5556,21 @@ export function App() {
   // pick when the new model still offers it, else fall back (cookie -> model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
+    // Nothing is known about a model whose row has not arrived - the list is still
+    // in flight, or the id was just set. Clearing the level there loses the one the
+    // session asked for, and the run that follows cannot bring it back: it only
+    // sees the emptied value. Leave the selection alone until the row says what
+    // the model actually offers.
+    if (!row) {
+      return;
+    }
+    const levels = row.reasoningLevels ?? [];
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
         cookie: readReasoningCookie(),
         sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
+        modelDefault: row.reasoningDefault ?? null,
       }),
     );
   }, [llmModel, modelInfos]);
@@ -6410,6 +6454,7 @@ export function App() {
             unarchiving={unarchiving}
             onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
+            pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}

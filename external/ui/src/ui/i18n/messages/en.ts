@@ -1077,7 +1077,7 @@ export const messagesEn: Record<string, string> = {
   "messages.browser.offset": "X: {x} px · Y: {y} px",
   "messages.browser.offsetAria": "Scroll offset: X {x} px, Y {y} px",
   "messages.toolPendingSuffix": "...",
-  "messages.toolQuestionLabel": "question",
+  "messages.toolQuestionLabel": "asking",
   "messages.toolQuestionMirrorHint":
     "Answer using the Questions card in this chat. This row only mirrors the tool state.",
   "messages.toolQuestionTimelineAriaLabel": "Question tool timeline",
@@ -1277,7 +1277,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.loading": "Loading…",
   "tasks.empty":
     "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
-  "tasks.sectionRunning": "Running",
   "tasks.sectionFinished": "Finished {count}",
   "tasks.clearFinished": "Clear",
   "tasks.olderOnDisk": "{count} older tasks are kept on disk and not listed here",
@@ -1386,4 +1385,8 @@ export const messagesEn: Record<string, string> = {
   "tool.name.http_request": "sending an http request",
   "prompts.permissionQuestion.httpRequest": "Send this HTTP request?",
   "status.httpRequest": "Sending a request",
+  "tool.name.run_command_background": "running a command in the background",
+  "chat.scrollToBottom": "Scroll to the latest message",
+  "permission.meta.page": "page {page}",
+  "messages.toolQuestionOwnAnswer": "an answer of their own",
 };

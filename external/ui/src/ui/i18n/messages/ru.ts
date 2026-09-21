@@ -986,8 +986,8 @@ export const messagesRu: Record<string, string> = {
     "Остановлено: модель снова и снова запрашивала вызов {tool} с теми же аргументами.",
   "messages.loopGuardToolCycle":
     "Остановлено: модель повторяла одну и ту же последовательность вызовов, не продвигаясь вперёд.",
-  "messages.thinkingInProgress": "думаю…",
-  "messages.thinkingCompleted": "размышления",
+  "messages.thinkingInProgress": "размышляю…",
+  "messages.thinkingCompleted": "размышляю",
   "messages.thinkingSummaryAriaLabel": "Сводка размышления",
   "messages.thinkingContentAriaLabel": "Содержимое размышления",
   "messages.toolSummaryAriaLabel": "Сводка инструмента",
@@ -1106,7 +1106,7 @@ export const messagesRu: Record<string, string> = {
   "messages.browser.offset": "X: {x} px · Y: {y} px",
   "messages.browser.offsetAria": "Смещение прокрутки: X {x} px, Y {y} px",
   "messages.toolPendingSuffix": "…",
-  "messages.toolQuestionLabel": "вопрос",
+  "messages.toolQuestionLabel": "спрашиваю",
   "messages.toolQuestionMirrorHint":
     "Ответьте через карточку «Вопросы» в этом чате. Эта строка только отражает состояние инструмента.",
   "messages.toolQuestionTimelineAriaLabel": "Хронология инструмента вопроса",
@@ -1166,7 +1166,7 @@ export const messagesRu: Record<string, string> = {
   "status.backgroundReap": "Убираю фоновые задачи",
   "status.tool": "Работаю с инструментом",
   "status.retryingModel": "Провайдер не отвечает — повторяю запрос",
-  "status.thinking": "Думаю…",
+  "status.thinking": "Размышляю…",
   "status.memory": "Работаю с памятью",
   "status.config": "Обновляю конфигурацию",
   "status.awaitingPermission": "Жду разрешения",
@@ -1314,7 +1314,6 @@ export const messagesRu: Record<string, string> = {
   "tasks.loading": "Загрузка…",
   "tasks.empty":
     "В этом чате ещё нет фоновых задач. Агент запускает их, когда команда достаточно долгая, чтобы выполнять её отдельно.",
-  "tasks.sectionRunning": "Выполняются",
   "tasks.sectionFinished": "Завершённых: {count}",
   "tasks.clearFinished": "Очистить",
   "tasks.olderOnDisk":
@@ -1430,4 +1429,8 @@ export const messagesRu: Record<string, string> = {
   "tool.name.http_request": "отправляю http-запрос",
   "prompts.permissionQuestion.httpRequest": "Отправить этот HTTP-запрос?",
   "status.httpRequest": "Отправляю запрос",
+  "tool.name.run_command_background": "выполняю команду в фоне",
+  "chat.scrollToBottom": "Перейти к последнему сообщению",
+  "permission.meta.page": "страница {page}",
+  "messages.toolQuestionOwnAnswer": "свой ответ",
 };

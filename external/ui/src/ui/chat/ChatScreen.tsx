@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -29,6 +30,16 @@ import {
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
+import {
+  documentScrollBottom,
+  documentTranscriptMetrics,
+  easeTranscriptJump,
+  elementScrollBottom,
+  elementTranscriptMetrics,
+  isTranscriptAtBottom,
+  transcriptJumpDurationMs,
+} from "./transcriptScrollPosition";
+import { ScrollToBottomButton } from "./ScrollToBottomButton";
 
 export function ChatScreen(props: {
   title: string;
@@ -105,6 +116,9 @@ export function ChatScreen(props: {
   onOpenBackgroundTasks?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -140,6 +154,9 @@ export function ChatScreen(props: {
   // state: see the effect below for why React must stay out of this loop.
   const chatStackRef = useRef<HTMLDivElement | null>(null);
   const composerReserveRef = useRef(0);
+  // The jump owns the scroll position while it travels; a frame id says so.
+  const jumpFrameRef = useRef<number | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const mobileDocScroll = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -200,6 +217,119 @@ export function ChatScreen(props: {
     // the token line can cause, so there is nothing to restart for.
   }, [isEmpty]);
 
+  // Whichever surface scrolls, it is read and written through these three, so
+  // the follow, the button and the jump never disagree about where the end is.
+  const transcriptScrollBottom = useCallback((): number => {
+    if (mobileDocScroll) return documentScrollBottom(window);
+    const el = messagesRef.current;
+    return el ? elementScrollBottom(el) : 0;
+  }, [mobileDocScroll]);
+
+  const readTranscriptScrollTop = useCallback((): number => {
+    if (mobileDocScroll) return window.scrollY;
+    return messagesRef.current?.scrollTop ?? 0;
+  }, [mobileDocScroll]);
+
+  const writeTranscriptScrollTop = useCallback(
+    (top: number) => {
+      if (mobileDocScroll) {
+        window.scrollTo({ top, left: 0, behavior: "auto" });
+        return;
+      }
+      const el = messagesRef.current;
+      if (el) el.scrollTop = top;
+    },
+    [mobileDocScroll],
+  );
+
+  const cancelTranscriptJump = useCallback((): boolean => {
+    if (jumpFrameRef.current === null) return false;
+    cancelAnimationFrame(jumpFrameRef.current);
+    jumpFrameRef.current = null;
+    return true;
+  }, []);
+
+  // One reading of the scrollport drives both behaviours: the transcript
+  // follows new output while it sits in the bottom band, and the jump button
+  // appears exactly when it stops following.
+  const syncTranscriptPosition = useCallback(() => {
+    // A jump owns the position while it travels. Reading it mid-flight would
+    // put the button back on screen for every frame above the band.
+    if (jumpFrameRef.current !== null) return;
+    let atBottom: boolean;
+    if (mobileDocScroll) {
+      atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
+    } else {
+      const el = messagesRef.current;
+      if (!el) return;
+      atBottom = isTranscriptAtBottom(elementTranscriptMetrics(el));
+    }
+    stickToBottomRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
+  }, [mobileDocScroll]);
+
+  const jumpToNewestMessage = useCallback(() => {
+    cancelTranscriptJump();
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    const from = readTranscriptScrollTop();
+    const to = transcriptScrollBottom();
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (to <= from || reduceMotion) {
+      writeTranscriptScrollTop(to);
+      return;
+    }
+    const duration = transcriptJumpDurationMs(to - from);
+    const started = performance.now();
+    const step = (now: number) => {
+      const progress = (now - started) / duration;
+      // The end is re-read every frame: a streaming turn keeps moving it down,
+      // and the travel should land on where the transcript is now.
+      const end = transcriptScrollBottom();
+      writeTranscriptScrollTop(
+        from + (end - from) * easeTranscriptJump(progress),
+      );
+      if (progress < 1) {
+        jumpFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+      jumpFrameRef.current = null;
+      syncTranscriptPosition();
+    };
+    jumpFrameRef.current = requestAnimationFrame(step);
+  }, [
+    cancelTranscriptJump,
+    readTranscriptScrollTop,
+    syncTranscriptPosition,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
+
+  // The reader reaching for the wheel, a finger or the scrollbar always wins
+  // over a jump still in the air.
+  useEffect(() => {
+    const takeOver = () => {
+      if (cancelTranscriptJump()) syncTranscriptPosition();
+    };
+    const passive = { passive: true } as const;
+    window.addEventListener("wheel", takeOver, passive);
+    window.addEventListener("touchstart", takeOver, passive);
+    window.addEventListener("mousedown", takeOver, passive);
+    return () => {
+      window.removeEventListener("wheel", takeOver);
+      window.removeEventListener("touchstart", takeOver);
+      window.removeEventListener("mousedown", takeOver);
+    };
+  }, [cancelTranscriptJump, syncTranscriptPosition]);
+
+  useEffect(() => {
+    return () => {
+      cancelTranscriptJump();
+    };
+  }, [cancelTranscriptJump]);
+
   useEffect(() => {
     if (isEmpty) return;
     const prev = prevItemsForScrollRef.current;
@@ -207,36 +337,37 @@ export function ChatScreen(props: {
     if (!transcriptItemsAffectAutoScroll(prev, props.items)) {
       return;
     }
-    if (!stickToBottomRef.current) return;
-    if (mobileDocScroll) {
-      const run = () => {
-        const top = Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight,
-        );
-        window.scrollTo({ top, left: 0, behavior: "auto" });
-      };
-      requestAnimationFrame(() => requestAnimationFrame(run));
+    // A jump already chases the end of a growing transcript; a hard scroll here
+    // would fight its travel frame by frame.
+    if (jumpFrameRef.current !== null) return;
+    // Content grew under a reader who scrolled away: leave them where they are
+    // and re-read the position, which is what reveals the button mid-stream.
+    if (!stickToBottomRef.current) {
+      syncTranscriptPosition();
       return;
     }
-    const el = messagesRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [props.items, isEmpty, mobileDocScroll]);
+    const follow = () => {
+      writeTranscriptScrollTop(transcriptScrollBottom());
+      syncTranscriptPosition();
+    };
+    if (mobileDocScroll) {
+      // The document takes its new height after layout, not on this tick.
+      requestAnimationFrame(() => requestAnimationFrame(follow));
+      return;
+    }
+    follow();
+  }, [
+    props.items,
+    isEmpty,
+    mobileDocScroll,
+    syncTranscriptPosition,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
 
   useEffect(() => {
     if (isEmpty) return;
-    const onScroll = () => {
-      if (mobileDocScroll) {
-        const doc = document.documentElement;
-        const dist = doc.scrollHeight - window.scrollY - window.innerHeight;
-        stickToBottomRef.current = dist < 80;
-      } else {
-        const el = messagesRef.current;
-        if (!el) return;
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        stickToBottomRef.current = dist < 80;
-      }
-    };
+    const onScroll = () => syncTranscriptPosition();
     if (mobileDocScroll) {
       window.addEventListener("scroll", onScroll, { passive: true });
       return () => window.removeEventListener("scroll", onScroll);
@@ -244,7 +375,7 @@ export function ChatScreen(props: {
     const el = messagesRef.current;
     el?.addEventListener("scroll", onScroll, { passive: true });
     return () => el?.removeEventListener("scroll", onScroll);
-  }, [isEmpty, mobileDocScroll]);
+  }, [isEmpty, mobileDocScroll, syncTranscriptPosition]);
 
   // A child session is read-only on the server (409 on any prompt), so the
   // notice takes the composer's slot in both the hero and the docked layout.
@@ -457,6 +588,9 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
+                {...(props.pathRoots !== undefined
+                  ? { pathRoots: props.pathRoots }
+                  : {})}
                 {...(props.workspaceCtx?.path
                   ? { workspacePath: props.workspaceCtx.path }
                   : {})}
@@ -519,6 +653,10 @@ export function ChatScreen(props: {
               the marker class replaces :has(), unsupported in JCEF Chromium 104 */}
           <div className="chat-bottom chat-bottom--docked">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              <ScrollToBottomButton
+                visible={showScrollToBottom}
+                onClick={jumpToNewestMessage}
+              />
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}

@@ -98,6 +98,16 @@ function stringArg(args: Record<string, unknown>, ...names: string[]): string {
   return "";
 }
 
+/** A repeated string argument, e.g. the uci commands `config_set` stages. */
+function stringListArg(args: Record<string, unknown>, name: string): string[] {
+  const value = args[name];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+}
+
 function boolArg(
   args: Record<string, unknown>,
   name: string,
@@ -165,10 +175,55 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       // The new name, when the call carries one; filing that only moves tags
       // has no target worth a row's width.
       return stringArg(args, "title");
+    case "config_set":
+      // Staged uci commands are what the call is about, the way a command is for
+      // run_command. One row, so they read as a list rather than as lines.
+      return stringListArg(args, "commands").join(", ");
     default:
       // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / list_dir /
-      // print_tree / docs_* / plan_* take a path; browser and webfetch take a url.
+      // print_tree / docs_* / plan_* take a path; browser and webfetch take a url; config_get,
+      // config_set and config_revert take a dotted config key.
       return stringArg(args, "path", "filePath", "file_path", "url", "name");
+  }
+}
+
+/** Argument names whose value is a filesystem path rather than a url or a name. */
+const PATH_ARGS = ["path", "filePath", "file_path", "src"];
+
+/**
+ * Whether the target of this call is a filesystem path, so a row may spell it
+ * relative to the session's directory (see `relativeToolTarget`). A command, a
+ * search pattern, a url, a skill or an agent name is not one, and rewriting it
+ * against a directory would say something the call never meant.
+ */
+export function toolCallTargetIsPath(
+  context: PermissionToolCallContext,
+): boolean {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+    case "grep":
+    case "glob":
+    case "websearch":
+    case "webfetch":
+    case "spawn_agent":
+    case "load_skill":
+    case "question":
+    case "config_get":
+    case "config_set":
+    case "config_revert":
+      // A dotted config key looks like nothing on disk; respelling it against the
+      // session directory would say something the call never meant.
+      return false;
+    default: {
+      const args = parseArgsText(context.argsText || "");
+      return !!args && stringArg(args, ...PATH_ARGS) !== "";
+    }
   }
 }
 
@@ -414,6 +469,57 @@ export function buildToolCallPreview(
       meta: [],
       copyText: skill,
       kind: "path",
+    };
+  }
+
+  if (normalized === "websearch" || normalized === "webfetch") {
+    // The query and the url are the whole of the call; a `{"query": "..."}` block
+    // beside a row that already shows it is punctuation, not information.
+    const subject = stringArg(args, "query", "url");
+    const meta: string[] = [];
+    const page = numberArg(args, "page", 0);
+    if (page > 1) meta.push(t("permission.meta.page", { page }));
+    const maxResults = numberArg(args, "max_results", 0);
+    if (maxResults > 0) {
+      meta.push(t("permission.meta.maxResults", { count: maxResults }));
+    }
+    return {
+      toolName,
+      title,
+      header: subject,
+      meta,
+      copyText: subject,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_get" || normalized === "config_revert") {
+    // The dotted key is the whole of the call and the row already names it, so a
+    // `{"path": "..."}` block would only repeat it - same reasoning as load_skill.
+    const key = stringArg(args, "path");
+    return {
+      toolName,
+      title,
+      header: key,
+      meta: [],
+      copyText: key,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_set") {
+    // Staged edits are uci command lines. Read as lines they are a command block
+    // like a shell call; read as a JSON array of strings they are punctuation.
+    const commands = stringListArg(args, "commands");
+    const text = commands.join("\n");
+    return {
+      toolName,
+      title,
+      header: "",
+      meta: [],
+      copyText: text,
+      kind: "code",
+      text,
     };
   }
 

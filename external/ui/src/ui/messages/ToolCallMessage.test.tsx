@@ -276,7 +276,7 @@ test("completed mkdir uses the rich tool preview without approval actions", () =
   ).toContain("created directory H:\\workspace\\build");
 });
 
-test("question tool omits duration from summary row", () => {
+test("question tool names the act and omits duration from its summary row", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-q"
@@ -290,12 +290,112 @@ test("question tool omits duration from summary row", () => {
     />,
   );
   expect(container.querySelector(".thinking-dur")).toBeNull();
+  // Every other row names what the call is doing; this one used to name the noun.
   expect(container.querySelector(".thinking-label")?.textContent?.trim()).toBe(
-    "question",
+    "asking",
   );
   openToolDetails();
   expect(screen.getByText("Continue?")).toBeInTheDocument();
-  expect(screen.getByText("Yes")).toBeInTheDocument();
+  // The taken letter is the answer; nothing repeats it underneath.
+  const row = container.querySelector(".question-tool-offer-row");
+  expect(row?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(row?.textContent).toContain("Yes");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// The card in the transcript keeps only the question and the answer, so this row
+// is the one place the offer survives: what the reader was choosing between, and
+// what the options they did not take said.
+test("the question row records the whole offer, with the taken letters marked", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-offer"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          {
+            question: "Which scheduler did you mean?",
+            options: [
+              { label: "Todo plan", description: "A checklist of tasks" },
+              { label: "Background tasks" },
+              { label: "Cron" },
+            ],
+            custom: true,
+          },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Background tasks"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  // Three options plus the free-answer slot, each behind its own letter.
+  expect(rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent)).toEqual([
+    "A",
+    "B",
+    "C",
+    "D",
+  ]);
+  expect(rows[0]?.textContent).toContain("A checklist of tasks");
+  expect(rows[3]?.textContent).toContain("an answer of their own");
+
+  const taken = rows.filter((r) =>
+    r.classList.contains("question-tool-offer-row--taken"),
+  );
+  expect(taken).toHaveLength(1);
+  expect(taken[0]?.textContent).toContain("Background tasks");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// An answer the reader wrote belongs in the slot they wrote it in: the free row
+// carries their words, not the name of the row.
+test("the free slot carries what the reader typed into it", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-own"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which one?", options: [{ label: "A one" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["something else entirely"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[1]?.textContent).toContain("something else entirely");
+  expect(rows[1]?.textContent).not.toContain("an answer of their own");
+  // The words are in the row, so nothing repeats them below it.
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+test("an unanswered question still says so under the offer", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-waiting"
+      title="question"
+      status="in_progress"
+      argsText={JSON.stringify({
+        questions: [{ question: "Which one?", options: [{ label: "A one" }], custom: true }],
+      })}
+      resultText=""
+    />,
+  );
+  openToolDetails();
+
+  const slot = [...container.querySelectorAll(".question-tool-offer-row")].pop();
+  expect(slot?.textContent).toContain("an answer of their own");
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "Awaiting answer",
+  );
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {
@@ -555,27 +655,40 @@ function backgroundTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
   };
 }
 
-test("a backgrounded run_command keeps a live status chip on the collapsed row", () => {
-  render(
+test("a backgrounded run_command reads like any command row, in the background", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bg"
       title="run_command"
       status="completed"
       argsText='{"command":"make test","background":true,"expected_seconds":120}'
       resultText="Started background task bg_1: make test"
+      durationMs={0}
       backgroundTask={backgroundTask({ expected_seconds: 120 })}
       backgroundNowMs={BG_START_MS + 30_000}
     />,
   );
 
-  const chip = screen.getByTestId("tool-bgtask-chip-bg_1");
-  expect(chip).toHaveTextContent("Running");
-  expect(chip).toHaveTextContent("30s");
-  expect(chip).toHaveTextContent("est. 2m");
+  expect(screen.getByText("running a command in the background")).toBeInTheDocument();
+
+  // The call returned the instant the task started, so its own 0ms is replaced
+  // by the task's clock - in the duration slot every other row uses.
+  const duration = container.querySelector(".thinking-dur");
+  expect(duration).toHaveTextContent("30s");
+  expect(duration?.closest(".thinking-head")).not.toBeNull();
+
+  // How the run is going belongs to the task, and is read in the Tasks panel:
+  // the transcript row carries no status, estimate or exit code.
+  const row = container.querySelector(".foxxycode-tool-call-row") as HTMLElement;
+  expect(container.querySelector(".tool-bgtask-state")).toBeNull();
+  expect(container.querySelector(".tool-bgtask-chip")).toBeNull();
+  expect(row.querySelector(".thinking-summary")?.textContent).not.toMatch(
+    /Running|est\.|exit/,
+  );
 });
 
-test("the background chip reports the final state once the task ends", () => {
-  render(
+test("a finished background task shows its total time and nothing about how it ended", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bg"
       title="run_command"
@@ -584,13 +697,14 @@ test("the background chip reports the final state once the task ends", () => {
         running: false,
         status: "timed_out",
         elapsed_seconds: 900,
+        exit_code: 2,
       })}
       backgroundNowMs={BG_START_MS + 9_000_000}
     />,
   );
-  expect(screen.getByTestId("tool-bgtask-chip-bg_1")).toHaveTextContent(
-    "Timed out",
-  );
+  const summary = container.querySelector(".thinking-summary") as HTMLElement;
+  expect(container.querySelector(".thinking-dur")).toHaveTextContent("15m");
+  expect(summary.textContent).not.toMatch(/Timed out|exit 2/);
 });
 
 test("expanded background row offers Open in Tasks, and Stop only while running", () => {
@@ -633,16 +747,18 @@ test("expanded background row offers Open in Tasks, and Stop only while running"
   expect(screen.getByTestId("tool-bgtask-open-bg_1")).toBeInTheDocument();
 });
 
-test("an ordinary tool row carries no background chip", () => {
-  render(
+test("an ordinary tool row keeps its own duration", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-plain"
       title="read"
       status="completed"
       resultText="file contents"
+      durationMs={12}
     />,
   );
-  expect(screen.queryByTestId(/^tool-bgtask-chip-/)).toBeNull();
+  expect(screen.queryByTestId(/^tool-bgtask-elapsed-/)).toBeNull();
+  expect(container.querySelector(".thinking-dur")).toHaveTextContent("12ms");
 });
 
 test("large write preview scrolls inside the tool card until Less is clicked", () => {
@@ -1338,6 +1454,87 @@ test("the row names what the call acts on, clipped rather than wrapped", () => {
   expect(screen.getByText("reading a file")).toHaveClass("thinking-label");
 });
 
+test("the row spells a path against the worktree it lives in, the tooltip keeps it whole", () => {
+  // Work inside a worktree repeats the path to that worktree on every row, which
+  // pushes the file name past the ellipsis. The row shows what tells the files
+  // apart; the absolute path stays one hover (and one click) away.
+  render(
+    <ToolCallMessage
+      toolCallId="tc-relative"
+      title="read"
+      kind="read"
+      status="completed"
+      pathRoots={[
+        "/storage/Repository/foxxycode/foxxycode-agent",
+        "/storage/Repository/foxxycode/foxxycode-agent/.foxxycode/worktrees/fix-session-stop-queue",
+      ]}
+      argsText={JSON.stringify({
+        path: "/storage/Repository/foxxycode/foxxycode-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  // Exact: the absolute path contains the relative one, so a substring match
+  // would pass without the rewrite ever happening.
+  expect(target.textContent).toBe("DESIGN.md");
+  expect(target).toHaveAttribute(
+    "title",
+    "/storage/Repository/foxxycode/foxxycode-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
+  );
+});
+
+test("a command is never respelt against the session directory", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-command"
+      title="run_command"
+      kind="run_command"
+      status="completed"
+      pathRoots={["/storage/Repository/foxxycode/foxxycode-agent"]}
+      argsText={JSON.stringify({
+        command: "/storage/Repository/foxxycode/foxxycode-agent/scripts/checks.sh",
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByTestId("tool-summary-target").textContent).toBe(
+    "/storage/Repository/foxxycode/foxxycode-agent/scripts/checks.sh",
+  );
+});
+
+test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
+  // background_output takes a task id and a line count: no path, no command,
+  // nothing for the header bar to say. The bar was rendered anyway, so the card
+  // opened with a 34px empty strip above the arguments.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-bgout"
+      title="background_output"
+      kind="background_output"
+      status="completed"
+      argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
+      resultText="bg_3 [running] go test ./..."
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+
+  expect(
+    container.querySelector(".permission-preview-bar"),
+    "a header bar with nothing in it is a strip of empty border",
+  ).toBeNull();
+  // With no bar the body carries the whole card, top corners included.
+  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
+    "permission-preview-viewport--headless",
+  );
+  // The arguments themselves still show.
+  expect(
+    container.querySelector(".permission-preview-code")?.textContent,
+  ).toContain("bg_3");});
+
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(
     <ToolCallMessage
@@ -1540,4 +1737,198 @@ test("a remote shell is not the local interpreter", () => {
   } finally {
     setHostShell("");
   }
+});
+
+// Expanding a long result, scrolling it, then collapsing used to leave the box
+// clipped around wherever the reader had scrolled to: the card reopened in the
+// middle of the output, first line cut in half. The args preview next to it has
+// always reset; the result body has to as well.
+test("collapsing a long result returns it to the top", async () => {
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(`${"full line\n".repeat(40)}last full line`);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-scroll"
+        title="websearch"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ query: "iPhone 18 price" })}
+        resultText={`${"preview line\n".repeat(18)}...`}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={2000}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-result-more"));
+  await waitFor(() =>
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
+  );
+
+  const viewport = screen.getByTestId("tool-result-viewport");
+  expect(viewport).toHaveClass("tool-result-viewport--scroll");
+  viewport.scrollTop = 240;
+
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(viewport).toHaveClass("tool-result-viewport--clip");
+  expect(viewport.scrollTop).toBe(0);
+});
+
+// The web tools used to print their own arguments back as a JSON object and their
+// answer as raw source: a search as a wall of braces, a fetched page as Markdown
+// nobody rendered. Both are documents and both now read as documents.
+test("a web search names its query and lists its hits as links", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "iPhone 18 price", page: 2 })}
+      resultText={JSON.stringify({
+        query: "iPhone 18 price",
+        page: 2,
+        results: [
+          {
+            title: "Ostrovok.ru",
+            url: "https://ostrovok.ru/",
+            description: "Hotel booking service.",
+          },
+        ],
+      })}
+      durationMs={2000}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "iPhone 18 price",
+  );
+  // The argument card names the query and carries no JSON body.
+  expect(screen.queryByTestId("permission-preview-viewport")).toBeNull();
+  expect(screen.getByText("page 2")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "Ostrovok.ru" });
+  expect(link).toHaveAttribute("href", "https://ostrovok.ru/");
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a fetched page renders as the markdown it already is", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-fetch"
+      title="webfetch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ url: "https://foxxycode.dev/" })}
+      resultText={"# FoxxyCode\n\nAn agent that runs where you work."}
+      durationMs={120}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "https://foxxycode.dev/",
+  );
+  expect(screen.getByRole("heading", { name: "FoxxyCode" })).toBeInTheDocument();
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+// A failed call answers with an error line, not with a document.
+test("a failed web search keeps its error as plain text", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-failed"
+      title="websearch"
+      kind="other"
+      status="failed"
+      argsText={JSON.stringify({ query: "iPhone 18 price" })}
+      resultText="error: http 503"
+      durationMs={80}
+    />,
+  );
+  openToolDetails();
+
+  expect(document.querySelector(".tool-result-pre")?.textContent).toBe(
+    "error: http 503",
+  );
+});
+
+// Cross-review: the same label offered twice used to light both letters for one
+// answer, an offer of nothing but a free slot drew no offer at all, and the
+// whitespace normalisation of answers against labels was worth pinning down.
+test("each answer claims one option, even when two carry the same label", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-dup"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Yes" }, { label: "Yes" }] },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Yes"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(
+    rows.filter((r) => r.classList.contains("question-tool-offer-row--taken")),
+  ).toHaveLength(1);
+});
+
+test("an answer matches a label whose spacing differs", () => {
+  // Both sides come out of the same parser, which collapses runs of whitespace.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-space"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Todo  plan" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Todo   plan"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  // The free slot stays unmarked: the answer was one of the options.
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+});
+
+test("an offer of nothing but a free slot still shows that slot", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-free"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [{ question: "Say anything", options: [], custom: true }],
+      })}
+      resultText={JSON.stringify({ answers: [["hello"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.querySelector(".question-prompt-bubble")?.textContent).toBe("A");
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.textContent).toContain("hello");
 });

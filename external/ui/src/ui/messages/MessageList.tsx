@@ -73,6 +73,16 @@ const PARKED_STATUS_KINDS: ReadonlySet<LiveStatusKind> = new Set<LiveStatusKind>
   "mcp",
 ]);
 
+/**
+ * Whether the live line would only repeat the row it sits under. A reasoning row
+ * is present exactly when the status is "thinking" (that is what derives it),
+ * says the same word and ticks its own duration, so the line below it keeps the
+ * dots and drops the text.
+ */
+function repeatsTheRowAbove(status: { kind: string }): boolean {
+  return status.kind === "thinking";
+}
+
 function hasStreamingAssistant(items: TranscriptItem[]): boolean {
   return items.some(
     (it) => it.type === "assistant_message" && it.streaming === true,
@@ -109,6 +119,9 @@ export function MessageList(props: {
   workspacePath?: string | undefined;
   /** Opens the child transcript behind a spawn_agent row. */
   onOpenSubagentTranscript?: (sessionId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -161,6 +174,7 @@ export function MessageList(props: {
     () =>
       props.generating === true && statusLineOn
         ? deriveLiveStatus(props.items, {
+            pathRoots: props.pathRoots || [],
             reconnecting,
             mcpConnecting,
             llmRetrying,
@@ -170,6 +184,7 @@ export function MessageList(props: {
       props.generating,
       statusLineOn,
       props.items,
+      props.pathRoots,
       reconnecting,
       mcpConnecting,
       llmRetrying,
@@ -420,6 +435,9 @@ export function MessageList(props: {
             {...(props.onOpenSubagentTranscript
               ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
               : {})}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}
@@ -464,7 +482,7 @@ export function MessageList(props: {
       {props.generating === true &&
       (!hasStreamingAssistant(props.items) || parked) ? (
         <TypingDotsMessage
-          {...(liveStatus
+          {...(liveStatus && !repeatsTheRowAbove(liveStatus)
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
             : {})}
           {...(liveStatus && liveStatus.target

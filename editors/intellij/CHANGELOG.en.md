@@ -38,6 +38,17 @@ or the whole origin. Saving settings is fixed along the way: a `${BRAVE_API_KEY}
 in `config.yaml` is no longer replaced by its resolved value when you save from the UI, and
 `ssh_connect_timeout` and the web-search section are no longer dropped.
 
+**A steadier transcript: a jump-to-bottom button, paths relative to the project, honest question cards.**
+Scroll the transcript up and a round button appears above the composer; it glides back
+to the newest message. Tool rows spell paths relative to the session's folder, so the file
+name shows instead of the start of a long path, and a row appears as soon as the model
+names the call. Scrolling up a long transcript no longer jumps: rows no longer skip their
+own layout, which made the height move under the reader (the IntelliJ panel's workaround
+for it is gone too). A question card sits under its own row, an answered question shows
+the option letters and marks the chosen ones, and Enter answers the question. The model
+and the reasoning level are no longer reset when the settings are reloaded, and the
+Russian reasoning rows speak in the first person.
+
 ## 0.3.13 — 2026-09-21
 
 **A chat names and files itself.**

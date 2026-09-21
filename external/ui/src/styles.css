@@ -3029,49 +3029,24 @@ a.rail-brand {
   animation: chat-fade-in 0.22s ease-out both;
 }
 
-/* Long-transcript scroll optimization: off-screen rows skip layout and paint.
-   `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
-   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up.
-   `content-visibility: auto` also turns on paint containment while the row is
-   visible, which clips anything drawn outside the row box. It is therefore
-   opted in per row type: only rows whose content stays inside their own box
-   (assistant markdown, thinking / tool / compaction / memory foldouts, system
-   notices). User rows keep the hover edit button at `left: -32px`, and the
-   permission, question and plan cards cast shadows past their wrapper, so
-   those rows stay uncontained. */
-.messages-inner > .msg-assistant-stack,
-.messages-inner > .thinking-row,
-.messages-inner > .msg-system-stack {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-  /* Paint containment clips at the padding edge. Focus rings on controls at
-     the row edge (2px outline + 2px offset on the copy buttons, the
-     edge-to-edge <summary> ring) need room inside the box: pad the row and
-     pull it back with a matching negative margin so nothing moves. */
-  padding: 4px;
-  margin: -4px;
-  /* Rows size as border-box, so widen by the padding to keep the content
-     width (and therefore line wrapping) exactly as without containment. */
-  width: calc(100% + 8px);
-}
 
-/* JCEF (the IntelliJ panel, Chromium 104) raises "ResizeObserver loop limit
-   exceeded" on every transcript open when the rows above use
-   content-visibility: auto with a placeholder size: that engine flips a row
-   between its placeholder and its real box inside the same resize-observation
-   loop, and the plugin paints the notice as an error overlay. index.html marks
-   the IDE embed on <html data-embed>, so the optimization is switched off
-   there and rows lay out plainly. Guarded by the plugin's uiTest
-   (BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop). */
-html[data-embed="intellij"] .messages-inner > .msg-assistant-stack,
-html[data-embed="intellij"] .messages-inner > .thinking-row,
-html[data-embed="intellij"] .messages-inner > .msg-system-stack {
-  content-visibility: visible;
-  contain-intrinsic-size: none;
-}
 
+/* Transcript rows lay themselves out, every one of them.
+   `content-visibility: auto` used to let off-screen rows skip layout and paint,
+   sized from `contain-intrinsic-size` until they had been rendered once. A
+   session opens scrolled to its end, so every row above the first screen was a
+   guess: a 360-row transcript reported 42114px of scrollport against a real
+   50342px. Scrolling up then materialised those rows a screen at a time, the
+   height grew under the reader, and scroll anchoring pushed the position down
+   by the difference on every wheel notch - a transcript that fought the scroll.
+   Row memoisation and the bounded shadow-transcript cache carry the long
+   transcripts now; a wrong scrollport is not worth the layout it saves.
+
+   It also took the JCEF opt-out with it: Chromium 104 flipped a row between its
+   placeholder and its real box inside one resize-observation loop, and the
+   IntelliJ panel painted "ResizeObserver loop limit exceeded" over the chat. */
 .messages-inner > .thinking-row {
-  max-width: calc(720px + 8px);
+  max-width: 720px;
 }
 
 .chat-scroll-tail {
@@ -3101,6 +3076,75 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
 
 .chat-bottom-inner .composer-wrap {
   pointer-events: auto;
+}
+
+/* Scroll-to-bottom: hangs off the top edge of the docked block, against the
+   composer's right edge, so it rides with the composer on every shell - the
+   absolute desktop dock, the fixed mobile one, and the inset the tasks panel
+   reserves - instead of being pinned to the viewport. It stays in the DOM for
+   the whole chat and crosses between its two states with a transition; the
+   resting rule below is the hidden state and carries the exit timing. */
+.chat-scroll-bottom {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 2;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  /* A small shadow, sized to a 34px circle: enough to lift it off the
+     transcript without the diffuse cast the full panel token carries. */
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.32),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+  color: color-mix(in srgb, var(--text) 76%, var(--foxxycode-blend-base));
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px) scale(0.9);
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease-in,
+    transform 0.12s ease-in,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-scroll-bottom.is-visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 0.14s ease-out,
+    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-scroll-bottom:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 24%, var(--foxxycode-blend-base));
+}
+
+[data-theme="light"] .chat-scroll-bottom {
+  box-shadow:
+    0 3px 10px rgba(15, 23, 42, 0.14),
+    0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scroll-bottom,
+  .chat-scroll-bottom.is-visible {
+    transition: none;
+  }
 }
 
 /* Subagent transcript: the composer's slot holds a read-only notice that points
@@ -3828,6 +3872,18 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
 .tool-call-result-card--failed .tool-call-result-dot {
   background: color-mix(in srgb, #ff6b6b 78%, var(--text));
   box-shadow: 0 0 0 3px color-mix(in srgb, #ff6b6b 11%, transparent);
+}
+
+/* A command block carries its own 10px inset inside the card, so the output that
+   continues the panel adds none: one gap at the seam, not two stacked paddings.
+   Previews whose body runs edge to edge (a diff, a code panel) keep theirs. */
+/* Chromium 104 (JCEF) has no :has(); PermissionPromptPreview sets the marker
+   class on the host when its body is a command block. */
+.foxxycode-tool-call-body--connected-result
+  > .permission-preview--shell
+  + .tool-call-result-card
+  .tool-call-result-content {
+  padding-top: 0;
 }
 
 /* Tool output needs no label: it is the only thing under the call. A failure is said
@@ -9082,7 +9138,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-    padding: 4px 2px 2px;
+    /* Same inline inset as the head and the lead pane above: the drawer has one
+       edge, and the tiles used to hug it while the text stood 14px in. */
+    padding: 4px 14px 12px;
     align-content: start;
     overflow-y: auto;
     /* Fill the stack so the footer (reload/save) stays pinned at the bottom. */
@@ -9136,6 +9194,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
     flex-direction: column;
     min-height: 0;
     flex: 1 1 auto;
+  }
+
+  /* On the wide layout the content panel sits against the section rail, so its
+     own 8px is the seam; on the narrow shell the drawer edge is the reference. */
+  .settings.drawer .settings-scroll {
+    padding-inline: 14px;
+  }
+
+  .settings.drawer .settings-footer-actions {
+    padding-inline: 14px;
   }
 }
 
@@ -9377,6 +9445,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .permission-preview-viewport--scroll {
   overflow-y: auto;
+}
+
+/* No header bar above it (the call's arguments name nothing), so the body is the
+   whole card and closes its own top edge. */
+.permission-preview-viewport--headless {
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-radius: 12px;
 }
 
 .permission-preview-viewport--static {
@@ -9621,10 +9696,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
 /* Label, target and duration are one non-wrapping unit: the row stays a single line and
    the target is what gives way, clipped with an ellipsis. The browser and SVN icons and
    the SVN failure pill travel inside the unit; a background-task chip is left outside,
-   so it can still wrap below on a phone. */
+   so it can still wrap below on a phone.
+
+   They are three type sizes in two families - a 14px system label, a 12px monospace
+   target, a 12px system duration - so centring their boxes lines up the boxes and leaves
+   the baselines a fraction apart, which reads as the trailing text floating above the
+   label. Baseline alignment puts the text itself on one line. */
 .thinking-head {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
+  /* The same line box as the label beside it, so the row's height never depends
+     on which of the two happens to be taller. */
+  line-height: 20px;
   flex: 0 1 auto;
   gap: 0 6px;
   min-width: 0;
@@ -9650,6 +9733,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+  /* The same line box as the label beside it, so the row's height never depends
+     on which of the two happens to be taller. */
+  line-height: 20px;
 }
 
 /* A rendered skill body replaces the monospace result panel with prose: the panel's
@@ -10009,6 +10095,12 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 12px 14px 6px;
 }
 
+/* The answered record has no footer under it - the live card's row of buttons is
+   what the 6px bottom was leaving room for - so it closes on its own padding. */
+.question-prompt-answered .question-prompt-body {
+  padding-bottom: 12px;
+}
+
 .question-prompt-subhead {
   font-size: 12px;
   color: var(--muted);
@@ -10258,25 +10350,51 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   opacity: 0.85;
 }
 
-.question-prompt-head--stack {
+/* The offer a question tool row records: the options behind their letters, with
+   the ones the reader took carrying their letter in the accent the live card
+   uses for a picked row. Read-only, so nothing here takes a pointer. */
+.question-tool-offer {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
+  gap: 4px;
+  /* The question introduces the offer, so it keeps the 12px the live card puts
+     between a question and its first row rather than sitting on top of it. */
+  margin: 12px 0 8px;
+  padding: 0;
+  list-style: none;
 }
 
-.question-prompt-head--stack .question-prompt-summary-line {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  max-width: none;
-  line-height: 1.45;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--text) 74%, var(--foxxycode-blend-base));
+/* The 8px below the offer separates it from a line that usually is not there -
+   the letters say the answer - and left the block closing on twice the air it
+   opens with. It is kept only when something follows. */
+.question-tool-offer:last-child {
+  margin-bottom: 0;
 }
 
-.question-prompt-card.question-prompt-collapsed
-  > summary.question-prompt-head.question-prompt-head--stack {
-  cursor: pointer;
+.question-tool-offer-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+}
+
+.question-tool-offer-row .question-prompt-bubble {
+  flex: 0 0 auto;
+}
+
+.question-tool-offer-row--taken {
+  color: color-mix(in srgb, var(--text) 86%, var(--foxxycode-blend-base));
+}
+
+.question-tool-offer-row--taken .question-prompt-bubble {
+  background: var(--accent);
+  color: #fff;
+}
+
+.question-tool-offer-text {
+  min-width: 0;
 }
 
 .question-prompt-resolved-body {
@@ -10303,6 +10421,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-resolved-pair {
   margin: 0;
+}
+
+.foxxycode-tool-call-body .question-prompt-resolved-q {
+  margin-bottom: 12px;
+}
+
+.foxxycode-tool-call-body .question-tool-offer + .question-prompt-resolved-a {
+  margin-top: 0;
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-q {
@@ -11844,47 +11970,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   }
 }
 
-/* Live background-task chip on a transcript tool row. The tool call itself
-   returned immediately, so the chip is what keeps the row honest about the work
-   that is still going on. */
-.tool-bgtask-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 1px 8px 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
-  font-size: 11px;
-  line-height: 1.6;
-  color: color-mix(in srgb, var(--text) 66%, var(--foxxycode-blend-base));
-}
-
-.tool-bgtask-chip.is-running {
-  background: color-mix(in srgb, var(--accent) 14%, var(--foxxycode-blend-base));
-  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
-}
-
-.tool-bgtask-chip-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Tab controls hanging off the card above them, like the More / Less row: the
+   body is a flex column with an 8px gap, and these cancel it. */
 .tool-bgtask-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding-top: 6px;
-}
-
-@media (max-width: 1199px) {
-  /* The summary row is already tight on phones; the chip drops the wording and
-     keeps the dot plus timing rather than pushing the duration off screen. */
-  .tool-bgtask-chip {
-    max-width: 46vw;
-  }
+  margin-top: -8px;
 }
 
 /* ── Background tasks panel (docked inside the session) ────────────────────
@@ -11912,12 +12004,39 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   overflow: hidden;
 }
 
-/* The chat column gives up the width the panel takes, so the composer and the
-   transcript stay centred in what is left instead of hiding behind it. */
+/* The chat column gives up only the width the panel actually takes from it.
+   While the centred transcript stripe still clears the panel nothing moves:
+   opening the drawer on a wide window must not slide the text sideways. Once
+   the stripe would run under the panel the reserve grows to exactly that
+   overlap, and it stops at the panel's own band so a narrow window does not
+   leave a dead strip between the column and the panel either. */
 @media (min-width: 1200px) {
-  .shell-main.shell-tasks-open .chat-bottom,
+  .shell-main.shell-tasks-open {
+    /* What the panel takes off the end edge: its width and the inset it keeps
+       from the viewport (see .bgtasks-panel), plus the gap the column keeps
+       from it. */
+    --foxxycode-tasks-panel-band: calc(min(380px, 100vw - 32px) + 14px + 28px);
+    /* 920px is the transcript stripe (.messages-inner max-width); the stripe is
+       centred in what is left, so covering the band costs twice it. */
+    --foxxycode-tasks-reserve: clamp(
+      0px,
+      calc(920px + 2 * var(--foxxycode-tasks-panel-band) - 100%),
+      var(--foxxycode-tasks-panel-band)
+    );
+  }
+
   .shell-main.shell-tasks-open #messages {
-    padding-right: calc(min(380px, 100vw - 32px) + 28px);
+    padding-right: var(--foxxycode-tasks-reserve);
+  }
+
+  /* .chat-bottom pads both inline edges by the scrollbar gutter, which the
+     scroller spends on a real scrollbar on both of its own edges. Overriding
+     only the end edge would move the composer off the transcript's centre
+     line, so the gutter is paid back here. */
+  .shell-main.shell-tasks-open .chat-bottom {
+    padding-right: calc(
+      var(--foxxycode-tasks-reserve) + var(--foxxycode-chat-scrollbar-gutter)
+    );
   }
 }
 
@@ -11933,20 +12052,26 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 0;
 }
 
-.bgtask-section-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
-  padding: 10px 2px 6px;
-}
-
 .bgtask-section-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 2px 4px;
+  /* Same 10px step the first live card keeps from the panel head, so with no
+     live task the counter sits exactly where that card would have. */
+  padding: 10px 2px 4px;
+}
+
+/* Following a card, 8px of that step is already under it. */
+.bgtask-card + .bgtask-section-row {
+  padding-top: 2px;
+}
+
+/* The empty note, the loading line and a list error are rows of this list like
+   the cards are: the same step under the head, and the list's own inline
+   padding rather than a second one on top of it. */
+.bgtasks-panel .bgtask-list > .sessions-empty {
+  padding: 10px 2px 4px;
 }
 
 .bgtask-section-toggle,
@@ -11989,6 +12114,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: var(--foxxycode-surface-raised);
   padding: 10px 12px;
   margin-bottom: 8px;
+}
+
+/* The live cards carry no heading any more, and the heading is what used to
+   hold them off the panel title. The first card pays that air back so the list
+   does not start flush against the head. */
+.bgtasks-panel .bgtask-list > .bgtask-card:first-child {
+  margin-top: 10px;
 }
 
 .bgtask-card-head {
