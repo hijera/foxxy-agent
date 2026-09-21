@@ -82,6 +82,35 @@ fun Test.stripIntellijPlatformJvmArguments() {
     }
 }
 
+/**
+ * Seeds a sandbox's `options/ide.general.xml` with `confirmExit=false`.
+ *
+ * Otherwise every way of closing a sandbox IDE (its window's close button, `CloseMainWindow`
+ * from a script, the Exit action) stops at a modal "Are you sure you want to exit?" that only a
+ * human can answer, and an agent driving the sandbox sits waiting for one. The IDE writes this
+ * file itself, so an existing one is merged into rather than replaced, and a `confirmExit` that
+ * is already there (someone turned the question back on) is left alone.
+ *
+ * Returns what it did, for the task log, or null when there was nothing to do.
+ */
+fun seedNoExitConfirmation(configDir: File): String? {
+    val file = File(configDir, "options/ide.general.xml")
+    val component = """<component name="GeneralSettings">"""
+    val option = """<option name="confirmExit" value="false" />"""
+    val text = if (file.exists()) file.readText() else ""
+    val seeded = when {
+        text.contains("\"confirmExit\"") -> return null
+        text.isBlank() -> "<application>\n  $component\n    $option\n  </component>\n</application>\n"
+        text.contains(component) -> text.replaceFirst(component, "$component\n    $option")
+        text.contains("</application>") ->
+            text.replaceFirst("</application>", "  $component\n    $option\n  </component>\n</application>")
+        else -> return "Left ${file.absolutePath} alone (unexpected layout): exiting will still ask."
+    }
+    file.parentFile.mkdirs()
+    file.writeText(seeded)
+    return "Seeded ${file.absolutePath} so closing the sandbox does not ask for confirmation."
+}
+
 // ----------------------------------------------------------------------------------
 // foxxycode-agent: build the bundled `foxxycode` binary from source on every plugin build.
 // Mirrors the root `Makefile`: `npm --prefix external/ui run build:go` (SPA for
@@ -399,6 +428,15 @@ tasks {
         stripIntellijPlatformJvmArguments()
     }
 
+    // The plain sandbox has no robot to close it with, so its window's close button (or
+    // `CloseMainWindow` from a script) is the only clean way out, and that must not stop at a
+    // confirmation dialog. runIdeForUiTests below does the same.
+    runIde {
+        doFirst {
+            seedNoExitConfirmation(configDir.get())?.let { logger.lifecycle(it) }
+        }
+    }
+
     // ------------------------------------------------------------------------------------
     // Remote Robot UI testing. See .claude/skills/intellij-plugin-uitest/SKILL.md.
     //
@@ -461,6 +499,10 @@ tasks {
         // here, so whatever a previous run or a test decided stays. (If the dialog still shows
         // up, delete the sandbox config dir — see the skill's troubleshooting section.)
         doFirst {
+            // Without it `action Exit`, or a click on the window's close button, parks the IDE
+            // on a modal "Are you sure you want to exit?". The uiConsole `exit` command skips
+            // the question on its own; this covers every other way out.
+            seedNoExitConfirmation(configDir.get())?.let { logger.lifecycle(it) }
             val settings = File(configDir.get(), "options/foxxycode.xml")
             val home = layout.buildDirectory.dir("uitest-foxxycode-home").get().asFile
             // A backend home with no config.yaml puts the SPA on its "Choose a provider"
