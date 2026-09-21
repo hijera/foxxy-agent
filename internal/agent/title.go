@@ -77,7 +77,7 @@ func (a *Agent) maybeGenerateTitleForConfig(ctx context.Context, provider llm.Pr
 	p := a.titleProviderForConfig(provider, cfg)
 	msgs := []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(titleSystemPrompt)},
-		{Role: llm.RoleUser, Content: "Generate a title for this conversation:\n" + firstUser},
+		{Role: llm.RoleUser, Content: titleRequest(firstUser)},
 	}
 	resp, err := p.Complete(ctx, msgs, nil)
 	if err != nil || resp == nil {
@@ -187,4 +187,20 @@ func cleanTitle(raw string) string {
 		return line
 	}
 	return ""
+}
+
+// The first message travels to the title model inside these tags, which
+// prompts/title.md names as data. Sent bare, a message that is itself an
+// instruction ("Reply with exactly: OK") was read as one: the model described
+// the title request instead of the conversation.
+const (
+	titleFrameOpen  = "<conversation>"
+	titleFrameClose = "</conversation>"
+)
+
+// titleRequest frames the first user message for the title pass. A closing tag
+// inside the message is defused so the frame ends where the message does.
+func titleRequest(firstUser string) string {
+	body := strings.ReplaceAll(firstUser, titleFrameClose, "<\\/conversation>")
+	return "Generate a title for this conversation:\n" + titleFrameOpen + "\n" + body + "\n" + titleFrameClose
 }
