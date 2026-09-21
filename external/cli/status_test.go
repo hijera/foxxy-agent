@@ -21,7 +21,7 @@ func TestStatusVerbForTool(t *testing.T) {
 		"spawn_agent":                 "Running subagent",
 		"rmdir":                       "Deleting",
 		"webfetch":                    "Fetching",
-		"http_request":              "Sending a request",
+		"http_request":                "Sending a request",
 		"load_skill":                  "Loading a skill",
 		"plan_read":                   "Reading the plan",
 		"plan_write":                  "Updating the plan",
