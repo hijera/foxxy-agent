@@ -1,0 +1,5 @@
+# Closes the runIdeForUiTests sandbox without the "Are you sure you want to exit?" dialog.
+#
+# The IDE shuts down normally, so the plugin reaps its foxxycode backend itself; whatever is
+# still alive after 60 s is killed. `exit 120` waits longer. Never use `action Exit` for this.
+exit
