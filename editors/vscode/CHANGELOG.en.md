@@ -10,35 +10,6 @@
 
 ## Unreleased — 2026-09-21
 
-**Ready-made workflows in the box: `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules`.**
-The binary now carries a whole delivery of skills rather than one, and writes it into
-`${FOXXYCODE_HOME}/skills` the first time it sees them missing: getting to know an
-unfamiliar repository, a feature by BDD, a bug fixed from a reproduction, and rules
-generated for the agents. They are ordinary skills - editable, disable-able, deletable -
-a deleted one is not written again, and a release with a newer version replaces an
-unedited copy on disk. The old built-in `/generate-rules` is replaced by
-`/rpa-gen-rules`. The marketplace they are published from
-(`EvilFreelancer/rpa-skills`) shows up in Settings → Skills as a system source: it can be
-synced, but not edited away or removed.
-
-**Web search finds things again: Brave and Bing by default, your own SearXNG if you want one.**
-The `websearch` tool now asks several engines at once and merges what they return, with
-each engine's own outcome beside the results: "ok", "empty", or "blocked" with a reason.
-An anti-bot page used to read as "the web has nothing". DuckDuckGo and Google are still
-on the list but are not asked by default - from a server they answer with a decoy. The
-engine set, the timeouts, the snippet length, the cache, the address of your own SearXNG
-and a Brave API key are all in Settings → Tools → Web search (`tools.websearch`).
-
-**The agent has `http_request`, a curl of its own, and saving settings no longer eats `${VAR}`.**
-The new tool sends any HTTP request - methods, headers, a body, uploaded files, a proxy,
-the response saved to a file - and returns the status line, the headers and the body. It is
-offered in agent and debug mode only, and asks before it goes out unless the address is in
-`tools.http_request.allowlist` or was approved in this session; the card shows the whole
-request - address, headers, files, proxy - and offers to remember either that exact address
-or the whole origin. Saving settings is fixed along the way: a `${BRAVE_API_KEY}` reference
-in `config.yaml` is no longer replaced by its resolved value when you save from the UI, and
-`ssh_connect_timeout` and the web-search section are no longer dropped.
-
 **A steadier transcript: a jump-to-bottom button, paths relative to the project, honest question cards.**
 Scroll the transcript up and a round button appears above the composer; it glides back
 to the newest message. Tool rows spell paths relative to the session's folder, so the file
@@ -67,6 +38,37 @@ one environment now share a single connection. Stop releases the turn's stream r
 sending the cancel instead of waiting for the answer, so the cancel never waits for a free
 connection. The IntelliJ and VS Code panels, which are a single tab, keep a stream of their
 own.
+
+## 0.3.15 — 2026-09-21
+
+**Ready-made workflows in the box: `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules`.**
+The binary now carries a whole delivery of skills rather than one, and writes it into
+`${FOXXYCODE_HOME}/skills` the first time it sees them missing: getting to know an
+unfamiliar repository, a feature by BDD, a bug fixed from a reproduction, and rules
+generated for the agents. They are ordinary skills - editable, disable-able, deletable -
+a deleted one is not written again, and a release with a newer version replaces an
+unedited copy on disk. The old built-in `/generate-rules` is replaced by
+`/rpa-gen-rules`. The marketplace they are published from
+(`EvilFreelancer/rpa-skills`) shows up in Settings → Skills as a system source: it can be
+synced, but not edited away or removed.
+
+**Web search finds things again: Brave and Bing by default, your own SearXNG if you want one.**
+The `websearch` tool now asks several engines at once and merges what they return, with
+each engine's own outcome beside the results: "ok", "empty", or "blocked" with a reason.
+An anti-bot page used to read as "the web has nothing". DuckDuckGo and Google are still
+on the list but are not asked by default - from a server they answer with a decoy. The
+engine set, the timeouts, the snippet length, the cache, the address of your own SearXNG
+and a Brave API key are all in Settings → Tools → Web search (`tools.websearch`).
+
+**The agent has `http_request`, a curl of its own, and saving settings no longer eats `${VAR}`.**
+The new tool sends any HTTP request - methods, headers, a body, uploaded files, a proxy,
+the response saved to a file - and returns the status line, the headers and the body. It is
+offered in agent and debug mode only, and asks before it goes out unless the address is in
+`tools.http_request.allowlist` or was approved in this session; the card shows the whole
+request - address, headers, files, proxy - and offers to remember either that exact address
+or the whole origin. Saving settings is fixed along the way: a `${BRAVE_API_KEY}` reference
+in `config.yaml` is no longer replaced by its resolved value when you save from the UI, and
+`ssh_connect_timeout` and the web-search section are no longer dropped.
 
 ## 0.3.13 — 2026-09-21
 
