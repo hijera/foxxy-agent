@@ -546,7 +546,11 @@ export function SessionsSidebar(props: {
                 </span>
               ) : null}
             </div>
-            {s.cwd ? (
+            {/* The folder line predates grouping: in the flat list it was the
+            only way to tell two projects apart. Grouped by folder the heading
+            names it already, so only the pinned group - which gathers chats of
+            every folder - keeps it. */}
+            {s.cwd && (groupMode !== "workspace" || pinnedIndex >= 0) ? (
               <div
                 className="session-row-cwd"
                 title={s.cwd}

@@ -2301,7 +2301,7 @@ a.rail-brand {
 
 .session-row-tags {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 3;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -10363,8 +10363,13 @@ button.question-prompt-row.question-prompt-row--active .question-prompt-bubble {
   color: #ffffff;
 }
 
-/* Session row secondary line: project folder of the session */
+/* Session row secondary line: project folder of the session. Its own cell in the
+   row grid, under the title and above the tags - auto-placed, it took the empty
+   marks column beside the title. */
 .session-row-cwd {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
   font-size: 11px;
   margin-top: 2px;
   overflow: hidden;

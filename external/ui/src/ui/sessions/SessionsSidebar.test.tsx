@@ -767,3 +767,29 @@ test("a tag write that lands says nothing", async () => {
   await Promise.resolve();
   expect(screen.queryByTestId("session-tag-error")).toBeNull();
 });
+
+// The folder line predates grouping: in the flat list it was the only way to tell
+// two projects apart. Grouped by folder the heading names it already, so a row does
+// not repeat it - except in the pinned group, which gathers chats of every folder.
+test("grouped by folder, a row leaves its folder to the heading", () => {
+  renderDrawer({
+    sessions: [
+      { id: "a", title: "A", cwd: "/srv/one" },
+      { id: "p", title: "P", cwd: "/srv/two", pinned: true },
+    ],
+    groupMode: "workspace",
+  });
+  expect(screen.queryByTestId("session-cwd-a")).toBeNull();
+  expect(screen.getByTestId("session-cwd-p")).toHaveTextContent("two");
+});
+
+test("grouped any other way, a row still names its folder", () => {
+  for (const groupMode of ["none", "time", "tag"] as const) {
+    const { unmount } = renderDrawer({
+      sessions: [{ id: "a", title: "A", cwd: "/srv/one", updatedAt: "2026-09-15T09:00:00" }],
+      groupMode,
+    });
+    expect(screen.getByTestId("session-cwd-a")).toHaveTextContent("one");
+    unmount();
+  }
+});
