@@ -737,9 +737,6 @@ func (a *Agent) runReActLoop(
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
 			messages = a.buildMessages(sys.Content)
 			turnCtx = a.buildTurnContext(sys)
-			// The rebuilt estimate above was taken without the block; the call
-			// below sends it, so the accounting has to see it too.
-			a.refreshContextBreakdown(sys, turnCtx)
 		}
 
 		// Call LLM and stream response.

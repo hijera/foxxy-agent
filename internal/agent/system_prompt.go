@@ -190,7 +190,10 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		// follows the footer the provider family actually got.
 		Volatile: prompts.RendersVolatile(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile()),
 	}
-	a.refreshContextBreakdown(build, "")
+	// Counted with the block its requests will carry, as the loop counts every
+	// step: this is the estimate usage_update reports before the first model call
+	// and the one the coddy trigger reads before the loop.
+	a.refreshContextBreakdown(build, a.buildTurnContext(build))
 	return build
 }
 
