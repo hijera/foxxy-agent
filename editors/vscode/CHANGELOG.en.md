@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-21
+## 0.3.16 — 2026-09-21
 
 **A steadier transcript: a jump-to-bottom button, paths relative to the project, honest question cards.**
 Scroll the transcript up and a round button appears above the composer; it glides back
