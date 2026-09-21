@@ -12,7 +12,11 @@
  * other as well.
  */
 
-import { toolCallTargetText } from "./permissionToolPreview";
+import {
+  toolCallTargetIsPath,
+  toolCallTargetText,
+} from "./permissionToolPreview";
+import { relativeToolTarget } from "./toolTargetPath";
 import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
@@ -24,6 +28,7 @@ export type LiveStatusKind =
   | "tool"
   | "thinking"
   | "memory"
+  | "writing"
   | "waiting";
 
 export type LiveStatus = {
@@ -252,6 +257,8 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
 export function deriveLiveStatus(
   items: readonly TranscriptItem[],
   opts?: {
+    /** The session's own directory and its worktrees, for spelling a path row. */
+    pathRoots?: readonly string[];
     reconnecting?: boolean;
     mcpConnecting?: boolean;
     llmRetrying?: boolean;
@@ -283,6 +290,10 @@ export function deriveLiveStatus(
   let toolPending: ToolItem | null = null;
   let thinking: ThinkingItem | null = null;
   let memory: MemoryItem | null = null;
+  // The turn's newest row is answer text: whatever runs next has not shown up yet,
+  // so the model is still writing it.
+  let writing = false;
+  let sawStep = false;
   // When the model went quiet: end of the most recent finished step in this turn.
   let waitingFrom: number | undefined;
   let turnStartedAtMs: number | undefined;
@@ -295,6 +306,20 @@ export function deriveLiveStatus(
     if (it.type === "user_message") {
       turnStartedAtMs = parseCreatedAt(it.createdAtUtc);
       break;
+    }
+    if (!sawStep) {
+      if (it.type === "assistant_message") {
+        if (it.content.trim()) {
+          writing = true;
+          sawStep = true;
+        }
+      } else if (
+        it.type === "tool_call" ||
+        it.type === "thinking" ||
+        it.type === "memory_copilot"
+      ) {
+        sawStep = true;
+      }
     }
     switch (it.type) {
       case "permission_prompt":
@@ -360,12 +385,18 @@ export function deriveLiveStatus(
   if (tool) {
     const rawName = (tool.title || tool.kind || "").trim();
     const key = statusKeyForTool(rawName);
+    const context = {
+      ...(tool.title !== undefined ? { title: tool.title } : {}),
+      ...(tool.kind !== undefined ? { kind: tool.kind } : {}),
+      ...(tool.argsText !== undefined ? { argsText: tool.argsText } : {}),
+    };
+    const named = toolCallTargetText(context);
+    // Same rule as the transcript row: a path reads against the session's own
+    // directory, so the line spends its width on what tells files apart.
     const target =
-      toolCallTargetText({
-        ...(tool.title !== undefined ? { title: tool.title } : {}),
-        ...(tool.kind !== undefined ? { kind: tool.kind } : {}),
-        ...(tool.argsText !== undefined ? { argsText: tool.argsText } : {}),
-      }) || (key === "status.tool" ? rawName : "");
+      (named && toolCallTargetIsPath(context)
+        ? relativeToolTarget(named, opts?.pathRoots ?? [])
+        : named) || (key === "status.tool" ? rawName : "");
     return {
       kind: "tool",
       key,
@@ -401,6 +432,10 @@ export function deriveLiveStatus(
         ? { startedAtMs: memory.memoryWallStartedAtMs }
         : {}),
     };
+  }
+
+  if (writing) {
+    return { kind: "writing", key: "status.writing", target: "" };
   }
 
   const startedAtMs = waitingFrom ?? turnStartedAtMs;

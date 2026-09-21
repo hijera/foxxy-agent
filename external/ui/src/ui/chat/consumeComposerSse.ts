@@ -69,6 +69,9 @@ export type MemoryChunkEvt = {
  */
 export const minMeasurableThinkingMs = 5;
 
+/** Longest a queued tool row waits for an animation frame before a timer lands it. */
+export const toolFlushFallbackMs = 250;
+
 function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
@@ -294,8 +297,13 @@ export async function consumeComposerSseReader(
         }
       > = [];
       let raf = 0;
+      let flushTimer = 0;
       const flushToolQueue = () => {
         raf = 0;
+        if (flushTimer) {
+          window.clearTimeout(flushTimer);
+          flushTimer = 0;
+        }
         if (toolQueue.length === 0) return;
         const pending = toolQueue.splice(0, toolQueue.length);
         applyStreamItems((prev) => {
@@ -373,9 +381,13 @@ export async function consumeComposerSseReader(
           return next;
         });
       };
+      // A frame batches a burst of tool updates into one render. A tab that gets no
+      // frames - hidden, or a window the browser treats as occluded - would hold the
+      // rows back indefinitely, so a timer lands them regardless.
       const scheduleToolFlush = () => {
-        if (raf) return;
+        if (raf || flushTimer) return;
         raf = window.requestAnimationFrame(flushToolQueue);
+        flushTimer = window.setTimeout(flushToolQueue, toolFlushFallbackMs);
       };
 
       const ensureAssistant = (
@@ -452,27 +464,51 @@ export async function consumeComposerSseReader(
         pendingBubbleRotation = false;
       };
 
+      /**
+       * Whitespace that would be the first thing in a segment is held back until
+       * text follows it. A model calling several tools in one answer puts "\n\n"
+       * between the calls, and opening a bubble for that alone left an empty,
+       * zero-height row between the tool rows that still took the column's gap.
+       */
+      let pendingWhitespace = "";
+
       /** Appends assistant text in chronological position. */
       const appendAssistantContent = (c: string) => {
         // Land any queued tool rows first so they keep their arrival position.
         if (toolQueue.length > 0) flushToolQueue();
+        if (
+          !/\S/.test(c) &&
+          (pendingBubbleRotation || !currentAssistantHasContent)
+        ) {
+          pendingWhitespace += c;
+          return;
+        }
+        const text = pendingWhitespace + c;
+        pendingWhitespace = "";
         beginAssistantChunk();
         ensureAssistant();
         const target = currentAssistantId;
         applyStreamItems((prev) =>
           prev.map((it) =>
             it.type === "assistant_message" && it.id === target
-              ? { ...it, content: it.content + c }
+              ? { ...it, content: it.content + text }
               : it,
           ),
         );
         currentAssistantHasContent = true;
       };
 
+      // When the frame being handled happened. A frame the relay replays after a
+      // reload carries its age, and dating it on arrival restarted a reasoning
+      // block's clock at the reload and read 0ms for a tool call whose start and end
+      // were replayed in the same burst. Outside a frame it is simply now.
+      let frameAt: number | null = null;
+      const eventNow = () => frameAt ?? Date.now();
+
       let activeThinkingId: string | null = null;
       let activeThinkingStarted = 0;
       const appendThinking = (delta: string) => {
-        const freezeAt = Date.now();
+        const freezeAt = eventNow();
         if (!activeThinkingId) {
           activeThinkingId = newId("r");
           activeThinkingStarted = freezeAt;
@@ -481,6 +517,9 @@ export async function consumeComposerSseReader(
           markRowAppendedAfterAssistant();
         }
         const id = activeThinkingId;
+        // Queued tool rows came first in the stream; they land before a new
+        // reasoning row does, not after it.
+        flushToolQueue();
         applyStreamItems((prev) => {
           const known = prev.some(
             (it) => it.type === "thinking" && it.id === id,
@@ -504,7 +543,7 @@ export async function consumeComposerSseReader(
       const finishThinking = () => {
         if (!activeThinkingId) return;
         const id = activeThinkingId;
-        const dur = Math.max(0, Date.now() - activeThinkingStarted);
+        const dur = Math.max(0, eventNow() - activeThinkingStarted);
         // A model configured with stream: false delivers its reasoning and its answer
         // in the same flush, so this clock measures the gap between two frames rather
         // than how long the model thought. Below the floor there is nothing to report:
@@ -546,6 +585,8 @@ export async function consumeComposerSseReader(
           carry,
         );
         for (const ev of events) {
+          frameAt =
+            typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
           if (ev.id) {
             lastEventId = ev.id;
           }
@@ -868,7 +909,7 @@ export async function consumeComposerSseReader(
               // New action row: later assistant text starts a new bubble below it.
               markRowAppendedAfterAssistant();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
+              const now = eventNow();
               const patch: Partial<
                 Extract<TranscriptItem, { type: "tool_call" }>
               > & { toolCallId: string } = {
@@ -891,7 +932,7 @@ export async function consumeComposerSseReader(
               const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
               const status = (u.status as any) || "in_progress";
               const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
+              const now = eventNow();
               if (status === "in_progress" && text0) {
                 toolQueue.push({
                   toolCallId: u.toolCallId,
@@ -950,6 +991,7 @@ export async function consumeComposerSseReader(
           break;
         }
       }
+      frameAt = null;
       if (sawDone) {
         try {
           await reader.cancel();
@@ -961,6 +1003,8 @@ export async function consumeComposerSseReader(
       if (carry.buf.trim()) {
         const tailEvents = parseSSEBlocks("\n\n", carry);
         for (const ev of tailEvents) {
+          frameAt =
+            typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
           if (ev.id) {
             lastEventId = ev.id;
           }
@@ -1151,7 +1195,7 @@ export async function consumeComposerSseReader(
               // New action row: later assistant text starts a new bubble below it.
               markRowAppendedAfterAssistant();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
+              const now = eventNow();
               const patch: Partial<
                 Extract<TranscriptItem, { type: "tool_call" }>
               > & { toolCallId: string } = {
@@ -1173,7 +1217,7 @@ export async function consumeComposerSseReader(
               const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
               const status = (u.status as any) || "in_progress";
               const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
+              const now = eventNow();
               if (status === "in_progress" && text0) {
                 toolQueue.push({
                   toolCallId: u.toolCallId,
@@ -1229,6 +1273,7 @@ export async function consumeComposerSseReader(
 
   const endedWithoutDone = !sawDone && !streamHalted && !streamErrorMessage;
 
+  frameAt = null;
   return {
     streamErrorMessage,
     streamErrorCode,
