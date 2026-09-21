@@ -342,41 +342,52 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   nil,
 	}
-	if s.activeCfg() != nil {
-		if dm := strings.TrimSpace(s.activeCfg().Agent.Model); dm != "" {
+	cfg := s.activeCfg()
+	if cfg != nil {
+		if dm := strings.TrimSpace(cfg.Agent.Model); dm != "" {
 			out.DefaultAgentModel = dm
 		}
+		// max_context_tokens is the window the composer ring draws against,
+		// so it is the one the session's compaction trigger measures against
+		// (session.Manager.ContextWindow). A model without the key reads its
+		// provider's listing: wait a bounded moment for one never read.
+		refs := make([]string, 0, len(cfg.Models))
+		for i := range cfg.Models {
+			refs = append(refs, cfg.Models[i].Model)
+		}
+		if s.mgr != nil {
+			s.mgr.AwaitContextWindows(r.Context(), cfg, refs, session.ContextWindowWait)
+		}
 	}
-	maxCtx := maxContextDefault(s)
+	profileWindow := config.DefaultContextWindowTokens
+	if cfg != nil {
+		profileWindow = s.contextWindowFor(cfg, cfg.Agent.Model)
+	}
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs, session.ModeAsk, session.ModeDebug} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
 			Created:          0,
 			OwnedBy:          ownedByFoxxyCodeSession,
-			MaxContextTokens: maxCtx,
+			MaxContextTokens: profileWindow,
 		})
 	}
-	if s.activeCfg() != nil {
-		for i := range s.activeCfg().Models {
-			ent := &s.activeCfg().Models[i]
+	if cfg != nil {
+		for i := range cfg.Models {
+			ent := &cfg.Models[i]
 			mid := strings.TrimSpace(ent.Model)
 			if mid == "" {
 				continue
-			}
-			mc := maxCtx
-			if ent.MaxContextTokens > 0 {
-				mc = ent.MaxContextTokens
 			}
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: mc,
+				MaxContextTokens: s.contextWindowFor(cfg, mid),
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
-				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
+				ReasoningLevels:  cfg.ReasoningLevelsFor(ent),
+				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 			})
 		}
 	}
@@ -601,6 +612,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
+		defer cancelProfile()
 		rel := s.beginComposerRelay(sessionID)
 		defer s.endComposerRelay(sessionID, rel)
 		if req.Stream {
@@ -613,13 +626,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, acp.SessionPromptParams{
 			SessionID:  sessionID,
 			Prompt:     prompt,
 			ImageParts: promptImages,
@@ -789,6 +802,18 @@ func writeSessionBusy(w http.ResponseWriter, sessionID, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusConflict)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": errBody})
+}
+
+// profileTurnContext makes Stop effective as soon as HTTP owns the turn lock,
+// before headers, workspace preparation and manager admission. Streaming calls
+// detach exactly once here; detaching again in the manager would lose an early Stop.
+func profileTurnContext(ctx context.Context, st *session.State, stream bool) (context.Context, context.CancelFunc) {
+	if stream {
+		ctx = context.WithoutCancel(ctx)
+	}
+	turnCtx, cancel := context.WithCancel(ctx)
+	st.SetCancel(cancel)
+	return turnCtx, cancel
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
@@ -1192,6 +1217,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		profileCtx, cancelProfile := profileTurnContext(ctx, st, body.Stream)
+		defer cancelProfile()
 		rel := s.beginComposerRelay(sid)
 		defer s.endComposerRelay(sid, rel)
 		if body.Stream {
@@ -1201,7 +1228,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: body.Stream}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
@@ -1218,7 +1245,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)

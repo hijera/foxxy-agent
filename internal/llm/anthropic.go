@@ -114,7 +114,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var fullContent string
 	var toolCalls []ToolCall
 	var stopReason string
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
@@ -191,6 +191,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.MessageStartEvent:
 			inputTokens = int(e.Message.Usage.InputTokens)
 			progress()
+			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
 		}
 	}
 
@@ -214,6 +215,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					StopReason:         sr,
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
+					CachedInputTokens:  cachedInputTokens,
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
 		}
@@ -237,6 +239,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				ReasoningSignature: thinkingSig,
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
 			}, truncErr
 		}
 		return nil, truncErr
@@ -256,6 +259,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		StopReason:         stopReason,
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
+		CachedInputTokens:  cachedInputTokens,
 	}, nil
 }
 
@@ -379,9 +383,10 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
 	r := &Response{
-		StopReason:   mapAnthropicStopReason(string(resp.StopReason)),
-		InputTokens:  int(resp.Usage.InputTokens),
-		OutputTokens: int(resp.Usage.OutputTokens),
+		StopReason:        mapAnthropicStopReason(string(resp.StopReason)),
+		InputTokens:       int(resp.Usage.InputTokens),
+		OutputTokens:      int(resp.Usage.OutputTokens),
+		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
 
 	for _, block := range resp.Content {

@@ -1024,6 +1024,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.keep_result": "сохраняю результат",
+  "tool.name.compact_context": "сжимаю контекст",
   "tool.name.plan_exit": "перехожу в агентный режим",
   "tool.name.plan_write": "сохраняю план",
   "tool.name.plan_read": "читаю план",
@@ -1287,6 +1288,7 @@ export const messagesRu: Record<string, string> = {
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.chatBusyReattached":
     "Этот чат ещё выполняет прошлый запрос — открываю его. Сообщение вернулось в поле ввода, отправьте его, когда запрос завершится.",
+  "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.requestFailed": "Ошибка запроса",
   "app.requestFailedWithStatus": "Ошибка запроса ({status})",

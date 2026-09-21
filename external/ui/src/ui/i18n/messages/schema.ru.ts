@@ -58,9 +58,9 @@ export const schemaTextRu: Record<string, string> = {
   Temperature: "Температура",
   "Sampling temperature for this logical model (0 = deterministic, higher = more random).":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
-  "Max context tokens (UI hint)": "Макс. токенов контекста (подсказка UI)",
-  "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.":
-    "Необязательная подсказка UI для полосы контекста композера; 0 означает вывести из метаданных провайдера, если доступно.",
+  "Context window (tokens)": "Окно контекста (токены)",
+  "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.":
+    "Окно контекста модели: по нему считаются индикатор контекста в композере и автоматическое сжатие. 0 — взять из списка моделей провайдера, если он сообщает окно, иначе 128000.",
   Multimodal: "Мультимодальность",
   "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. Интерфейс предложит прикрепление файлов для сообщений, отправляемых этой моделью.",
@@ -344,19 +344,25 @@ export const schemaTextRu: Record<string, string> = {
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
   "Compaction engine": "Движок сжатия",
-  'Which compaction implementation to use. "coddy" (default) keeps a summary row and replays only the window after it, and supports the /compact command. "opencode" flags older turns and filters them from the payload.':
-    'Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё, поддерживает команду /compact. «opencode» помечает старые шаги и исключает их из отправляемого контекста.',
+  "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
+    "Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
   "Model override for the summary pass; empty uses agent model.":
     "Замена модели для прохода сводки; пусто — используется модель агента.",
+  "Fallback summarizer models": "Запасные модели сводки",
+  "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.":
+    "Модели сводки, которые пробуются по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
+  "Fallback memory models": "Запасные модели памяти",
+  "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.":
+    "Модели, которые копилот памяти пробует по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
   "Threshold percent": "Порог, %",
-  "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).":
-    "Срабатывает при этом проценте окна контекста модели. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
   "Keep recent turns": "Сохранять последних шагов",
-  "Most recent user turns preserved verbatim (default 2).":
-    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2).",
+  "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
+    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
   "Summary max tokens": "Макс. токенов сводки",
   "Completion token cap for the summary generation (opencode engine only).":
     "Лимит токенов ответа для генерации сводки (только движок opencode).",
@@ -371,6 +377,9 @@ export const schemaTextRu: Record<string, string> = {
   "Min result bytes": "Минимальный размер результата",
   "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).":
     "Результаты этого размера или меньше не вытесняются (по умолчанию 2000; 0 делает кандидатами все результаты).",
+  "Start at (%)": "Начинать с (%)",
+  "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.":
+    "Вытеснять, только когда оценка контекста достигла этого процента окна модели (по умолчанию 50; 0 — с первого результата). До порога история уходит без правок, и кэш промпта у провайдера сохраняется.",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",

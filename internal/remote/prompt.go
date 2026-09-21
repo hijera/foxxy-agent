@@ -84,8 +84,11 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// question round-trip.
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	defer cancelTurn()
-	h.beginTurn(st, cancelTurn)
-	defer h.endTurn(st)
+	owned, err := h.beginTurn(st, cancelTurn, sender)
+	if err != nil {
+		return nil, err
+	}
+	defer h.endTurn(st, owned)
 
 	body := responsesRequest{Model: mode, Input: promptInput(params.Prompt), Stream: true}
 	if selected != "" {
@@ -126,7 +129,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	res, err := h.hc.Do(req)
 	if err != nil {
-		if h.endTurn(st) || ctx.Err() != nil {
+		if h.endTurn(st, owned) || ctx.Err() != nil {
 			return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
 		}
 		return nil, fmt.Errorf("remote foxxycode %s: %w", h.opts.BaseURL, err)
@@ -136,14 +139,14 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if res.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 		if res.StatusCode == http.StatusConflict && sessionBusyPayload(payload) {
-			return nil, fmt.Errorf("remote foxxycode: the session is busy (another turn is running)")
+			return nil, fmt.Errorf("remote foxxycode: %w", ErrSessionBusy)
 		}
 		return nil, h.remoteError(res, payload)
 	}
 
 	turn := &turnStream{h: h, ctx: turnCtx, sessionID: sid, sender: sender}
 	streamErr := readSSE(res.Body, turn.onFrame)
-	cancelled := h.endTurn(st)
+	cancelled := h.endTurn(st, owned)
 	// The turn spent quota; the server refreshed its snapshot when the turn
 	// released, so a pull now joins that fetch (or learns it was deferred).
 	// It runs aside: the turn's result never waits for the hub.
@@ -388,6 +391,11 @@ func planSlug(meta map[string]interface{}) string {
 	}
 	return ""
 }
+
+// ErrSessionBusy is the prompt refusal of a server whose turn lock is held: the
+// fork's lock fails fast with 409 session_busy where upstream's queues, so the
+// console has to recognise the refusal to reconcile activity and queue the text.
+var ErrSessionBusy = errors.New("the session is busy (another turn is running)")
 
 // sessionBusyPayload reports whether a 409 body is the turn-lock refusal. The
 // same status also carries actionable refusals, such as a plan run requested

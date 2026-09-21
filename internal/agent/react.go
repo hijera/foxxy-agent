@@ -57,7 +57,8 @@ type SessionState interface {
 	GetPersistedSessionDir() string
 	AppendPlanDocument(plans.Document)
 	DiscardedPlanSlugs() []string
-	TakePendingPlanContext() string
+	PendingPlanContext() string
+	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
 	IsUserCancelledTurn() bool
@@ -126,6 +127,12 @@ type Agent struct {
 	// turnHookContext is what UserPromptSubmit hooks handed over for this
 	// turn's system prompt (hooks.go).
 	turnHookContext string
+	// autoCompactSkipLogged records that this turn already logged an
+	// automatic compaction with nothing to fold (compact.go).
+	autoCompactSkipLogged bool
+	// clock is the wall clock the turn context block reads; nil means
+	// time.Now. Tests that assert on a rendered timestamp set it.
+	clock func() time.Time
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -280,14 +287,23 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 	}
 
-	// Build the full message list starting with system prompt (refreshed each ReAct turn).
-	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	// Build the full message list starting with the system prompt. It is
+	// rendered once here and then frozen for the whole turn so the provider's
+	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	messages := a.buildMessages(sys.Content)
+	// The hand-off belongs to this turn and to its continuation after a
+	// permission prompt, and to nothing after that.
+	defer a.releasePlanContext()
 
-	// Coddy engine: buildSystemPrompt refreshed the context breakdown, so compact
-	// before the first LLM call when the estimate crossed the auto-compaction
-	// threshold, then rebuild the payload from the windowed history.
+	// Coddy engine: buildSystemPromptParts refreshed the context breakdown, so
+	// compact before the first LLM call when the estimate crossed the
+	// auto-compaction threshold, then rebuild the payload from the windowed
+	// history. A compaction is a legitimate reason to render the system message
+	// again: the prefix behind it has just been rewritten anyway.
 	if a.cfg.Compaction.EngineIsCoddy() && a.maybeAutoCompact(ctx) {
-		messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		messages = a.buildMessages(sys.Content)
 	}
 
 	// Restarting the app resets every guard in this file; it does not reset the
@@ -337,6 +353,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		GetPlan:        a.state.GetPlan,
 		SetPlan:        a.state.SetPlan,
 		SetSessionMode: a.setSessionModeAnnounced,
+		CompactSession: a.compactFromTool,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -374,7 +391,26 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	a.applySubagentEnv(toolEnv, mode)
 
-	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+	return a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+}
+
+// releasePlanContext hands back the design plan hand-off once the turn that ran
+// the plan is really over.
+//
+// A turn stopped on a permission prompt is not over: the user answers it later,
+// possibly in another process, and ResumeAfterPermission renders this turn's
+// system prompt again. So the gate left in the bundle is what decides - while
+// one is held, the hand-off stays where the continuation can find it.
+//
+// A process that dies mid-turn with no gate held leaves the record behind, and
+// the next turn of that session carries the plan text once more before
+// releasing it. That is the right way round: the plan was not finished, and
+// one extra turn of context costs less than dropping it.
+func (a *Agent) releasePlanContext() {
+	if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" && session.PendingPermissionHeld(sd) {
+		return
+	}
+	a.state.ClearPendingPlanContext()
 }
 
 // setSessionModeAnnounced switches the session profile and tells the client it
@@ -531,6 +567,7 @@ const (
 func (a *Agent) runReActLoop(
 	ctx context.Context,
 	mode string,
+	sys *systemPromptBuild,
 	messages []llm.Message,
 	toolDefs []llm.ToolDefinition,
 	transport llmTransport,
@@ -659,26 +696,47 @@ func (a *Agent) runReActLoop(
 		}
 		replaying = false
 
-		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
-		// state after foxxycode_todo_* tools in the same user turn.
-		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles)
+		// The system message stays exactly as the turn rendered it, so the
+		// provider's cached copy of everything behind it survives this step.
+		// What moved since - the wall clock, the todo checklist after a
+		// foxxycode_todo_* call, the rules a filesystem tool activated - travels in
+		// the turn context block appended after the history at the send
+		// boundary below (turn_context.go).
+		//
+		// The exception is a template under prompts.dir that prints those facts
+		// itself: its own conditionals have to keep matching the state, so it is
+		// re-rendered here as every template was before, and carries no block.
+		//
+		// The tools-free request of a forced answer does not touch the frozen
+		// message either: it gets a one-off system prompt at the send boundary.
+		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages[0].Content = sys.Content
 		}
+		turnCtx := a.buildTurnContext(sys)
 
 		// Auto-compaction: when the conversation approaches the context window, summarize older
 		// turns and rebuild the payload from the rewritten history. Non-fatal on error. The coddy
 		// engine re-checks between turns (the first check ran before the loop); the opencode engine
 		// checks every turn against the provider's real input-token count.
+		//
+		// The estimate is refreshed first: the system message no longer is, and the
+		// estimate is what the coddy trigger reads while tool results grow.
+		a.refreshContextBreakdown(sys, turnCtx)
+		compacted := false
 		if a.cfg.Compaction.EngineIsCoddy() {
-			if reactTurn > 0 && a.maybeAutoCompact(ctx) {
-				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
-			}
+			compacted = reactTurn > 0 && a.maybeAutoCompact(ctx)
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
-		} else if did {
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
+		} else {
+			compacted = did
+		}
+		if compacted {
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
 		}
 
 		// Call LLM and stream response.
@@ -718,6 +776,12 @@ func (a *Agent) runReActLoop(
 		// Whether any delta reached the client during this attempt. Atomic because a
 		// transport is free to deliver chunks from its own goroutine.
 		var sawDelta atomic.Bool
+		// Calls announced by name only (llm.StreamChunk.ToolCallNamed). An
+		// announcement does not count as output, so the provider may replay a
+		// stream that died under it, and the replay names the call under a new
+		// id. Whatever was announced and never arrived is retracted below.
+		var namedMu sync.Mutex
+		namedOnly := map[string]string{}
 		var firstTokenTimer *time.Timer
 		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
@@ -845,7 +909,17 @@ func (a *Agent) runReActLoop(
 
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
-		sendMessages := a.prunedForLLM(messages)
+		sendMessages := withTurnContext(a.prunedForLLM(messages), turnCtx)
+		if forceAnswer && len(sendMessages) > 0 && sendMessages[0].Role == llm.RoleSystem {
+			// One request with the tools withheld: its system prompt must not
+			// describe tools the model cannot call. Rendered for this request only
+			// and never written back, so the frozen message - and the provider's
+			// cache of the turn - is still there if the turn goes on. The turn is
+			// about to end, so a correct forced answer is worth one cache miss.
+			noTools := a.buildSystemPromptParts(mode, activeSkills, nil, userText, contextFiles)
+			sendMessages = append([]llm.Message(nil), sendMessages...)
+			sendMessages[0].Content = noTools.Content
+		}
 		a.emitDebug(turn, "llm_request", "", "", map[string]interface{}{
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(sendMessages),
@@ -885,23 +959,36 @@ func (a *Agent) runReActLoop(
 			} else if chunk.TextDelta != "" {
 				emitText(chunk.TextDelta, now, false)
 			}
-			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
+			// A call the model has only named yet announces the same pending row:
+			// the arguments can take seconds to stream, and without the row the
+			// transcript stands still with nothing but a Stop button. The row is
+			// keyed by the call id, so the complete call updates it in place.
+			announce := chunk.ToolCall
+			if announce == nil {
+				announce = chunk.ToolCallNamed
+			}
+			if announce != nil && announce.Name != "" {
+				if chunk.ToolCall == nil {
+					namedMu.Lock()
+					namedOnly[announce.ID] = announce.Name
+					namedMu.Unlock()
+				}
 				maybeMarkReasonEnd(now)
 				if st := sessionStatePtr(a.state); st != nil {
-					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(chunk.ToolCall.ID) != "" {
-						_ = session.WriteToolCallMeta(sd, chunk.ToolCall.ID, session.ToolCallMeta{
-							ToolCallID: strings.TrimSpace(chunk.ToolCall.ID),
-							Name:       chunk.ToolCall.Name,
-							Kind:       toolKind(chunk.ToolCall.Name),
+					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(announce.ID) != "" {
+						_ = session.WriteToolCallMeta(sd, announce.ID, session.ToolCallMeta{
+							ToolCallID: strings.TrimSpace(announce.ID),
+							Name:       announce.Name,
+							Kind:       toolKind(announce.Name),
 							Status:     "pending",
 						})
 					}
 				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
 					SessionUpdate: acp.UpdateTypeToolCall,
-					ToolCallID:    chunk.ToolCall.ID,
-					Title:         chunk.ToolCall.Name, // plain name, no "Calling: " prefix
-					Kind:          toolKind(chunk.ToolCall.Name),
+					ToolCallID:    announce.ID,
+					Title:         announce.Name, // plain name, no "Calling: " prefix
+					Kind:          toolKind(announce.Name),
 					Status:        "pending",
 				})
 				noteProgress(now)
@@ -910,6 +997,9 @@ func (a *Agent) runReActLoop(
 		stopFirstTokenTimer()
 		stopStallTimer()
 		streamCancel()
+		namedMu.Lock()
+		a.retractUnarrivedToolCalls(sessionID, namedOnly, response)
+		namedMu.Unlock()
 
 		// One auditable copy of the emitted contract every branch below depends on:
 		// a call that delivered nothing may be replayed, a call that delivered
@@ -934,7 +1024,7 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
 			}
 			loopNudges++
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
+			messages = a.buildMessages(sys.Content)
 			nudge := streamLoopNudge
 			if loopAbort == loopAbortReasoning {
 				nudge = reasoningLoopNudge
@@ -1007,7 +1097,7 @@ func (a *Agent) runReActLoop(
 					Phase:         acp.LLMRetryPhaseContinuing,
 					Attempt:       stallContinues,
 				})
-				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
+				messages = a.buildMessages(sys.Content)
 				// LLM-facing only; never persisted to the transcript.
 				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
 				replaying = true
@@ -1152,6 +1242,15 @@ func (a *Agent) runReActLoop(
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w%s", streamErr, stallGaveUpSuffix(&stalls))
 		}
+
+		// What the provider served from its prompt cache. A long conversation
+		// only stays affordable while this is most of the input, which is what
+		// the frozen system prompt and the trailing turn context block are for
+		// (turn_context.go); a provider that reports nothing leaves it at zero.
+		a.log.Debug("llm call usage",
+			"input_tokens", response.InputTokens,
+			"cached_input_tokens", response.CachedInputTokens,
+			"output_tokens", response.OutputTokens)
 
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
@@ -1420,6 +1519,17 @@ func (a *Agent) runReActLoop(
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
 		}
+		// The model folded its own history: the transcript the loop replays is
+		// shorter now, so the outgoing slice is rebuilt from it before the next
+		// call, the way an automatic compaction between steps rebuilds it. Done
+		// after the whole batch, so a tool result already appended is picked up
+		// from the transcript rather than dropped.
+		if toolEnv.ContextCompacted {
+			toolEnv.ContextCompacted = false
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
+			a.refreshContextBreakdown(sys, turnCtx)
+		}
 		if toolEnv.ConfigReloaded {
 			// config_commit or config_rollback replaced the live configuration.
 			// Refresh everything the next model call depends on, at the safe
@@ -1433,6 +1543,16 @@ func (a *Agent) runReActLoop(
 			toolEnv.Background = a.backgroundPool(sd)
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.ConfigReloaded = false
+			// The frozen system message described the configuration that was just
+			// replaced: its tool section, the skills catalogue, the response
+			// language. Upstream leaves it as the turn rendered it; here it is
+			// rendered again, because a model told about tools it no longer has
+			// (or not told about the ones it got) is worse than one cache miss on
+			// a step that happens once per configuration change.
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+				messages[0].Content = sys.Content
+			}
 		}
 		// A round in which the model asked only for quarantined calls and executed
 		// nothing means it has nothing left but the loop. Counted consecutively, the
@@ -1561,6 +1681,43 @@ func (a *Agent) recordSkippedToolCalls(messages *[]llm.Message, calls []llm.Tool
 		})
 	}
 	a.refreshConversationContextUsage(true)
+}
+
+// retractUnarrivedToolCalls closes the pending rows of calls that were announced
+// by name while their arguments streamed and then never arrived: the stream was
+// cut, or the provider replayed it and the model named the call under another
+// id. Nothing was executed or persisted for them, so the row is all there is to
+// take back.
+func (a *Agent) retractUnarrivedToolCalls(sessionID string, named map[string]string, response *llm.Response) {
+	if len(named) == 0 {
+		return
+	}
+	arrived := map[string]bool{}
+	if response != nil {
+		for _, tc := range response.ToolCalls {
+			arrived[tc.ID] = true
+		}
+	}
+	for id, name := range named {
+		if arrived[id] {
+			continue
+		}
+		if st := sessionStatePtr(a.state); st != nil {
+			if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(id) != "" {
+				_ = session.WriteToolCallMeta(sd, id, session.ToolCallMeta{
+					ToolCallID: strings.TrimSpace(id),
+					Name:       name,
+					Kind:       toolKind(name),
+					Status:     "cancelled",
+				})
+			}
+		}
+		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+			SessionUpdate: acp.UpdateTypeToolCallUpdate,
+			ToolCallID:    id,
+			Status:        "cancelled",
+		})
+	}
 }
 
 // loopAbortChannelName labels the streamed channel that looped, for logs.

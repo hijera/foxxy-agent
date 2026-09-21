@@ -79,7 +79,7 @@
           },
           "max_context_tokens": {
             "type": "integer",
-            "description": "Optional UI hint for the composer context bar; 0 derives it from provider metadata when available.",
+            "description": "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000.",
             "default": 0
           },
           "multimodal": {
@@ -821,6 +821,13 @@
           "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
           "default": ""
         },
+        "fallback_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not silence the copilot."
+        },
         "dir": {
           "type": "string",
           "description": "Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~.",
@@ -856,7 +863,7 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it (supports /compact); \"opencode\" flags older turns and filters them from the payload.",
+          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
           "enum": ["coddy", "opencode"],
           "default": "coddy"
         },
@@ -875,9 +882,16 @@
           "description": "Exact models[].model id used for the summarization pass; empty falls back to agent.model.",
           "default": ""
         },
+        "fallback_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain."
+        },
         "threshold_percent": {
           "type": "integer",
-          "description": "Trigger when context usage exceeds this percent of the model context window. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99.",
+          "description": "Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99.",
           "default": 80,
           "minimum": 1,
           "maximum": 100
@@ -919,6 +933,13 @@
               "description": "Results at or below this size are never evicted.",
               "default": 2000,
               "minimum": 0
+            },
+            "start_percent": {
+              "type": "integer",
+              "description": "Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does.",
+              "default": 50,
+              "minimum": 0,
+              "maximum": 100
             }
           }
         }

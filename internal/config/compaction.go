@@ -38,6 +38,14 @@ const (
 	ResultEvictionDefaultKeepRecent = 2
 	// ResultEvictionDefaultMinResultBytes leaves small results untouched.
 	ResultEvictionDefaultMinResultBytes = 2000
+	// ResultEvictionDefaultStartPercent is the share of the model's context
+	// window the conversation must reach before eviction starts rewriting it.
+	// Below it the history is sent untouched, because every placeholder that
+	// appears mid-history is a byte the provider's prompt cache keyed the rest
+	// of the conversation on: a sliding window would reprocess the whole
+	// transcript on almost every step to save a few thousand tokens nobody was
+	// short of yet.
+	ResultEvictionDefaultStartPercent = 50
 )
 
 // CompactionConfig controls automatic context compaction (summarization of older turns when the
@@ -58,6 +66,13 @@ type CompactionConfig struct {
 	// Model selects a cfg.models entry for the summarization pass. Empty uses agent.model.
 	Model string `yaml:"model"`
 
+	// FallbackModels are the models[].model ids tried, in order, when the
+	// summarizer above them fails. A compaction is what a session out of room
+	// has left, so one unreachable or overloaded model must not be the end of
+	// it; the session's own model is always the last resort, whether or not it
+	// is listed here (upstream issue #247). Both engines walk the same chain.
+	FallbackModels []string `yaml:"fallback_models"`
+
 	// ThresholdPercent triggers compaction when context usage exceeds this percentage of the
 	// model's context window. The default depends on Engine (coddy 80, opencode 85); read the
 	// effective value with EffectiveThresholdPercent.
@@ -65,7 +80,9 @@ type CompactionConfig struct {
 
 	// KeepRecentTurns is the number of most recent user turns preserved verbatim. A nil pointer
 	// means the default (2); an explicit 0 is honored by the coddy engine (opencode clamps to at
-	// least 1). Read the effective value with EffectiveKeepRecentTurns.
+	// least 1). Read the effective value with EffectiveKeepRecentTurns. When the window holds no
+	// more user turns than this, a compaction keeps fewer: the automatic trigger down to the
+	// prompt being answered, the manual command down to none.
 	KeepRecentTurns *int `yaml:"keep_recent_turns"`
 
 	// MaxTokens caps the summary completion size for the opencode engine. The coddy engine issues
@@ -83,6 +100,11 @@ type ResultEviction struct {
 	Enabled        *bool `yaml:"enable"`
 	KeepRecent     *int  `yaml:"keep_recent"`
 	MinResultBytes *int  `yaml:"min_result_bytes"`
+	// StartPercent is the share of the effective context window the estimated
+	// context must reach before eviction starts (default 50, valid 0..100). 0
+	// evicts from the first result, which is what the projection did before
+	// prompt caching was accounted for.
+	StartPercent *int `yaml:"start_percent"`
 }
 
 func (r *ResultEviction) IsEnabled() bool {
@@ -103,12 +125,23 @@ func (r *ResultEviction) EffectiveMinResultBytes() int {
 	return *r.MinResultBytes
 }
 
+// EffectiveStartPercent returns start_percent with the default applied.
+func (r *ResultEviction) EffectiveStartPercent() int {
+	if r.StartPercent == nil {
+		return ResultEvictionDefaultStartPercent
+	}
+	return *r.StartPercent
+}
+
 func (r *ResultEviction) Validate() error {
 	if r.KeepRecent != nil && *r.KeepRecent < 0 {
 		return fmt.Errorf("compaction.result_eviction.keep_recent: must be >= 0")
 	}
 	if r.MinResultBytes != nil && *r.MinResultBytes < 0 {
 		return fmt.Errorf("compaction.result_eviction.min_result_bytes: must be >= 0")
+	}
+	if r.StartPercent != nil && (*r.StartPercent < 0 || *r.StartPercent > 100) {
+		return fmt.Errorf("compaction.result_eviction.start_percent: must be between 0 and 100")
 	}
 	return nil
 }

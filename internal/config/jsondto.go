@@ -282,6 +282,9 @@ type MemoryJSON struct {
 	PersistMaxTurns  int    `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens int    `json:"copilot_max_tokens,omitempty"`
 	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
+	// FallbackModels rides the DTO so a settings save keeps it: upstream left it
+	// out of its DTO, which drops the key from config.yaml on the first save.
+	FallbackModels []string `json:"fallback_models,omitempty"`
 }
 
 // CompactionJSON mirrors CompactionConfig. Enabled is a pointer so an unset value round-trips as
@@ -294,6 +297,8 @@ type CompactionJSON struct {
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
 	MaxTokens        int    `json:"max_tokens,omitempty"`
+	// FallbackModels: see MemoryJSON.FallbackModels.
+	FallbackModels []string `json:"fallback_models,omitempty"`
 	// omitempty does not apply to structs; unset eviction serializes as {}.
 	ResultEviction ResultEvictionJSON `json:"result_eviction"`
 }
@@ -302,6 +307,7 @@ type ResultEvictionJSON struct {
 	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
+	StartPercent   *int  `json:"start_percent,omitempty"`
 }
 
 // AutocompleteJSON mirrors AutocompleteConfig. Enabled and MultiLine are pointers so an unset
@@ -566,14 +572,17 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
+		FallbackModels: append([]string(nil), c.Memory.FallbackModels...),
 	}
 	out.Compaction = CompactionJSON{
 		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
 		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
-		MaxTokens: c.Compaction.MaxTokens,
+		MaxTokens:      c.Compaction.MaxTokens,
+		FallbackModels: append([]string(nil), c.Compaction.FallbackModels...),
 		ResultEviction: ResultEvictionJSON{
 			Enabled: c.Compaction.ResultEviction.Enabled, KeepRecent: c.Compaction.ResultEviction.KeepRecent,
 			MinResultBytes: c.Compaction.ResultEviction.MinResultBytes,
+			StartPercent:   c.Compaction.ResultEviction.StartPercent,
 		},
 	}
 	out.Title = TitleJSON{
@@ -838,14 +847,17 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
+		FallbackModels: append([]string(nil), j.Memory.FallbackModels...),
 	}
 	cfg.Compaction = CompactionConfig{
 		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
 		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
-		MaxTokens: j.Compaction.MaxTokens,
+		MaxTokens:      j.Compaction.MaxTokens,
+		FallbackModels: append([]string(nil), j.Compaction.FallbackModels...),
 		ResultEviction: ResultEviction{
 			Enabled: j.Compaction.ResultEviction.Enabled, KeepRecent: j.Compaction.ResultEviction.KeepRecent,
 			MinResultBytes: j.Compaction.ResultEviction.MinResultBytes,
+			StartPercent:   j.Compaction.ResultEviction.StartPercent,
 		},
 	}
 	cfg.Title = TitleConfig{

@@ -110,6 +110,12 @@ type Response struct {
 	// InputTokens and OutputTokens are for usage tracking.
 	InputTokens  int
 	OutputTokens int
+	// CachedInputTokens is the part of InputTokens the provider served from its
+	// prompt cache instead of processing again (OpenAI
+	// usage.prompt_tokens_details.cached_tokens, Anthropic
+	// cache_read_input_tokens). Zero when the provider reports nothing, which
+	// is not the same as a miss - most OpenAI-compatible servers omit it.
+	CachedInputTokens int
 }
 
 // StreamChunk is a single chunk streamed from the LLM.
@@ -117,9 +123,15 @@ type StreamChunk struct {
 	TextDelta      string
 	ReasoningDelta string
 	ToolCall       *ToolCall
-	StopReason     string
-	InputTokens    int
-	OutputTokens   int
+	// ToolCallNamed carries a call the model has only begun to write: the name
+	// is known, the arguments are still streaming. It exists so a surface can
+	// say what is happening while that takes seconds, and it is never the call
+	// itself - anything that executes a call, forwards it to a client or
+	// persists it waits for ToolCall.
+	ToolCallNamed *ToolCall
+	StopReason    string
+	InputTokens   int
+	OutputTokens  int
 	// Progress marks a frame that advanced generation without delivering anything
 	// to the caller: a tool call's argument fragment, a thinking-block signature,
 	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the

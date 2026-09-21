@@ -54,6 +54,10 @@ var planToolNames = []string{
 	// A planner fans out investigation the same way Claude Code's Explore
 	// subagent does; the child of a plan-mode parent is forced into plan mode.
 	"spawn_agent",
+	// Folding the session's own replay window writes nothing outside it, and a
+	// long investigation is exactly the session that fills a context window.
+	// Registered only while compaction is enabled.
+	"compact_context",
 	// Read-only Subversion inspection, mirroring the read-only git commands the
 	// planner can already run through run_command. Registered only when
 	// vcs.svn is enabled and a client is installed; an unregistered name simply

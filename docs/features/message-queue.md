@@ -43,6 +43,8 @@ The composer stays live while the agent works. With text in the field, the round
 
 Queued messages stack above the composer in the order the agent will read them, each with a cross that takes it back. A message the agent has just read leaves the stack and appears in the conversation in the same breath.
 
+The browser checks the selected session's activity and queue when opening it and reconnecting, but skips both reads while its own prompt request awaits admission. Stop and queueing remain available for a running turn even when that tab has lost its stream reader or the session is outside the current History page. Stop waits for the cancellation request to succeed before aborting the local reader; a failed request shows an error and leaves the controls available for another attempt. The server may still need time to release the turn after acknowledging Stop; an old turn-end event overlapping the next pending or admitted prompt requires a fresh activity read before the browser declares idle.
+
 ![The primary control with a draft written during a turn](../assets/message-queue/message-queue-draft-armed-dark-1280.png)
 
 *With a draft in the field mid-turn the primary control queues it; emptying the field brings Stop back*
@@ -58,7 +60,7 @@ That works whether or not a client is reading the stream of the turn that is run
 
 The answer to whichever request made the change carries the same list and version, so it is a third delivery of the same fact rather than a separate truth.
 
-Those are separate connections, so deliveries can arrive in either order. Each carries a **version** that counts the changes of that session's queue; a client renders the highest version it has seen and drops anything older. Without it a stale frame could put a cancelled message back on screen. The list and the version are read under one lock, so a version never names content other than its own, and the counter is process-wide rather than per session — a session whose live state is rebuilt must not start publishing numbers a client has already applied and would now ignore. A client forgets a session's high-water mark when a turn starts on it, so a restarted server counting from the beginning is not mistaken for stale frames. A tab that re-attaches to a turn already running - after a reload, or an IDE panel shown again - reads the queue over REST as well, because no stream it attaches to brings the list back.
+Those are separate connections, so deliveries can arrive in either order. Each carries a **version** that counts the changes of that session's queue; ordinary deliveries keep the highest version seen and drop anything older. The server reads the list and version under one lock for both events and HTTP responses. The counter is process-wide rather than per session, so rebuilding live state does not reuse an earlier version within that process. For browser recovery after a server restart, a fresh queue GET may establish a lower version, including `0`, only if no queue delivery crosses the read. That recovery advances a local epoch, so the browser ignores mutation responses and own/relay stream queue frames captured in earlier epochs. A replayed turn-start event does not by itself clear the client's version or waiting messages. A tab that re-attaches to a turn already running - after a reload, or an IDE panel shown again - reads the queue over REST as well, because no stream it attaches to brings the list back.
 
 The queue lives in the process that runs the turn. Two IDE windows over one FoxxyCode home are two processes: when the turn runs in the other one, this server cannot reach its queue and answers a queued message with **409** `session_busy`, and the browser puts the text back in the composer with a notice saying where the turn is running.
 
@@ -78,6 +80,10 @@ queued for the next step (2) · /queue to manage
 
 `/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties the queue. Pressing **escape** cancels the turn, and with it everything that was waiting. The same works against a remote server (`--remote`): the console talks to the queue routes below, and subscribes to the server's event stream, so a follow-up someone queued in a browser shows up above the console's input too.
 
+In a remote console, a turn started by another client also accepts queued input and Escape cancellation. The console tracks that server activity separately from its own prompt request. After a server restart, the latest fresh queue snapshot can recover a lower version (including zero) only if no queue update crosses the read; delayed pre-recovery replies and notifications cannot restore old rows. Recovery does not require an idle turn. A failed read or crossed snapshot is re-read (up to three attempts, with a short delay); a newer refresh or client shutdown stops the old recovery. Queue reads have a separate timeout budget from activity reads. This control support does not attach the console to the other client's live transcript or share its permission and question dialogs.
+
+The fork's turn lock fails fast instead of queueing, so a prompt the console posts while a turn it has not heard of yet owns the session is answered **409** `session_busy`. The console takes that prompt back off the screen and queues it for the running turn; if the queue refuses it too (the turn runs in another FoxxyCode process over the same home), the text returns to the input.
+
 ## Over HTTP
 
 | Route | What it does |
@@ -96,3 +102,5 @@ Every change is published as `event: message_queue` with the full list and its v
 - **Not a scheduler.** Nothing is held for a session that is idle, and nothing survives a restart.
 - **Not attachments.** A queued follow-up is text. Files attached in the browser stay in the composer for the next prompt, and an `@file` mention reaches the model as the mention itself rather than as an attached file: the agent reads the file with its own tools.
 - **Not a second turn.** Queued messages are read inside the turn that was running, so they share its context, its tool results and its budget — including `agent.max_turns`, which still bounds the whole thing.
+- **Not inter-process queue storage.** Shared controls require clients of the same `foxxycode serve` process. Independent local console or ACP processes sharing a sessions directory do not share their in-memory queues. Cross-process cancellation still uses the bundle's cancel marker.
+- **Not shared questions or permissions.** This hotfix leaves gate ownership unchanged. The session bus and shared answers remain separate work.

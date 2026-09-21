@@ -20,12 +20,9 @@ import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { subscribeServerEvents } from "./chat/serverEvents";
+import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
-import {
-  acceptQueueVersion,
-  resetQueueVersion,
-  type QueueVersions,
-} from "./chat/messageQueueState";
+import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -366,6 +363,14 @@ type ModelInfo = {
 };
 
 const PROFILE_MODES = ["agent", "plan", "docs", "ask", "debug"] as const;
+
+// SessionContextWindow is the window GET .../stats reports for a session,
+// named with the model it belongs to.
+type SessionContextWindow = {
+  model: string;
+  tokens: number;
+  source?: string;
+};
 
 type SessionStats = {
   tokenUsageTotal?: {
@@ -804,6 +809,30 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
+  // A provider listing can arrive after /v1/models returned its fallback.
+  // Keep the live window per session, scoped to its model and config version;
+  // stats refreshes must not replace it with the earlier model-list value.
+  const [sessionContextWindows, setSessionContextWindows] = useState<
+    Record<string, { model: string; epoch: number; size: number }>
+  >({});
+  // The live config version, readable from handlers declared above the state
+  // that holds it.
+  const configEpochRef = useRef(0);
+  // The window GET .../stats reports, which names its own model instead of
+  // borrowing the composer's. It is the authority when the two disagree: a
+  // live frame is labelled with what the tab was showing when it arrived.
+  const recordSessionContextWindow = useStableHandler(
+    (sid: string, w: SessionContextWindow | null | undefined) => {
+      const key = sid.trim();
+      if (!key || !w || !(w.tokens > 0) || !w.model) {
+        return;
+      }
+      setSessionContextWindows((prev) => ({
+        ...prev,
+        [key]: { model: w.model, epoch: configEpochRef.current, size: w.tokens },
+      }));
+    },
+  );
 
   const applySessionStatsPayload = useCallback(
     (
@@ -842,20 +871,27 @@ export function App() {
       if (!key) {
         return;
       }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
+      const statsRes = await fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(key)}/stats`, {
+        headers: { [HDR]: key },
+      });
       if (!statsRes.ok) {
         return;
       }
+      // The session's own window, named with the model it belongs to. Recorded
+      // whether or not this session is the one on screen: a window learnt while
+      // the tab was showing another chat is exactly what would otherwise be
+      // missed, leaving the ring on the model-list fallback until the next turn.
+      recordSessionContextWindow(key, statsRes.data?.contextWindow);
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
         key,
       );
     },
-    [applySessionStatsPayload],
+    [applySessionStatsPayload, recordSessionContextWindow],
   );
 
   const debouncedRefreshSessionStats = useMemo(
@@ -888,6 +924,11 @@ export function App() {
   );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const pendingPostBySidRef = useRef(new Map<string, AbortController>());
+  const streamGenerationBySidRef = useRef(new Map<string, number>());
+  const relayAttachPendingRef = useRef(new Set<string>());
+  const stopPendingBySidRef = useRef(new Map<string, { superseded: boolean }>());
+  const stoppedTurnBySidRef = useRef(new Map<string, number>());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
   const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
@@ -895,6 +936,16 @@ export function App() {
   const activeComposerSidRef = useRef<Set<string>>(new Set());
   /** Session ids the user explicitly stopped, so a dropped stream is not auto-rejoined. */
   const userStoppedSidRef = useRef<Set<string>>(new Set());
+  // The re-attach paths below run on timers and awaited probes that outlive the
+  // component. After unmount they must not open a relay: nothing would read it,
+  // and the turn it watches would look attended to the server.
+  const appMountedRef = useRef(true);
+  useEffect(() => {
+    appMountedRef.current = true;
+    return () => {
+      appMountedRef.current = false;
+    };
+  }, []);
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
   // Consecutive failed /activity probes per session. Reconnects and the disk
@@ -927,12 +978,14 @@ export function App() {
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
+    ready: () => void;
   }>({
     turnStarted: () => {},
     turnEnded: () => {},
     providerUsage: () => {},
     configReloaded: () => {},
     messageQueue: () => {},
+    ready: () => {},
   });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
@@ -1028,12 +1081,6 @@ export function App() {
     }
   }
 
-  const generating = useMemo(() => {
-    const sid = sessionId.trim();
-    if (!sid) return false;
-    return activeComposerSidRef.current.has(sid);
-  }, [sessionId, composerActivityEpoch]);
-
   /**
    * The message queue per session: follow-ups the operator wrote while a turn
    * was running, waiting for it to read them at its next step.
@@ -1054,29 +1101,58 @@ export function App() {
    * frames can arrive in either order. The version decides; without it a stale
    * frame would put a cancelled message back on screen.
    */
-  const queueVersionBySidRef = useRef<QueueVersions>(new Map());
-  const forgetQueueVersion = useCallback((sid: string) => {
-    resetQueueVersion(queueVersionBySidRef.current, sid);
-  }, []);
+  const queueOrderRef = useRef(new QueueDeliveryOrder());
   const applyQueue = useCallback(
-    (sid: string, rows: QueuedMessage[], version: number) => {
+    (sid: string, rows: QueuedMessage[], version: number, epoch?: number) => {
       const key = sid.trim();
-      if (!acceptQueueVersion(queueVersionBySidRef.current, key, version)) {
+      if (!queueOrderRef.current.accept(key, version, epoch)) {
         return;
       }
       setQueueBySid((prev) => ({ ...prev, [key]: rows }));
     },
     [],
   );
-  const queuedMessages = useMemo(
-    () => queueBySid[sessionId.trim()] ?? [],
-    [queueBySid, sessionId],
-  );
+  const turnActivity = useSessionTurnActivity({
+    sessionId,
+    connected: serverEventsConnected,
+    postPending: (sid) => pendingPostBySidRef.current.has(sid),
+    onQueueRead: (sid) => {
+      const fence = queueOrderRef.current.capture(sid);
+      return (queue) => {
+        if (queueOrderRef.current.acceptSnapshot(sid, queue.version, fence)) {
+          setQueueBySid((prev) => ({ ...prev, [sid]: queue.messages }));
+        }
+      };
+    },
+    onReconcile: (sid, active, wasActive) => {
+      noteViewedTurnActive(sid, active);
+      if (active) void attachViewedComposer(sid);
+      else if (wasActive) reconcileEndedTurn(sid);
+    },
+  });
+  const generating = sessionId.trim() !== "" &&
+    (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()));
+  const queuedMessages = generating ? queueBySid[sessionId.trim()] ?? [] : [];
+
+  function reconcileEndedTurn(sid: string) {
+    removeActiveComposer(sid);
+    if (sid !== viewedSessionIdRef.current.trim() && !streamShadowBySidRef.current.has(sid)) return;
+    noteUsageTurnEnded(sid);
+    void loadMessages(sid, {
+      preserveOnError: true,
+      skipSetItems: viewedSessionIdRef.current.trim() !== sid,
+    });
+    void refreshSessionStats(sid);
+  }
+
   /** Reads the queue as it stands, for a tab that attaches to a turn already running. */
   const refreshQueue = useCallback(
     async (sid: string) => {
       const key = sid.trim();
       if (!key) return;
+      // A snapshot read over REST can cross a newer frame on a stream; the fence
+      // taken before the request is what lets the delivery order refuse it.
+      const fence = queueOrderRef.current.capture(key);
       try {
         const res = await fetch(
           `/foxxycode/sessions/${encodeURIComponent(key)}/queue`,
@@ -1087,26 +1163,42 @@ export function App() {
           messages?: QueuedMessage[];
           version?: number;
         } | null;
-        if (Array.isArray(data?.messages)) {
-          applyQueue(key, data.messages, data.version ?? 0);
+        const messages = data?.messages;
+        if (
+          Array.isArray(messages) &&
+          queueOrderRef.current.acceptSnapshot(key, data?.version ?? 0, fence)
+        ) {
+          setQueueBySid((prev) => ({ ...prev, [key]: messages }));
         }
       } catch {
         // The next message_queue frame brings the list.
       }
     },
-    [applyQueue],
+    [],
   );
 
-  // The queue lives exactly as long as the turn it belongs to, so an idle
-  // session shows nothing waiting.
-  useEffect(() => {
-    if (generating) return;
-    const sid = sessionId.trim();
-    if (!sid) return;
-    setQueueBySid((prev) =>
-      (prev[sid]?.length ?? 0) > 0 ? { ...prev, [sid]: [] } : prev,
-    );
-  }, [generating, sessionId]);
+  async function attachViewedComposer(sid: string) {
+    const canAttach = () => viewedSessionIdRef.current.trim() === sid &&
+      turnActivity.get(sid) === true && !postAbortBySidRef.current.has(sid) &&
+      !relayAbortBySidRef.current.has(sid) &&
+      stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
+    if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
+    relayAttachPendingRef.current.add(sid);
+    try {
+      const generation = turnActivity.generation(sid);
+      const loaded = await loadMessages(sid, {
+        preserveOnError: true,
+        freshLoad: !streamShadowBySidRef.current.has(sid),
+      });
+      if (loaded && canAttach() && turnActivity.generation(sid) === generation) {
+        void rejoinComposerLiveStream(sid, loaded);
+      }
+    } catch {
+      // An attach read failed; the activity reconciler retries without declaring idle.
+    } finally {
+      relayAttachPendingRef.current.delete(sid);
+    }
+  }
 
   // Poll while the session is working, not merely while this client streams it: a turn
   // recovered from disk, or an autonomous turn woken by a background task, burns context
@@ -1208,6 +1300,9 @@ export function App() {
    * picker without a page reload.
    */
   const [configEpoch, setConfigEpoch] = useState(0);
+  useEffect(() => {
+    configEpochRef.current = configEpoch;
+  }, [configEpoch]);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -1281,6 +1376,14 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
+    setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+    setSessionContextWindows((prev) => ({
+      ...prev,
+      [sid]: { model: llmModel, epoch: configEpoch, size: u.size },
+    }));
+    debouncedRefreshSessionStats(sid);
+  });
   // Provider account usage for the composer's usage section and banner: read
   // over REST at session open, model change and after each viewed turn, pushed
   // by the events stream in between (chat/useProviderUsage.ts).
@@ -2765,6 +2868,11 @@ export function App() {
       setItems([]);
       return null;
     }
+    // Two guards, two questions. The stream generation (upstream) asks whether a
+    // new POST or relay took the session over while this read was in flight; the
+    // transcript epoch below (fork) asks whether the snapshot may be painted.
+    const streamGeneration = streamGenerationBySidRef.current.get(sid);
+    const sameStream = () => streamGenerationBySidRef.current.get(sid) === streamGeneration;
     const requestEpoch =
       opts?.expectedEpoch !== undefined
         ? opts.expectedEpoch
@@ -2805,6 +2913,7 @@ export function App() {
     // on while the request was in flight, and a stale response must neither
     // clear the new session's rows nor merge them into this session's shadow.
     const viewingNow = viewedSessionIdRef.current.trim();
+    if (!sameStream()) return null;
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
         if (viewingNow === sid && canApplySnapshot()) {
@@ -3138,6 +3247,7 @@ export function App() {
         next[idx] = merged;
       }
     }
+    if (!sameStream()) return null;
     const prevShadow = streamShadowBySidRef.current.get(sid);
     // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a branch).
     const localForMerge = opts?.freshLoad
@@ -3146,7 +3256,7 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingNow === sid
+        : viewedSessionIdRef.current.trim() === sid
           ? itemsRef.current
           : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
@@ -3225,9 +3335,14 @@ export function App() {
       // ignore — branch nav is optional
     }
 
+    if (!sameStream()) return null;
     if (!canApplySnapshot()) {
       return withBranches;
     }
+    // Frames may have arrived while the optional branches request was in flight.
+    withBranches = mergeTranscriptPreferLocalSuffix(
+      withBranches, streamShadowBySidRef.current.get(sid),
+    );
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
@@ -3575,10 +3690,12 @@ export function App() {
       // and one more round trip, and blocking on it is what leaves the panel on a
       // spinner after a reload. Start it here, read it only where it is needed.
       const listPromise = loadSessionsList(true);
-      const statsPromise = fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
-        { headers },
-      );
+      const statsPromise = fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`, {
+        headers,
+      });
 
       const shadowSnap = streamShadowBySidRef.current.get(sessionId);
       let loaded: TranscriptItem[] | null = null;
@@ -3632,6 +3749,9 @@ export function App() {
       const statsRes = await statsPromise;
       if (lifecycle.signal.aborted) {
         return;
+      }
+      if (statsRes.ok) {
+        recordSessionContextWindow(sessionId, statsRes.data?.contextWindow);
       }
       if (statsRes.ok && statsRes.data?.stats) {
         applySessionStatsPayload(
@@ -3748,7 +3868,7 @@ export function App() {
     opts?: { reconcileIfDone?: boolean },
   ): Promise<void> {
     const key = rawSid.trim();
-    if (!key) return;
+    if (!key || !appMountedRef.current) return;
     if (userStoppedSidRef.current.has(key)) {
       userStoppedSidRef.current.delete(key);
       markConnected(key);
@@ -3988,24 +4108,26 @@ export function App() {
   serverEventHandlersRef.current = {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
-      // The queue of the previous turn is gone, and a server that restarted
-      // numbers its changes from the beginning: start this session's
-      // high-water mark again rather than dropping the new turn's frames.
-      forgetQueueVersion(sid);
       const key = sid.trim();
-      if (!key || key !== viewedSessionIdRef.current.trim()) return;
-      if (activeComposerSidRef.current.has(key)) return;
-      // Reuse the fork's re-attach path rather than opening a relay here: it keeps the
-      // user-stopped guard, the activity probe and the reconnect bookkeeping in one place.
-      reconnectLiveStreamRef.current(key);
+      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      // A new admission: a Stop of the previous turn no longer fences this one,
+      // neither by generation (upstream) nor by the fork's user-stopped flag.
+      stoppedTurnBySidRef.current.delete(key);
+      userStoppedSidRef.current.delete(key);
+      const pendingStop = stopPendingBySidRef.current.get(key);
+      if (pendingStop) pendingStop.superseded = true;
+      turnActivity.observe(key, true);
+      noteViewedTurnActive(key, true);
+      void attachViewedComposer(key);
     },
     turnEnded: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
-      if (!key || key !== viewedSessionIdRef.current.trim()) return;
-      if (activeComposerSidRef.current.has(key)) return;
-      void loadMessages(key, { preserveOnError: true });
-      void refreshSessionStats(key);
+      if (!key) return;
+      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      // The event has no turn identity: an owned or observed successor may
+      // already be active. Keep polling until REST confirms admission is idle.
+      void turnActivity.refresh(key);
     },
     providerUsage: providerUsageState.applyPushed,
     configReloaded: () => setConfigEpoch((e) => e + 1),
@@ -4013,6 +4135,13 @@ export function App() {
     // browser or from a console attached over --remote.
     messageQueue: (sid: string, queue: QueuedMessageEvent) =>
       applyQueue(sid, queue.messages, queue.version),
+    ready: () => {
+      // Recovery can miss the idle edge. Retire pending acknowledgements too,
+      // so an old Stop cannot re-establish the fence after this reconnect.
+      stoppedTurnBySidRef.current.clear();
+      for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
+      turnActivity.ready();
+    },
   };
 
   useEffect(() => {
@@ -4026,6 +4155,7 @@ export function App() {
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
       onConnectedChange: setServerEventsConnected,
+      onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,
     });
     return () => ctl.abort();
@@ -4102,12 +4232,18 @@ export function App() {
     baseline: TranscriptItem[],
   ): Promise<void> {
     const key = sid.trim();
-    if (!key) return;
+    if (!key || !appMountedRef.current) return;
+    // One reader per session: a POST or a relay that already owns the stream is
+    // not replaced. Every caller checks first; this is the backstop for the race
+    // between the activity reconciler and the fork's own re-attach paths.
+    if (postAbortBySidRef.current.has(key) || relayAbortBySidRef.current.has(key)) return;
 
     bumpTranscriptEpoch(key);
-    relayAbortBySidRef.current.get(key)?.abort();
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
+    streamGenerationBySidRef.current.set(key, (streamGenerationBySidRef.current.get(key) ?? 0) + 1);
+    const ownsRelay = () => relayAbortBySidRef.current.get(key) === fetchCtl;
+    const queueEpoch = queueOrderRef.current.capture(key).epoch;
 
     addActiveComposer(key);
     // addActiveComposer clears the reconnecting flag, and until the relay actually says
@@ -4138,6 +4274,8 @@ export function App() {
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
+      // A relay that lost the session to a newer reader must not write into it.
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       applyStreamItemsForSession(key, (prev) =>
         fn(trimOnFirstReplayByte(prev)),
@@ -4155,7 +4293,7 @@ export function App() {
     // Usage events carry no transcript rows, so they clear the flag on their own:
     // a turn whose first sign of life is a token count is attached all the same.
     const branchTokenUsage = (u: TokenUsage | null) => {
-      if (u === null) return;
+      if (u === null || !ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
@@ -4163,17 +4301,18 @@ export function App() {
       }
     };
     const branchContextUsage = (u: ContextUsageUpdate) => {
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
-        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-        debouncedRefreshSessionStats(key);
+        applyContextUsage(key, u);
       }
     };
 
     // The queue changes this tab missed while it was away arrive on no stream it
     // will read now: frames on the turn's own stream are replayed only while the
     // relay still holds them, and GET /foxxycode/events carries changes, not state.
-    forgetQueueVersion(key);
+    // A server that restarted numbers its changes from the beginning; the delivery
+    // order notices the lower version on this snapshot and starts a new epoch.
     void refreshQueue(key);
 
     let reconcileOnExit = true;
@@ -4189,6 +4328,7 @@ export function App() {
         `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
         { headers, signal: fetchCtl.signal },
       );
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       if (!res.ok || !res.body) {
         // No relay to attach to (auth, restart, session gone). Keep the transcript
         // and let the poller reveal the turn's progress if it is still running.
@@ -4232,8 +4372,13 @@ export function App() {
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
         onModeChanged: (m: string) => onServerModeChanged(key, m),
-        onMessageQueue: (q) => applyQueue(key, q.messages, q.version),
+        onMessageQueue: (q) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyQueue(key, q.messages, q.version, queueEpoch);
+          }
+        },
       });
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
 
       const syncAssistantFromServer = async () => {
         try {
@@ -4241,7 +4386,7 @@ export function App() {
             `/foxxycode/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
-          if (!res2.ok || !res2.data?.messages) return false;
+          if (!ownsRelay() || fetchCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -4344,11 +4489,16 @@ export function App() {
       });
 
       void loadSessionsList(true);
-      let ok = await syncAssistantFromServer();
+      let ok = transcriptHasFilledAssistant(
+        streamShadowBySidRef.current.get(key) ?? [], finalAssistantId,
+      );
+      if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
         await new Promise((r) => setTimeout(r, 500));
+        if (!ownsRelay() || fetchCtl.signal.aborted) return;
         ok = await syncAssistantFromServer();
       }
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       const viewing = viewedSessionIdRef.current.trim();
       const reconcileEpoch = bumpTranscriptEpoch(key);
       await loadMessages(key, {
@@ -4360,11 +4510,11 @@ export function App() {
     } catch {
       // AbortError when relay superseded or fetch aborted
     } finally {
-      if (relayAbortBySidRef.current.get(key) === fetchCtl) {
-        relayAbortBySidRef.current.delete(key);
-      }
+      if (!ownsRelay()) return;
+      relayAbortBySidRef.current.delete(key);
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      void turnActivity.refresh(key, false);
       // A relay this client cut short (its own POST or a newer relay took
       // over) did not end the turn; only a stream that ran to its end
       // spent quota.
@@ -4415,6 +4565,7 @@ export function App() {
       : null;
 
     let sidEffective = "";
+    const ownsPost = () => postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
     try {
       let sid = sessionId;
@@ -4441,25 +4592,33 @@ export function App() {
       // a concurrent GET /messages cannot erase the optimistic user row.
       addActiveComposer(postSessionKey);
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
+      pendingPostBySidRef.current.set(postSessionKey, abortCtl);
+      streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+      stoppedTurnBySidRef.current.delete(postSessionKey);
+      turnActivity.observe(postSessionKey, true);
+      addActiveComposer(postSessionKey);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
       relayAbortBySidRef.current.delete(postSessionKey);
 
       let streamKey = postSessionKey;
+      let queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
       const applyStreamItems = (
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
-      ) => applyStreamItemsForSession(streamKey, fn);
+      ) => {
+        if (ownsPost() && !abortCtl.signal.aborted) applyStreamItemsForSession(streamKey, fn);
+      };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
-        if (u === null) return;
+        if (u === null || !ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
           debouncedRefreshSessionStats(streamKey);
         }
       };
       const branchContextUsage = (u: ContextUsageUpdate) => {
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
-          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-          debouncedRefreshSessionStats(streamKey);
+          applyContextUsage(streamKey, u);
         }
       };
 
@@ -4576,6 +4735,8 @@ export function App() {
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      pendingPostBySidRef.current.delete(postSessionKey);
 
       if (res.status === 409) {
         let parsedBody: unknown = null;
@@ -4604,14 +4765,16 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (opts?.restoreDraftOnBusy) {
-          setDraft(text);
+        if (opts?.restoreDraftOnBusy && viewedSessionIdRef.current.trim() === postSessionKey) {
+          setDraft((current) => current || text);
         }
-        postAbortBySidRef.current.delete(postSessionKey);
-        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         if (busy.busy) {
-          setDraft(text);
+          // Only into the chat the text was written in, and never over what the
+          // reader typed since: the refusal can land after a session switch.
+          if (viewedSessionIdRef.current.trim() === postSessionKey) {
+            setDraft((current) => current || text);
+          }
           if (busySid && viewedSessionIdRef.current.trim() !== busySid) {
             openSessionFromRoute(busySid);
           }
@@ -4634,6 +4797,9 @@ export function App() {
         bumpTranscriptEpoch(postSessionKey);
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
+        streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+        turnActivity.observe(oldKey, false);
+        turnActivity.observe(postSessionKey, true);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
         streamShadowBySidRef.current.rename(oldKey, postSessionKey);
@@ -4644,7 +4810,7 @@ export function App() {
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
-        openSessionFromRoute(sidHdr);
+        if (viewedSessionIdRef.current.trim() === oldKey) openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -4670,12 +4836,13 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        postAbortBySidRef.current.delete(postSessionKey);
-        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         return;
       }
 
+      // Admission is now settled. Reconcile events ignored while the POST was
+      // pending, including a real end whose response reader never finishes.
+      void turnActivity.refresh(streamKey);
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       const carry = { buf: "" };
@@ -4712,8 +4879,14 @@ export function App() {
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
         onModeChanged: (m: string) => onServerModeChanged(streamKey, m),
-        onMessageQueue: (q) => applyQueue(streamKey, q.messages, q.version),
+        onMessageQueue: (q) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyQueue(streamKey, q.messages, q.version, queueEpoch);
+          }
+        },
       });
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      assistantStreamId = finalAssistantId;
 
       const syncAssistantFromServer = async () => {
         try {
@@ -4721,7 +4894,7 @@ export function App() {
             `/foxxycode/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!res2.ok || !res2.data?.messages) return false;
+          if (!ownsPost() || abortCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -4807,6 +4980,7 @@ export function App() {
       const kProbe = postSessionKey.trim();
       let mergedForSyncProbe: TranscriptItem[] = [];
       for (let attempt = 0; attempt < 40; attempt++) {
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         const sh = streamShadowBySidRef.current.get(kProbe);
         if (sh && sh.length > 0) {
           mergedForSyncProbe = sh;
@@ -4829,9 +5003,11 @@ export function App() {
         ok = await syncAssistantFromServer();
         for (let i = 0; i < 10 && !ok; i++) {
           await new Promise((r) => setTimeout(r, 500));
+          if (!ownsPost() || abortCtl.signal.aborted) return;
           ok = await syncAssistantFromServer();
         }
       }
+      if (!ownsPost() || abortCtl.signal.aborted) return;
       const viewingEnd = viewedSessionIdRef.current.trim();
       const reconcileEpoch = bumpTranscriptEpoch(sidEffective);
       await loadMessages(sidEffective, {
@@ -4848,6 +5024,11 @@ export function App() {
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
+      releaseSessionId?.(sidEffective);
+      if (pendingPostBySidRef.current.get(postSessionKey) === abortCtl) {
+        pendingPostBySidRef.current.delete(postSessionKey);
+      }
+      if (!ownsPost()) return;
       postAbortBySidRef.current.delete(postSessionKey);
       if (!completedNormally) {
         // Only patch the transcript when this turn actually produced a bubble; a
@@ -4896,37 +5077,71 @@ export function App() {
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
-      releaseSessionId?.(sidEffective);
+      void turnActivity.refresh(postSessionKey, false);
       // A background stream that just finished on a no-longer-recent session
       // should release its transcript without waiting for the next navigation.
       evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
-  function stopActiveGeneration(): void {
+  async function stopActiveGeneration(): Promise<void> {
     const sid = sessionId.trim();
-    if (!sid) return;
+    if (!sid || stopPendingBySidRef.current.has(sid)) return;
+    const request = { superseded: false };
+    stopPendingBySidRef.current.set(sid, request);
     // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
     userStoppedSidRef.current.add(sid);
     resetLiveRecoveryState(sid);
     stopDiskFallbackPoll(sid);
-    // Always send the server-side cancel so Stop works even after page reload.
-    // Fire-and-forget: if the connection is already gone the turn is unreachable
-    // anyway, and an escaping rejection would paint the IDE panel's error overlay.
-    void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
-      method: "POST",
-      headers: { [HDR]: sid },
-    }).catch(() => {
-      /* ignore */
-    });
-    // Also abort the in-progress fetch request if we have one from this page session.
-    postAbortBySidRef.current.get(sid)?.abort();
+    const post = postAbortBySidRef.current.get(sid);
+    const relay = relayAbortBySidRef.current.get(sid);
+    const generation = turnActivity.generation(sid);
+    const streamGeneration = streamGenerationBySidRef.current.get(sid);
+    const cancelCtl = new AbortController();
+    const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
+    const errorId = `stop_error_${sid}`;
+    applyStreamItemsForSession(sid, (prev) => prev.filter((it) => it.id !== errorId));
+    try {
+      // Always send the server-side cancel so Stop works even after page reload.
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
+        method: "POST",
+        headers: { [HDR]: sid },
+        signal: cancelCtl.signal,
+      });
+      if (!res.ok) throw new Error(`cancel failed (${res.status})`);
+      // Abort only the captured connections. The acknowledgement neither proves
+      // idle nor gives an old Stop ownership of a newer turn in this session.
+      const current = !request.superseded && turnActivity.generation(sid) === generation &&
+        streamGenerationBySidRef.current.get(sid) === streamGeneration;
+      if (current) {
+        stoppedTurnBySidRef.current.set(sid, generation);
+      }
+      post?.abort();
+      relay?.abort();
+      if (current) void turnActivity.refresh(sid, false);
+    } catch {
+      // The turn is still running and still ours to watch: a drop after a Stop
+      // that never reached the server must re-attach like any other. Caught
+      // here, so nothing escapes to paint the IDE panel's error overlay.
+      userStoppedSidRef.current.delete(sid);
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev.filter((it) => it.id !== errorId),
+        { id: errorId, type: "system_notice", level: "error", message: t("app.stopFailed"), createdAtUtc: new Date().toISOString() },
+      ]);
+    } finally {
+      window.clearTimeout(timer);
+      if (stopPendingBySidRef.current.get(sid) === request) stopPendingBySidRef.current.delete(sid);
+    }
   }
 
   const maxContextTokens = useMemo(() => {
+    const live = sessionContextWindows[sessionId.trim()];
+    if (live?.model === llmModel && live.epoch === configEpoch) {
+      return live.size;
+    }
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
+  }, [modelInfos, llmModel, sessionId, sessionContextWindows, configEpoch]);
 
   const llmModelMultimodal = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
@@ -5388,6 +5603,8 @@ export function App() {
    */
   const handleQueueMessage = useStableHandler((text: string) => {
     const sid = sessionId.trim();
+    const generation = turnActivity.generation(sid);
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const body = text.trim();
     if (!sid || !body) return;
     setDraft("");
@@ -5414,10 +5631,12 @@ export function App() {
         // Network failure: treated as a refusal below.
       }
       if (status === 201 && Array.isArray(payload?.messages)) {
-        applyQueue(sid, payload.messages, payload.version ?? 0);
+        applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
         return;
       }
-      if (payload?.error?.code === "no_active_turn") {
+      if (payload?.error?.code === "no_active_turn" &&
+          queueOrderRef.current.capture(sid).epoch === queueEpoch &&
+          turnActivity.generation(sid) === generation && viewedSessionIdRef.current.trim() === sid) {
         // The turn ended between the keystroke and the request. Send it as an
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
@@ -5425,7 +5644,7 @@ export function App() {
         void streamResponses(body, { restoreDraftOnBusy: true });
         return;
       }
-      setDraft(body);
+      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
       const code = payload?.error?.code;
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
@@ -5452,6 +5671,7 @@ export function App() {
    */
   const handleCancelQueued = useStableHandler((id: string) => {
     const sid = sessionId.trim();
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const messageID = id.trim();
     if (!sid || !messageID) return;
     setQueueBySid((prev) => ({
@@ -5469,7 +5689,7 @@ export function App() {
           version?: number;
         } | null;
         if (Array.isArray(data?.messages)) {
-          applyQueue(sid, data.messages, data.version ?? 0);
+          applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
         }
       } catch {
         // The next message_queue frame corrects the list.
@@ -5774,7 +5994,7 @@ export function App() {
                   onPlanDocumentRun: (slug: string) => {
                     if (
                       sessionId.trim() &&
-                      activeComposerSidRef.current.has(sessionId.trim())
+                      (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
                     ) {
                       return;
                     }
@@ -5829,7 +6049,7 @@ export function App() {
               }
               if (
                 sessionId.trim() &&
-                activeComposerSidRef.current.has(sessionId.trim())
+                (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
               ) {
                 return;
               }

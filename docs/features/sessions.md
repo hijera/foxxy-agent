@@ -24,6 +24,7 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 | `background/<task_id>/` | the record and output log of every background task and subagent run |
 | `memory_trace.json` | what the memory copilot did on each turn ([Long-term memory](memory.md)) |
 | `ui_log.json`, `permission_grants.json`, `pending_permission.json` | notice rows shown in the transcript, the commands and write targets approved with "allow always", a permission prompt waiting for its answer over HTTP |
+| `pending_plan_context.json` | the design plan text handed to the turn a plan run started, kept until that turn is over. A turn stopped on a permission prompt is continued after the answer arrives, sometimes in another process, and renders the same system prompt again ([Plan mode](modes.md)) |
 
 Compaction and result eviction never rewrite a bundle: both are projections built when a request goes to the model, and `messages.json` keeps every original row ([Context compaction](compaction.md)).
 
@@ -50,6 +51,8 @@ The same place is what the agent is told to use for a worktree it creates by han
 `foxxycode serve` runs one session manager over one store for the HTTP API, the web UI, the Telegram gateway and the scheduler, so a chat with the bot is an ordinary session that the History drawer lists and opens while it is happening, and a turn started on one surface is mirrored into a browser watching the same session ([foxxycode serve](../operate/serve.md), [Telegram gateway](../surfaces/gateway.md)). The console and `foxxycode acp` open the same store on their own; with `--remote` they work on the server's sessions instead of a local store. A swarm relay aggregates the session lists of its nodes ([Swarm](../operate/swarm.md)).
 
 A session runs one turn at a time. The turn lock is a file lock on the bundle, so a second process - `foxxycode serve` while `foxxycode acp` holds the turn - is refused rather than interleaved (`409` over HTTP), and a cancel also writes a marker into the bundle that the process holding the turn picks up between its polls. Different sessions stream in parallel, each behind its own lock ([Web UI](../surfaces/web-ui.md#parallel-sessions-and-generation-cancel)).
+
+Browsers and consoles connected through `--remote` to the same server can stop a turn or add and remove [queued follow-ups](message-queue.md), including a turn another client started. They recover activity and queue state when reconnecting; losing a stream connection does not mean the session stopped. A successful cancel response acknowledges the request, while the turn's completion confirms that its lock was released. HTTP profiles install their cancellation hook when they acquire that lock, before workspace preparation; a Stop in that window remains effective when the runner is admitted. Shared permission/question answers and a live foreign-turn transcript in the remote console are not part of these controls. Separate local processes sharing only the bundle still have separate queues and pending-answer channels.
 
 ## Resuming
 

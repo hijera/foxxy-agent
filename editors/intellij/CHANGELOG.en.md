@@ -7,6 +7,63 @@
 
 # FoxxyCode plugin changes
 
+## Unreleased — 2026-09-20
+
+**Stop and the queue follow the session's turn, not this tab.**
+When someone else started the turn in a chat - a second tab, the console, the
+scheduler - or the tab lost its stream and has not re-attached yet, the composer
+still shows Stop, and what you type is queued for that turn. Such a tab used to
+offer a plain send and get a "chat is busy" refusal.
+
+**A Stop that failed is visible and can be retried.**
+Stop now waits for the server's answer and only then drops the local stream. If the
+request did not get through, the transcript says "Could not stop generation. Try
+again.", the turn keeps rendering and the button stays available. The tab used to
+detach silently while the turn went on.
+
+**A draft never lands in another chat or over what you typed.**
+Text the server refused to queue or send returns to the composer of the chat it was
+written in only, and only if nothing new has been typed there.
+
+**Long turns are faster and cheaper: the provider's prompt cache no longer resets on every step.**
+The system message is now built once per turn and sent back without a single byte
+changed. It used to carry a clock with seconds and the todo checklist, so the provider
+reprocessed the whole conversation on every step. The time, the checklist and the rules
+a tool activated now travel in a separate block after the history. Eviction of old
+`read`/`grep` results starts only once the context is half full (the
+`compaction.result_eviction.start_percent` setting): until then the history is not
+rewritten and the cache holds. The share of a request served from the cache shows in
+the debug log, on the `llm call usage` line.
+
+**A plan handed over for execution survives a permission prompt.**
+When a turn started from the plan card stopped on a permission prompt, the agent went
+on without the plan text after the answer. The plan now stays with the turn until it
+is really over.
+
+**The context ring and automatic compaction measure against the same window.**
+When a model has no window size in the settings, it is now read from the provider's
+model listing instead of borrowing the default model's window. The ring in the
+composer could show 40% while the session was already at its limit, and compaction
+never fired. A window that arrives late is picked up too - the ring is redrawn
+without a reload.
+
+**Compaction copes with a history that does not fit one request.**
+A history that is too long is folded in several passes, each carrying the summary of
+the ones before; while it runs, the transcript shows a row with the pass number. When
+the summarizer model is unavailable the fallbacks are tried
+(`compaction.fallback_models`, and `memory.fallback_models` for memory), with the
+session's own model last.
+
+**The model can compact the context itself.**
+There is a new `compact_context` tool: the agent folds the history when it sees the
+window filling up, without waiting for the threshold. Compaction from the button or
+`/compact` now runs as a turn of the session, so every open tab and the console see it.
+
+**The `/compact` command works on both compaction engines.**
+On the `opencode` engine the command used to answer with a refusal, and compaction
+over the API did not shrink the context. Both engines can now do the same things;
+also, a second compaction on `opencode` no longer loses the first one's summary.
+
 ## 0.3.10 — 2026-09-19
 
 **Agent edit highlights are readable in a light theme.**

@@ -21,6 +21,11 @@ import (
 // fold away before the keep-recent boundary.
 var ErrNothingToCompact = errors.New("nothing to compact")
 
+// ErrEmptyCompactionSummary is a summarizer that answered with nothing. History
+// is never discarded for it: the manual command reports it, the automatic
+// trigger skips the compaction and the turn goes on with the full window.
+var ErrEmptyCompactionSummary = errors.New("compaction produced an empty summary")
+
 // ErrCompactionBlocked wraps the reason a PreCompact hook vetoed a compaction.
 var ErrCompactionBlocked = errors.New("compaction blocked by hook")
 
@@ -43,6 +48,10 @@ type CompactionResult struct {
 	KeptMessages int
 	// Model is the models[].model that produced the summary.
 	Model string
+	// Steps is how many summarization calls the fold took: one while the
+	// history fits a single request, more when it had to be folded in passes
+	// (compact_fold.go).
+	Steps int
 }
 
 // coddyCompactionSystemPrompt instructs the summarizer model.
@@ -61,12 +70,36 @@ Output plain markdown, no preamble and no closing remarks. Do not invent facts t
 // inserts the summary row at that boundary. instructions optionally augments
 // the summarization request (from the manual compact command arguments).
 //
-// When force is set (manual /compact), compaction always folds whatever exists:
-// if the configured keep-recent window leaves nothing to summarize, it retries
-// with progressively fewer kept turns (down to zero) so even a very short
-// conversation compacts. Auto-compaction passes force=false and only runs at the
-// normal boundary.
+// When the configured keep-recent window covers every user turn there is, it
+// retries with progressively fewer kept turns. force (manual /compact) goes
+// down to zero, so even a very short conversation compacts. Auto-compaction
+// passes force=false and stops at one: the prompt being answered always stays
+// verbatim, and with a single user turn there is nothing to fold. A session of
+// a few long agent turns is what that fallback is for: without it, a window of
+// keep_recent_turns turns would grow past the threshold and never compact.
+//
+// Both compaction engines come through here. They differ in two places only -
+// which head is folded (compactionHead) and how the summary is written back
+// (the coddy engine inserts a summary row and replays the window after it, the
+// opencode engine flags the folded messages Compacted) - and share everything
+// else: the hooks, the summarizer chain, the fold in passes, the live row.
 func (a *Agent) CompactSession(ctx context.Context, instructions string, force bool) (*CompactionResult, error) {
+	return a.compactSession(ctx, instructions, force, compactionRun{opencode: !a.cfg.Compaction.EngineIsCoddy()})
+}
+
+// compactionRun is what one compaction was asked to be.
+type compactionRun struct {
+	// opencode selects the engine. It is a parameter rather than a read of the
+	// configuration because the opencode trigger (maybeCompact) names its own
+	// engine whatever compaction.engine says.
+	opencode bool
+	// turnProvider, when set, stands in for the session model's summarizer: the
+	// turn that triggered the compaction already holds a provider for that
+	// model, with its transport and its retry state.
+	turnProvider llm.Provider
+}
+
+func (a *Agent) compactSession(ctx context.Context, instructions string, force bool, run compactionRun) (*CompactionResult, error) {
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
@@ -82,12 +115,25 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	}
 
 	msgs := a.state.GetMessages()
+	if run.opencode {
+		return a.compactOpenCode(ctx, msgs, instructions, run, mode, trigger)
+	}
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
+	// The floor holds for the configured value too, not only for the retries
+	// below it: keep_recent_turns: 0 means "summarize everything", which is a
+	// thing to ask of /compact and never of the automatic trigger - folding
+	// the prompt being answered would send the model a turn with no prompt in
+	// it.
+	minKeep := 1
+	if force {
+		minKeep = 0
+	}
+	if keep < minKeep {
+		keep = minKeep
+	}
 	splitIdx, ok := session.CompactionSplitIndex(msgs, keep)
-	if !ok && force {
-		for k := keep - 1; k >= 0 && !ok; k-- {
-			splitIdx, ok = session.CompactionSplitIndex(msgs, k)
-		}
+	for k := keep - 1; !ok && k >= minKeep; k-- {
+		splitIdx, ok = session.CompactionSplitIndex(msgs, k)
 	}
 	if !ok {
 		return nil, ErrNothingToCompact
@@ -99,33 +145,81 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	}
 	// Pins and writes in the kept tail can make an older result useful or stale,
 	// so project the whole visible window before slicing the summarizer head.
-	projected := a.prunedForLLM(visible)
+	projected := a.prunedForSummary(visible)
 	head := projected[:splitIdx-visibleStart]
 
-	provider, modelID, err := a.coddyCompactionProvider()
+	chain, err := a.compactionChainFor(run)
 	if err != nil {
 		return nil, fmt.Errorf("compaction model: %w", err)
 	}
 
-	resp, err := provider.Complete(ctx, buildCompactionRequest(head, instructions), nil)
-	if err != nil {
-		return nil, fmt.Errorf("compaction LLM call: %w", err)
+	// Lines the history already carried go before anything is measured: a
+	// session fills its window by repeating itself, and the repeats are what
+	// push a fold past the summarizer's window (compact_fold.go).
+	if deduped, dropped := dedupeCompactionHead(head); dropped > 0 {
+		a.log.Info("compaction dropped repeated lines from the history it is folding",
+			"lines", dropped, "messages", len(head))
+		head = deduped
 	}
-	summary := strings.TrimSpace(resp.Content)
-	if summary == "" {
-		return nil, fmt.Errorf("compaction produced an empty summary")
+
+	// The fold is sized against the summarizer's own window, not the session's:
+	// compaction.model may name a smaller or larger model than the turn runs on.
+	// The first of the chain sets the size; a fallback below it reads the same
+	// pass, which is why the share is a share rather than the whole window.
+	window, _ := a.contextWindowFor(chain[0].modelID)
+	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
+
+	row := a.newCompactionRow()
+	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
+	if err != nil {
+		row.failed(err)
+		return nil, err
 	}
 
 	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
 	a.refreshConversationContextUsage(true)
 	a.runPostCompactHooks(ctx, mode, trigger, summary)
 
-	return &CompactionResult{
+	res := &CompactionResult{
 		Summary:           summary,
 		CompactedMessages: len(head),
 		KeptMessages:      len(msgs) - splitIdx,
 		Model:             modelID,
-	}, nil
+		Steps:             steps,
+	}
+	row.done(compactionOutcomeText(res))
+	return res, nil
+}
+
+// compactionOutcomeText is the one line every surface says about a finished
+// compaction: the transcript row, the /compact answer and the compact_context
+// tool result.
+func compactionOutcomeText(res *CompactionResult) string {
+	if res == nil {
+		return ""
+	}
+	text := fmt.Sprintf("Context compacted: %d message(s) summarized, %d kept verbatim.",
+		res.CompactedMessages, res.KeptMessages)
+	if res.Steps > 1 {
+		text += fmt.Sprintf(" The history did not fit one summarization request, so it was folded in %d passes.", res.Steps)
+	}
+	return text
+}
+
+// compactFromTool is the Env.CompactSession hook behind the compact_context
+// tool. The model asking for a compaction is a manual one: it asked for the
+// history it can see to be folded, so the fold goes as far as /compact does.
+func (a *Agent) compactFromTool(ctx context.Context, instructions string) (string, error) {
+	res, err := a.CompactSession(ctx, instructions, true)
+	switch {
+	case errors.Is(err, ErrNothingToCompact):
+		return "Nothing to compact: there is no earlier conversation to summarize yet.", nil
+	case errors.Is(err, ErrCompactionDisabled):
+		return "", err
+	case err != nil:
+		return "", err
+	}
+	return compactionOutcomeText(res), nil
 }
 
 // CompactCommandName is the built-in slash command that triggers compaction.
@@ -157,25 +251,6 @@ func parseCompactCommand(text string) (instructions string, ok bool) {
 // message. The generated summary is inserted as a compaction row, which the UI
 // renders as its own foldout ("what is now in context").
 func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand string) (string, error) {
-	// The manual /compact command is a coddy-engine feature. Under the opencode
-	// engine (auto-only), persist the command and return a short notice instead of
-	// summarizing, so the text never leaks into the LLM turn.
-	if a.cfg.Compaction.EngineIsOpenCode() {
-		a.addUserCommandMessage(rawCommand)
-		text := "The /compact command is available with the coddy compaction engine. Set compaction.engine: coddy to use it; the opencode engine compacts automatically near the context window."
-		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
-			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
-			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: text},
-		})
-		a.state.AddMessage(llm.Message{
-			Role:      llm.RoleAssistant,
-			Content:   text,
-			Model:     a.state.EffectiveModelID(a.cfg),
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		})
-		return string(acp.StopReasonEndTurn), nil
-	}
-
 	res, err := a.CompactSession(ctx, instructions, true)
 	// Show the command in the transcript, regardless of the outcome.
 	a.addUserCommandMessage(rawCommand)
@@ -188,7 +263,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand 
 	case err != nil:
 		return string(acp.StopReasonRefused), err
 	default:
-		text = fmt.Sprintf("Context compacted: %d message(s) summarized, %d kept verbatim.", res.CompactedMessages, res.KeptMessages)
+		text = compactionOutcomeText(res)
 	}
 	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
 		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -217,17 +292,19 @@ func (a *Agent) addUserCommandMessage(text string) {
 }
 
 // maybeAutoCompact runs compaction when the estimated context usage reached
-// compaction.threshold_percent of the effective model's max_context_tokens.
-// It is fail-open: any error (including nothing-to-compact right after a
-// previous compaction) leaves the turn running uncompacted. Returns true when
-// history was compacted and the outgoing message slice must be rebuilt.
+// compaction.threshold_percent of the session's context window (contextWindow:
+// max_context_tokens, the provider's reported window, or the default - the
+// window the web UI ring shows). It is fail-open: any error (including
+// nothing-to-compact right after a previous compaction) leaves the turn
+// running uncompacted. Returns true when history was compacted and the
+// outgoing message slice must be rebuilt.
 func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	comp := &a.cfg.Compaction
 	if !comp.IsEnabled() {
 		return false
 	}
-	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
-	if ent == nil || ent.MaxContextTokens <= 0 {
+	window, source := a.contextWindow()
+	if window <= 0 {
 		return false
 	}
 	rs, ok := a.state.(rulesState)
@@ -238,13 +315,23 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	if b == nil || b.EstimatedTotal <= 0 {
 		return false
 	}
-	if b.EstimatedTotal*100 < comp.EffectiveThresholdPercent()*ent.MaxContextTokens {
+	if b.EstimatedTotal*100 < comp.EffectiveThresholdPercent()*window {
 		return false
 	}
 	res, err := a.CompactSession(ctx, "", false)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNothingToCompact):
+			// Over the threshold with only the prompt being answered in the
+			// window: said once per turn, not before every step of it.
+			if !a.autoCompactSkipLogged {
+				a.autoCompactSkipLogged = true
+				a.log.Info("auto-compaction skipped: no earlier turn to fold, the prompt being answered stays verbatim",
+					"estimatedTokens", b.EstimatedTotal,
+					"contextWindow", window,
+					"contextWindowSource", source,
+					"thresholdPercent", comp.EffectiveThresholdPercent())
+			}
 		case errors.Is(err, ErrCompactionBlocked):
 			a.log.Info("auto-compaction vetoed by a hook; continuing uncompacted", "error", err)
 		default:
@@ -254,69 +341,178 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	}
 	a.log.Info("auto-compacted session context",
 		"estimatedTokens", b.EstimatedTotal,
-		"maxContextTokens", ent.MaxContextTokens,
+		"contextWindow", window,
+		"contextWindowSource", source,
 		"thresholdPercent", comp.EffectiveThresholdPercent(),
 		"compactedMessages", res.CompactedMessages,
 		"keptMessages", res.KeptMessages)
 	return true
 }
 
-// coddyCompactionProvider resolves the summarizer provider: compaction.model when
-// set, otherwise the session's effective model.
-func (a *Agent) coddyCompactionProvider() (llm.Provider, string, error) {
-	modelID := strings.TrimSpace(a.cfg.Compaction.Model)
-	if modelID == "" {
-		modelID = a.state.EffectiveModelID(a.cfg)
+// compactionCandidate is one summarizer of the chain a compaction may use.
+type compactionCandidate struct {
+	provider llm.Provider
+	modelID  string
+	// system is the summarizer's system prompt; empty means the coddy engine's.
+	// It rides the candidate so the fold keeps one signature for both engines.
+	system string
+}
+
+// compactionChain is the summarizers a compaction tries, in order:
+// compaction.model (or the session's model when it is unset), then
+// compaction.fallback_models, then the session's own model as the last resort.
+// A model that names nothing configured, or whose provider cannot be built, is
+// left out rather than failing the chain - a compaction is what a session out
+// of room has left, and one bad entry must not be the end of it (issue #247).
+// The error is returned only when nothing in the chain resolves.
+func (a *Agent) compactionChain() ([]compactionCandidate, error) {
+	return a.compactionChainFor(compactionRun{})
+}
+
+// compactionChainFor is compactionChain for one engine: the opencode engine
+// summarizes with its own system prompt and honours compaction.max_tokens, and
+// a turn that triggered the compaction lends its provider to the session model.
+func (a *Agent) compactionChainFor(run compactionRun) ([]compactionCandidate, error) {
+	system := ""
+	if run.opencode {
+		system = compactionSystemPrompt
 	}
-	if modelID == "" {
-		return nil, "", fmt.Errorf("no model configured")
+	sessionModel := a.state.EffectiveModelID(a.cfg)
+	wanted := []string{strings.TrimSpace(a.cfg.Compaction.Model)}
+	if wanted[0] == "" {
+		wanted[0] = sessionModel
 	}
-	rm, err := a.cfg.ResolveLLM(modelID)
-	if err != nil {
-		return nil, "", err
+	for _, m := range a.cfg.Compaction.FallbackModels {
+		wanted = append(wanted, strings.TrimSpace(m))
 	}
+	wanted = append(wanted, sessionModel)
+
 	mk := a.providerFactory
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	provider, err := mk(a.llmProviderInput(rm))
-	if err != nil {
-		return nil, "", err
+	var out []compactionCandidate
+	seen := make(map[string]bool, len(wanted))
+	var firstErr error
+	for _, modelID := range wanted {
+		if modelID == "" || seen[modelID] {
+			continue
+		}
+		seen[modelID] = true
+		if run.turnProvider != nil && modelID == sessionModel {
+			out = append(out, compactionCandidate{provider: run.turnProvider, modelID: modelID, system: system})
+			continue
+		}
+		rm, err := a.cfg.ResolveLLM(modelID)
+		if err == nil {
+			if limit := a.cfg.Compaction.MaxTokens; run.opencode && limit > 0 && (rm.MaxTokens <= 0 || rm.MaxTokens > limit) {
+				rm.MaxTokens = limit
+			}
+			var provider llm.Provider
+			provider, err = mk(a.llmProviderInput(rm))
+			if err == nil {
+				out = append(out, compactionCandidate{provider: provider, modelID: modelID, system: system})
+				continue
+			}
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		a.log.Warn("compaction summarizer unavailable; trying the next one", "model", modelID, "error", err)
 	}
-	return provider, modelID, nil
+	if len(out) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("no model configured")
+	}
+	return out, nil
+}
+
+// renderCompactionMessage is one transcript entry as the summarizer reads it.
+// Tool calls are rendered as labeled lines so it sees what happened without
+// replaying structured calls. The empty string is an entry that carries
+// nothing to summarize.
+func renderCompactionMessage(m llm.Message) string {
+	if m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(string(m.Role))
+	if m.CompactionSummary {
+		b.WriteString(" (earlier summary)")
+	}
+	b.WriteString(":\n")
+	if strings.TrimSpace(m.Content) != "" {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	for _, tc := range m.ToolCalls {
+		fmt.Fprintf(&b, "[tool call] %s %s\n", tc.Name, tc.InputJSON)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// renderCompactionTranscript is the whole run of messages the summarizer reads
+// in one call.
+func renderCompactionTranscript(msgs []llm.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		b.WriteString(renderCompactionMessage(m))
+	}
+	return b.String()
 }
 
 // buildCompactionRequest flattens the head of the conversation into a single
-// summarization request. Tool calls and results are rendered as labeled lines
-// so the summarizer sees what happened without replaying structured calls.
+// summarization request.
 func buildCompactionRequest(head []llm.Message, instructions string) []llm.Message {
-	var b strings.Builder
-	b.WriteString("Summarize the following conversation transcript.\n\n<transcript>\n")
-	for _, m := range head {
-		if m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 {
-			continue
-		}
-		b.WriteString(string(m.Role))
-		if m.CompactionSummary {
-			b.WriteString(" (earlier summary)")
-		}
-		b.WriteString(":\n")
-		if strings.TrimSpace(m.Content) != "" {
-			b.WriteString(m.Content)
-			b.WriteString("\n")
-		}
-		for _, tc := range m.ToolCalls {
-			fmt.Fprintf(&b, "[tool call] %s %s\n", tc.Name, tc.InputJSON)
-		}
-		b.WriteString("\n")
+	return compactionRequest("", renderCompactionTranscript(head), instructions)
+}
+
+// compactionRequest is one summarization call: the summary of everything
+// folded so far (empty on a single-pass compaction and on the first pass of a
+// multi-step one) followed by the next run of transcript. carry travels as
+// part of the same user message so a provider that caches by prefix is not
+// asked to keep a message that changes every pass.
+func compactionRequest(carry, body, instructions string) []llm.Message {
+	return compactionRequestWith("", carry, body, instructions)
+}
+
+// summarizerPromptTokens is the room a pass leaves for the summarizer's system
+// prompt: the larger of the two engines', so one budget fits either.
+func summarizerPromptTokens() int {
+	n := session.EstimateTokens(coddyCompactionSystemPrompt)
+	if m := session.EstimateTokens(compactionSystemPrompt); m > n {
+		n = m
 	}
+	return n
+}
+
+// compactionRequestWith is compactionRequest under a given system prompt; empty
+// means the coddy engine's.
+func compactionRequestWith(system, carry, body, instructions string) []llm.Message {
+	if strings.TrimSpace(system) == "" {
+		system = coddyCompactionSystemPrompt
+	}
+	var b strings.Builder
+	if strings.TrimSpace(carry) != "" {
+		b.WriteString("This conversation is being summarized in several passes because it does not fit one request. ")
+		b.WriteString("Below is the summary of everything before this point, then the next part of the transcript. ")
+		b.WriteString("Answer with one summary that covers both, in the same format.\n\n<summary-so-far>\n")
+		b.WriteString(carry)
+		b.WriteString("\n</summary-so-far>\n\n<transcript>\n")
+	} else {
+		b.WriteString("Summarize the following conversation transcript.\n\n<transcript>\n")
+	}
+	b.WriteString(body)
 	b.WriteString("</transcript>")
 	if s := strings.TrimSpace(instructions); s != "" {
 		b.WriteString("\n\nAdditional instructions from the user for this summary:\n")
 		b.WriteString(s)
 	}
 	return []llm.Message{
-		{Role: llm.RoleSystem, Content: prompts.WithIdentity(coddyCompactionSystemPrompt)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(system)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
 }

@@ -12,12 +12,6 @@
 {{.PlanContext}}
 
 {{end}}
-{{if .TodoList}}
-### Current todo checklist
-
-{{.TodoList}}
-
-{{end}}
 {{if .Rules}}
 {{.Rules}}
 
@@ -34,7 +28,3 @@
 {{.Memory}}
 
 {{end}}
-
-## Current UTC time
-
-{{.UTCNow}}

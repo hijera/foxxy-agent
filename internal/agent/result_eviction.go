@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
@@ -63,10 +64,47 @@ func (a *Agent) evictionOptions() resultEvictionOptions {
 }
 
 // prunedForLLM applies read/grep result eviction to an LLM-visible message window,
-// then collapses the repeats left behind by any loop the guard quarantined.
+// but only once the conversation is big enough to need it, then collapses the
+// repeats left behind by any loop the guard quarantined.
+//
+// Every placeholder eviction writes lands in the middle of the replayed history,
+// and a provider caches a request by its prefix: one rewritten result throws away
+// the cached copy of everything after it. With a sliding working window that
+// happens on almost every step, which is a whole transcript reprocessed to save
+// a few thousand tokens nobody was short of yet. So below
+// compaction.result_eviction.start_percent of the model's context window the
+// history is sent exactly as it was last time.
+//
+// The two fork-only steps are not gated, on purpose. dropUnansweredToolCalls is
+// a correctness repair: without it the endpoint rejects the request. And
+// collapseLoopDuplicates is the loop guard's, not a space saver: it rewrites
+// history once, on the step a loop is quarantined, and the projection is stable
+// again from the next step on because quarantined calls stop producing results.
+// One cache miss per quarantined loop is the price of not replaying the loop.
 func (a *Agent) prunedForLLM(msgs []llm.Message) []llm.Message {
+	return a.projectForLLM(msgs, a.evictionDue(msgs))
+}
+
+// prunedForSummary is the projection a compaction summarizes: the same as
+// prunedForLLM with the start_percent gate lifted. The gate exists to keep the
+// provider's cached prefix alive, and a compaction rewrites that prefix anyway,
+// so there is nothing to protect - while a read made stale by a later write, left
+// in the head, would be summarized as if it were still true.
+//
+// Upstream reaches the same result by accident: its gate reads
+// max_context_tokens and evicts whenever that is unset. Here the gate measures
+// against the resolved window (contextWindow), which is never unset, so the
+// summary path has to say what it wants.
+func (a *Agent) prunedForSummary(msgs []llm.Message) []llm.Message {
+	return a.projectForLLM(msgs, a.cfg.Compaction.ResultEviction.IsEnabled())
+}
+
+func (a *Agent) projectForLLM(msgs []llm.Message, evict bool) []llm.Message {
 	opt := a.evictionOptions()
-	out := pruneToolResults(dropUnansweredToolCalls(msgs), opt)
+	out := dropUnansweredToolCalls(msgs)
+	if evict {
+		out = pruneToolResults(out, opt)
+	}
 	return collapseLoopDuplicates(out, a.loopQuarantineSnapshot(), opt.MinResultBytes)
 }
 
@@ -131,6 +169,39 @@ func dropUnansweredToolCalls(msgs []llm.Message) []llm.Message {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+// evictionDue reports whether the conversation has grown far enough into the
+// model's context window for eviction to be worth the cache it costs. It is
+// measured on the unpruned messages, so the answer only ever moves one way
+// within a session: pruning cannot push the estimate back under the mark and
+// start the projection flapping between two shapes.
+func (a *Agent) evictionDue(msgs []llm.Message) bool {
+	re := &a.cfg.Compaction.ResultEviction
+	if !re.IsEnabled() {
+		return false
+	}
+	start := re.EffectiveStartPercent()
+	if start <= 0 {
+		return true
+	}
+	window, _ := a.contextWindow()
+	if window <= 0 {
+		// Nothing to measure against: keep the projection that protects the
+		// window, since overflowing it is the worse failure.
+		return true
+	}
+	// Everything the request carries besides the conversation - the system
+	// message, the tool definitions, the rules - read off the last estimate.
+	// It does not move with eviction, so it cannot make this decision flap.
+	overhead := 0
+	if rs, ok := a.state.(rulesState); ok {
+		if b := rs.GetLastContextBreakdown(); b != nil && b.EstimatedTotal > b.Conversation {
+			overhead = b.EstimatedTotal - b.Conversation
+		}
+	}
+	total := overhead + session.EstimateTokens(conversationText(msgs))
+	return total*100 >= start*window
 }
 
 // evReadResult is a read tool result eligible for eviction.

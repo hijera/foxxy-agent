@@ -29,3 +29,30 @@ Feature: Context compaction engine parity
       | engine   |
       | coddy    |
       | opencode |
+
+  Scenario Outline: The model compacts the session itself on either engine
+    Given the "<engine>" compaction engine is active
+    And a session with 4 completed exchanges
+    When the model calls the compact_context tool
+    Then the compaction summary is inserted into the transcript
+    And the tool result says what was compacted
+    And the LLM context window no longer holds the older exchanges
+
+    Examples:
+      | engine   |
+      | coddy    |
+      | opencode |
+
+  Scenario Outline: A history the summarizer cannot read in one request is folded in passes on either engine
+    Given the "<engine>" compaction engine is active
+    And a session with 4 completed exchanges
+    And the summarizer model has room for only part of the history per request
+    When the session is compacted by the active engine
+    Then the summarizer was called more than once
+    And every summarization request after the first carries the summary so far
+    And the compaction summary is inserted into the transcript
+
+    Examples:
+      | engine   |
+      | coddy    |
+      | opencode |

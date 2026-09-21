@@ -89,6 +89,8 @@ make docs-check      # regenerate into memory and fail on drift, missing pages, 
 
 `make docs-check` runs in CI as the job **Documentation** and in the pre-commit hook for commits that touch `docs/`, the README, `AGENTS.md`, `DESIGN.md`, `CONTRIBUTING.md` or the config schema (there without the CLI build: `go run ./cmd/docsgen -skip-cli`). The link check resolves every relative link and image and every `#anchor` against the headings of the target page (and explicit `<a id>` anchors), GitHub style; fenced code blocks are ignored.
 
+The walk over `docs/` asks git what it excludes and skips it, so a folder `.gitignore` keeps out of the repository is neither a page missing from the map nor a source of broken links - local scratch under `docs/` costs nothing. Only untracked files count, so a tracked page an exclude rule happens to match stays a page, and `docs/plans/` keeps leaving the map through its own rule rather than this one. Without git, or outside a repository, nothing is filtered and the whole tree is walked as before.
+
 Every read normalises CRLF to LF, so a Windows checkout under `core.autocrlf` checks the same as the Linux runner. The CLI reference is the one block that depends on the machine: it follows the `--help` screens of a full-tag binary, and although the generator replaces the binary path and the temporary home it ran with, regenerate it on Linux or in WSL (`make docs`) and use `make docs-fast` on Windows.
 
 ## Design records

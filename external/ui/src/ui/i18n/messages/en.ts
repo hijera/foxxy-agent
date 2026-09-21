@@ -995,6 +995,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.webfetch": "fetching a page",
   "tool.name.websearch": "searching the web",
   "tool.name.keep_result": "keeping a result",
+  "tool.name.compact_context": "compacting the context",
   "tool.name.plan_exit": "switching to agent mode",
   "tool.name.plan_write": "saving a plan",
   "tool.name.plan_read": "reading a plan",
@@ -1250,6 +1251,7 @@ export const messagesEn: Record<string, string> = {
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.chatBusyReattached":
     "This chat is still working on the previous request — reopening it. Your message is back in the composer; send it when the turn finishes.",
+  "app.stopFailed": "Could not stop generation. Try again.",
   "app.emptyResponseBody": "Empty response body",
   "app.requestFailed": "Request failed",
   "app.requestFailedWithStatus": "Request failed ({status})",
