@@ -121,6 +121,23 @@ that break most often come first:
 
 Capture screenshots with the OS tool for anything you report; state the theme and width you used.
 
+### Closing the plain sandbox
+
+`runIde` has no robot to drive, so close the window itself. The task seeds the sandbox's
+`options/ide.general.xml` with `confirmExit=false` (`seedNoExitConfirmation` in
+`build.gradle.kts`), so closing the window exits straight away, with no "Are you sure you want
+to exit?" for someone to click, and the plugin reaps its backend on the way out:
+
+```powershell
+$ide = Get-CimInstance Win32_Process -Filter "Name='java.exe'" | Where-Object { $_.CommandLine -like '*idea-sandbox*config*' -and $_.CommandLine -notlike '*config-uiTest*' }
+$ide | ForEach-Object { [void](Get-Process -Id $_.ProcessId).CloseMainWindow() }
+$ide | ForEach-Object { Wait-Process -Id $_.ProcessId -Timeout 60 }
+```
+
+If `Wait-Process` times out, `Stop-Process -Id <pid> -Force`, then clean up the backend the kill
+leaves behind (`Get-Process foxxycode | Where-Object { $_.Path -like "*idea-sandbox*" } | Stop-Process -Force`).
+The `runIdeForUiTests` sandbox has its own robot-driven `exit`; see **intellij-plugin-uitest**.
+
 ## Known flake
 
 On Windows, a run that follows a `clean*` task in the same invocation can fail in
