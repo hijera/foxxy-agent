@@ -8,7 +8,29 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-20
+## Unreleased — 2026-09-21
+
+**A chat names and files itself.**
+The pass that used to name a new chat now proposes one to three labels in the same
+answer - one model call for both, and labels a session already carries are left
+alone. During a long conversation the model can also rename the session and fix
+its labels itself: the `session_describe` tool reads the current title and tags
+and changes the parts a call names. It is offered in every mode, docs and ask
+included, because it writes the session's own card and nothing in the working
+copy.
+
+**History: tags, an archive, pinned chats, grouping and a filter.**
+A chat now carries short labels, an archived flag and a place at the top of the
+list. History groups by folder (or by date, by tag, or not at all), searches the
+title, the first message, the folder and the labels, and a filter menu gathers
+four questions in one place: what to show (active, archived, everything), which
+environment, how to group and how to sort. Pinned conversations lead the list as
+one group and are dragged into the order you want; every row has a menu with
+pinning, renaming, tags, archiving and deletion. An archived chat opens read-only
+and says so, and neither archiving nor labelling moves a chat up the list as if
+something had just happened in it.
+
+## 0.3.12 — 2026-09-20
 
 **Stop and the queue follow the session's turn, not this tab.**
 When someone else started the turn in a chat - a second tab, the console, the
@@ -64,26 +86,6 @@ window filling up, without waiting for the threshold. Compaction from the button
 On the `opencode` engine the command used to answer with a refusal, and compaction
 over the API did not shrink the context. Both engines can now do the same things;
 also, a second compaction on `opencode` no longer loses the first one's summary.
-
-**A chat names and files itself.**
-The pass that used to name a new chat now proposes one to three labels in the same
-answer - one model call for both, and labels a session already carries are left
-alone. During a long conversation the model can also rename the session and fix
-its labels itself: the `session_describe` tool reads the current title and tags
-and changes the parts a call names. It is offered in every mode, docs and ask
-included, because it writes the session's own card and nothing in the working
-copy.
-
-**History: tags, an archive, pinned chats, grouping and a filter.**
-A chat now carries short labels, an archived flag and a place at the top of the
-list. History groups by folder (or by date, by tag, or not at all), searches the
-title, the first message, the folder and the labels, and a filter menu gathers
-four questions in one place: what to show (active, archived, everything), which
-environment, how to group and how to sort. Pinned conversations lead the list as
-one group and are dragged into the order you want; every row has a menu with
-pinning, renaming, tags, archiving and deletion. An archived chat opens read-only
-and says so, and neither archiving nor labelling moves a chat up the list as if
-something had just happened in it.
 
 ## 0.3.11 — 2026-09-19
 
