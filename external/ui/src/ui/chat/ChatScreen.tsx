@@ -22,6 +22,7 @@ import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { useT } from "../i18n/I18nProvider";
+import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
 import {
   subscribeShellStack,
   snapshotShellStack,
@@ -117,6 +118,11 @@ export function ChatScreen(props: {
   onSvnFolderToggle?: () => void;
   /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
   subagentTranscript?: SubagentTranscriptMeta | null;
+  /** True when the conversation on screen is archived: the composer gives way to the notice that offers to take it back out. */
+  sessionArchived?: boolean;
+  onUnarchiveSession?: () => void;
+  /** True while that request is in flight. */
+  unarchiving?: boolean;
   /** Opens another session in this tab (the parent chat from the notice). */
   onOpenSession?: (sessionId: string) => void;
 }) {
@@ -242,10 +248,18 @@ export function ChatScreen(props: {
 
   // A child session is read-only on the server (409 on any prompt), so the
   // notice takes the composer's slot in both the hero and the docked layout.
+  // An archived conversation takes the same slot for a different reason: the
+  // server would accept the prompt, and accepting it would quietly undo the
+  // operator's own "not now".
   const readOnlyNotice = props.subagentTranscript ? (
     <SubagentReadOnlyNotice
       meta={props.subagentTranscript}
       {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
+    />
+  ) : props.sessionArchived ? (
+    <ArchivedSessionNotice
+      onUnarchive={() => props.onUnarchiveSession?.()}
+      {...(props.unarchiving ? { busy: true } : {})}
     />
   ) : null;
 

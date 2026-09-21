@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -158,6 +159,25 @@ type State struct {
 	// session.json and used when no user pin is set, taking precedence over the first-message
 	// derived title. A user pin always wins.
 	TitleAuto string
+
+	// Tags are the session's labels, kept normalized (see NormalizeTags) so
+	// every reader compares the same spelling.
+	Tags []string
+
+	// Archived takes the session out of the working list without removing the
+	// bundle; ArchivedAt records the moment it was put aside.
+	Archived   bool
+	ArchivedAt string
+
+	// Origin names the surface that started the session; see SessionMeta.Origin.
+	Origin string
+
+	// Pinned keeps the session at the top of every listing; PinnedAt records
+	// the moment it was pinned, and PinnedRank the place the operator dragged
+	// it to among the other pins (lower is higher up; 0 means never placed).
+	Pinned     bool
+	PinnedAt   string
+	PinnedRank int
 
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
@@ -776,10 +796,47 @@ func (s *State) GetTitlePinned() string {
 
 // SetTitlePinned sets the pinned title and persists session metadata when a store is attached.
 func (s *State) SetTitlePinned(text string) {
+	_ = s.ReplaceTitlePinned(text)
+}
+
+// ReplaceTitlePinned sets the pinned title and reports whether it moved. A
+// caller that has to say what a write changed gets the answer from the write
+// itself rather than reading the field first, which would be a different value
+// by the time it wrote.
+func (s *State) ReplaceTitlePinned(text string) bool {
+	next := strings.TrimSpace(text)
 	s.mu.Lock()
-	s.TitlePinned = strings.TrimSpace(text)
+	if s.TitlePinned == next {
+		s.mu.Unlock()
+		return false
+	}
+	s.TitlePinned = next
 	s.mu.Unlock()
 	s.touchPersist()
+	return true
+}
+
+// SetTitlePinnedIfUnset names the session only while it has no pinned title of
+// its own, and answers the title it carries afterwards with whether this call
+// wrote it. "Name it unless it has a name" is one step on purpose: the caller
+// is the suggestion a describe call made seconds ago, racing whoever named the
+// session in the meantime, and a read followed by a write is exactly the race
+// it is trying to avoid.
+func (s *State) SetTitlePinnedIfUnset(text string) (title string, written bool) {
+	next := strings.TrimSpace(text)
+	s.mu.Lock()
+	if existing := strings.TrimSpace(s.TitlePinned); existing != "" {
+		s.mu.Unlock()
+		return existing, false
+	}
+	if s.TitlePinned == next {
+		s.mu.Unlock()
+		return next, false
+	}
+	s.TitlePinned = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return next, true
 }
 
 // SetTitlePinnedWithoutPersist restores pinned title from disk without writing.
@@ -808,6 +865,222 @@ func (s *State) SetTitleAuto(text string) {
 func (s *State) SetTitleAutoWithoutPersist(text string) {
 	s.mu.Lock()
 	s.TitleAuto = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
+// GetTags returns a copy of the session tags, so a caller cannot reach back
+// into the state through the slice it was handed.
+func (s *State) GetTags() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.Tags) == 0 {
+		return nil
+	}
+	return append([]string(nil), s.Tags...)
+}
+
+// SetTags replaces the session tags and persists metadata when a store is
+// attached. The values are normalized here, so nothing downstream has to
+// wonder which spelling reached it. Writing the set it already has changes
+// nothing and costs no write.
+func (s *State) SetTags(tags []string) {
+	_, _ = s.ReplaceTags(tags)
+}
+
+// ReplaceTags stores the whole set and answers what the session carries
+// afterwards, with whether this call moved it.
+func (s *State) ReplaceTags(tags []string) (stored []string, changed bool) {
+	next := NormalizeTags(tags)
+	s.mu.Lock()
+	if slices.Equal(s.Tags, next) {
+		s.mu.Unlock()
+		return append([]string(nil), next...), false
+	}
+	s.Tags = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return append([]string(nil), next...), true
+}
+
+// UpdateTags adds and removes labels around the ones the session already
+// carries, and answers the set it holds afterwards. The merge happens under the
+// lock: "keep the rest" is the whole promise of an add, and a caller that reads
+// the tags, merges and writes them back drops whatever another surface filed in
+// between - which is the one thing this shape of call is for.
+func (s *State) UpdateTags(add, remove []string) (stored []string, changed bool) {
+	s.mu.Lock()
+	next := MergeTags(s.Tags, add, remove)
+	if slices.Equal(s.Tags, next) {
+		s.mu.Unlock()
+		return append([]string(nil), next...), false
+	}
+	s.Tags = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return append([]string(nil), next...), true
+}
+
+// SetTagsWithoutPersist restores tags from disk without writing.
+func (s *State) SetTagsWithoutPersist(tags []string) {
+	s.mu.Lock()
+	s.Tags = NormalizeTags(tags)
+	s.mu.Unlock()
+}
+
+// GetArchived reports whether the session was put aside.
+func (s *State) GetArchived() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Archived
+}
+
+// GetArchivedAt returns when the session was archived, empty while it is not.
+func (s *State) GetArchivedAt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ArchivedAt
+}
+
+// ArchiveState returns the flag and its stamp together. They are one fact, and
+// a writer that reads them under two locks can be caught between the two halves
+// of a change - persisting "archived with no stamp", or a stamp on a session
+// that is no longer archived.
+func (s *State) ArchiveState() (archived bool, at string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Archived, s.ArchivedAt
+}
+
+// SetArchived moves the session in or out of the archive and persists metadata
+// when a store is attached. The stamp is taken on the way in and cleared on the
+// way out; archiving a session that is already archived leaves the original
+// stamp standing, because that is when it was put aside.
+func (s *State) SetArchived(archived bool) {
+	s.mu.Lock()
+	if s.Archived == archived {
+		// Already where it is being put: nothing to write, and in particular no
+		// new stamp - when it was put aside is when it was put aside.
+		s.mu.Unlock()
+		return
+	}
+	if archived {
+		s.Archived = true
+		s.ArchivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		s.Archived, s.ArchivedAt = false, ""
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetArchivedWithoutPersist restores the archive flag and its stamp from disk
+// without writing.
+func (s *State) SetArchivedWithoutPersist(archived bool, at string) {
+	s.mu.Lock()
+	s.Archived = archived
+	if archived {
+		s.ArchivedAt = strings.TrimSpace(at)
+	} else {
+		s.ArchivedAt = ""
+	}
+	s.mu.Unlock()
+}
+
+// PinState returns the pin flag and its stamp together, for the same reason
+// ArchiveState does: they are one fact and a writer must not catch half of it.
+func (s *State) PinState() (pinned bool, at string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Pinned, s.PinnedAt
+}
+
+// PinPlacement returns the pin, its stamp and its hand-placed rank together:
+// three halves of one fact, for the same reason ArchiveState returns two.
+func (s *State) PinPlacement() (pinned bool, at string, rank int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Pinned, s.PinnedAt, s.PinnedRank
+}
+
+// SetPinnedRank records where among the pins the operator dragged this one.
+// It means nothing for a session that is not pinned, so it is ignored there.
+func (s *State) SetPinnedRank(rank int) {
+	s.mu.Lock()
+	if !s.Pinned || s.PinnedRank == rank {
+		s.mu.Unlock()
+		return
+	}
+	s.PinnedRank = rank
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetPinned keeps the session at the top of every listing, or lets it back into
+// the order. Pinning a pinned session changes nothing and costs no write, and
+// in particular leaves the original stamp standing.
+func (s *State) SetPinned(pinned bool) {
+	s.mu.Lock()
+	if s.Pinned == pinned {
+		s.mu.Unlock()
+		return
+	}
+	if pinned {
+		s.Pinned = true
+		s.PinnedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		// Unpinning forgets the placement too: pinning again is a new pin, and
+		// a new pin goes where new pins go rather than to a seat it once had.
+		s.Pinned, s.PinnedAt, s.PinnedRank = false, "", 0
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetPinnedWithoutPersist restores the pin, its stamp and its rank from disk.
+func (s *State) SetPinnedWithoutPersist(pinned bool, at string, rank int) {
+	s.mu.Lock()
+	s.Pinned = pinned
+	if pinned {
+		s.PinnedAt, s.PinnedRank = strings.TrimSpace(at), rank
+	} else {
+		s.PinnedAt, s.PinnedRank = "", 0
+	}
+	s.mu.Unlock()
+}
+
+// GetOrigin returns the surface that started the session, empty for a session
+// a person opened on this host.
+func (s *State) GetOrigin() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Origin
+}
+
+// SetOrigin records the surface that started the session and persists metadata
+// when a store is attached. It is written once, by the surface that created the
+// session: a conversation does not change where it came from, and a later
+// writer must not relabel somebody else's chat.
+//
+// An empty origin means "not recorded" rather than "opened on this host", which
+// is also what every bundle stored before the field existed carries. That is why
+// the guard here cannot be the whole protection: a caller stamps a session only
+// when it is the one creating it (see the Telegram gateway's ensureSession),
+// and this guard catches the repeat calls that follow.
+func (s *State) SetOrigin(origin string) {
+	s.mu.Lock()
+	if strings.TrimSpace(s.Origin) != "" {
+		s.mu.Unlock()
+		return
+	}
+	s.Origin = strings.TrimSpace(origin)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetOriginWithoutPersist restores the origin from disk without writing.
+func (s *State) SetOriginWithoutPersist(origin string) {
+	s.mu.Lock()
+	s.Origin = strings.TrimSpace(origin)
 	s.mu.Unlock()
 }
 

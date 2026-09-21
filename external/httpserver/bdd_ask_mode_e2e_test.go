@@ -45,6 +45,9 @@ const (
 var askE2EReadOnlyTools = map[string]bool{
 	"read": true, "keep_result": true, "glob": true, "grep": true, "print_tree": true,
 	"websearch": true, "webfetch": true, "question": true, "load_skill": true,
+	// Filing writes the session's own title and tags, which is nothing a reader
+	// of the workspace could see change.
+	"session_describe": true,
 }
 
 // askModeStubBackend is an OpenAI-compatible chat completions server that

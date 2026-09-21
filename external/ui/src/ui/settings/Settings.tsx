@@ -127,6 +127,8 @@ export function Settings(props: {
   onSessionsDeleted?: ((ids: string[]) => void) | undefined;
   /** The History "this project only" scope, which the session table follows. */
   sessionsScope?: SessionsProjectScope | undefined;
+  /** Reports labels edited here, so the drawer behind the panel agrees. */
+  onSessionTagsChanged?: ((id: string, tags: string[]) => void) | undefined;
 }) {
   const { t } = useT();
   const [schema, setSchema] = useState<JsonSchema | null>(null);
@@ -282,6 +284,7 @@ export function Settings(props: {
                 activeSessionId={props.activeSessionId}
                 onSessionsDeleted={props.onSessionsDeleted}
                 sessionsScope={props.sessionsScope}
+                onSessionTagsChanged={props.onSessionTagsChanged}
               />
             ) : null}
           </div>
@@ -312,6 +315,7 @@ export function Settings(props: {
                 activeSessionId={props.activeSessionId}
                 onSessionsDeleted={props.onSessionsDeleted}
                 sessionsScope={props.sessionsScope}
+                onSessionTagsChanged={props.onSessionTagsChanged}
               />
             </div>
           </div>

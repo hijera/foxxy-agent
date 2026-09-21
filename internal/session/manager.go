@@ -513,6 +513,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		})
 	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
+	st.SetTagsWithoutPersist(snap.Meta.Tags)
+	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
+	st.SetOriginWithoutPersist(snap.Meta.Origin)
+	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.SetTitleAutoWithoutPersist(snap.Meta.TitleAuto)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)

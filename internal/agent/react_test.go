@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 	"github.com/hijera/foxxycode-agent/internal/tools"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
@@ -2193,5 +2197,175 @@ func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
 	}
 	if !strings.Contains(first, "2038-01-19T03:14:08Z") {
 		t.Fatalf("the block does not carry the turn's own stamp: %q", first)
+	}
+}
+
+// --- Session filing (session_describe) -------------------------------------
+
+func TestApplySessionFilingRefusesATitleTooLongForARowAndWritesNothing(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.SetTitlePinned("A short title")
+	st.SetTags([]string{"api"})
+
+	long := strings.Repeat("x", session.MaxSessionTitleRunes+1)
+	tags := []string{"backend"}
+	if _, err := applySessionFiling(st, tooling.SessionFilingUpdate{Title: &long, Tags: &tags}); err == nil {
+		t.Fatal("a title longer than a list row was accepted")
+	}
+	if got := st.ConversationTitle(); got != "A short title" {
+		t.Fatalf("the refused call still renamed the session to %q", got)
+	}
+	if got := st.GetTags(); !reflect.DeepEqual(got, []string{"api"}) {
+		t.Fatalf("the refused call still filed the session under %v", got)
+	}
+}
+
+func TestApplySessionFilingClearsThePinOnAnEmptyTitle(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "fix the failing test"})
+	st.SetTitlePinned("Pinned by the model")
+
+	empty := "   "
+	filing, err := applySessionFiling(st, tooling.SessionFilingUpdate{Title: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filing.Filing.Title == "Pinned by the model" || filing.Filing.Title == "" {
+		t.Fatalf("clearing the pin left the title %q, want the one derived from the first message", filing.Filing.Title)
+	}
+}
+
+func TestApplySessionFilingEditsTheTagsInPlace(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.SetTags([]string{"api", "backend"})
+
+	filing, err := applySessionFiling(st, tooling.SessionFilingUpdate{
+		AddTags:    []string{"Session Store"},
+		RemoveTags: []string{"API"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(filing.Filing.Tags, []string{"backend", "session-store"}) {
+		t.Fatalf("got %v", filing.Filing.Tags)
+	}
+}
+
+func TestApplySessionFilingClearsTheTagsOnAnEmptyList(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.SetTags([]string{"api"})
+
+	none := []string{}
+	filing, err := applySessionFiling(st, tooling.SessionFilingUpdate{Tags: &none})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filing.Filing.Tags) != 0 {
+		t.Fatalf("got %v, want no tags", filing.Filing.Tags)
+	}
+}
+
+func TestSessionDescribeIsOfferedInEveryModeOfTheFork(t *testing.T) {
+	// Filing writes the session's own title and tags and nothing in the
+	// workspace. Upstream offers it to agent and plan; the fork's owner decided
+	// that a docs or an ask session files itself too, and debug is unrestricted
+	// like agent.
+	for _, mode := range []string{"plan", "docs", "ask"} {
+		if !ToolSetForMode(mode, false).Allows(tools.ToolSessionDescribe) {
+			t.Errorf("%s mode cannot file its own session", mode)
+		}
+		if _, refused := toolCallRefusedByMode(mode, tools.ToolSessionDescribe, false); refused {
+			t.Errorf("%s mode refuses session_describe at execution time", mode)
+		}
+	}
+	for _, mode := range []string{"agent", "debug"} {
+		if !ToolSetForMode(mode, false).Unrestricted() {
+			t.Errorf("%s mode is no longer unrestricted", mode)
+		}
+	}
+	// The plan guard that withholds plan_exit must not take filing with it.
+	if !ToolSetForMode("plan", true).Allows(tools.ToolSessionDescribe) {
+		t.Error("plan mode under plan_no_self_run lost session_describe")
+	}
+}
+
+func TestApplySessionFilingReportsAClearedPinBehindTheSameWords(t *testing.T) {
+	// The pinned title and the derived one can read alike; clearing the pin is
+	// still a change, and a report built by comparing the effective title
+	// before and after would call it nothing.
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "Fix the failing test"})
+	derived := st.ConversationTitle()
+	st.SetTitlePinned(derived)
+
+	empty := ""
+	result, err := applySessionFiling(st, tooling.SessionFilingUpdate{Title: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.Changed, []string{"title"}) {
+		t.Fatalf("changed = %v, want the title", result.Changed)
+	}
+	if st.GetTitlePinned() != "" {
+		t.Fatalf("the pin survived: %q", st.GetTitlePinned())
+	}
+}
+
+func TestApplySessionFilingReportsNothingWhenTheCallNamesNothing(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.SetTitlePinned("A title")
+	st.SetTags([]string{"api"})
+
+	result, err := applySessionFiling(st, tooling.SessionFilingUpdate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Changed) != 0 {
+		t.Fatalf("a read reported %v as changed", result.Changed)
+	}
+	if result.Filing.Title != "A title" || !reflect.DeepEqual(result.Filing.Tags, []string{"api"}) {
+		t.Fatalf("a read reported %+v", result.Filing)
+	}
+}
+
+func TestUpdateTagsKeepsWhatAnotherWriterFiledMeanwhile(t *testing.T) {
+	// The point of add_tags is "keep the rest". Merging outside the session
+	// would drop whatever another surface filed between the read and the write,
+	// so the merge happens under the session's own lock - which is what makes
+	// eight concurrent additions end up with eight labels.
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			st.UpdateTags([]string{fmt.Sprintf("tag-%d", n)}, nil)
+		}(i)
+	}
+	wg.Wait()
+	if got := st.GetTags(); len(got) != 8 {
+		t.Fatalf("concurrent additions left %v", got)
+	}
+}
+
+func TestSetTitlePinnedIfUnsetHasOneWinner(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	var wg sync.WaitGroup
+	var wins atomic.Int64
+	for i := range 8 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			if _, written := st.SetTitlePinnedIfUnset(fmt.Sprintf("name %d", n)); written {
+				wins.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatalf("%d callers named the session", wins.Load())
+	}
+	if st.GetTitlePinned() == "" {
+		t.Fatal("nobody named it")
 	}
 }

@@ -155,6 +155,10 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return parseLoadSkillName(context.argsText);
     case "question":
       return "";
+    case "session_describe":
+      // The new name, when the call carries one; filing that only moves tags
+      // has no target worth a row's width.
+      return stringArg(args, "title");
     default:
       // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / list_dir /
       // print_tree / docs_* / plan_* take a path; browser and webfetch take a url.

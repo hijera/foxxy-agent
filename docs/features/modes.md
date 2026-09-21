@@ -19,17 +19,18 @@ Made for design documents, specs and the investigation that precedes a change. T
 - `plan_write`, `plan_list` and `plan_read` for the plan document, and `plan_exit`, which switches the session to agent mode and starts the implementation (dropped under `tools.plan_no_self_run`, so only **Run plan** can start it);
 - `svn_info`, `svn_status`, `svn_diff`, `svn_log` and `svn_list` while `vcs.svn` is on;
 - `load_skill`, and `spawn_agent`, whose child stays in plan mode;
+- `compact_context`, to fold the history a long investigation piled up ([Context compaction](compaction.md#the-model-can-ask-for-it)), and `session_describe`, to file the session under a title and tags of its own ([Sessions](sessions.md#tags-and-the-archive));
 - the tools of connected MCP servers.
 
 No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode.
 
 ### `docs`
 
-Made for writing and maintaining documentation. The model is offered `read`, `keep_result`, `glob`, `grep`, `websearch`, `webfetch` and `question`, plus `docs_write` and `docs_edit`, which create and edit Markdown files only - `README.md`, `AGENTS.md`, `DESIGN.md` and pages under `docs/` - and never source code or prompt templates. No shell, no MCP tools, no `spawn_agent`. The system prompt comes from `docs.md` (`prompts.docs_prompt`).
+Made for writing and maintaining documentation. The model is offered `read`, `keep_result`, `glob`, `grep`, `websearch`, `webfetch` and `question`, plus `docs_write` and `docs_edit`, which create and edit Markdown files only - `README.md`, `AGENTS.md`, `DESIGN.md` and pages under `docs/` - and never source code or prompt templates, and `session_describe` for the session's own title and tags. No shell, no MCP tools, no `spawn_agent`. The system prompt comes from `docs.md` (`prompts.docs_prompt`).
 
 ### `ask`
 
-Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question` and `load_skill`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
+Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill` and `session_describe`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. Filing is on that list because it writes the session's own title and tags - a long question earns a name, and a reader of the workspace sees nothing of it. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
 
 ### `debug`
 

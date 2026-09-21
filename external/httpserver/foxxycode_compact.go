@@ -44,7 +44,6 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 		}
 		if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.sessionDefaultCWD(),
 		}); err != nil {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return

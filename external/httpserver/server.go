@@ -249,6 +249,14 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	s.publishConfigReloaded()
 }
 
+// describeMaxTokens is the completion budget of POST /foxxycode/describe, the one
+// caller of defaultProviderFromAgentModel. The answer is a phrase and a tag line,
+// but a reasoning model thinks before it answers: at the old cap of 96 tokens
+// gpt-oss on NeuralDeep spent all of it on reasoning (finish_reason "length",
+// content null) and the route fell back to the first words of the text. A model
+// configured with a smaller max_tokens keeps its own limit.
+const describeMaxTokens = 1024
+
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config unavailable")
@@ -262,8 +270,8 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		return nil, err
 	}
 	maxTok := rm.MaxTokens
-	if maxTok <= 0 || maxTok > 96 {
-		maxTok = 96
+	if maxTok <= 0 || maxTok > describeMaxTokens {
+		maxTok = describeMaxTokens
 	}
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:          rm.ProviderName,

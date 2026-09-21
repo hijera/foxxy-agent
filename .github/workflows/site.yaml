@@ -82,6 +82,19 @@ jobs:
           SITE_BASE: /${{ github.event.repository.name }}/
         run: npm run typecheck && npm run build
 
+      # docs/llms.txt and docs/llms-full.txt are rendered for publication and not kept in the
+      # repository (internal/docsgen, siteOnlyFiles), so they are written into this checkout
+      # before docs/ is assembled. Allowed to fail: the pages, updatePlugins.xml and
+      # config.schema.json still go out without the two index files.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Render the llms files
+        continue-on-error: true
+        run: go run ./cmd/docsgen -publish -skip-cli
+
       - name: Assemble the Pages artifact
         env:
           SITE_BUILT: ${{ steps.build.outcome }}

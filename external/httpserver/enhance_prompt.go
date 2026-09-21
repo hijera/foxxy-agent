@@ -45,8 +45,8 @@ func cleanEnhancedPrompt(text string) string {
 // goes to the same model as the chat, falling back to agent.model and then to the
 // first configured model, mirroring session.State.EffectiveModelID.
 //
-// It deliberately avoids providerFactory, which caps max_tokens at 96 for
-// describe-style titles and would truncate a rewrite mid-sentence.
+// It deliberately avoids providerFactory, which caps max_tokens at
+// describeMaxTokens for describe-style titles and would truncate a long rewrite.
 func (s *Server) enhanceProvider(r *http.Request) (llm.Provider, error) {
 	cfg := s.activeCfg()
 	if cfg == nil {
