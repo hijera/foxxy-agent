@@ -1,6 +1,6 @@
 ---
 name: intellij-plugin-uitest
-description: Drive and verify the FoxxyCode plugin's UI in a real sandbox IDE - Remote Robot for the Swing side (tree, click, screenshot) and a CDP bridge (cef-* commands) that reaches inside the JCEF chat itself (read its text, click by CSS selector, type into the composer, assert on the DOM). Use when asked to check how the plugin looks or behaves in the IDE, take plugin screenshots, test the chat/SPA inside IntelliJ, or write/debug UI tests. For building, unit tests and runIde use intellij-plugin-gradle instead.
+description: Drive and verify the FoxxyCode plugin's UI in a real sandbox IDE - Remote Robot for the Swing side (tree, click, screenshot) and a CDP bridge (cef-* commands) that reaches inside the JCEF chat itself (read its text, click by CSS selector, type into the composer, assert on the DOM). Use when asked to check how the plugin looks or behaves in the IDE, take plugin screenshots, test the chat/SPA inside IntelliJ, write/debug UI tests, or start/close the sandbox IDE (closing it never needs a human to confirm the exit dialog). For building, unit tests and runIde use intellij-plugin-gradle instead.
 ---
 
 # UI testing the IntelliJ plugin (Remote Robot + CDP)
@@ -50,13 +50,16 @@ cd editors/intellij && JAVA_HOME="/c/Program Files/JetBrains/PyCharm Community E
 `curl -s --noproxy '*' http://127.0.0.1:8580/` returns 200 (30–60 s; first ever run also
 builds the Go binary + SPA and downloads the robot-server plugin, so drop `--offline` and add
 the proxy flags then). Check the port *before* starting: 200 means a sandbox is already up —
-reuse it. Kill it by PID from `netstat -ano | grep 8580`.
+reuse it. Stop it with `uitest-scripts/exit.uiscript` (see **Closing the sandbox**), not by
+killing it and not with `action Exit`.
 
 The task pre-configures everything automation needs: opens a copy of `uitest-project/`
 (a project must be open or the tool window cannot exist), seeds `firstRunCompleted` so the
 FirstRunDialog modal never appears, points the backend at a throwaway
 `build/uitest-foxxycode-home` (isolating tests from `~/.foxxycode` — its `ui.locale`, sessions,
-history), bundles the freshly built `foxxycode` binary into the sandbox, and pins English.
+history), bundles the freshly built `foxxycode` binary into the sandbox, pins English, and
+seeds `options/ide.general.xml` with `confirmExit=false` so no way of closing the IDE stops at
+"Are you sure you want to exit?".
 **The IDE needs a real, unlocked display** — java.awt.Robot clicks land on whatever is visible;
 a locked screen or headless RDP session breaks interaction.
 
@@ -94,6 +97,7 @@ tree FoxxyCode
 | `width <px> [toolWindowId]` | resize tool window (the 320 px wrap check) |
 | `theme <light\|dark>` | switch IDE LaF |
 | `js <rhino>` | escape hatch: ES5 on the IDE side, runs on the EDT |
+| `exit [sec]` | close the sandbox without a confirmation dialog; must be the last command (see **Closing the sandbox**) |
 
 Inside the chat (CDP; connect lazily on first use, after the tool window is open):
 
@@ -161,6 +165,53 @@ Not scriptable: HiDPI (needs an IDE restart with a different scale factor) and a
 turn (needs a real API key; the isolated test home deliberately has none). Report those as not
 covered instead of faking them.
 
+## Closing the sandbox
+
+```bash
+cd editors/intellij && JAVA_HOME="/c/Program Files/JetBrains/PyCharm Community Edition 2023.3.2/jbr" ./gradlew -g H:/gradle-home --no-daemon --offline uiConsole -PuiScript=uitest-scripts/exit.uiscript
+```
+
+`exit` asks the IDE to quit with the confirmation already given
+(`ApplicationEx.exit(force, exitConfirmed)`), so no dialog comes up and nobody has to click.
+Apart from that, the shutdown is a normal one: `appWillBeClosed` reaps the `foxxycode` backend,
+and the background `runIdeForUiTests` task ends by itself. Before asking, `exit` records the
+IDE's process tree, then waits for it (60 s by default, `exit 120` to wait longer) and reports
+one of:
+
+- `ok: IDE exited in N s`: a clean exit.
+- `WARNING: IDE still running after N s - killed pid …`: the shutdown hung and the IDE was
+  killed. The IDE is gone either way, but mention the hang in the report. The background
+  `runIdeForUiTests` then fails with `finished with non-zero exit value 1`; that failure is
+  the kill, not a build error.
+- `WARNING: leftover child … killed`: something the IDE spawned outlived it. Usually that is the
+  backend, which the plugin should have reaped itself.
+
+`exit` can also end any other script (`screenshot final`, then `exit`). Any lines after it are
+skipped.
+
+**Never `action Exit`.** It runs the Exit action synchronously inside robot-server's own
+request. The call parks on the modal confirmation until a human clicks, and then the IDE shuts
+down underneath the request. That has left a java process with no window, which had to be
+killed by PID.
+
+If robot-server does not answer (the IDE is frozen: port 8580 is dead but the process is still
+alive), kill it instead. Take the PID from `netstat -ano | grep 8580`, or from the `java.exe`
+whose command line contains `config-uiTest`, then clean up the backend (see Known traps).
+
+Real IDEs outside the sandbox, such as the isolated OpenIDE Pro or PyCharm profiles, have no
+robot. Seed the same setting into the profile's `<config>/options/ide.general.xml`:
+
+```xml
+<application>
+  <component name="GeneralSettings">
+    <option name="confirmExit" value="false" />
+  </component>
+</application>
+```
+
+Then close them the way the plain `runIde` sandbox is closed (`CloseMainWindow`, see
+**intellij-plugin-gradle** → Visual verification).
+
 ## Known traps
 
 - **Modal dialogs freeze everything.** If a script hangs on `find`, screenshot first — a modal
@@ -189,13 +240,14 @@ covered instead of faking them.
   load-bearing; without it every robot call dies with "Unable to create converter for
   RetrieveResponse".
 - **After changing plugin sources**, restart the sandbox — it runs the plugin as packaged at
-  launch. Kill by PID, rerun `runIdeForUiTests` (it rebuilds via prepareUiTestingSandbox).
-- **Kill the backend too.** Killing the sandbox IDE by PID skips `appWillBeClosed`, so its
+  launch. Close it with `exit.uiscript`, rerun `runIdeForUiTests` (it rebuilds via
+  prepareUiTestingSandbox).
+- **Killing by PID leaks the backend.** It skips `appWillBeClosed`, so the IDE's
   `foxxycode.exe` child keeps running. It no longer breaks the next `runIdeForUiTests` — the
   plugin runs a *staged* copy under `idea-sandbox/system/foxxycode-bin/`, not the one
   `prepareUiTestingSandbox` writes — but it still holds a port and eats memory. Clean up with
   `Get-Process foxxycode | Where-Object { $_.Path -like "*idea-sandbox*" } | Stop-Process -Force`.
-  Exiting through `action Exit` instead reaps the backend by itself.
+  The `exit` command reaps the backend by itself and kills it if the plugin did not.
 - The `clean`-then-build file-lock flake and the mojibake worker crash from
   `intellij-plugin-gradle` apply to these tasks too.
 

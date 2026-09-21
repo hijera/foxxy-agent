@@ -116,6 +116,47 @@ object IdeControl {
         true,
     )
 
+    /**
+     * Pids of the IDE's JVM (first) and of everything it spawned: the `foxxycode` backend, JCEF
+     * helpers. Read before asking the IDE to exit, so whatever outlives the shutdown can be named
+     * and cleaned up. Off the EDT: nothing here touches Swing.
+     *
+     * Rhino hands a Java `long` over as a JS number, so a pid can come back as `52528.0`
+     * (`String.valueOf` picks its `double` overload); hence the parse through Double.
+     */
+    fun processTree(robot: RemoteRobot): List<Long> = robot.callJs<String>(
+        """
+        var self = java.lang.ProcessHandle.current();
+        var out = '' + self.pid();
+        var it = self.descendants().iterator();
+        while (it.hasNext()) out += ',' + it.next().pid();
+        out;
+        """.trimIndent(),
+        false,
+    ).split(',').map { it.trim().toDouble().toLong() }
+
+    /**
+     * Asks the IDE to quit, skipping the "Are you sure you want to exit?" dialog (`exitConfirmed`)
+     * and the `canExit` vetoes such as "terminate the running process?" (`force`). The shutdown
+     * still goes through `appWillBeClosed`, so the plugin reaps its backend as on a normal exit.
+     *
+     * Scheduled with `invokeLater` so this robot call returns before the shutdown starts. The
+     * `Exit` action instead runs inside robot-server's own request: it parks that request on the
+     * modal confirmation until a human clicks, then tears the IDE down underneath it, which has
+     * left a JVM running with no window.
+     */
+    fun requestExit(robot: RemoteRobot) = robot.runJs(
+        """
+        var app = com.intellij.openapi.application.ApplicationManager.getApplication();
+        app.invokeLater(new java.lang.Runnable({
+            run: function () {
+                com.intellij.openapi.application.ex.ApplicationManagerEx.getApplicationEx().exit(true, true);
+            }
+        }));
+        """.trimIndent(),
+        false,
+    )
+
     /** Switches the IDE theme; a hardcoded color in the plugin's UI shows up immediately. */
     fun setTheme(robot: RemoteRobot, dark: Boolean) {
         val match = if (dark) "darcula" else "light"

@@ -9,6 +9,9 @@ import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import java.time.Duration
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import javax.imageio.ImageIO
 
 /**
@@ -85,10 +88,17 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
 
     private fun jsString(script: String): String = robot.callJs(script, true)
 
+    /** Set by `exit`: there is no IDE left to run the rest of the script against. */
+    private var exited = false
+
     fun run(lines: List<String>) {
         for (raw in lines) {
             val line = raw.trim()
             if (line.isEmpty() || line.startsWith("#")) continue
+            if (exited) {
+                say("    skipped (the IDE has exited): $line")
+                continue
+            }
             step++
             say("[$step] $line")
             try {
@@ -96,7 +106,12 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
             } catch (e: Throwable) {
                 failed = true
                 say("    FAILED: ${e.javaClass.simpleName}: ${e.message}")
-                screenshot("FAILED")
+                // The IDE may be what failed, or already gone; the reason above must survive that.
+                try {
+                    screenshot("FAILED")
+                } catch (shotError: Exception) {
+                    say("    (no failure screenshot: ${shotError.message})")
+                }
                 return
             }
         }
@@ -181,6 +196,7 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
             "cef-click" -> { cef().click(rest); shot(command) }
             "cef-type" -> { cef().insertText(rest); shot(command) }
             "cef-key" -> { cef().pressKey(rest); shot(command) }
+            "exit" -> exitIde(rest)
             else -> throw IllegalArgumentException("unknown command '$command'")
         }
     }
@@ -353,6 +369,56 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
         "light" -> IdeControl.setTheme(robot, dark = false)
         else -> throw IllegalArgumentException("theme takes 'light' or 'dark', got '$name'")
     }
+
+    /**
+     * `exit [seconds]` — closes the sandbox without the "Are you sure you want to exit?" dialog.
+     *
+     * Graceful first: the IDE shuts down normally, so the plugin's `appWillBeClosed` reaps the
+     * backend. Whatever is still alive after the timeout (default 60 s) is killed — the IDE
+     * itself, then any child that outlived it — and the log says which path was taken. A kill is
+     * a warning, not a failure: the IDE is closed either way, but a hang on shutdown or a backend
+     * the plugin did not reap is worth knowing about.
+     */
+    private fun exitIde(rest: String) {
+        val timeout = if (rest.isEmpty()) 60L else rest.toLong()
+        // Resolved before the exit on purpose: a ProcessHandle remembers its process's start
+        // time, so a pid that Windows hands to a new process later can never be killed by mistake.
+        val handles = IdeControl.processTree(robot).mapNotNull { ProcessHandle.of(it).orElse(null) }
+        val ide = handles.firstOrNull() ?: throw IllegalStateException("the IDE process is already gone")
+        val children = handles.drop(1)
+        say("    ide pid ${ide.pid()}, ${children.size} child process(es)")
+
+        IdeControl.requestExit(robot)
+        exited = true
+        val started = System.nanoTime()
+        if (awaitExit(ide, timeout)) {
+            say("    ok: IDE exited in ${secondsSince(started)} s")
+        } else {
+            ide.destroyForcibly()
+            say("    WARNING: IDE still running after $timeout s - killed pid ${ide.pid()}")
+            if (!awaitExit(ide, 15)) throw IllegalStateException("pid ${ide.pid()} survived destroyForcibly")
+        }
+
+        // JCEF helpers wind down on their own once the IDE is gone; give them a moment.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        for (child in children) {
+            val left = deadline - System.nanoTime()
+            if (awaitExit(child, TimeUnit.NANOSECONDS.toSeconds(left.coerceAtLeast(0)))) continue
+            val name = child.info().command().map { File(it).name }.orElse("?")
+            child.destroyForcibly()
+            say("    WARNING: leftover child $name (pid ${child.pid()}) outlived the IDE - killed")
+        }
+    }
+
+    private fun awaitExit(process: ProcessHandle, seconds: Long): Boolean = try {
+        process.onExit().get(seconds, TimeUnit.SECONDS)
+        true
+    } catch (e: TimeoutException) {
+        !process.isAlive
+    }
+
+    private fun secondsSince(startNanos: Long): String =
+        "%.1f".format(Locale.ROOT, (System.nanoTime() - startNanos) / 1e9)
 
     /**
      * Locale-proof text entry: put the text on the IDE-side clipboard and paste with Ctrl+V.
