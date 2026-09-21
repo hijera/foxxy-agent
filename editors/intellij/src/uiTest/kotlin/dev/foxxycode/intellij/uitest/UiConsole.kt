@@ -92,6 +92,7 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
     private var exited = false
 
     fun run(lines: List<String>) {
+        sweepAtStart()
         for (raw in lines) {
             val line = raw.trim()
             if (line.isEmpty() || line.startsWith("#")) continue
@@ -112,9 +113,42 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
                 } catch (shotError: Exception) {
                     say("    (no failure screenshot: ${shotError.message})")
                 }
+                // A dialog nobody expected is the usual reason a `find` or `wait` times out.
+                try {
+                    IdeControl.listPopups(robot).forEach { say("    open when it failed: $it") }
+                } catch (popupError: Exception) {
+                    // The IDE is gone or not answering; the reason above is what matters.
+                }
                 return
             }
         }
+    }
+
+    /**
+     * Before the first command. Notifications left over from startup or an earlier script go:
+     * their balloons cover the panel in screenshots and are never what a new script is about.
+     * Dialogs and popups are only reported, because a script may be the second half of "open it,
+     * look, then click"; `dismiss-popups` closes them.
+     */
+    private fun sweepAtStart() {
+        try {
+            IdeControl.dismissNotifications(robot).forEach { say("dismissed before the script: $it") }
+            IdeControl.listPopups(robot).forEach { say("still open: $it (close it with dismiss-popups)") }
+        } catch (e: Exception) {
+            say("(could not check for popups: ${e.message})")
+        }
+    }
+
+    private fun reportPopups() {
+        val open = IdeControl.listPopups(robot)
+        if (open.isEmpty()) say("    no popups") else open.forEach { say("    $it") }
+    }
+
+    private fun dismissPopups() {
+        val closed = IdeControl.dismissPopups(robot)
+        if (closed.isEmpty()) say("    nothing to dismiss") else closed.forEach { say("    dismissed: $it") }
+        // A dialog can refuse to cancel (some progress dialogs do); say so rather than pretend.
+        IdeControl.listPopups(robot).forEach { say("    WARNING: still open: $it") }
     }
 
     fun close() {
@@ -196,6 +230,8 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
             "cef-click" -> { cef().click(rest); shot(command) }
             "cef-type" -> { cef().insertText(rest); shot(command) }
             "cef-key" -> { cef().pressKey(rest); shot(command) }
+            "popups" -> reportPopups()
+            "dismiss-popups" -> { dismissPopups(); shot(command) }
             "exit" -> exitIde(rest)
             else -> throw IllegalArgumentException("unknown command '$command'")
         }
@@ -388,6 +424,8 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
         val children = handles.drop(1)
         say("    ide pid ${ide.pid()}, ${children.size} child process(es)")
 
+        // An open dialog would hold the exit back until the timeout kills the IDE instead.
+        IdeControl.dismissPopups(robot).forEach { say("    dismissed: $it") }
         IdeControl.requestExit(robot)
         exited = true
         val started = System.nanoTime()

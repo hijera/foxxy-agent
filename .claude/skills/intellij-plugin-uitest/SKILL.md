@@ -1,6 +1,6 @@
 ---
 name: intellij-plugin-uitest
-description: Drive and verify the FoxxyCode plugin's UI in a real sandbox IDE - Remote Robot for the Swing side (tree, click, screenshot) and a CDP bridge (cef-* commands) that reaches inside the JCEF chat itself (read its text, click by CSS selector, type into the composer, assert on the DOM). Use when asked to check how the plugin looks or behaves in the IDE, take plugin screenshots, test the chat/SPA inside IntelliJ, write/debug UI tests, or start/close the sandbox IDE (closing it never needs a human to confirm the exit dialog). For building, unit tests and runIde use intellij-plugin-gradle instead.
+description: Drive and verify the FoxxyCode plugin's UI in a real sandbox IDE - Remote Robot for the Swing side (tree, click, screenshot) and a CDP bridge (cef-* commands) that reaches inside the JCEF chat itself (read its text, click by CSS selector, type into the composer, assert on the DOM). Use when asked to check how the plugin looks or behaves in the IDE, take plugin screenshots, test the chat/SPA inside IntelliJ, write/debug UI tests, start/close the sandbox IDE, or get rid of dialogs, notification balloons and popups that come up in it. Neither closing the IDE nor closing a popup ever needs a human click. For building, unit tests and runIde use intellij-plugin-gradle instead.
 ---
 
 # UI testing the IntelliJ plugin (Remote Robot + CDP)
@@ -97,6 +97,8 @@ tree FoxxyCode
 | `width <px> [toolWindowId]` | resize tool window (the 320 px wrap check) |
 | `theme <light\|dark>` | switch IDE LaF |
 | `js <rhino>` | escape hatch: ES5 on the IDE side, runs on the EDT |
+| `popups` | list open dialogs (title, buttons, text), notifications, popups and menus |
+| `dismiss-popups` | close all of them: dialogs are cancelled (as with Esc), notifications expired (see **Popups are yours to close**) |
 | `exit [sec]` | close the sandbox without a confirmation dialog; must be the last command (see **Closing the sandbox**) |
 
 Inside the chat (CDP; connect lazily on first use, after the tool window is open):
@@ -114,6 +116,36 @@ Inside the chat (CDP; connect lazily on first use, after the tool window is open
 Every interacting command auto-screenshots; a failure screenshots too, then stops the script.
 `cef-smoke.uiscript` is the worked example: mount check, `cef-text`, typing into `#composer`
 and cleaning it up again.
+
+### Popups are yours to close
+
+Never ask the operator to click a popup away. Dialogs, notification balloons, popup lists and
+context menus in the sandbox are closed by the agent:
+
+- **Before every script**, uiConsole expires leftover notifications and logs each one as
+  `dismissed before the script: notification [group] title: text`. Their balloons cover the
+  panel in screenshots, and a new script is never about them. Open dialogs, popups and menus
+  are only reported (`still open: dialog "…" [buttons]: text`), because a script may be the
+  second half of "open it, look, then click".
+- **`popups`** lists what is up right now. **`dismiss-popups`** closes all of it: a dialog is
+  cancelled as Esc would cancel it (cancel commits to nothing: "Terminate the process?" is left
+  unanswered, not answered yes), notifications are expired, and popups and menus are closed. It
+  warns about any dialog that refused to close.
+  To answer a dialog with a specific button instead, `click //div[@text='Yes']`.
+- **On failure**, the log lists `open when it failed: …`. A dialog nobody expected is the usual
+  reason a `find` or `wait` times out.
+- **`exit`** dismisses everything first, because an open dialog would hold the shutdown back
+  until the timeout kills the IDE.
+- **`uiTest`** runs `dismissPopups` in `@Before`, so one test's leftovers do not break the
+  next. A dialog the plugin opens on activation appears after that sweep and still fails the
+  test.
+
+Robot calls keep working while a modal dialog is open (checked live), so `popups` and
+`dismiss-popups` reach dialogs opened asynchronously. The exception is a dialog opened from a
+command's own robot call: `action <id>` runs `actionPerformed` synchronously, so an action that
+shows a modal, such as `ShowSettings`, blocks that command until the dialog closes. Open those
+asynchronously instead:
+`js-bg com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(new java.lang.Runnable({ run: function () { … } }));`
 
 **React owns the inputs**: assigning `.value` from `cef-js` never updates component state —
 that is exactly why `cef-type`/`cef-key` send trusted CDP events instead. To clear a
@@ -214,10 +246,11 @@ Then close them the way the plain `runIde` sandbox is closed (`CloseMainWindow`,
 
 ## Known traps
 
-- **Modal dialogs freeze everything.** If a script hangs on `find`, screenshot first — a modal
-  (FirstRunDialog, error dialog) is probably parked over the UI. The seeding normally prevents
-  FirstRunDialog; if it shows anyway, delete `build/idea-sandbox/config-uiTest/options/foxxycode.xml`
-  and restart the sandbox so it reseeds.
+- **Modal dialogs freeze everything behind them.** If a script fails on `find`, read the
+  `open when it failed:` lines. A modal (FirstRunDialog, an error dialog) is probably parked over
+  the UI; `dismiss-popups` clears it. The seeding normally prevents FirstRunDialog. If it
+  shows up anyway, delete `build/idea-sandbox/config-uiTest/options/foxxycode.xml` and restart
+  the sandbox so it reseeds.
 - **`-PuiScript`, not `-Pscript`** — Gradle resolves `findProperty("script")` against the
   Project bean and returns `false`.
 - **Screenshots capture the whole desktop** before cropping; the crop uses the IDE's own window

@@ -157,6 +157,112 @@ object IdeControl {
         false,
     )
 
+    /**
+     * What is popping up over the IDE right now, one line each: dialogs (title, buttons, text),
+     * notifications (group id, title, content: the balloons in the corner and their entries in
+     * the Notifications tool window) and whether a popup (menu, list, completion) is open.
+     */
+    fun listPopups(robot: RemoteRobot): List<String> = popups(robot, dismiss = false)
+
+    /**
+     * Closes everything [listPopups] reports and returns the same lines. Dialogs are cancelled,
+     * as Esc would (`DialogWrapper.doCancelAction`, else a WINDOW_CLOSING event), because cancel
+     * commits to nothing: a "Terminate the process?" is left unanswered, not answered yes.
+     * Notifications are expired, which takes their balloons down; popups are closed.
+     */
+    fun dismissPopups(robot: RemoteRobot): List<String> = popups(robot, dismiss = true)
+
+    /** Only notifications: the noise sweep that is safe to run without looking first. */
+    fun dismissNotifications(robot: RemoteRobot): List<String> =
+        popups(robot, dismiss = true, dialogs = false, menus = false)
+
+    private fun popups(
+        robot: RemoteRobot,
+        dismiss: Boolean,
+        dialogs: Boolean = true,
+        menus: Boolean = true,
+    ): List<String> = robot.callJs<String>(
+        """
+        var dismiss = $dismiss;
+        var lines = [];
+        function flat(s) {
+            if (s == null) return '';
+            var t = String(s).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
+            t = t.replace(/^ +| +$/g, '');
+            return t.length > 200 ? t.substring(0, 200) + '...' : t;
+        }
+        function collect(c, buttons, texts) {
+            if (!c.isShowing()) return;
+            if (c instanceof javax.swing.AbstractButton) {
+                var b = flat(c.getText());
+                if (b.length > 0) buttons.push(b);
+            } else if (c instanceof javax.swing.JLabel || c instanceof javax.swing.text.JTextComponent) {
+                var t = flat(c.getText());
+                if (t.length > 0) texts.push(t);
+            }
+            if (c instanceof java.awt.Container) {
+                var kids = c.getComponents();
+                for (var k = 0; k < kids.length; k++) collect(kids[k], buttons, texts);
+            }
+        }
+        if ($dialogs) {
+            // Newest first: a dialog opened from another dialog has to go before its parent.
+            var windows = java.awt.Window.getWindows();
+            for (var i = windows.length - 1; i >= 0; i--) {
+                var w = windows[i];
+                if (!(w instanceof java.awt.Dialog) || !w.isShowing()) continue;
+                // A floating tool window is a JDialog too, and is not a popup.
+                if (String(w.getClass().getName()).match(/Decorator${'$'}/)) continue;
+                var buttons = [], texts = [];
+                collect(w, buttons, texts);
+                lines.push('dialog "' + flat(w.getTitle()) + '"' +
+                    (buttons.length > 0 ? ' [' + buttons.join(' | ') + ']' : '') +
+                    (texts.length > 0 ? ': ' + texts.join(' / ') : ''));
+                if (dismiss) {
+                    var wrapper = com.intellij.openapi.ui.DialogWrapper.findInstance(w);
+                    if (wrapper != null) wrapper.doCancelAction();
+                    else w.dispatchEvent(new java.awt.event.WindowEvent(w, java.awt.event.WindowEvent.WINDOW_CLOSING));
+                }
+            }
+        }
+        var manager = com.intellij.notification.NotificationsManager.getNotificationsManager();
+        var seen = new java.util.HashSet();
+        var scopes = [null];
+        var projects = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects();
+        for (var p = 0; p < projects.length; p++) scopes.push(projects[p]);
+        for (var s = 0; s < scopes.length; s++) {
+            var notes = manager.getNotificationsOfType(com.intellij.notification.Notification, scopes[s]);
+            for (var n = 0; n < notes.length; n++) {
+                var note = notes[n];
+                if (note.isExpired() || !seen.add(note)) continue;
+                lines.push('notification [' + note.getGroupId() + '] ' + flat(note.getTitle()) + ': ' + flat(note.getContent()));
+                if (dismiss) note.expire();
+            }
+        }
+        if ($menus) {
+            // IdePopupManager is not reachable from here; these two are the public way in.
+            var factory = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance();
+            if (factory.isPopupActive()) {
+                lines.push('popup (a list, chooser or completion is open)');
+                if (dismiss) {
+                    var dispatcher = com.intellij.openapi.ui.popup.StackingPopupDispatcher.getInstance();
+                    for (var guard = 0; guard < 10 && factory.isPopupActive(); guard++) {
+                        if (!dispatcher.closeActivePopup()) break;
+                    }
+                }
+            }
+            // A right-click menu is a plain Swing JPopupMenu, outside the JBPopup stack.
+            var menus = javax.swing.MenuSelectionManager.defaultManager();
+            if (menus.getSelectedPath().length > 0) {
+                lines.push('menu (a context or main menu is open)');
+                if (dismiss) menus.clearSelectedPath();
+            }
+        }
+        lines.join('\n');
+        """.trimIndent(),
+        true,
+    ).lines().filter { it.isNotBlank() }
+
     /** Switches the IDE theme; a hardcoded color in the plugin's UI shows up immediately. */
     fun setTheme(robot: RemoteRobot, dark: Boolean) {
         val match = if (dark) "darcula" else "light"
