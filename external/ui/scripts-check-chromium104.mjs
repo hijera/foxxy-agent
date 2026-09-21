@@ -3,7 +3,7 @@
  *
  * The UI is embedded in an IntelliJ/PhpStorm 2022.3.3 plugin via JCEF, whose
  * Chromium is version 104 (see docs/contributing/intellij-embedding.md). This script scans
- * the built bundle (dist/styles.css + dist/app.js — including dependency
+ * the built bundle (dist/styles.css + dist/app.js + dist/events-worker.js — including dependency
  * code) for CSS/JS features newer than Chromium 104 and fails the build when
  * any are found. Wired into `npm run build:go` between `vite build` and the
  * go:embed sync.
@@ -82,8 +82,12 @@ root.walkDecls((decl) => {
 });
 
 // ── JS ─────────────────────────────────────────────────────────────────────
-const jsPath = path.join(dist, "app.js");
-const jsText = await readFile(jsPath, "utf8");
+// app.js is the page; events-worker.js is the SharedWorker the page starts to
+// share one GET /foxxycode/events connection between tabs. The IDE panels do not
+// start it (html[data-embed] takes its own stream), but it ships in the same
+// bundle and a desktop Chromium of the same age can load it, so it is held to the
+// same baseline.
+const jsFiles = ["app.js", "events-worker.js"];
 
 const jsBans = [
   [".toSorted(", "Array.prototype.toSorted (Chromium 110+)"],
@@ -98,13 +102,16 @@ const jsBans = [
   ["showOpenFilePicker", "showOpenFilePicker (secure-context FS Access API)"],
 ];
 
-for (const [token, what] of jsBans) {
-  const idx = jsText.indexOf(token);
-  if (idx !== -1) {
-    const ctx = jsText
-      .slice(Math.max(0, idx - 40), idx + token.length + 40)
-      .replace(/\s+/g, " ");
-    problems.push(`app.js @${idx}: ${what} — …${ctx}…`);
+for (const file of jsFiles) {
+  const jsText = await readFile(path.join(dist, file), "utf8");
+  for (const [token, what] of jsBans) {
+    const idx = jsText.indexOf(token);
+    if (idx !== -1) {
+      const ctx = jsText
+        .slice(Math.max(0, idx - 40), idx + token.length + 40)
+        .replace(/\s+/g, " ");
+      problems.push(`${file} @${idx}: ${what} — …${ctx}…`);
+    }
   }
 }
 

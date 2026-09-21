@@ -59,6 +59,14 @@ render as cards - a job as its fields, a run or a resume as its outcome - and a 
 shows its parameters and how each engine answered. The activity dot in History lights for
 every running chat, and a message taken back from the queue returns to the composer.
 
+**Many open tabs no longer block each other, and Stop takes effect at once.**
+A browser keeps only six connections to one server for all of its tabs, and each tab used
+to hold one for its events stream - past six tabs, no request went out at all. The tabs of
+one environment now share a single connection. Stop releases the turn's stream right after
+sending the cancel instead of waiting for the answer, so the cancel never waits for a free
+connection. The IntelliJ and VS Code panels, which are a single tab, keep a stream of their
+own.
+
 ## 0.3.13 — 2026-09-21
 
 **A chat names and files itself.**

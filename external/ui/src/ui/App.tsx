@@ -20,7 +20,7 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
-import { subscribeServerEvents } from "./chat/serverEvents";
+import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
@@ -114,6 +114,7 @@ import {
   getEnv,
   getRemoteToken,
   localFetch,
+  notifyLocalApiUnauthorized,
   returnToSwarm,
   snapshotEnv,
   subscribeEnv,
@@ -1229,6 +1230,9 @@ export function App() {
       turnActivity.get(sid) === true &&
       !postAbortBySidRef.current.has(sid) &&
       !relayAbortBySidRef.current.has(sid) &&
+      // A Stop in flight has released the stream on purpose; its outcome
+      // decides whether this turn is watched again.
+      !stopPendingBySidRef.current.has(sid) &&
       stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
     if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
     relayAttachPendingRef.current.add(sid);
@@ -4538,7 +4542,12 @@ export function App() {
 
   useEffect(() => {
     const ctl = new AbortController();
-    void subscribeServerEvents({
+    const env = getEnv();
+    void subscribeSharedServerEvents({
+      env,
+      onRefused: (status) => {
+        if (status === 401 && env.mode === "local") notifyLocalApiUnauthorized();
+      },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
@@ -4941,7 +4950,12 @@ export function App() {
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
-      if (reconcileOnExit) {
+      // A Stop releases this stream before the server answers (#283), and the
+      // server has not persisted what the turn wrote since its last message yet:
+      // a snapshot applied now would take that text off the screen. The turn's
+      // end reconciles the transcript once the cancel has persisted it, and a
+      // Stop that failed re-attaches through the relay.
+      if (reconcileOnExit && !userStoppedSidRef.current.has(key)) {
         const viewing = viewedSessionIdRef.current.trim();
         void loadMessages(key, { skipSetItems: viewing !== key });
       }
@@ -5539,26 +5553,37 @@ export function App() {
     applyStreamItemsForSession(sid, (prev) =>
       prev.filter((it) => it.id !== errorId),
     );
+    let fenced = false;
     try {
       // Always send the server-side cancel so Stop works even after page reload.
-      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-        signal: cancelCtl.signal,
-      });
+      const cancelled = fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
+      // Release this tab's stream of the turn before the answer, not after it.
+      // Over HTTP/1.1 a browser keeps six connections to a host for all of its
+      // tabs, and a few open tabs of FoxxyCode hold every one of them with event and
+      // turn streams: the cancel request then waits for a connection that only
+      // this abort frees. The turn does not depend on the stream, and a failed
+      // Stop rejoins it through the relay.
+      post?.abort();
+      relay?.abort();
+      const res = await cancelled;
       if (!res.ok) throw new Error(`cancel failed (${res.status})`);
-      // Abort only the captured connections. The acknowledgement neither proves
-      // idle nor gives an old Stop ownership of a newer turn in this session.
-      const current =
+      // The acknowledgement neither proves idle nor gives an old Stop ownership
+      // of a newer turn in this session.
+      fenced =
         !request.superseded &&
         turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
-      if (current) {
+      if (fenced) {
         stoppedTurnBySidRef.current.set(sid, generation);
+        void turnActivity.refresh(sid, false);
       }
-      post?.abort();
-      relay?.abort();
-      if (current) void turnActivity.refresh(sid, false);
     } catch {
       // The turn is still running and still ours to watch: a drop after a Stop
       // that never reached the server must re-attach like any other. Caught
@@ -5576,8 +5601,14 @@ export function App() {
       ]);
     } finally {
       window.clearTimeout(timer);
-      if (stopPendingBySidRef.current.get(sid) === request)
+      if (stopPendingBySidRef.current.get(sid) === request) {
         stopPendingBySidRef.current.delete(sid);
+        // The stream was released for a Stop that did not take this turn: the
+        // request failed, or a successor started meanwhile. Rejoin it without
+        // waiting for the next reconciliation tick, one task later, so the
+        // released stream has let go of the session before the attach looks.
+        if (!fenced) window.setTimeout(() => void turnActivity.refresh(sid), 0);
+      }
     }
   }
 

@@ -18,6 +18,10 @@ const patched = html
 await writeFile(path.join(uiRoot, "index.html"), patched);
 await cp(path.join(dist, "styles.css"), path.join(uiRoot, "styles.css"));
 await cp(path.join(dist, "app.js"), path.join(uiRoot, "app.js"));
+await cp(
+  path.join(dist, "events-worker.js"),
+  path.join(uiRoot, "events-worker.js"),
+);
 
 const docsAssets = path.join(uiRoot, "..", "..", "docs", "assets");
 const faviconFiles = [
@@ -41,6 +45,9 @@ const shipped = new Set([
   "styles.css",
   "app.js",
   "app.js.map",
+  // The SharedWorker that shares GET /foxxycode/events between tabs (copied above).
+  "events-worker.js",
+  "events-worker.js.map",
   ...(await readdir(path.join(uiRoot, "public"))),
 ]);
 const orphans = (await readdir(dist)).filter((name) => !shipped.has(name));
