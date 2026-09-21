@@ -31,6 +31,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	"github.com/hijera/foxxycode-agent/internal/tools"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
+	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -344,6 +345,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
+		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
@@ -377,6 +379,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:         webSearchSettings(a.cfg),
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -1550,10 +1553,12 @@ func (a *Agent) runReActLoop(
 			toolDefs = a.currentToolDefinitions(mode)
 			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
 			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
+			toolEnv.HTTPAllowlist = append([]string(nil), a.cfg.Tools.HTTPRequest.Allowlist...)
 			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
 			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
 			toolEnv.Background = a.backgroundPool(sd)
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
+			toolEnv.WebSearch = webSearchSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 			// The frozen system message described the configuration that was just
 			// replaced: its tool section, the skills catalogue, the response
@@ -1861,12 +1866,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
-	var sessCmdGrants, sessWriteGrants []string
+	var sessCmdGrants, sessWriteGrants, sessHTTPGrants []string
 	if st := sessionStatePtr(a.state); st != nil {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
+		sessHTTPGrants = st.GetPermissionHTTPGrants()
 	}
-	requiresPerm := permissionRequired(ok && tool.RequiresPermission, tc, env, sessCmdGrants, sessWriteGrants)
+	requiresPerm := permissionRequired(ok && tool.RequiresPermission, tc, env, sessCmdGrants, sessWriteGrants, sessHTTPGrants)
 
 	// A hook's allow skips the prompt; its ask forces one even in a mode that
 	// would auto-approve.
@@ -1879,6 +1885,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if tc.Name == toolweb.ToolHTTPRequest {
+			// Raw arguments would bury the address and the files in JSON;
+			// the prompt shows the request as it would go out.
+			promptBody = permission.HTTPRequestPromptBody(tc.InputJSON, env.CWD)
+		}
 		if tc.Name == "config_commit" {
 			// The commit call itself carries no arguments, so the dialog must
 			// show the staged commands it would apply (secrets redacted) -

@@ -149,7 +149,7 @@ The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`
 composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
 call sites such as **`internal/agent`** keep importing **`tools`** only.
 
-- **`internal/tools/web`** - **`websearch`** (DuckDuckGo text search) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
+- **`internal/tools/web`** - **`http_request`** (`http_request.go`: the curl-like tool, `ParseHTTPRequest` is the one validated value the tool sends and the permission gate in **`internal/permission/http.go`** decides on; `client.go`: the shared client - transport per route (proxy, certificate check), redirect policy, per-hop guard), **`websearch`** (several engines asked in parallel behind the `searchFn` seam, each reporting `ok` / `empty` / `blocked` / `error` so a backend that was turned away is named rather than counted as nothing found; merge deduplicated by normalised URL, relevance gate against decoy result sets) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
 
 Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 
@@ -280,7 +280,7 @@ filtered per turn by the disable switches. Ask and docs never receive MCP tools.
 
 ### Skills loader (`internal/skills`)
 
-Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.foxxycode/skills`** (foxxycode-specific), **`${CWD}/.foxxycode/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
+Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.foxxycode/skills`** (foxxycode-specific), **`${CWD}/.foxxycode/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. The **standard delivery** - the skills the binary carries in **`internal/skills/bundled/`** - is prepended below all of them, and is also written into **`~/.foxxycode/skills`** on first sight (**`internal/skills/seed.go`**), so the copy on disk is what a session actually reads and the in-binary one is the fallback for a home that could not be written.
 
 ### Subagents (`internal/subagents`)
 

@@ -142,6 +142,8 @@ export function statusKeyForTool(toolName: string): string {
       return "status.webSearch";
     case "webfetch":
       return "status.webFetch";
+    case "http_request":
+      return "status.httpRequest";
     case "load_skill":
       return "status.skill";
     case "plan_write":

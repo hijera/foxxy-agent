@@ -149,7 +149,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills.dirs` | list of strings | ["~/.agents/skills","${FOXXYCODE_HOME}/skills","${CWD}/.foxxycode/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime. |
-| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. |
+| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/skills.md. |
 | `skills.auto_discovery` | boolean | true | Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true. |
 
 ### `rules`
@@ -218,6 +218,17 @@ Filesystem and shell policy for built-in tools.
 | `tools.background.default_timeout_seconds` | integer | 900 | Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default. |
 | `tools.background.max_timeout_seconds` | integer | 3600 | Ceiling applied to any requested or estimate-derived timeout. 0 uses the default. |
 | `tools.background.output_buffer_bytes` | integer | 262144 | How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default. |
+| `tools.websearch` | object |  | Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a blocked backend is named rather than counted as "the web has nothing". |
+| `tools.websearch.engines` | list of strings | ["brave","bing"] | Search engines to ask, in merge order. Unset asks brave then bing. "ddg" and "google" are not asked by default: measured from a server, DuckDuckGo answers every query with an anti-bot interstitial and Google renders its results in the browser. "searxng" needs searxng_url. |
+| `tools.websearch.engine_timeout_seconds` | integer | 8 | Seconds one engine may take before it is reported as unavailable. 0 uses the default. |
+| `tools.websearch.total_timeout_seconds` | integer | 20 | Seconds the whole search may take, however many engines it asks. 0 uses the default. |
+| `tools.websearch.max_concurrent_engines` | integer | 4 | How many engines are asked at once. 0 uses the default. |
+| `tools.websearch.snippet_chars` | integer | 320 | Maximum characters of one result description. 0 uses the default. |
+| `tools.websearch.cache_ttl_seconds` | integer | 300 | Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off. |
+| `tools.websearch.searxng_url` | string | "" | Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose. |
+| `tools.websearch.brave_api_key` | string | "" | Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${FOXXYCODE_HOME}/.env), so the key need not be stored here. |
+| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://foxxycode.dev/docs/features/http-requests. |
+| `tools.http_request.allowlist` | list of strings | [] | Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). "*" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy. |
 
 ### `subagents`
 

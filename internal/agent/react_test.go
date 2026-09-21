@@ -25,6 +25,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	"github.com/hijera/foxxycode-agent/internal/tools"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
+	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
 // --- Shared test doubles ---------------------------------------------------
@@ -2262,6 +2263,28 @@ func TestApplySessionFilingClearsTheTagsOnAnEmptyList(t *testing.T) {
 	}
 	if len(filing.Filing.Tags) != 0 {
 		t.Fatalf("got %v, want no tags", filing.Filing.Tags)
+	}
+}
+
+// http_request sends whatever the model asks to whatever address it names, so
+// the owner kept it to the two modes that already change things. plan, docs and
+// ask read the web through websearch and webfetch, which refuse a private
+// address and cannot be shaped into an upload.
+func TestHTTPRequestIsOnlyOfferedToAgentAndDebug(t *testing.T) {
+	for _, mode := range []string{"plan", "docs", "ask"} {
+		if ToolSetForMode(mode, false).Allows(toolweb.ToolHTTPRequest) {
+			t.Errorf("%s mode is offered http_request", mode)
+		}
+	}
+	for _, mode := range []string{"agent", "debug"} {
+		if !ToolSetForMode(mode, false).Unrestricted() {
+			t.Errorf("%s mode is no longer unrestricted", mode)
+		}
+	}
+	// ask refuses a hidden call at execution time too, which is what holds when
+	// a model echoes one out of history recorded in agent mode.
+	if _, refused := toolCallRefusedByMode("ask", toolweb.ToolHTTPRequest, false); !refused {
+		t.Error("ask mode would run an http_request echoed from history")
 	}
 }
 

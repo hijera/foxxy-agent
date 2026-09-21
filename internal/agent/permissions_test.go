@@ -70,7 +70,7 @@ func TestPermissionRequired(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := permissionRequired(tt.registryRequires, tt.tc, toolsEnv(tt.mode, tt.commandAllowlist), tt.sessCmdGrants, tt.sessWriteGrants)
+			got := permissionRequired(tt.registryRequires, tt.tc, toolsEnv(tt.mode, tt.commandAllowlist), tt.sessCmdGrants, tt.sessWriteGrants, nil)
 			if got != tt.wantPermissionReq {
 				t.Fatalf("permissionRequired(%q, %q) = %v, want %v", tt.mode, tt.tc.Name, got, tt.wantPermissionReq)
 			}

@@ -1424,4 +1424,10 @@ export const messagesRu: Record<string, string> = {
   "sessions.tags.editRow": "Править теги",
   "sessions.tags.done": "Готово",
   "tool.name.session_describe": "правлю название и теги сессии",
+  "settings.skills.systemSource":
+    "Встроен в FoxxyCode: работает без записи в config.yaml и не удаляется",
+  "prompts.allowAlwaysTarget": "Всегда разрешать {target}",
+  "tool.name.http_request": "отправляю http-запрос",
+  "prompts.permissionQuestion.httpRequest": "Отправить этот HTTP-запрос?",
+  "status.httpRequest": "Отправляю запрос",
 };

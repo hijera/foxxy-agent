@@ -1,5 +1,6 @@
 ---
 name: configure-foxxycode
+version: 1.0.0
 description: "Change FoxxyCode's own configuration when the user asks for it: edit settings, providers, models, logging, permissions, or find, install, update, and remove MCP servers and skills. Stages UCI-style commands and commits only after the user confirms saving. Load when the user explicitly asks to change a FoxxyCode setting, or when the request implies it (install an MCP server, add a skill, switch a model, roll back the config). Do not load for ordinary coding or unrelated tasks."
 ---
 
@@ -56,7 +57,8 @@ The active YAML file covers these areas (full field tables: https://github.com/h
 - `rules` - rules discovery: `auto_discover` scans `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session workspace, plus the operator's own `${FOXXYCODE_HOME}/rules`, which applies in every workspace; `systems` narrows that to some of `user`, `foxxycode`, `agents-dir`, `cursor`, `claude`, `codex`, `agents`;
 - `mcp_servers` - MCP servers started per session (stdio command, args, env; url and headers for the http/sse transports; `insecure_skip_verify` to accept a self-signed TLS certificate; disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
-- `tools` - permission mode, command allowlist, permission prompt timeout (`permission_timeout_seconds`, 0 waits forever), background execution, output limits, SSH timeouts;
+- `tools` - permission mode, command allowlist, permission prompt timeout (`permission_timeout_seconds`, 0 waits forever), background execution, output limits, SSH timeouts, and `tools.websearch`: the search engines the `websearch` tool asks in merge order (`engines`, `brave` then `bing` by default;
+
 - `hooks` - operator commands run at lifecycle points of a session (before and after a tool call: deny it, approve it past the permission prompt, rewrite its arguments, add context): the definition files (`files`, Claude Code's JSON shape, `~/.foxxycode/hooks.json` plus the workspace's `.foxxycode/hooks.json` and `.claude/settings*.json`), the trust policy for files found inside the workspace (`project_trust`: `ask` lists them but runs nothing until the file is approved on the machine running foxxycode with `foxxycode hooks trust <file>` there or `POST /foxxycode/hooks/trust`; `allow` runs them like the operator's own file; `deny` never reads them), the per-hook default timeout (`default_timeout_seconds`), the Stop-hook loop cap (`stop_loop_limit`) and the output cap (`max_output_chars`). To let a trusted checkout's hooks run without approvals, stage `set hooks.project_trust=allow`; to switch hooks off, `set hooks.enable=false`;
 - `logger` - level, outputs, rotation;
 - `sessions` - session bundle storage;
@@ -85,7 +87,9 @@ The selector forces the stored `name` to match. After the user confirms and `con
 
 ## Skills
 
-FoxxyCode discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${FOXXYCODE_HOME}/skills`, and `${CWD}/.foxxycode/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `foxxycode http` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
+FoxxyCode discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${FOXXYCODE_HOME}/skills`, and `${CWD}/.foxxycode/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `foxxycode http` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them; `EvilFreelancer/rpa-skills` is a system source, always in effect beside that key and never inside it, so never stage it into `skills.sources` and tell an operator who asks to remove it that it is built into FoxxyCode - what they can do instead is disable the individual skills.
+
+The binary carries a standard delivery of skills - `configure-foxxycode` and the `rpa-*` workflow skills - and writes them into `${FOXXYCODE_HOME}/skills` the first time it sees they are missing, recording what it handed over in `${FOXXYCODE_HOME}/skills/.bundled.json`. They are ordinary skills once written: editable, disable-able, deletable. A release carrying a newer version of one replaces the copy on disk, and so does a release meeting a copy that declares no `version:` at all - so tell a user who has edited a delivered skill to raise its `version:` above the delivered one. A skill they deleted is not written again.
 
 Prefer FoxxyCode's installer for remote sources:
 

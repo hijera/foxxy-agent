@@ -2455,7 +2455,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2994,7 +2994,8 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "foxxycode.skills_sources"},
-											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Every source in effect: the built-in ones first, then what skills.sources names."},
+											"system": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The subset of items FoxxyCode brings itself. They are not in config.yaml, DELETE refuses them, and a client should offer no remove control for them."},
 										},
 									},
 								},
@@ -3029,7 +3030,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Remove a remote skill source",
-					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400, and so does a source listed under **`system`** by `GET /foxxycode/skills/sources`: those are built into FoxxyCode and are not in the file.",
 					"operationId": "removeSkillSource",
 					"parameters": []interface{}{
 						map[string]interface{}{

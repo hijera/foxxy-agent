@@ -242,6 +242,27 @@ test("toolCallTargetText returns empty without usable arguments", () => {
   expect(toolCallTargetText({ title: "read" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "{}" })).toBe("");
+});
+
+test("an http_request names its method and address, never a path", () => {
+  const context = {
+    title: "http_request",
+    argsText:
+      '{"method":"patch","url":"https://api.x.dev/items/7","body_file":"src/a.json"}',
+  };
+  expect(toolCallTargetText(context)).toBe("PATCH https://api.x.dev/items/7");
+  expect(
+    toolCallTargetText({
+      title: "http_request",
+      argsText: '{"url":"http://localhost:8080/health"}',
+    }),
+  ).toBe("http://localhost:8080/health");
+  expect(buildToolCallPreview(context).title).toBe("Send this HTTP request?");
+});
+
+test("toolCallTargetText stays empty when there is nothing to name", () => {
+  // A question carries its prompt, not a target; a call whose arguments have not
+  // streamed in yet has to render as a bare verb rather than as "undefined".
   expect(
     toolCallTargetText({
       title: "spawn_agent",

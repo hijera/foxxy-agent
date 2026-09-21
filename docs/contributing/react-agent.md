@@ -419,7 +419,7 @@ Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git wo
 Representative builtins (excluding MCP-namespaced tools):
 
 - `read_file`, `write_file`, `write_text_file`, `list_dir`, `search_files`
-- `search_web`, `extract_page_content`
+- `websearch`, `webfetch`, `http_request`
 - `run_command`, `apply_diff`
 - Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
 - Session checklist: **`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**, **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**, **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**
@@ -432,7 +432,7 @@ Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no 
 Representative builtins exposed to the LLM (registry allowlist):
 
 - `read_file`, `list_dir`, `search_files`
-- `search_web`, `extract_page_content`
+- `websearch`, `webfetch`
 - `run_command`
 
 Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
