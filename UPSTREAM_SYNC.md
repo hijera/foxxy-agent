@@ -2173,8 +2173,60 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 ### Отложено
 
 - Кадр консоли `--remote` для #249 — нет pty-стенда на Windows.
-- Живой прогон на NeuralDeep и проверка панелей IntelliJ (JCEF) и VS Code вживую — после мерджа
-  стека.
+- ~~Живой прогон на NeuralDeep и проверка панелей IntelliJ (JCEF) и VS Code вживую — после мерджа
+  стека.~~ Сделано 2026-09-21 на сборках каждого PR до мерджа (набор `examples/httpserver`,
+  точечные live-скрипты, OpenIDE Pro, песочница JCEF, VS Code).
+
+## Волна `04198c85 → e8c15305` (теги `1.1.42`–`1.1.45`) — ГОТОВО
+
+**17 не-merge коммитов в 4 first-parent мерджах** (2026-09-17…09-18), **107 файлов у upstream**
+(+6 803 / −386, из них ~5 000 — новый `internal/tgfake`). Тег `1.1.45` — аннотированный объект
+`008a09ba` на коммите `e8c15305`. Пять коммитов #285 (`tgfake`, `allowed_updates`, документация
+стенда, Windows-переносимость) написаны владельцем форка и ушли в upstream, так что в форк они
+возвращаются ребрендом. Новых внешних зависимостей нет. Порт — один PR, по коммиту на upstream PR,
+в порядке тегов: хунки #288 в `codex_test.go` стоят на тестах #286.
+
+| Коммит | Upstream | Тег | Что |
+| --- | --- | --- | --- |
+| `fix: direct chat completions honour their options…` | #286 (`02cdc5b5`) | `1.1.42` | прямая модель в `POST /v1/chat/completions` берёт `max_tokens` / `max_completion_tokens`, `temperature` (и `0`) и `reasoning_effort` запроса на один запрос (`llm.RequestOptions`), без уровня — `reasoning_default`; недопустимое — 400 до сессии и провайдера. Codex-стрим закончен только `response.completed` / `response.incomplete` (`max_tokens`, `content_filter`), `response.failed` несёт код, сбой после дельт не переигрывается |
+| `fix(config): warn that max_tokens bounds nothing on a codex model` | #288 (`4be480ef`) | `1.1.43` | `-t`, `--dry-run` и лог старта предупреждают о `max_tokens` на codex-модели |
+| `fix(llm): retry a TLS handshake or dial that never completed` | #294 (`7c338eb2`) | `1.1.44` | ретрай `TLS handshake timeout`, dial-таймаута и временной ошибки DNS; раздел в troubleshooting |
+| `feat(gateway): an offline Telegram stand (tgfake)…` | #285 (`e8c15305`) | `1.1.45` | `internal/tgfake` + `cmd/tgfake` (фейковый Bot API, `/sim/*`, страница чата, `llmstub`), бот читает `FOXXYCODE_TELEGRAM_API_BASE` и шлёт `allowed_updates`, CI-джоб `gateway` гоняет `examples/gateway/tg_e2e_offline.sh`; этот файл |
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Нарезка | Один PR, четыре коммита — по одному на upstream PR |
+| Живой прогон | NeuralDeep после гейтов; Codex — только на заглушках (входа ChatGPT на стенде нет) |
+| Скриншот стенда | Переснят с форковой сборки (`@foxxycode_fake_bot`), а не взят у upstream |
+
+### Расхождения с upstream
+
+- **Провайдеры.** Форковый `withTuning` (stop, deterministic, noThinking) остаётся рядом с новым
+  `tempSet`: конструктор `.withTuning(p)`, затем `tempSet`.
+- **Codex-стрим.** Форковые чанки прогресса (`response.completed`, reasoning-элемент, `default:`)
+  сохранены, но идут через `progress()` с проверкой на `nil`: upstream теперь зовёт `Stream` из
+  `Complete` без колбэка, и прямой вызов `onChunk` упал бы. Прогресс по-прежнему мимо `emit`.
+- **Прямая модель** в форке не получает `Timeout` из `models[].timeout_ms` — такого ключа в форке нет.
+- **Профили.** `openapi.go` и `docs/reference/http-api.md` перечисляют и `docs`/`debug` там, где
+  upstream пишет `agent`/`plan`/`ask`.
+- **Windows-коммит #285 (`5177dcd3`)** лёг в основном на код, где форк уже решил то же своим
+  способом (`readFile`/`assetSize` в docsgen, симлинки из индекса git в `image_assets_test.go`,
+  пропуски POSIX-прав в тестах) — осталась сторона форка, а новые тесты upstream теперь её
+  проверяют. Из upstream взяты `GOEXE` в `Makefile` (на Windows сборка пишет
+  `build/foxxycode.exe`, форковая копия `DOCS_BINARY` для `make docs` больше не нужна) и сравнение
+  `Stale` через `normalize`.
+- **`examples/build_foxxycode.sh`** собирает форковый набор тегов плюс `gateway` (без `cli`, как и
+  раньше в форке).
+
+### Нашлось по дороге
+
+- `docs/getting-started/configuration.md` в форке называл переменную `CODDY_TELEGRAM_API_BASE` —
+  пропущенный ребренд; теперь `FOXXYCODE_TELEGRAM_API_BASE`.
+- На Windows-чекауте с CRLF четыре SPA-теста (`backgroundTaskCss`, `composerQueueCss`) падают:
+  они ищут правила в тексте `styles.css`; с LF-копией проходят. Волна SPA не трогает; на Linux в
+  CI это не видно.
 
 ---
 
@@ -2182,12 +2234,26 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 
 | Поле | Значение |
 | --- | --- |
-| **Дата** | 2026-09-19 … 2026-09-21 (порт; стек PR открыт, мердж — по порядку #115 → #116 → #117 → #118) |
+| **Дата** | 2026-09-23 (порт) |
+| **Синхронизировано до `upstream/main`** | `e8c15305` (2026-09-18) |
+| **Ближайший upstream-тег** | `1.1.45` (аннотированный объект `008a09ba`) |
+| **Наш коммит-порт** | один PR, четыре коммита; см. таблицу волны выше |
+| **Гейты** | `go test` со всеми тегами (`http,ui,scheduler,memory,cli,browser,gateway,swarm`, 67 пакетов) и без тегов; `make lint` (0 issues на всех наборах тегов), `make lint-windows`, `make check-windows`, `make docs-check`, `make site-schema-check`. SPA-часть `make test` (vitest): 2060 из 2064, четыре CSS-теста падают только на CRLF-чекауте Windows (см. «Нашлось по дороге»). Каждый новый тест upstream сначала запущен на коде до порта: терминальные состояния Codex, предупреждение `-t`, классификация TLS/dial и `allowed_updates` падали. Матрица тегов, Windows и macOS — в CI |
+| **Живой прогон** | 2026-09-23, NeuralDeep (`qwen3.8-27b-noreason`, `gpt-oss-120b`), 15 из 15: тело запроса к провайдеру (debug capture) несёт `max_tokens`/`temperature` запроса, затем снова настроенные, `temperature: 0` и `max_completion_tokens`; расходящиеся лимиты, неизвестный уровень и уровень у модели без уровней — 400 без вызова провайдера; `reasoning_effort: high` доходит, без него — `reasoning_default` и `metadata.reasoning_effort`; поток с `finish_reason: length` и `[DONE]`; форковые enhance-prompt и ход агента; `config.yaml` не изменился; `-t` на codex-модели с `max_tokens` — предупреждение. Офлайн-стенд `examples/gateway/tg_e2e_offline.sh` проходит в Git Bash на Windows; с него же снят кадр страницы чата |
+| **Отложенные follow-up** | нет |
+
+---
+
+## Предыдущая синхронизация (`45aee1ec → 04198c85`)
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-19 (порт) … 2026-09-22 (все PR смерджены: #115 = 0.3.12, #116 = 0.3.13, #117 = 0.3.15, #118 = 0.3.16) |
 | **Синхронизировано до `upstream/main`** | `04198c85` (2026-09-19) |
 | **Ближайший upstream-тег** | `1.1.41` (аннотированный объект `cb8a95c6`) |
 | **Наш коммит-порт** | #115, #116, #117 и #118, стеком; см. таблицу волны выше |
 | **Гейты** | на каждом PR: `make test` (экспресс-прогон: `ui-build`, `tsc` и vitest — к #118 это 254 файла и 2060 тестов, затем `go test` со всеми тегами), `make lint` (0 issues на всех наборах тегов), `make docs-check`, `make site-schema-check`. Матрица тегов, Windows и macOS — в CI |
-| **Живой прогон** | На локальных заглушках (OpenAI-совместимая модель, SearXNG, фикстурное API) против собранных `http,ui`-бинарей каждой ветки — headless Chrome: кольцо контекста и строка компакции, неудавшийся «Стоп» (#115); «История» с тегами, закреплениями, меню фильтра и редактором тегов (#116); системный источник скилов, карточка разрешения `http_request` и его ответ (#117); кнопка «вниз», строка поиска, карточки планировщика (#118, с кадрами «до» на сборке #117). NeuralDeep и панели IDE вживую — после мерджа |
+| **Живой прогон** | На локальных заглушках (OpenAI-совместимая модель, SearXNG, фикстурное API) против собранных `http,ui`-бинарей каждой ветки — headless Chrome: кольцо контекста и строка компакции, неудавшийся «Стоп» (#115); «История» с тегами, закреплениями, меню фильтра и редактором тегов (#116); системный источник скилов, карточка разрешения `http_request` и его ответ (#117); кнопка «вниз», строка поиска, карточки планировщика (#118, с кадрами «до» на сборке #117). 2026-09-21 — NeuralDeep (набор `examples/httpserver` и точечные скрипты) и панели IDE вживую на сборках каждого PR |
 | **Отложенные follow-up** | см. «Отложено» в разделе волны выше |
 
 ---
@@ -2371,7 +2437,7 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 04198c85..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges e8c15305..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.

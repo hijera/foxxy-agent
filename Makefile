@@ -36,7 +36,8 @@ LDFLAGS := -X github.com/hijera/foxxycode-agent/internal/version.Version=$(VERSI
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/foxxycode
+GOEXE := $(shell go env GOEXE)
+BINARY := $(BUILD_DIR)/foxxycode$(GOEXE)
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory cli browser gateway swarm
@@ -130,7 +131,7 @@ install:
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/foxxycode
+	cp $(BINARY) $(INSTALL_DIR)/foxxycode$(GOEXE)
 	cp packaging/man/foxxycode.1 $(MAN_DIR)/foxxycode.1
 	@echo "Installed to $(INSTALL_DIR)/foxxycode and $(MAN_DIR)/foxxycode.1"
 
@@ -183,19 +184,16 @@ brew-check:
 # binary. docs-check regenerates into memory and fails on drift, on a page missing
 # from nav.yaml, on a broken relative link or anchor, and on an asset nothing uses.
 #
-# Windows starts a program only under a name with an executable extension, and
-# build writes $(BINARY) without one, so the help screens are read from a copy.
-DOCS_BINARY := $(BINARY)$(if $(filter Windows_NT,$(OS)),.exe,)
+# $(BINARY) carries Go's executable suffix (GOEXE), so on Windows the help
+# screens are read from build/foxxycode.exe directly.
 
 docs:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
-	$(if $(filter Windows_NT,$(OS)),cp $(BINARY) $(DOCS_BINARY))
-	go run ./cmd/docsgen -write -foxxycode $(DOCS_BINARY) -tags "$(FULL_TAGS_CSV)"
+	go run ./cmd/docsgen -write -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
 
 docs-check:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
-	$(if $(filter Windows_NT,$(OS)),cp $(BINARY) $(DOCS_BINARY))
-	go run ./cmd/docsgen -foxxycode $(DOCS_BINARY) -tags "$(FULL_TAGS_CSV)"
+	go run ./cmd/docsgen -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
 
 # docs-fast regenerates everything but the CLI reference, so a machine without
 # Node (the ui tag needs the SPA build) can still refresh the hub, the llms

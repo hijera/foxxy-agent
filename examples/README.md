@@ -32,12 +32,25 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | Path | Role |
 |------|------|
 | **`config.demo.yaml`** | Shared YAML for demos (models, scheduler, skills dirs, logger placeholder **`__E2E_LOG_PATH__`** where scripts rewrite it). |
-| **`build_foxxycode.sh`** | **`make build TAGS="http scheduler memory"`** then **`./build/foxxycode -v`**. |
+| **`build_foxxycode.sh`** | **`make build TAGS="http scheduler memory gateway"`** then **`./build/foxxycode -v`**. |
 | **`httpserver/`** | HTTP Python harnesses, **`test_httpserver.sh`**, **`docker.sh`**. |
 | **`acp/`** | ACP Python harnesses and **`test_acp.sh`**. |
+| **`cli/`** | Console TUI harnesses and **`test_cli.sh`** (pty-driven, Linux-only). |
+| **`gateway/`** | **`tg_e2e_offline.sh`** (wrapper **`test_gateway.sh`**): the Telegram bot against the fake Bot API and scripted model of **`cmd/tgfake`**, no Telegram and no LLM involved (bash, Git Bash on Windows included). |
 | **`shared/`** | **`scheduler_e2e_common.py`**, **`plan_e2e_common.py`**, **`ask_e2e_common.py`** for paired e2e harnesses. |
 | **`agents_fixture/`** | Project-scope subagent definition **`.foxxycode/agents/marker-reporter.md`** (read-only, reports the `MARKER:` line of a named file); each **`e2e_subagents`** script copies it into its work dir and approves it before the spawn. |
 | **`skills_fixture/`** | Bundled skill for slash-command HTTP demo (copied into **`$FOXXYCODE_HOME/skills_fixture`** by **`test_httpserver.sh`**). |
+
+## Telegram offline stand
+
+```bash
+./examples/build_foxxycode.sh
+./examples/test_gateway.sh                        # boots tgfake --llm and foxxycode serve --gateway, sends "hello", checks the reply
+TG_E2E_KEEP=1 ./examples/test_gateway.sh             # leaves both running and prints the chat page URL
+RICH_MESSAGES=true ./examples/test_gateway.sh
+```
+
+Knobs: **`TG_PORT`** (18790), **`LLM_DELAY`** (50ms), **`TG_VERBOSE`** (one line per Bot API call), **`FOXXYCODE_BIN`**. Guide: [Debugging against a fake Bot API](../docs/surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## HTTP gateway
 
