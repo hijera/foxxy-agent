@@ -16,6 +16,13 @@ text written so far stays and the stop is reported as a limit, not as a normal e
 turn; a stream cut midway is an error and is retried only while nothing has reached the
 screen yet, so no text is shown twice.
 
+**A network failure before the model answers is retried instead of ending the turn.**
+When the connection to the provider never came up — a TLS handshake that hung, an address
+that did not answer for a moment, a link cut by a reconnecting VPN or a large download on
+the same machine — the request never reached the server, so FoxxyCode repeats it with the
+usual backoff instead of failing the turn with `TLS handshake timeout`. What to do when the
+error still arrives is in the Troubleshooting guide.
+
 ## 0.3.16 — 2026-09-21
 
 **A steadier transcript: a jump-to-bottom button, paths relative to the project, honest question cards.**
