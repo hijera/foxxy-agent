@@ -407,10 +407,11 @@ ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`*
 debug:
   # Off by default and free when off. When true: forces the process logger to
   # debug level (overriding logger.level), captures raw LLM HTTP request and
-  # response bodies, and writes <session>/debug_trace.jsonl.
+  # response bodies, traces every LLM connection (proxy route, dial, TLS,
+  # silences, how each request ended), and writes <session>/debug_trace.jsonl.
   enable: false
   # Gates only the raw body capture. Omit to follow `enable`. Set to false to
-  # keep debug logs and the trace while suppressing bodies, which carry the whole
+  # keep debug logs and both traces while suppressing bodies, which carry the whole
   # conversation including the contents of every file the agent read.
   # capture_llm: false
 ```

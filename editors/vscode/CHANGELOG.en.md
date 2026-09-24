@@ -8,6 +8,18 @@
 
 # FoxxyCode for VS Code changes
 
+## Unreleased — 2026-09-24
+
+**A detailed network log in debug mode.**
+With `debug.enable` on, the FoxxyCode log now spells out every request to the model step by
+step: whether it goes through a proxy or direct, how the connection to the proxy went, the
+`CONNECT` or SOCKS tunnel and TLS, whether an already open connection was reused, when the
+first byte arrived and how the request ended. While a request is silent the log says every
+15 seconds which step it is stuck in, and when the agent cut it itself (no first token, or an
+answer that went quiet halfway) the log says which guard did. That is what a turn hanging for
+hours on "Provider is not responding, retrying" can be read from. Messages about retried model
+requests now reach the log file: they used to go to stderr and were lost.
+
 ## 0.3.19 — 2026-09-24
 
 **An "Animations and translucency" switch.**
