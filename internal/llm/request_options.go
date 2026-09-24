@@ -10,9 +10,8 @@ type RequestOptions struct {
 	// MaxTokens caps the output of this request; nil keeps the model's max_tokens.
 	MaxTokens *int
 	// Temperature replaces the model's temperature; nil keeps it. Zero is a
-	// temperature like any other and is sent as 0, and a reasoning level next
-	// to it does not keep it off the request: whether a model takes both is
-	// the backend's to answer.
+	// temperature like any other and is sent as 0. A requested temperature
+	// travels next to a reasoning level when the provider permits that pair.
 	Temperature *float64
 	// ReasoningEffort is the reasoning level of this request, already checked
 	// against the levels the model offers (the caller's own, or the model's
@@ -45,6 +44,9 @@ func (o RequestOptions) Validate(providerType string) error {
 		}
 		if t := *o.Temperature; t < 0 || t > highest {
 			return fmt.Errorf("temperature must be between 0 and %g", highest)
+		}
+		if providerType == "anthropic" && *o.Temperature != 1 && anthropicThinkingBudget(o.ReasoningEffort, 0) >= anthropicMinThinkingBudget {
+			return fmt.Errorf("temperature must be 1 when Anthropic thinking is enabled")
 		}
 	}
 	if o.MaxTokens != nil && providerType == "anthropic" {
