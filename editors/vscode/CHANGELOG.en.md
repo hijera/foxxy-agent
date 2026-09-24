@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-24
+## 0.3.19 — 2026-09-24
 
 **An "Animations and translucency" switch.**
 **Settings → Appearance** has a new switch that turns off the animations and the translucent

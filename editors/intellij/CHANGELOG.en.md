@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-24
+## 0.3.19 — 2026-09-24
 
 **The IDE no longer slows down while a turn runs in the panel.**
 In 2023.x IDEs the panel renders off-screen, and every frame of the page is copied into the
