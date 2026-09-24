@@ -552,6 +552,9 @@ export const schemaTextRu: Record<string, string> = {
   "Status line": "Строка статуса",
   "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.":
     "Показывать рядом с анимированными точками строку статуса: текущий инструмент и над чем он работает, ожидание ответа модели и прошедшее время. Выключите, чтобы остались только точки.",
+  "Animations and translucency": "Анимации и прозрачность",
+  "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else.":
+    "Показывать визуальные эффекты интерфейса: долгие анимации и полупрозрачные панели с размытием (без них панели становятся непрозрачными своего цвета). Значение пишет переключатель в Настройки → Оформление, оно общее для всех клиентов. Если ключ не задан, действует умолчание клиента: в панели IntelliJ эффекты выключены (она рисуется вне экрана и копирует каждый кадр в IDE, а это тормозит IDE, особенно без GPU), в остальных — включены.",
 
   // Browser tool
   "Browser tool": "Инструмент браузера",

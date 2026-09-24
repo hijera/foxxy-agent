@@ -618,6 +618,10 @@ logger:
 #                         #   "off"        keyboard send disabled (Send button only)
 #   status_line: true     # false = only animated dots while the agent works, no live
 #                         # status label (current tool / waiting for the model / elapsed)
+#   effects: true         # animations and translucent glass panels, in every client;
+#                         # unset = the client's default: off in the IntelliJ panel (JCEF
+#                         # copies every frame into the IDE), on elsewhere. Written by
+#                         # Settings -> Appearance
 
 # Interactive browser automation tool (built with -tags browser; disabled by default).
 # Drives a local Chrome/Chromium over the DevTools Protocol via chromedp.

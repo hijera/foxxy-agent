@@ -406,6 +406,7 @@ Embedded SPA preferences for desktop and HTTP UI.
 | `ui.locale` | string, one of `""`, `en`, `ru` | "" | UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale. |
 | `ui.send_mode` | string, one of `enter`, `ctrl_enter`, `off` | enter | How the main chat composer submits a message. "enter": Enter sends (Shift/Ctrl+Enter insert a newline). "ctrl_enter": Ctrl/Cmd+Enter sends (Enter inserts a newline). "off": disable keyboard send (Send button only). |
 | `ui.status_line` | boolean | true | Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Set false to show only the animated dots. Unset defaults to true. |
+| `ui.effects` | boolean |  | Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else. |
 
 ### `scheduler`
 

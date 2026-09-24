@@ -5377,6 +5377,120 @@ button.at-range-line--sel:hover {
   margin-bottom: 12px;
 }
 
+/*
+ * Reduced visual effects: <html data-effects="reduced"> (ui/theme/uiEffects.ts).
+ * The default in the IntelliJ panel, one switch in Appearance brings everything
+ * back; every other host starts with full effects.
+ *
+ * JCEF renders the IntelliJ panel off-screen (the default in 2022.3-2026.2 IDEs):
+ * every frame the page paints is copied into the IDE on its UI thread, so an
+ * animation that never ends slows the whole IDE for as long as it runs - the
+ * bouncing typing dots for the length of every turn, the dark hero title whenever
+ * the panel is open. Measured in PyCharm 2023.3 with the GPU off: ~5% of the IDE's
+ * UI thread during a turn, 1-2% with these stopped, and 5.4% -> 0.3% with the panel
+ * open and idle on the dark start screen. The indicators stay, standing still; the
+ * live status line next to the dots keeps counting seconds.
+ *
+ * The frosted glass loses its 52px backdrop blur: blurring what scrolls under a
+ * panel is recomputed on every repaint, in software without a GPU. The panels turn
+ * opaque in the colour they showed, and the canvas keeps its gradient and glow (a
+ * flattened canvas was tried and looked worse). Guarded by reducedEffectsCss.test.ts.
+ */
+[data-effects="reduced"] .hero-title-accent,
+[data-effects="reduced"] .session-activity-dot,
+[data-effects="reduced"] .session-question-icon,
+[data-effects="reduced"] .bgtask-dot--running {
+  animation: none;
+}
+
+/* The typing dots keep a slow glow instead of the bounce: each takes its turn in
+   the accent colour, in six steps over three seconds. Stepped and colour-only, so
+   the page repaints a few times a second rather than every frame. Measured idle
+   with the GPU off: ~0.2% of the IDE's UI thread, against 3.6-5.4% for the CSS
+   bounce, 5.5% for the same cycle eased, and 2.3% for the bounce as a 12 fps
+   animated WebP (a picture's frames are repainted and copied just the same). */
+@keyframes typing-dot-glow {
+  50% {
+    background-color: var(--accent);
+  }
+}
+
+[data-effects="reduced"] .typing-dots-dot {
+  animation: typing-dot-glow 3s steps(6, end) infinite;
+}
+
+[data-effects="reduced"] .typing-dots-dot:nth-child(2) {
+  animation-delay: 1s;
+}
+
+[data-effects="reduced"] .typing-dots-dot:nth-child(3) {
+  animation-delay: 2s;
+}
+
+/* html[...] (0,1,1) outranks the :root / [data-theme] token blocks (0,1,0). */
+html[data-effects="reduced"] {
+  --foxxycode-glass-panel-backdrop: none;
+  --foxxycode-plan-eye-bg: var(--foxxycode-canvas-gradient-top);
+}
+
+/* Without the blur a translucent tint lets the transcript read straight through the
+   sticky header and the top bar (the dark themes tint the header only 35-45%). So
+   with reduced effects the panels turn opaque in the colour they already showed:
+   each theme's tint composited over the top of its canvas. The canvas keeps its
+   gradient and glow. Kept in step with the theme blocks by reducedEffectsCss.test.ts. */
+html[data-effects="reduced"][data-theme="dark"] {
+  --foxxycode-glass-panel-bg: #0e0e11;
+  --foxxycode-chat-header-bg: #0f0f10;
+  --nav: #1c1c1d;
+}
+
+/* Light: the composite is plain white (a 90-92% white tint over a white canvas top),
+   which reads as harsh; the panels take the soft grey of the IntelliJ composer field. */
+html[data-effects="reduced"][data-theme="light"] {
+  --foxxycode-glass-panel-bg: #f3f3f4;
+  --foxxycode-chat-header-bg: #f3f3f4;
+  --nav: #f3f3f4;
+}
+
+html[data-effects="reduced"][data-theme="midnight"] {
+  --foxxycode-glass-panel-bg: #0a0d17;
+  --foxxycode-chat-header-bg: #080b13;
+  --nav: #0c101a;
+}
+
+html[data-effects="reduced"][data-theme="solarized-dark"] {
+  --foxxycode-glass-panel-bg: #00222c;
+  --foxxycode-chat-header-bg: #001c24;
+  --nav: #00222c;
+}
+
+html[data-effects="reduced"][data-theme="monokai"] {
+  --foxxycode-glass-panel-bg: #1d1e19;
+  --foxxycode-chat-header-bg: #1a1b16;
+  --nav: #1f201a;
+}
+
+html[data-effects="reduced"][data-theme="nord"] {
+  --foxxycode-glass-panel-bg: #20242e;
+  --foxxycode-chat-header-bg: #20252f;
+  --nav: #242934;
+}
+
+html[data-effects="reduced"][data-theme="rose-pine"] {
+  --foxxycode-glass-panel-bg: #100e1b;
+  --foxxycode-chat-header-bg: #0f0d19;
+  --nav: #14121f;
+}
+
+/* The panels that blur with a literal filter instead of the glass token. */
+[data-effects="reduced"] .rail-pill,
+[data-effects="reduced"] .chat-header,
+[data-effects="reduced"] .plan-document-eye,
+[data-effects="reduced"] .plan-document-ide {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 textarea#composer::placeholder {
   color: var(--muted);
   opacity: 1;

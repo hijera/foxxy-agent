@@ -480,6 +480,9 @@ export const messagesRu: Record<string, string> = {
   "appearance.locale.auto": "Авто",
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",
+  "appearance.effects.label": "Анимации и прозрачность",
+  "appearance.effects.description":
+    "Прыгающие точки, переливы заголовков и полупрозрачные панели с размытием, во всех клиентах. В панели IntelliJ по умолчанию выключены: там каждый их кадр копируется в окно IDE и тормозит её, особенно без GPU.",
   "settings.general.sendMode": "Отправка сообщений",
   "settings.sendMode.enter": "Enter",
   "settings.sendMode.ctrlEnter": "Ctrl+Enter",

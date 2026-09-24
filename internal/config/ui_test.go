@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
 
 func TestUIConfigValidate(t *testing.T) {
 	tests := []struct {
@@ -91,6 +95,39 @@ func TestConfigJSONRoundTripUIStatusLine(t *testing.T) {
 	empty := ConfigJSON{}
 	if got := ConfigToJSONDTO(JSONDTOToConfig(&empty, paths)).UI.StatusLine; got != nil {
 		t.Fatalf("absent status_line should stay nil, got %v", *got)
+	}
+}
+
+// ui.effects is written by the Appearance switch; the settings
+// save round-trips the whole document through the DTO, so a field missing there would be
+// dropped from config.yaml on the next save.
+func TestConfigJSONRoundTripUIEffects(t *testing.T) {
+	paths := Paths{Home: t.TempDir(), CWD: t.TempDir()}
+	on := true
+	j := ConfigJSON{UI: UIJSON{Effects: &on}}
+	cfg := JSONDTOToConfig(&j, paths)
+	if cfg.UI.Effects == nil || !*cfg.UI.Effects {
+		t.Fatalf("got effects %v", cfg.UI.Effects)
+	}
+	out := ConfigToJSONDTO(cfg)
+	if out.UI.Effects == nil || !*out.UI.Effects {
+		t.Fatalf("dto effects %v", out.UI.Effects)
+	}
+
+	// An absent key must round-trip as absent: unset means "each client's default".
+	empty := ConfigJSON{}
+	if got := ConfigToJSONDTO(JSONDTOToConfig(&empty, paths)).UI.Effects; got != nil {
+		t.Fatalf("absent effects should stay nil, got %v", *got)
+	}
+}
+
+func TestUIConfigEffectsYAML(t *testing.T) {
+	var c Config
+	if err := yaml.Unmarshal([]byte("ui:\n  effects: true\n"), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.UI.Effects == nil || !*c.UI.Effects {
+		t.Fatalf("yaml effects %v", c.UI.Effects)
 	}
 }
 

@@ -845,8 +845,9 @@ func UISchemaMap() map[string]interface{} {
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
 				"status_line": boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
+				"effects":     boolProp("Animations and translucency", "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else."),
 			},
-			[]string{"enable", "locale", "send_mode", "status_line"},
+			[]string{"enable", "locale", "send_mode", "status_line", "effects"},
 			nil),
 	}
 

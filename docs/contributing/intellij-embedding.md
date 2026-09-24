@@ -229,6 +229,41 @@ What the two ids share and where they differ:
 | Hide the folder chip, reopen the last project session, History scoped to the project, Enter sends on narrow panels (`isEditorEmbed()`) | yes | yes |
 | File drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
 | Host → SPA `@`-mention channel | `window.foxxycodeUi.insertFileMention` via `executeJavaScript` | `postMessage` `{ type: "foxxycode:insertFileMention", paths }` from the parent frame (`embedHostBridge.ts`) |
+| Visual effects (infinite animations, frosted glass) default | off (`data-effects="reduced"`) | on (`data-effects="full"`) |
+
+#### Reduced effects in the JCEF panel
+
+JCEF renders the IntelliJ panel off-screen (the default in 2022.3–2026.2 IDEs) and
+copies every frame the page paints into the IDE on its UI thread. An effect that
+repaints continuously therefore slows the whole IDE, badly without a GPU: measured in
+PyCharm 2023.3 with the GPU off, the bouncing typing dots kept the IDE's UI thread
+~5% busy through every turn and the dark hero title 5.4% with the panel merely open.
+
+So the page carries `<html data-effects="full|reduced">`. The inline bootstrap in
+`src/index.html` sets it before the first paint: the `foxxycode_ui_effects` cookie
+when present, else `reduced` for `?embed=intellij` and `full` everywhere else
+(`ui/theme/uiEffects.ts` holds the same logic for the running app). `reduced` stops
+the long-lived infinite animations (the typing dots keep a slow stepped glow: colour
+only, six steps over three seconds: ~0.2% of the IDE's UI thread idle, where the CSS
+bounce cost 3.6-5.4%, an eased cycle 5.5% and the bounce as a 12 fps animated WebP 2.3%)
+and switches the glass blur off: the
+`--foxxycode-glass-panel-backdrop` token becomes `none` and the literal blurs are
+switched off, because a blur of what scrolls under a panel is recomputed on every
+repaint, in software without a GPU. Without the blur a translucent tint would let the
+transcript read straight through the sticky header and the top bar, so the panel tokens
+(`--foxxycode-glass-panel-bg`, `--foxxycode-chat-header-bg`, `--nav`) turn opaque per
+theme, in the colour they showed: the tint composited over the top of that theme's
+canvas. The light theme is the exception: its composite is plain white, which read as
+harsh, so its panels take the composer field's soft grey (`#f3f3f4`). The canvas keeps its gradient and glow (a flattened canvas was tried and looked
+worse). The **Animations and translucency** switch in **Settings → Appearance** is one
+setting for every client: it applies at once and saves `ui.effects` to `config.yaml`,
+so turning the effects on in the IntelliJ panel turns them on everywhere; only an
+unset key falls back to each client's default. The cookie caches the value for the
+inline bootstrap, which paints before any request can read the config; the SPA
+re-applies the config value at startup. JCEF keeps cookies in its persistent
+`jcef_cache`, and a cookie ignores the port, so even the cached copy survives IDE
+restarts and the backend's random port. `reducedEffectsCss.test.ts` fails when a new infinite animation or literal
+backdrop blur is not covered.
 
 `embedChromeCss.test.ts` keeps the two CSS families in step: every
 `[data-embed]` rule must name both ids. Any other id is accepted but gets none of
