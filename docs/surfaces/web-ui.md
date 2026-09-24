@@ -32,8 +32,8 @@ schema-derived config tabs:
 
 - **General** — composer **send mode** and the live **status line** toggle.
   The default tab.
-- **Appearance** — theme, the app-wide **Language** picker (see below), and the
-  "Restart onboarding" button.
+- **Appearance** — theme, the app-wide **Language** picker (see below), the
+  **Animations and translucency** switch, and the "Restart onboarding" button.
 
 The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in
 `settingsSections.ts`) so the curated controls are not duplicated; the key still
@@ -76,6 +76,30 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Adding a language:** add **`messages/<id>.ts`** and one entry in
   **`locales.ts`**. The picker, cookie validation, **`?lang=`** parsing and
   **`messagesParity.test.ts`** all follow automatically.
+
+### Animations and translucency
+
+- **Where:** a switch under the language picker
+  (**`data-testid="appearance-effects-switch"`**, **`appearance.effects.label`**), in
+  every client.
+- **What it does:** off sets **`<html data-effects="reduced">`**:
+  the long-lived infinite animations stand still (the typing dots only glow in turn,
+  in slow steps) and the frosted-glass panels lose their backdrop blur and turn opaque
+  in the colour they showed (each theme's tint composited over its canvas; in the light
+  theme the composer's soft grey instead of plain white); the canvas
+  keeps its gradient and glow. On restores all of it.
+- **Default:** on in the browser, the desktop app and VS Code; **off in the IntelliJ
+  panel**, which is rendered off-screen and copies every frame into the IDE, so these
+  effects slow the IDE down; see
+  [`docs/contributing/intellij-embedding.md`](../contributing/intellij-embedding.md#reduced-effects-in-the-jcef-panel).
+- **Persistence:** the backend config, **`ui.effects`** (**`true`** = on, **`false`** =
+  off, unset = the client's default), shared by every client, written through
+  **`PUT /foxxycode/config`** and mirrored into the
+  loaded Settings document so a footer **Save all** cannot restore the old value. The
+  **`foxxycode_ui_effects`** cookie (**`full`** / **`reduced`**) caches it for the inline
+  bootstrap in **`index.html`**, which paints before any request; **`App.tsx`** re-applies
+  the config value at startup (**`applyUiEffectsFromConfigDoc`** in
+  **`ui/theme/uiEffects.ts`**).
 
 ## Composer attachments
 

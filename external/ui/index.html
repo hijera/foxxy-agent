@@ -48,6 +48,16 @@
         if (et && /^[a-z0-9_-]+$/i.test(et)) {
           document.documentElement.dataset.embed = et;
         }
+        /* Visual effects (infinite animations, frosted glass): the IntelliJ panel
+           renders off-screen and copies every frame into the IDE, so it starts
+           reduced; Appearance stores a choice in the cookie. Mirrors
+           ui/theme/uiEffects.ts. */
+        var fm = document.cookie.match(/(?:^|;\s*)foxxycode_ui_effects=([^;]+)/);
+        var fx = fm && decodeURIComponent(fm[1]);
+        if (fx !== "full" && fx !== "reduced") {
+          fx = et === "intellij" ? "reduced" : "full";
+        }
+        document.documentElement.dataset.effects = fx;
         /* IDE embeddings pass ?lang=en|ru; wins over cookie and sets html[lang]. */
         var l = location.search.match(/[?&]lang=([^&]+)/);
         var lt = l && decodeURIComponent(l[1].replace(/\+/g, " "));

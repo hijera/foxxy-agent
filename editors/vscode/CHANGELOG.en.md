@@ -8,7 +8,16 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-23
+## 0.3.19 — 2026-09-24
+
+**An "Animations and translucency" switch.**
+**Settings → Appearance** has a new switch that turns off the animations and the translucent
+blurred panels: the turn dots glow slowly in turn instead of bouncing, and the panels become
+opaque in the same colour. In VS Code it starts on; the choice is saved to `config.yaml` as
+`ui.effects` and shared by every FoxxyCode client, so switching the effects off in the IntelliJ
+panel or in the browser switches them off here too.
+
+## 0.3.18 — 2026-09-23
 
 **A Codex answer cut short by a limit is no longer passed off as complete.**
 ChatGPT-subscription models (the `codex` provider) now count as finished only on the

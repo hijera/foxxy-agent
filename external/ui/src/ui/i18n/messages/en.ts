@@ -458,6 +458,9 @@ export const messagesEn: Record<string, string> = {
   "appearance.locale.auto": "Auto",
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",
+  "appearance.effects.label": "Animations and translucency",
+  "appearance.effects.description":
+    "Bouncing dots, shimmering titles and translucent blurred panels, in every client. In the IntelliJ panel they start switched off: every frame of them is copied into the IDE window, which slows the IDE down, especially without a GPU.",
   "settings.general.sendMode": "Sending messages",
   "settings.sendMode.enter": "Enter",
   "settings.sendMode.ctrlEnter": "Ctrl+Enter",

@@ -7,7 +7,32 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-23
+## 0.3.19 — 2026-09-24
+
+**The IDE no longer slows down while a turn runs in the panel.**
+In 2023.x IDEs the panel renders off-screen, and every frame of the page is copied into the
+IDE window. The bouncing "model is working" dots repainted the panel for the whole turn, and
+the shimmering start-screen title in the dark theme did so for as long as the panel was open.
+Without a GPU (in a virtual machine, for example) that slowed the whole IDE down and bloated
+its memory. In the IntelliJ panel the turn dots no longer bounce: they take turns glowing in
+the accent colour, slowly and in a few steps. The title, and the dots for an active session, a
+pending question and a background task, stand still; the seconds counter in the status line
+still shows that the turn is running. Measured in PyCharm 2023.3 with the GPU off, the
+load on the IDE's UI thread dropped 2.5 to 5 times during a turn, and about twentyfold with the
+panel open and idle.
+
+**Panels without the blur, and an "Animations and translucency" switch.**
+The chat header, the plan card, the top bar and the other "glass" panels in the IDE panel no
+longer blur what lies under them: that blur was recomputed on every repaint of whatever scrolls
+beneath, by the CPU when there is no GPU. The panels are now opaque in the same colour they
+had, so the transcript no longer shows through them, and the page keeps its gradient. One
+switch brings the animations and the translucency back: **Settings →
+Appearance → Animations and translucency**. It is one setting for the whole interface: the
+choice applies at once, is saved to `config.yaml` as `ui.effects` and holds wherever the same
+FoxxyCode is open - other IDE windows, the browser and VS Code. In the IntelliJ panel the
+switch starts off.
+
+## 0.3.18 — 2026-09-23
 
 **A Codex answer cut short by a limit is no longer passed off as complete.**
 ChatGPT-subscription models (the `codex` provider) now count as finished only on the

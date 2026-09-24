@@ -2991,6 +2991,8 @@ export function App() {
         const { setStatusLineEnabled, readStatusLineFromConfigDoc } =
           await import("./chat/statusLineConfig");
         setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
+        const { applyUiEffectsFromConfigDoc } = await import("./theme/uiEffects");
+        applyUiEffectsFromConfigDoc(res.data);
       }
     })();
   }, [headers]);

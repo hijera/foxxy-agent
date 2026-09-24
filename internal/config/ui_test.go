@@ -1,6 +1,12 @@
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
 
 func TestUIConfigValidate(t *testing.T) {
 	tests := []struct {
@@ -91,6 +97,70 @@ func TestConfigJSONRoundTripUIStatusLine(t *testing.T) {
 	empty := ConfigJSON{}
 	if got := ConfigToJSONDTO(JSONDTOToConfig(&empty, paths)).UI.StatusLine; got != nil {
 		t.Fatalf("absent status_line should stay nil, got %v", *got)
+	}
+}
+
+// ui.effects is written by the Appearance switch; the settings
+// save round-trips the whole document through the DTO, so a field missing there would be
+// dropped from config.yaml on the next save.
+func TestConfigJSONRoundTripUIEffects(t *testing.T) {
+	paths := Paths{Home: t.TempDir(), CWD: t.TempDir()}
+	on := true
+	j := ConfigJSON{UI: UIJSON{Effects: &on}}
+	cfg := JSONDTOToConfig(&j, paths)
+	if cfg.UI.Effects == nil || !*cfg.UI.Effects {
+		t.Fatalf("got effects %v", cfg.UI.Effects)
+	}
+	out := ConfigToJSONDTO(cfg)
+	if out.UI.Effects == nil || !*out.UI.Effects {
+		t.Fatalf("dto effects %v", out.UI.Effects)
+	}
+
+	// An absent key must round-trip as absent: unset means "each client's default".
+	empty := ConfigJSON{}
+	if got := ConfigToJSONDTO(JSONDTOToConfig(&empty, paths)).UI.Effects; got != nil {
+		t.Fatalf("absent effects should stay nil, got %v", *got)
+	}
+}
+
+// false (the switch turned off, reduced effects in every client) is a stored choice too, and
+// must not collapse into "unset", which would hand each client back its own default.
+func TestConfigJSONRoundTripUIEffectsOff(t *testing.T) {
+	paths := Paths{Home: t.TempDir(), CWD: t.TempDir()}
+	off := false
+	j := ConfigJSON{UI: UIJSON{Effects: &off}}
+	out := ConfigToJSONDTO(JSONDTOToConfig(&j, paths))
+	if out.UI.Effects == nil || *out.UI.Effects {
+		t.Fatalf("dto effects %v, want an explicit false", out.UI.Effects)
+	}
+	b, err := json.Marshal(out.UI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"effects":false`) {
+		t.Fatalf("JSON drops an explicit false: %s", b)
+	}
+}
+
+func TestUIConfigEffectsYAML(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		want *bool
+	}{
+		{"ui:\n  effects: true\n", boolPtr(true)},
+		{"ui:\n  effects: false\n", boolPtr(false)},
+		{"ui:\n  locale: en\n", nil},
+	} {
+		var c Config
+		if err := yaml.Unmarshal([]byte(tc.yaml), &c); err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case tc.want == nil && c.UI.Effects != nil:
+			t.Fatalf("%q: effects %v, want unset", tc.yaml, *c.UI.Effects)
+		case tc.want != nil && (c.UI.Effects == nil || *c.UI.Effects != *tc.want):
+			t.Fatalf("%q: effects %v, want %v", tc.yaml, c.UI.Effects, *tc.want)
+		}
 	}
 }
 

@@ -13,6 +13,14 @@ import {
   type UiThemeMode,
 } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
+import {
+  persistUiEffectsPreference,
+  readAppliedUiEffects,
+  setUiEffects,
+  subscribeUiEffects,
+  type UiEffects,
+} from "./uiEffects";
+import { SwitchField } from "../settings/SwitchField";
 
 function subscribeTheme(onStoreChange: () => void): () => void {
   const obs = new MutationObserver(onStoreChange);
@@ -242,6 +250,46 @@ export function AppearanceThemePicker(props: {
         ))}
       </div>
       <AppearanceLanguagePicker doc={props.doc} setDoc={props.setDoc} />
+      <AppearanceEffectsSwitch doc={props.doc} setDoc={props.setDoc} />
     </div>
+  );
+}
+
+/** One switch for the visual effects - infinite animations and frosted glass
+ * (ui/theme/uiEffects.ts) - shared by every client; the IntelliJ panel starts with it
+ * off. Applied at once and saved to config.yaml as ui.effects; mirrored into the
+ * loaded settings document so a later footer Save does not write the old value back. */
+function AppearanceEffectsSwitch(props: {
+  doc?: Record<string, unknown> | undefined;
+  setDoc?: ((next: Record<string, unknown>) => void) | undefined;
+}) {
+  const { t } = useT();
+  const [effects, setEffects] = useState<UiEffects>(readAppliedUiEffects);
+  useEffect(
+    () => subscribeUiEffects(() => setEffects(readAppliedUiEffects())),
+    [],
+  );
+  return (
+    <SwitchField
+      className="appearance-effects-field"
+      checked={effects === "full"}
+      onChange={(on) => {
+        const next: UiEffects = on ? "full" : "reduced";
+        setUiEffects(next);
+        setEffects(next);
+        if (props.doc && props.setDoc) {
+          const ui = props.doc.ui;
+          const uiObj =
+            ui && typeof ui === "object" && !Array.isArray(ui)
+              ? (ui as Record<string, unknown>)
+              : {};
+          props.setDoc({ ...props.doc, ui: { ...uiObj, effects: on } });
+        }
+        void persistUiEffectsPreference(next);
+      }}
+      label={t("appearance.effects.label")}
+      description={t("appearance.effects.description")}
+      dataTestId="appearance-effects-switch"
+    />
   );
 }

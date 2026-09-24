@@ -37,7 +37,9 @@ test("the export dropdown sits on the composer-menu stacking layer", () => {
 // own users.
 test("the opaque base is defined wherever the panel tint is", () => {
   const bgDefs = css.match(/--bg:\s*#/g) ?? [];
-  const panelDefs = css.match(/--foxxycode-glass-panel-bg:\s*/g) ?? [];
+  // The theme blocks define the tint as rgba(); the reduced-effects overrides
+  // (html[data-effects="reduced"][data-theme=...]) are opaque hex and not themes.
+  const panelDefs = css.match(/--foxxycode-glass-panel-bg:\s*rgba\(/g) ?? [];
 
   expect(bgDefs.length).toBeGreaterThan(1);
   expect(bgDefs.length).toBe(panelDefs.length);
