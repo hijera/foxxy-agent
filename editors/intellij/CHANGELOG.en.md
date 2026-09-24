@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-23
+## Unreleased — 2026-09-24
 
 **The IDE no longer slows down while a turn runs in the panel.**
 In 2023.x IDEs the panel renders off-screen, and every frame of the page is copied into the
@@ -31,6 +31,22 @@ Appearance → Animations and translucency**. It is one setting for the whole in
 choice applies at once, is saved to `config.yaml` as `ui.effects` and holds wherever the same
 FoxxyCode is open - other IDE windows, the browser and VS Code. In the IntelliJ panel the
 switch starts off.
+
+## 0.3.18 — 2026-09-23
+
+**A Codex answer cut short by a limit is no longer passed off as complete.**
+ChatGPT-subscription models (the `codex` provider) now count as finished only on the
+server's terminal event. When an answer hits the length limit or the content filter, the
+text written so far stays and the stop is reported as a limit, not as a normal end of the
+turn; a stream cut midway is an error and is retried only while nothing has reached the
+screen yet, so no text is shown twice.
+
+**A network failure before the model answers is retried instead of ending the turn.**
+When the connection to the provider never came up — a TLS handshake that hung, an address
+that did not answer for a moment, a link cut by a reconnecting VPN or a large download on
+the same machine — the request never reached the server, so FoxxyCode repeats it with the
+usual backoff instead of failing the turn with `TLS handshake timeout`. What to do when the
+error still arrives is in the Troubleshooting guide.
 
 ## 0.3.16 — 2026-09-21
 
