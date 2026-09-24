@@ -1673,7 +1673,7 @@
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config.",
+          "description": "Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, traces every LLM connection (its route through a proxy, each network step, silences and how the request ended), and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config.",
           "default": false
         },
         "enabled": {

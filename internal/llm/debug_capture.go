@@ -3,6 +3,8 @@ package llm
 import (
 	"log/slog"
 	"sync/atomic"
+
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // debugCapture gates raw LLM HTTP request/response logging (see debug_transport.go).
@@ -20,6 +22,15 @@ var debugLog atomic.Pointer[slog.Logger]
 // Called from the entry points after the logger is built and from the HTTP
 // server's ReplaceConfig when debug.enable is toggled at runtime.
 func SetDebugCapture(on bool) { debugCapture.Store(on) }
+
+// ApplyDebugConfig sets both LLM diagnostics switches from the debug section: the
+// body capture (debug.capture_llm, following debug.enable) and the connection
+// trace (debug.enable alone, net_trace.go). The entry points call it at startup
+// and the HTTP server's ReplaceConfig on every reload.
+func ApplyDebugConfig(d config.Debug) {
+	SetDebugCapture(d.EffectiveCapture())
+	SetNetTrace(d.Effective())
+}
 
 // DebugCaptureEnabled reports whether raw LLM HTTP bodies are being logged.
 func DebugCaptureEnabled() bool { return debugCapture.Load() }

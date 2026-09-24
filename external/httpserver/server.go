@@ -244,7 +244,7 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	if s.logLevel != nil {
 		s.logLevel.Set(logger.EffectiveLevel(c.Debug.Enabled, c.Logger.Level))
 	}
-	llm.SetDebugCapture(c.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(c.Debug)
 	s.cfgAt.Store(c)
 	s.invalidateSlashCache()
 	s.publishConfigReloaded()

@@ -14,9 +14,9 @@ debug:
   capture_llm: true  # optional; omit to follow `enable`
 ```
 
-`enable: true` does three things at once: it forces the process logger to **debug** level regardless of `logger.level`, turns on raw LLM HTTP capture, and starts writing a per-session trace.
+`enable: true` does four things at once: it forces the process logger to **debug** level regardless of `logger.level`, turns on raw LLM HTTP capture, traces every LLM connection step by step (see [Connection trace](#connection-trace)), and starts writing a per-session trace.
 
-`capture_llm` is the one knob that opts out of a part of it. Leave it unset and it follows `enable`. Set it explicitly to `false` to keep the debug-level logs and the trace while suppressing the request/response bodies — the right setting when the conversation carries content you would rather not have on disk (see [Privacy](#privacy-what-lands-on-disk)).
+`capture_llm` is the one knob that opts out of a part of it. Leave it unset and it follows `enable`. Set it explicitly to `false` to keep the debug-level logs, the connection trace and the session trace while suppressing the request/response bodies — the right setting when the conversation carries content you would rather not have on disk (see [Privacy](#privacy-what-lands-on-disk)).
 
 ### The `--debug` flag
 
@@ -32,7 +32,7 @@ The flag only ever turns diagnostics **on**. Passing `--debug=false` does not di
 
 ### Toggling at runtime
 
-`PUT /foxxycode/config` with `debug.enable` flipped takes effect **immediately, without restarting the process**. The logger is built once over a shared `slog.LevelVar` (`internal/logger`), so `ReplaceConfig` re-levels the existing handler instead of rebuilding it, and the raw-capture switch is an atomic flag read per request (`internal/llm/debug_capture.go`). Turning it off mid-session stops new capture and new trace events; what was already written stays.
+`PUT /foxxycode/config` with `debug.enable` flipped takes effect **immediately, without restarting the process**. The logger is built once over a shared `slog.LevelVar` (`internal/logger`), so `ReplaceConfig` re-levels the existing handler instead of rebuilding it, and the raw-capture and connection-trace switches are atomic flags read per request (`llm.ApplyDebugConfig`, `internal/llm/debug_capture.go`). Turning it off mid-session stops new capture and new trace events; what was already written stays.
 
 This is the intended way to catch a problem you cannot reproduce on demand: leave the server running, turn diagnostics on when the user reports the bad turn, turn it off afterwards.
 
@@ -43,6 +43,8 @@ Three separate outputs, deliberately: the bulky raw bodies go to the process log
 | Output | Where | Gated by |
 |---|---|---|
 | Raw LLM HTTP request/response excerpts | the process log (`logger.outputs` / `logger.file`), at `DEBUG` level | `capture_llm` |
+| LLM connection trace (`llm net: ...` lines) | the process log, at `DEBUG` level | `enable` |
+| One line per model call (`llm call started` / `llm call finished`) | the process log, at `DEBUG` level | `enable` |
 | Structured turn timeline | `<session bundle>/debug_trace.jsonl` | `enable` |
 | The same timeline, live | SSE `event: debug` on the composer stream | `enable` |
 | The same timeline, on demand | `GET /foxxycode/sessions/{id}/debug` | `enable` |
@@ -108,7 +110,46 @@ Two details matter:
 
 **Request bodies are logged**, and an LLM request body contains the full conversation — the system prompt, the user's messages, and the contents of every file the agent read into context. Treat a log file produced with `capture_llm` on as carrying everything the agent saw. If that is a problem for the workspace in question, set `capture_llm: false` and keep the trace, which carries only counts and identifiers.
 
+## Connection trace
+
+`internal/llm/net_trace.go` follows every LLM HTTP request at the network level, through the same wrapper as the raw capture. It logs no bodies and no headers, so it stays on under `capture_llm: false`. It exists for the turn that hangs: behind a proxy a request can die in the proxy's tunnel, in TLS, on a pooled connection that was already dead, or at an upstream that took the request and went quiet. All of these look the same from the agent loop.
+
+Every line carries `req=<n>`, the number of the request in this process. A model call from a turn also carries `session`, `turn` and `call`, so the request can be matched to the turn that waited on it.
+
+| Line | When | Fields |
+|---|---|---|
+| `llm net: request` | the request starts | `method`, `url` (no query), `route`: `direct`, `direct (proxy bypassed: loopback or NO_PROXY)`, `proxy http://...`, `socks socks5h://...` or `env-proxy http://...` (a proxy inherited from `HTTP(S)_PROXY`). Credentials in the proxy URL are replaced with `redacted`. |
+| `llm net: dns` | a name was resolved (the proxy's name, behind a proxy) | `addrs`, `took`, error |
+| `llm net: dialed` | a TCP connection opened or failed (to the proxy, behind one) | `addr`, `took`, error |
+| `llm net: socks dial` | the SOCKS handshake finished | `proxy`, `target`, `local`, `took`, error |
+| `llm net: proxy CONNECT answered` | an HTTP proxy answered the tunnel for an `https` target | `proxy`, `target`, `status`, `since_dial` |
+| `llm net: tls` | the TLS handshake finished | `server_name`, `version`, `alpn` (`h2` = HTTP/2), `resumed`, `took`, error |
+| `llm net: conn` | the request got a connection | `reused`, `was_idle`, `idle_for`, `local`, `remote` |
+| `llm net: request sent` | the request is written | error |
+| `llm net: first response byte` | the server started answering | `elapsed` |
+| `llm net: response` | headers arrived | `status`, `proto`, `content_type`, `content_length`, `request_id` |
+| `llm net: no activity` | nothing happened for 15 s, then again every 15 s while the silence lasts | `phase`, `idle`, `elapsed`, `bytes` |
+| `llm net: activity resumed` | data arrived after a reported silence | `phase`, `silence` |
+| `llm net: request context ended` | the caller cancelled the request before it finished | `phase`, `idle`, `cause`: who cut it, for example `agent: no first token within agent.llm_first_token_timeout_ms` |
+| `llm net: body read failed` | the response stream broke | `phase`, `idle`, `bytes`, error |
+| `llm net: done` / `llm net: request failed` | the request ended | `outcome` (`eof`, `closed_early`, `read_error`, `request_failed`), `phase`, `elapsed`, `bytes`, `reads`, `first_body_after`, `max_gap`, error |
+
+`phase` is the step the request was in: `get_conn`, `dns`, `dial`, `socks_dial`, `socks_handshake`, `proxy_connect`, `connected`, `tls`, `sending_request`, `awaiting_response`, `reading_headers`, `streaming`. Errors come with `error`, `error_kind` (`conn_refused`, `conn_reset`, `conn_aborted`, `timeout`, `dns`, `proxy_connect`, `socks`, `tls`, `tls_timeout`, `response_header_timeout`, `http2`, `unexpected_eof`, `eof`, `canceled`, `deadline`, `other`), and `op`, `op_addr` and `errno` when a socket operation failed.
+
+Next to it, the agent loop logs `llm call started` for every model call, with the model, the message and tool counts and both guard timeouts. It logs `llm call finished` with `took`, `first_progress_after`, `output`, `cut_by` (`first_token_timeout`, `stall_timeout`, `loop_guard`, `user`) and the error. The retry layer inside `internal/llm` logs `LLM request failed; retrying`, `LLM request failed; retries exhausted` and, at debug level, `LLM request failed; not retrying` with the reason. All of these go to the process log, including the retry lines, which used to go to stderr, where the editor plugins and the desktop app discard them.
+
+For the SSE frames themselves (the gaps between frames, the terminal frame, which channel carried what), also set `FOXXYCODE_LLM_TRACE` (see [environment variables](../reference/environment-variables.md)).
+
 ## Recipes
+
+**"The turn sits on *Provider is not responding, retrying* for an hour."** That status is the stall ladder (`agent.llm_stall_retry_*`): each silent attempt waits out `llm_first_token_timeout_ms`, then the loop pauses before the next one. Turn `debug.enable` on, reproduce, and read the log from the start of the turn:
+
+1. `llm call finished ... cut_by=first_token_timeout`, repeated, means every attempt got nothing back. The `llm net:` lines with the same `turn` and `call` show where each attempt stopped.
+2. `no activity phase=proxy_connect` or `phase=socks_handshake` means the proxy never set up the tunnel. `phase=dial` or `phase=dns` means the proxy itself cannot be reached.
+3. `phase=awaiting_response` means the request went through and nothing came back. Look at the `llm net: conn` line of that request. `reused=true` with the same `local` port as the requests before it, over `alpn=h2`, is a pooled HTTP/2 connection the proxy no longer forwards: every new request lands on it and waits.
+4. `phase=streaming` with `bytes` growing and then stuck is the upstream stopping mid-answer (the stall guard's case), not the proxy.
+5. `request_failed` and `body read failed` carry `error_kind`. `conn_reset` or `unexpected_eof` means something on the route closed the connection.
+
 
 **"The model called a tool it shouldn't have."** Read the trace: `turn_start` gives the `tools` count for that iteration, and `tool_start` gives the name and `kind`. If the count looks wrong, the mode's tool set is the suspect (`internal/agent/toolsets.go`).
 
@@ -125,6 +166,8 @@ Two details matter:
 | Config section and `--debug` semantics | `internal/config/debug.go` |
 | Runtime log level (`slog.LevelVar`) | `internal/logger/format.go`, `internal/logger/builder.go` |
 | Raw HTTP capture | `internal/llm/debug_transport.go`, `internal/llm/debug_capture.go` |
+| Connection trace | `internal/llm/net_trace.go`, `internal/llm/proxy_http_client.go` |
+| Per-call log and guard causes | `internal/agent/llm_call_log.go`, `internal/agent/react.go` |
 | Trace store (JSONL) | `internal/session/debug_trace.go` |
 | Event emission in the ReAct loop | `internal/agent/debug_emit.go`, `internal/agent/react.go` |
 | ACP update type | `internal/acp/types.go` (`DebugUpdate`) |

@@ -30,11 +30,11 @@ const llmResponseHeaderTimeout = 30 * time.Second
 func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 	proxyURL = strings.TrimSpace(proxyURL)
 	if proxyURL == "" {
-		t, err := transportEnvironmentProxy()
+		t, route, err := transportEnvironmentProxy()
 		if err != nil {
 			return nil, err
 		}
-		return &http.Client{Transport: debugTransportFor(t)}, nil
+		return &http.Client{Transport: debugTransportFor(t, route)}, nil
 	}
 	u, err := url.Parse(proxyURL)
 	if err != nil {
@@ -43,21 +43,25 @@ func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
 	case "http", "https":
-		t, err := transportHTTPProxy(u)
+		t, route, err := transportHTTPProxy(u)
 		if err != nil {
 			return nil, err
 		}
-		return &http.Client{Transport: debugTransportFor(t)}, nil
+		return &http.Client{Transport: debugTransportFor(t, route)}, nil
 	case "socks5", "socks5h":
-		t, err := transportSOCKSProxy(u)
+		t, route, err := transportSOCKSProxy(u)
 		if err != nil {
 			return nil, err
 		}
-		return &http.Client{Transport: debugTransportFor(t)}, nil
+		return &http.Client{Transport: debugTransportFor(t, route)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
 	}
 }
+
+// directBypassed is the route of a target a configured proxy lets through
+// straight: loopback, or a host NO_PROXY names.
+const directBypassed = "direct (proxy bypassed: loopback or NO_PROXY)"
 
 // noProxyEnv returns the NO_PROXY exception list from the environment, matching the casing fallback
 // net/http uses.
@@ -80,35 +84,35 @@ func proxyFuncFor(u *url.URL) func(*url.URL) (*url.URL, error) {
 	return cfg.ProxyFunc()
 }
 
-func transportHTTPProxy(u *url.URL) (*http.Transport, error) {
+func transportHTTPProxy(u *url.URL) (*http.Transport, routeFunc, error) {
 	t, err := cloneLLMTransport()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	proxyFor := proxyFuncFor(u)
 	t.Proxy = func(req *http.Request) (*url.URL, error) { return proxyFor(req.URL) }
-	return t, nil
+	return t, routeVia("proxy", directBypassed, proxyFor), nil
 }
 
-func transportSOCKSProxy(u *url.URL) (*http.Transport, error) {
+func transportSOCKSProxy(u *url.URL) (*http.Transport, routeFunc, error) {
 	dialer, err := xproxy.FromURL(u, xproxy.Direct)
 	if err != nil {
-		return nil, fmt.Errorf("socks proxy: %w", err)
+		return nil, nil, fmt.Errorf("socks proxy: %w", err)
 	}
 	t, err := cloneLLMTransport()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// A SOCKS proxy is applied by dialing through it, not via Transport.Proxy; clear the inherited
 	// ProxyFromEnvironment so an ambient HTTP_PROXY cannot also be layered on top.
 	t.Proxy = nil
 
-	socksDial := func(ctx context.Context, network, address string) (net.Conn, error) {
+	socksDial := traceSOCKSDial(u, func(ctx context.Context, network, address string) (net.Conn, error) {
 		if xd, ok := dialer.(xproxy.ContextDialer); ok {
 			return xd.DialContext(ctx, network, address)
 		}
 		return dialer.Dial(network, address)
-	}
+	})
 	proxyFor := proxyFuncFor(u)
 	direct := t.DialContext
 	if direct == nil {
@@ -120,19 +124,19 @@ func transportSOCKSProxy(u *url.URL) (*http.Transport, error) {
 		}
 		return socksDial(ctx, network, address)
 	}
-	return t, nil
+	return t, routeVia("socks", directBypassed, proxyFor), nil
 }
 
-func transportEnvironmentProxy() (*http.Transport, error) {
+func transportEnvironmentProxy() (*http.Transport, routeFunc, error) {
 	t, err := cloneLLMTransport()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	proxyFor := httpproxy.FromEnvironment().ProxyFunc()
 	t.Proxy = func(req *http.Request) (*url.URL, error) {
 		return proxyFor(req.URL)
 	}
-	return t, nil
+	return t, routeVia("env-proxy", "direct", proxyFor), nil
 }
 
 func cloneLLMTransport() (*http.Transport, error) {
@@ -142,6 +146,9 @@ func cloneLLMTransport() (*http.Transport, error) {
 	}
 	t := base.Clone()
 	t.ResponseHeaderTimeout = llmResponseHeaderTimeout
+	// Only logs, and only while the trace is on: the proxy's answer to CONNECT is
+	// the one step of a tunnelled request httptrace does not report.
+	t.OnProxyConnectResponse = logProxyConnect
 	return t, nil
 }
 
