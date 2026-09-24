@@ -140,6 +140,23 @@ test("persistUiEffectsPreference merges ui.effects into config.yaml", async () =
   vi.unstubAllGlobals();
 });
 
+test("persistUiEffectsPreference saves the switch turned off as an explicit false", async () => {
+  const puts: unknown[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return new Response("{}");
+      }
+      return new Response(JSON.stringify({ ui: { effects: true, locale: "" } }));
+    }),
+  );
+  await persistUiEffectsPreference("reduced");
+  expect(puts).toEqual([{ ui: { effects: false, locale: "" } }]);
+  vi.unstubAllGlobals();
+});
+
 test("bootstrapUiEffects applies the resolved value", () => {
   setEmbed("intellij");
   expect(bootstrapUiEffects()).toBe("reduced");

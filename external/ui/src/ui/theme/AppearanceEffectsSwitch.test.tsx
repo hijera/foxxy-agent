@@ -82,6 +82,34 @@ test("the switch saves the choice to config.yaml and into the settings document"
   vi.unstubAllGlobals();
 });
 
+test("turning the switch off saves an explicit false, in the browser as well", async () => {
+  const puts: unknown[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return new Response("{}");
+      }
+      return new Response(JSON.stringify({ ui: { locale: "" } }));
+    }),
+  );
+  const setDoc = vi.fn();
+  bootstrapUiEffects();
+  render(
+    <I18nProvider>
+      <AppearanceThemePicker doc={{ ui: { locale: "" } }} setDoc={setDoc} />
+    </I18nProvider>,
+  );
+  expect(screen.getByTestId("appearance-effects-switch").getAttribute("aria-checked")).toBe("true");
+
+  fireEvent.click(screen.getByTestId("appearance-effects-switch"));
+  expect(document.documentElement.dataset.effects).toBe("reduced");
+  expect(setDoc).toHaveBeenCalledWith({ ui: { locale: "", effects: false } });
+  await waitFor(() => expect(puts).toEqual([{ ui: { locale: "", effects: false } }]));
+  vi.unstubAllGlobals();
+});
+
 // The same switch everywhere; only its starting position differs by host.
 test("in the browser and VS Code the switch is there too, on by default", () => {
   bootstrapUiEffects();
