@@ -70,7 +70,7 @@ func (s *Server) enhanceProvider(r *http.Request) (llm.Provider, error) {
 	if modelID == "" {
 		return nil, fmt.Errorf("no model configured")
 	}
-	return s.makeLLMFromYAML(cfg, modelID)
+	return s.makeLLMFromYAML(cfg, modelID, llm.RequestOptions{})
 }
 
 func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Request) {

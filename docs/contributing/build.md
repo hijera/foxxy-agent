@@ -183,7 +183,9 @@ contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](
 **`make test-matrix`** walks them in sequence, and CI runs one job per combination —
 **`.github/workflows/tests-on-pr.yaml`** reads the list through **`make print-test-tag-sets`**, so
 it cannot drift from the Makefile. Locally, reach for a single combination instead:
-**`go test -tags=<set> ./...`**.
+**`go test -tags=<set> ./...`**. Two of those jobs also start the built binary: `cli` drives the
+console through a real pty (`examples/cli/cli_e2e_startup.py`), `gateway` runs the Telegram bot
+against the offline stand of `cmd/tgfake` (`examples/gateway/tg_e2e_offline.sh`).
 
 ## Desktop (Windows WebView2)
 
