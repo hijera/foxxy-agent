@@ -39,7 +39,7 @@ VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `ch
    }
    ```
 
-   Copilot sends its own `temperature` with every request, and a direct model uses it in place of the configured one. A reasoning model may refuse it: a `codex` model always does (FoxxyCode answers `400` before calling it), OpenAI's reasoning models and Anthropic's extended thinking refuse the value Copilot sends as well, while Qwen3 thinking on vLLM takes it. Give the entry of every model that reasons `"thinking": true` - a `codex` model, or one whose `GET /v1/models` row carries `reasoning_levels` - and Copilot leaves `temperature` out, as it does for any reasoning model.
+   Copilot sends its own `temperature` with every request, and a direct model uses it in place of the configured one. A reasoning model may refuse it: a `codex` model always does, and so does an `anthropic` model with extended thinking on (its `reasoning_default` included) for any value but `1` - FoxxyCode answers `400` for both before calling the provider; OpenAI's reasoning models refuse the value Copilot sends as well, while Qwen3 thinking on vLLM takes it. Give the entry of every model that reasons `"thinking": true` - a `codex` model, or one whose `GET /v1/models` row carries `reasoning_levels` - and Copilot leaves `temperature` out, as it does for any reasoning model.
 
    Bearer auth is off by default, and any `apiKey` string satisfies VS Code's form; with `httpserver.auth_token` set, the `apiKey` is that token. Copilot sends the whole conversation with every request, so each request is a session of its own on the server unless a `requestHeaders` entry on the model sets `X-FoxxyCode-Session-ID` to a fixed `sess_<hex>` id, which keeps the turns in one transcript.
 
