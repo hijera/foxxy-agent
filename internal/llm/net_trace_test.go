@@ -177,6 +177,32 @@ func TestNetTraceFollowsARequestThroughAnHTTPProxy(t *testing.T) {
 	}
 }
 
+func TestNetTraceOmitsTargetPathAndURLParameters(t *testing.T) {
+	buf := withNetTrace(t, time.Minute)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	c, err := HTTPClientForOptionalProxy("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Get(srv.URL + "/private-token?key=query-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	logs := waitForLog(t, buf, `msg="llm net: request"`, "url="+srv.URL)
+	for _, secret := range []string{"private-token", "query-token"} {
+		if strings.Contains(logs, secret) {
+			t.Errorf("target URL parameter %q leaked into trace:\n%s", secret, logs)
+		}
+	}
+}
+
 // An HTTPS target through an HTTP proxy goes through a CONNECT tunnel: the proxy's
 // answer and the TLS handshake inside the tunnel are both on record.
 func TestNetTraceLogsTheProxyTunnelAndTLS(t *testing.T) {
@@ -446,6 +472,39 @@ func TestNetRouteDescription(t *testing.T) {
 		if strings.Contains(s, "hunter2") || strings.Contains(s, "alice") {
 			t.Fatalf("credentials leaked: %s", s)
 		}
+	}
+}
+
+func TestNetRouteRedactsProxyURLParameters(t *testing.T) {
+	proxy, err := url.Parse("http://alice:hunter2@proxy.local:3128/private-token?key=query-token#fragment-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := redactProxyURL(proxy)
+	if got != "http://redacted@proxy.local:3128" {
+		t.Fatalf("redacted proxy URL = %q", got)
+	}
+}
+
+func TestSOCKSRouteMatchesPortSpecificNoProxy(t *testing.T) {
+	t.Setenv("NO_PROXY", "api.example.com:443")
+	proxy, err := url.Parse("socks5://proxy.local:1080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyFor := proxyFuncFor(proxy)
+	target, err := url.Parse("https://api.example.com/v1/chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := routeVia("socks", directBypassed, proxyFor)(target).desc; got != directBypassed {
+		t.Fatalf("logged route = %q, want direct", got)
+	}
+	if !bypassProxy(proxyFor, "api.example.com:443") {
+		t.Fatal("SOCKS dial would use the proxy despite the logged direct route")
+	}
+	if bypassProxy(proxyFor, "api.example.com:8443") {
+		t.Fatal("SOCKS dial bypassed a port not named by NO_PROXY")
 	}
 }
 

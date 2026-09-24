@@ -118,7 +118,7 @@ Every line carries `req=<n>`, the number of the request in this process. A model
 
 | Line | When | Fields |
 |---|---|---|
-| `llm net: request` | the request starts | `method`, `url` (no query), `route`: `direct`, `direct (proxy bypassed: loopback or NO_PROXY)`, `proxy http://...`, `socks socks5h://...` or `env-proxy http://...` (a proxy inherited from `HTTP(S)_PROXY`). Credentials in the proxy URL are replaced with `redacted`. |
+| `llm net: request` | the request starts | `method`, `url` (scheme and host only), `route`: `direct`, `direct (proxy bypassed: loopback or NO_PROXY)`, `proxy http://...`, `socks socks5h://...` or `env-proxy http://...` (a proxy inherited from `HTTP(S)_PROXY`). The proxy URL keeps only its scheme and host; user info is replaced with `redacted`. Paths, queries and fragments are omitted. |
 | `llm net: dns` | a name was resolved (the proxy's name, behind a proxy) | `addrs`, `took`, error |
 | `llm net: dialed` | a TCP connection opened or failed (to the proxy, behind one) | `addr`, `took`, error |
 | `llm net: socks dial` | the SOCKS handshake finished | `proxy`, `target`, `local`, `took`, error |

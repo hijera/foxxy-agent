@@ -153,13 +153,9 @@ func cloneLLMTransport() (*http.Transport, error) {
 }
 
 // bypassProxy reports whether address (host:port) is exempt from the proxy — loopback, or matched by
-// NO_PROXY. Resolved through the same httpproxy rules used for HTTP proxies, which signal "direct" by
-// returning a nil proxy.
+// NO_PROXY. Keep the port so rules such as api.example.com:443 match the actual dial and the route trace.
+// Resolved through the same httpproxy rules used for HTTP proxies, which signal "direct" with a nil proxy.
 func bypassProxy(proxyFor func(*url.URL) (*url.URL, error), address string) bool {
-	host := address
-	if h, _, err := net.SplitHostPort(address); err == nil {
-		host = h
-	}
-	p, err := proxyFor(&url.URL{Scheme: "http", Host: host})
+	p, err := proxyFor(&url.URL{Scheme: "http", Host: address})
 	return err == nil && p == nil
 }

@@ -89,17 +89,17 @@ func routeVia(kind, direct string, proxyFor func(*url.URL) (*url.URL, error)) ro
 	}
 }
 
-// redactProxyURL drops the proxy's credentials whole: a user name alone is often
-// the token.
+// redactProxyURL keeps only the proxy's scheme and authority. A user name alone
+// can be a token, and path, query or fragment parameters can carry secrets too.
 func redactProxyURL(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
-	c := *u
-	if c.User != nil {
-		c.User = url.User("redacted")
+	safe := url.URL{Scheme: u.Scheme, Host: u.Host}
+	if u.User != nil {
+		safe.User = url.User("redacted")
 	}
-	return c.String()
+	return safe.String()
 }
 
 // netTracer follows one request. A nil *netTracer is a working no-op, so the
@@ -148,7 +148,7 @@ func startNetTrace(req *http.Request, route routeFunc) (*netTracer, *http.Reques
 	nt.tunnel = r.tunnel
 	nt.debug("llm net: request",
 		"method", req.Method,
-		"url", req.URL.Scheme+"://"+req.URL.Host+req.URL.Path,
+		"url", (&url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host}).String(),
 		"route", r.desc)
 
 	ctx := context.WithValue(req.Context(), netTracerKey{}, nt)
