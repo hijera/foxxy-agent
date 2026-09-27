@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 )
@@ -67,6 +68,12 @@ const (
 type WorkspaceFile struct {
 	Content []byte      `json:"content"` // binary content (encoding/json encodes as base64)
 	Mode    fs.FileMode `json:"mode"`
+
+	// size and modTime are the stat the content was read with. They live only in
+	// memory - a stored diff never needs them - and let LiveWorkspaceDiff skip
+	// rereading a file that has not been touched since the snapshot.
+	size    int64
+	modTime time.Time
 }
 
 // WorkspaceChange records what happened to one file during a turn.
@@ -90,8 +97,32 @@ type WorkspaceSnapshot struct {
 // Returns a non-nil snapshot even when cwd is empty (snapshot will be empty).
 func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 	snap := &WorkspaceSnapshot{files: make(map[string]*WorkspaceFile)}
+	walkWorkspace(cwd, func(rel, path string, info fs.FileInfo) bool {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		snap.files[rel] = &WorkspaceFile{
+			Content: content, Mode: info.Mode(),
+			size: info.Size(), modTime: info.ModTime(),
+		}
+		return true
+	})
+	return snap
+}
+
+// walkWorkspace visits every file a snapshot covers, in lexical order and under
+// the snapshot's limits: tool state, generated folders and git worktrees are
+// skipped, files over maxFileSizeBytes are left out, and the walk stops once
+// maxTotalSizeBytes have been taken. visit reports whether it took the file,
+// and only a taken file counts toward that total.
+//
+// The snapshot and the live diff both walk through here, so a file one of them
+// reaches the other reaches too - otherwise a workspace past the size cap would
+// show files beyond it as created the moment the two walks disagreed.
+func walkWorkspace(cwd string, visit func(rel, path string, info fs.FileInfo) bool) {
 	if cwd == "" {
-		return snap
+		return
 	}
 	var totalBytes int64
 	_ = filepath.WalkDir(cwd, func(path string, d fs.DirEntry, err error) error {
@@ -120,16 +151,61 @@ func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 		if totalBytes+info.Size() > maxTotalSizeBytes {
 			return filepath.SkipAll
 		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
 		rel, _ := filepath.Rel(cwd, path)
-		snap.files[rel] = &WorkspaceFile{Content: content, Mode: info.Mode()}
-		totalBytes += info.Size()
+		if visit(rel, path, info) {
+			totalBytes += info.Size()
+		}
 		return nil
 	})
-	return snap
+}
+
+// LiveWorkspaceDiff is ComputeWorkspaceDiff for a turn that is still running.
+//
+// It compares the same way, except that a file whose size, modification time
+// and mode still match the snapshot is taken as unchanged without being read.
+// The changes card, open during a turn, asks after every tool call; reading the
+// whole workspace that often would cost what the end-of-turn diff costs, many
+// times a turn, while a stat walk costs a directory listing. The trade is a
+// same-size rewrite that also restores the old timestamp, which this misses
+// until the turn ends - the stored diff, the one a rollback replays, still
+// compares contents.
+func LiveWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff, error) {
+	beforeFiles := map[string]*WorkspaceFile{}
+	if before != nil {
+		beforeFiles = before.files
+	}
+	var changes []WorkspaceChange
+	seen := make(map[string]bool)
+	walkWorkspace(cwd, func(rel, path string, info fs.FileInfo) bool {
+		bf := beforeFiles[rel]
+		if bf != nil && bf.size == info.Size() && bf.modTime.Equal(info.ModTime()) && bf.Mode == info.Mode() {
+			seen[rel] = true
+			return true
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		seen[rel] = true
+		af := &WorkspaceFile{Content: content, Mode: info.Mode(), size: info.Size(), modTime: info.ModTime()}
+		switch {
+		case bf == nil:
+			changes = append(changes, WorkspaceChange{Path: rel, After: af})
+		case string(bf.Content) != string(af.Content) || bf.Mode != af.Mode:
+			changes = append(changes, WorkspaceChange{Path: rel, Before: bf, After: af})
+		}
+		return true
+	})
+	for rel, bf := range beforeFiles {
+		if !seen[rel] {
+			changes = append(changes, WorkspaceChange{Path: rel, Before: bf})
+		}
+	}
+	if len(changes) == 0 {
+		return nil, nil
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	return &WorkspaceDiff{Changes: changes}, nil
 }
 
 // ComputeWorkspaceDiff compares the current state of cwd against the before snapshot

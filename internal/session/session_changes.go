@@ -82,16 +82,65 @@ func AggregateTurnChanges(sessionDir string, turnN int) ([]FileChange, error) {
 	return aggregateTurns(sessionDir, []int{turnN})
 }
 
-// aggregateTurns folds the given turns into one net change per file. Turns are
-// walked in the order given, so callers pass them oldest first for "before" to
-// come from the earliest turn that touched each file.
+// AggregateSessionChangesWithLive is AggregateSessionChanges with a turn that is
+// still running folded in as the newest one.
+//
+// A running turn has no stored diff until it ends, so without this the card,
+// opened mid-turn, would say nothing about the edits the agent is making in
+// front of the user. A turn that has just ended can be counted twice - stored,
+// and for a moment still live - which is harmless: folding the same diff again
+// keeps the earliest "before" and the latest "after", the ones it already had.
+func AggregateSessionChangesWithLive(sessionDir string, live *WorkspaceDiff) ([]FileChange, error) {
+	turns, err := ListStoredTurnDiffs(sessionDir)
+	if err != nil {
+		return nil, err
+	}
+	sort.Ints(turns)
+	diffs, err := loadTurnDiffs(sessionDir, turns)
+	if err != nil {
+		return nil, err
+	}
+	return aggregateDiffs(append(diffs, live)), nil
+}
+
+// AggregateWorkspaceDiff reports one turn diff in the aggregate shape: the
+// running turn on its own, for the viewer's last-turn scope.
+func AggregateWorkspaceDiff(diff *WorkspaceDiff) []FileChange {
+	if diff == nil {
+		return nil
+	}
+	return aggregateDiffs([]*WorkspaceDiff{diff})
+}
+
+// aggregateTurns folds the given stored turns into one net change per file.
+// Turns are walked in the order given, so callers pass them oldest first for
+// "before" to come from the earliest turn that touched each file.
 func aggregateTurns(sessionDir string, turns []int) ([]FileChange, error) {
-	byPath := make(map[string]*aggregate)
+	diffs, err := loadTurnDiffs(sessionDir, turns)
+	if err != nil {
+		return nil, err
+	}
+	return aggregateDiffs(diffs), nil
+}
+
+// loadTurnDiffs reads the stored diffs of the given turns, in order. A turn that
+// stored nothing comes back as nil, which aggregateDiffs skips.
+func loadTurnDiffs(sessionDir string, turns []int) ([]*WorkspaceDiff, error) {
+	diffs := make([]*WorkspaceDiff, 0, len(turns)+1)
 	for _, n := range turns {
 		diff, err := LoadWorkspaceDiff(sessionDir, n)
 		if err != nil {
 			return nil, err
 		}
+		diffs = append(diffs, diff)
+	}
+	return diffs, nil
+}
+
+// aggregateDiffs folds turn diffs, oldest first, into one net change per file.
+func aggregateDiffs(diffs []*WorkspaceDiff) []FileChange {
+	byPath := make(map[string]*aggregate)
+	for _, diff := range diffs {
 		if diff == nil {
 			continue
 		}
@@ -151,7 +200,7 @@ func aggregateTurns(sessionDir string, turns []int) ([]FileChange, error) {
 		out = append(out, change)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
+	return out
 }
 
 // looksBinary reports whether either side is binary, in which case there is no
