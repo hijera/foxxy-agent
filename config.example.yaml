@@ -137,6 +137,8 @@ agent:
   # llm_continue: true            # carry on a cut answer (off: the turn ends at the cut and says why)
   # llm_continue_max: 3           # continuations per turn before it ends with a notice
   # llm_continue_stall_delays_ms: [0]  # pause before each continuation after a stall; last entry repeats
+  # llm_continue_error_delays_ms: [5000, 20000]  # pause before carrying on after a 5xx or a dropped stream
+  # llm_continue_retry_after_max_ms: 120000       # honour a longer Retry-After up to this (0 ignores it)
   # llm_stall_retry: true         # wait and retry a call that failed without producing output
   # llm_stall_retry_delays_ms: [60000, 180000, 300000]  # last entry repeats: 1min, 3min, then every 5min
   # llm_stall_retry_max_wait_ms: 3600000  # total wait before giving up (0 = retry until Stop)

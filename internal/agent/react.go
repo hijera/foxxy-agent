@@ -72,6 +72,9 @@ type SessionState interface {
 	ReplaceTags(tags []string) (stored []string, changed bool)
 	UpdateTags(add, remove []string) (stored []string, changed bool)
 	IsUserCancelledTurn() bool
+	// SetTurnStopNotice records why the running turn stopped before its
+	// answer, for the session manager to hand to its caller (stop_notice.go).
+	SetTurnStopNotice(msg string)
 	GetTitlePinned() string
 	GetTitleAuto() string
 	SetTitleAuto(text string)
@@ -330,6 +333,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
+		// fork(max-turns-default): upstream 1.2.9 reads an unset max_turns as
+		// no step limit at all; FoxxyCode keeps 30.
 		maxTurns = 30
 	}
 	if a.subagent != nil {
@@ -652,7 +657,12 @@ func (a *Agent) runReActLoop(
 	// (llm_stall_retry_max_wait_ms and agent.llm_continue_max).
 	stalls := newStallRetry(&a.cfg.Agent)
 	recoveryTurns := 0
+	// stallContinues counts every continuation of a cut answer this turn, after
+	// a stall and after a provider failure alike: one budget,
+	// agent.llm_continue_max (fork(continue-budget)).
 	stallContinues := 0
+	// A notice belongs to the turn that set it.
+	a.state.SetTurnStopNotice("")
 	// Set when the client has been told the turn is parked behind a partial answer,
 	// so the same goroutine that sees the provider come back can take it away again.
 	// Atomic: it is set on the loop and cleared from the stream callback.
@@ -768,6 +778,10 @@ func (a *Agent) runReActLoop(
 		// from this call: a limit reported after that is never waited for
 		// and re-issued, whatever the provider's own error carries.
 		streamedAny := false
+		// answerBuf is the answer text that reached the client from this call:
+		// what a provider failure mid-answer keeps (keepInterruptedAnswer),
+		// since the reader may hand back no response once the stream broke.
+		var answerBuf strings.Builder
 		maybeMarkReasonEnd := func(now time.Time) {
 			if reasonClockStart.IsZero() || !reasonClockEnd.IsZero() {
 				return
@@ -879,6 +893,7 @@ func (a *Agent) runReActLoop(
 			noteProgress(now)
 			sawDelta.Store(true)
 			streamedAny = true
+			answerBuf.WriteString(delta)
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -1189,6 +1204,62 @@ func (a *Agent) runReActLoop(
 				replaying = true
 				continue
 			}
+			// A failure of the provider's lane after text was shown - a 5xx the
+			// resilient wrapper could not ride out, a stream cut mid-answer -
+			// carries the answer on (upstream 1.2.9, issue #246; see
+			// provider_recovery.go for where the fork's version differs). A
+			// stall with text shown took the branch above; a failure before any
+			// text is the stall ladder's below; a limit (429) is the wrapper's
+			// and the limit wait's.
+			if hasAnyOutput && !stalled && ctx.Err() == nil && !a.state.IsUserCancelledTurn() &&
+				a.cfg.Agent.LLMContinueEnabled() && llm.IsTransientProviderError(streamErr) {
+				kept := a.keepInterruptedAnswer(answerBuf.String(), reasoningBuf.String(), reasonClockStart, reasonClockEnd)
+				if stallContinues >= a.cfg.Agent.EffectiveLLMContinueMax() {
+					return string(acp.StopReasonRefused), providerGaveUpError(streamErr, stallContinues)
+				}
+				seen, repeated := attemptRepeats.Observe(attemptFingerprint(reasoningBuf.String(), answerBuf.String(), nil))
+				if repeated {
+					attemptRestarts++
+				}
+				stallContinues++
+				recoveryTurns++
+				pause := errorContinueDelay(&a.cfg.Agent, stallContinues-1, streamErr)
+				a.log.Warn("provider failed mid-answer; carrying the answer on after a pause",
+					"error", streamErr, "pause", pause, "continuation", stallContinues,
+					"kept_partial_answer", kept, "restarts", attemptRestarts)
+				// The same park the stall continuation announces: the client is
+				// still showing the half-written answer as if it were arriving.
+				announcedPark.Store(true)
+				_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{
+					SessionUpdate: acp.UpdateTypeLLMRetry,
+					Phase:         acp.LLMRetryPhaseContinuing,
+					Attempt:       stallContinues,
+					DelayMS:       pause.Milliseconds(),
+				})
+				if err := sleepCtx(ctx, pause); err != nil {
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					// A deadline or a shutdown, not the user: the turn ends
+					// with the failure it was recovering from.
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before carrying on the answer was interrupted: %v)", streamErr, err)
+				}
+				messages = a.buildMessages(sys.Content)
+				nudge := providerRecoveryNudge
+				switch {
+				case repeated:
+					nudge = repeatedAttemptNudge(alreadyRanSteps(a.state.GetMessages(), alreadyRanStepsMax), seen)
+					if attemptRestarts >= attemptRestartsBeforeAnswer {
+						restartForceAnswer = true
+					}
+				case !kept:
+					nudge = stallNoTextNudge
+				}
+				// LLM-facing only; never persisted to the transcript.
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+				replaying = true
+				continue
+			}
 			// A mid-generation truncation keeps its partial answer like a user
 			// stop: the user already watched the text stream in, so it must
 			// survive in the transcript next to the honest error below.
@@ -1399,7 +1470,7 @@ func (a *Agent) runReActLoop(
 			if response.StopReason == "max_tokens" {
 				// Nothing on screen separates this from a finished turn, so say it:
 				// the cap is a setting the user can raise, but only once told it was hit.
-				a.persistTruncationNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
+				a.noteStopNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
 				return string(acp.StopReasonMaxTokens), nil
 			}
 			// A Stop hook may send the agent back to work with a follow-up that
@@ -1618,6 +1689,9 @@ func (a *Agent) runReActLoop(
 		}
 	}
 
+	// The step limit ends the turn like a finished answer would, so say it
+	// (upstream 1.2.9, issue #255).
+	a.noteStopNotice(a.maxTurnsNotice(maxTurns))
 	return string(acp.StopReasonMaxTurns), nil
 }
 

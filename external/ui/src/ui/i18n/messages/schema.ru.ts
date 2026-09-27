@@ -179,11 +179,17 @@ export const schemaTextRu: Record<string, string> = {
   "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.":
     "Сколько всего времени можно потратить на паузы между повторами одного вызова, прежде чем ход сдастся и покажет ошибку. Явный 0 — повторять, пока модель не ответит или пока вы не нажмёте «Стоп».",
   "Continue a cut answer": "Продолжать оборванный ответ",
-  "When a stream stalls after it delivered text, keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.":
-    "Если поток завис, когда модель уже написала часть ответа, текст сохраняется, и модель просят продолжить с места обрыва. Выключено — ход завершается на обрыве, сохраняет текст и объясняет причину.",
+  "When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.":
+    "Если провайдер оборвал ответ, в котором уже есть текст (поток завис, прервался или вернул 5xx), текст сохраняется, и модель просят продолжить с места обрыва. Выключено — ход завершается на обрыве, сохраняет текст и объясняет причину.",
   "Continuation limit": "Лимит продолжений",
   "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).":
     "Сколько раз за один ход можно продолжить оборванный ответ, прежде чем ход завершится с уведомлением (0 — завершать ход при первом обрыве).",
+  "Continuation delays after an error ms": "Паузы перед продолжением после ошибки (мс)",
+  "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.":
+    "Пауза перед каждым продолжением после того, как сбой провайдера оборвал ответ (5xx, обрыв потока), в миллисекундах. Последнее значение повторяется.",
+  "Longest Retry-After ms": "Предел Retry-After (мс)",
+  "Longest pause a provider may ask for (Retry-After) before a cut answer is carried on (an explicit 0 ignores Retry-After).":
+    "Самая длинная пауза, которую провайдер может запросить (Retry-After) перед продолжением оборванного ответа (явный 0 — не учитывать Retry-After).",
   "Continuation delays ms": "Паузы перед продолжением (мс)",
   "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.":
     "Пауза перед каждым продолжением после зависания, в миллисекундах. Последнее значение повторяется; по умолчанию 0 — продолжать сразу, потому что защита уже выждала тишину.",

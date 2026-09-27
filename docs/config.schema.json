@@ -188,7 +188,7 @@
         },
         "llm_continue": {
           "type": "boolean",
-          "description": "Carry on an answer the provider cut short: when a stream stalls (llm_stream_idle_timeout_ms) after it delivered text, the text is kept and the model is asked to continue from where it stopped. Off, the turn ends at the cut, keeps the text and says why.",
+          "description": "Carry on an answer the provider cut short: when a stream stalls (llm_stream_idle_timeout_ms), drops or fails with a 5xx after it delivered text, the text is kept and the model is asked to continue from where it stopped. Off, the turn ends at the cut, keeps the text and says why.",
           "default": true
         },
         "llm_continue_max": {
@@ -207,6 +207,24 @@
           "default": [
             0
           ]
+        },
+        "llm_continue_error_delays_ms": {
+          "type": "array",
+          "description": "Pause before each continuation after a provider failure cut the answer - a 5xx the retry wrapper could not ride out, a stream that dropped mid-answer - in milliseconds. The last entry repeats. A failure before any text is waited out by the llm_stall_retry ladder instead, and a limit (429) by the retry wrapper and wait_for_limit_reset.",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": [
+            5000,
+            20000
+          ]
+        },
+        "llm_continue_retry_after_max_ms": {
+          "type": "integer",
+          "description": "Longest pause a provider may ask for (Retry-After) before a cut answer is carried on: a longer ask than llm_continue_error_delays_ms is honoured up to this. An explicit 0 ignores Retry-After.",
+          "default": 120000,
+          "minimum": 0
         },
         "loop_guard": {
           "type": "boolean",

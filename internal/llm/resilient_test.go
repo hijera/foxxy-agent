@@ -333,6 +333,11 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 		{"unexpected EOF", fmt.Errorf("openai stream: %w", io.ErrUnexpectedEOF), true},
 		{"connection reset", fmt.Errorf("openai stream: %w",
 			&net.OpError{Op: "read", Err: os.NewSyscallError("read", syscall.ECONNRESET)}), true},
+		// Winsock numbers: syscall.ECONNRESET does not match them on Windows.
+		{"connection reset (Winsock)", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(10054))}), true},
+		{"connection aborted (Winsock)", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(10053))}), true},
 		// What net/http actually prints for an RST_STREAM from the peer: no
 		// "http2:" prefix (that spelling belongs to GOAWAY and the lost-ping
 		// close), and wrapped in the url.Error of the request it killed.

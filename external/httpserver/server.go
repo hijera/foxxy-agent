@@ -710,6 +710,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
 		}
+		if promptRes != nil && promptRes.StopNotice != "" {
+			// Why the turn stopped before its answer, for a caller that reads
+			// the metadata rather than the streamed text.
+			meta["stop_notice"] = promptRes.StopNotice
+		}
 		// Unconditional: for a relay sender this terminates the watched stream and writes
 		// nothing to w, so the JSON body below is unchanged.
 		_ = bridge.FinishStreamWithMetadata(meta)
@@ -1320,6 +1325,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			// Remote clients (internal/remote) recover the ACP stop reason
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		if promptRes != nil && promptRes.StopNotice != "" {
+			meta["stop_notice"] = promptRes.StopNotice
 		}
 		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {

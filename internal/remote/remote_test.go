@@ -360,7 +360,7 @@ func TestCancelAbortsATurnBlockedOnAPermissionModal(t *testing.T) {
 func TestServerStopReasonAndCancelledMetaWin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"m\",\"stop_reason\":\"max_turns\"}}\n\n" +
+		_, _ = w.Write([]byte("event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"m\",\"stop_reason\":\"max_turns\",\"stop_notice\":\"Stopped after 30 steps.\"}}\n\n" +
 			"data: [DONE]\n\n"))
 	}))
 	defer srv.Close()
@@ -368,6 +368,10 @@ func TestServerStopReasonAndCancelledMetaWin(t *testing.T) {
 	res, err := promptOnce(t, srv, sender)
 	if err != nil || res.StopReason != acp.StopReasonMaxTurns {
 		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	// Why the turn stopped short comes back with the reason (upstream 1.2.9).
+	if res.StopNotice != "Stopped after 30 steps." {
+		t.Fatalf("StopNotice = %q", res.StopNotice)
 	}
 }
 

@@ -38,6 +38,10 @@ const (
 	// stalls roughly half of long generations, so one answer can plausibly
 	// stall twice.
 	AgentDefaultLLMContinueMax = 3
+	// AgentDefaultLLMContinueRetryAfterMaxMS caps the pause a provider may ask
+	// for (Retry-After) before a cut answer is carried on: upstream 1.2.9 caps
+	// its provider recovery at two minutes.
+	AgentDefaultLLMContinueRetryAfterMaxMS = 120000
 	// AgentDefaultLLMStallRetryMaxWaitMS is the wall-clock budget for waiting out a
 	// silent provider within one LLM call. An explicit 0 means unbounded.
 	AgentDefaultLLMStallRetryMaxWaitMS = 3600000
@@ -65,6 +69,12 @@ var agentDefaultLLMStallRetryDelaysMS = []int{60000, 180000, 300000}
 // the stall guard cut: none, because the guard has already waited
 // llm_stream_idle_timeout_ms of silence before it cut.
 var agentDefaultLLMContinueStallDelaysMS = []int{0}
+
+// agentDefaultLLMContinueErrorDelaysMS is the pause before carrying on an answer
+// a provider failure cut (a 5xx, a dropped stream): five seconds, then twenty,
+// the schedule upstream 1.2.9 derives from the default llm_retry_base_ms. The
+// wrapper's own quick retries have already given up by then.
+var agentDefaultLLMContinueErrorDelaysMS = []int{5000, 20000}
 
 // Loop-guard terminal actions (agent.loop_stuck_action): what the guard does once
 // a tool loop has survived every nudge.
@@ -129,6 +139,15 @@ type Agent struct {
 	// LLMContinueStallDelaysMS is the pause before each continuation after a
 	// stall; the last entry repeats. Empty means the default ([0]).
 	LLMContinueStallDelaysMS []int `yaml:"llm_continue_stall_delays_ms"`
+	// LLMContinueErrorDelaysMS is the pause before each continuation after a
+	// provider failure cut the answer (a 5xx, a dropped stream); the last entry
+	// repeats. Empty means the default ([5000, 20000]).
+	LLMContinueErrorDelaysMS []int `yaml:"llm_continue_error_delays_ms"`
+	// LLMContinueRetryAfterMaxMS caps the pause a provider asks for
+	// (Retry-After) before a cut answer is carried on; a longer ask than the
+	// delay list is honoured up to it. A nil pointer means the default
+	// (120000); an explicit 0 ignores Retry-After.
+	LLMContinueRetryAfterMaxMS *int `yaml:"llm_continue_retry_after_max_ms"`
 	// LoopGuard toggles runaway-loop protection: aborting a streamed response that
 	// degenerates into repeating itself, and blocking identical tool calls issued
 	// over and over. A nil pointer means the default (true).
@@ -213,6 +232,21 @@ func (c *Agent) EffectiveLLMContinueMax() int {
 // every continuation past the end of the slice.
 func (c *Agent) EffectiveLLMContinueStallDelays() []time.Duration {
 	return msDurations(c.LLMContinueStallDelaysMS, agentDefaultLLMContinueStallDelaysMS)
+}
+
+// EffectiveLLMContinueErrorDelays returns llm_continue_error_delays_ms as
+// durations with the default applied; the last entry repeats.
+func (c *Agent) EffectiveLLMContinueErrorDelays() []time.Duration {
+	return msDurations(c.LLMContinueErrorDelaysMS, agentDefaultLLMContinueErrorDelaysMS)
+}
+
+// EffectiveLLMContinueRetryAfterMax returns llm_continue_retry_after_max_ms as
+// a duration with the default applied. 0 means Retry-After is ignored.
+func (c *Agent) EffectiveLLMContinueRetryAfterMax() time.Duration {
+	if c.LLMContinueRetryAfterMaxMS == nil {
+		return AgentDefaultLLMContinueRetryAfterMaxMS * time.Millisecond
+	}
+	return time.Duration(*c.LLMContinueRetryAfterMaxMS) * time.Millisecond
 }
 
 // msDurations converts a millisecond list, or its default when empty.
@@ -357,6 +391,14 @@ func (c *Agent) Validate() error {
 		if ms < 0 {
 			return fmt.Errorf("agent.llm_continue_stall_delays_ms[%d]: must be >= 0", i)
 		}
+	}
+	for i, ms := range c.LLMContinueErrorDelaysMS {
+		if ms < 0 {
+			return fmt.Errorf("agent.llm_continue_error_delays_ms[%d]: must be >= 0", i)
+		}
+	}
+	if c.LLMContinueRetryAfterMaxMS != nil && *c.LLMContinueRetryAfterMaxMS < 0 {
+		return fmt.Errorf("agent.llm_continue_retry_after_max_ms: must be >= 0")
 	}
 	if c.LLMStallRetryMaxWaitMS != nil && *c.LLMStallRetryMaxWaitMS < 0 {
 		return fmt.Errorf("agent.llm_stall_retry_max_wait_ms: must be >= 0")

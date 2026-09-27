@@ -233,6 +233,8 @@ agent:
   llm_continue: true           # ...and the model asked to carry on from it (off: the turn ends at the cut)
   llm_continue_max: 3          # continuations per turn before it ends with a notice (0 = end at the first cut)
   llm_continue_stall_delays_ms: [0]  # pause before each continuation after a stall; the last entry repeats
+  llm_continue_error_delays_ms: [5000, 20000]  # ...and after a 5xx or a stream that dropped mid-answer
+  llm_continue_retry_after_max_ms: 120000      # a longer Retry-After is honoured up to this (0 ignores it)
   llm_stall_retry: true        # wait and re-issue a call that failed without producing output
                                # (silence, unexpected EOF, Client.Timeout, 5xx); a refused 4xx is not retried
   llm_stall_retry_delays_ms: [60000, 180000, 300000]  # pause before each retry; the last entry

@@ -826,7 +826,7 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	run.turns = assistantRounds(st.GetMessages())
-	run.report = lastAssistantPlainText(st.GetMessages())
+	run.report = subagentReport(st.GetMessages(), res)
 	switch {
 	case err != nil:
 		run.status = "failed"

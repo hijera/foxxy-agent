@@ -568,6 +568,19 @@ func isTransientTransportError(err error) bool {
 	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) {
 		return true
 	}
+	// Winsock reports the same failures under its own numbers, which the
+	// portable constants above do not match on Windows: a reset arrives as
+	// "wsarecv: An existing connection was forcibly closed by the remote host".
+	// An abort (10053) is how Windows reports a connection its own network
+	// stack dropped - a VPN or a proxy going away - the connection, not the
+	// request, died.
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case wsaeconnreset, wsaeconnaborted, wsaeconnrefused:
+			return true
+		}
+	}
 	s := err.Error()
 	for _, needle := range []string{
 		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):

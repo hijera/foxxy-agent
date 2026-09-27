@@ -1032,6 +1032,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	MarkTurnRan(turnCtx)
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
+		state.TakeTurnStopNotice()
 		if !errors.Is(err, context.Canceled) {
 			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 		}
@@ -1078,6 +1079,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		stopReason, err = m.runner(turnCtx, state, prompt, sender)
 		state.ClearNextPromptQueued()
 		if err != nil {
+			state.TakeTurnStopNotice()
 			if !errors.Is(err, context.Canceled) {
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 			}
@@ -1085,7 +1087,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 
-	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
+	// A turn that stopped before its answer - its step limit, the model's
+	// output limit - says why (upstream 1.2.9, issue #255). The agent already
+	// streamed the notice into the answer and stored it in the transcript
+	// (fork(stop-notice-transcript)), so it is handed to the caller only, not
+	// written to the UI log a second time.
+	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason), StopNotice: state.TakeTurnStopNotice()}, nil
 }
 
 // maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by

@@ -629,20 +629,81 @@ func TestRefusedRequestIsNotRetried(t *testing.T) {
 	}
 }
 
-// TestTransportFailureAfterDeltasIsNotReplayed is the duplication guard. A
-// transport failure mid-stream returns no response at all, yet the deltas it
-// managed to send are already on the user's screen: replaying would show the
-// same text twice.
-func TestTransportFailureAfterDeltasIsNotReplayed(t *testing.T) {
+// TestTransportFailureAfterDeltasIsCarriedOnNotReplayed is the duplication
+// guard. A transport failure mid-stream returns no response at all, yet the
+// deltas it managed to send are already on the user's screen: sending the same
+// request again would show that text twice. Since upstream 1.2.9's provider
+// recovery the turn goes on anyway - but by keeping the text once and asking
+// the model to continue from it, never by replaying the request.
+func TestTransportFailureAfterDeltasIsCarriedOnNotReplayed(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{deltaThenErr: "Half a sentence", err: fmt.Errorf("openai stream: unexpected EOF")},
+		{answer: " and the rest."},
+	}}
+	h := newStallHarness(t, p, func(a *config.Agent) { a.LLMContinueErrorDelaysMS = []int{1} })
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := p.callCount(); got != 2 {
+		t.Fatalf("provider called %d times, want the failed call and one continuation", got)
+	}
+	msgs := h.assistantMessages()
+	if len(msgs) != 2 || msgs[0].Content != "Half a sentence" {
+		t.Fatalf("assistant messages = %+v, want the delivered text kept once, then the rest", msgs)
+	}
+	// The second request carries the kept text and the nudge, so it is not the
+	// first request sent again.
+	second := p.request(2)
+	var sawPartial, nudged bool
+	for _, m := range second {
+		if m.Role == llm.RoleAssistant && m.Content == "Half a sentence" {
+			sawPartial = true
+		}
+		if m.Role == llm.RoleUser && m.Content == providerRecoveryNudge {
+			nudged = true
+		}
+	}
+	if !sawPartial || !nudged {
+		t.Errorf("the continuation was a replay: partial=%v nudge=%v", sawPartial, nudged)
+	}
+}
+
+// A provider failure cut the answer mid-line, and the model carries it on by
+// writing that line again from its start (seen live on NeuralDeep after a
+// connection reset). The kept text stops at the last line end, as the stall
+// path's does, so the line reaches the answer once.
+func TestTransportFailureMidLineKeepsTheTextUpToTheLastLineEnd(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{deltaThenErr: "1. The first point.\n2. The second po", err: fmt.Errorf("openai stream: unexpected EOF")},
+		{answer: "2. The second point, whole.\n3. The third."},
+	}}
+	h := newStallHarness(t, p, func(a *config.Agent) { a.LLMContinueErrorDelaysMS = []int{1} })
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	msgs := h.assistantMessages()
+	if len(msgs) != 2 || msgs[0].Content != "1. The first point.\n" {
+		t.Fatalf("assistant messages = %+v, want the text kept up to its last line end", msgs)
+	}
+	if joined := msgs[0].Content + msgs[1].Content; strings.Count(joined, "2. The second") != 1 {
+		t.Fatalf("answer = %q, want the cut line once", joined)
+	}
+}
+
+// With agent.llm_continue off the same failure ends the turn with the error,
+// and nothing is sent again.
+func TestTransportFailureAfterDeltasEndsTheTurnWithContinueOff(t *testing.T) {
 	p := &stallProvider{script: []stallBehaviour{
 		{deltaThenErr: "Half a sentence", err: fmt.Errorf("openai stream: unexpected EOF")},
 		{answer: "Recovered."},
 	}}
-	h := newStallHarness(t, p, nil)
+	off := false
+	h := newStallHarness(t, p, func(a *config.Agent) { a.LLMContinue = &off })
 
-	_, err := h.run(t)
-	if err == nil {
-		t.Fatal("expected the turn to surface the transport error rather than replay it")
+	if _, err := h.run(t); err == nil {
+		t.Fatal("expected the turn to surface the transport error")
 	}
 	if got := p.callCount(); got != 1 {
 		t.Errorf("provider called %d times, want 1 (delivered output must never be replayed)", got)
