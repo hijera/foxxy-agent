@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-24
+## Unreleased — 2026-09-27
 
 **Proxy with a password: the password is hidden and the address is built in a dialog.**
 The proxy field (on a provider, on the Telegram gateway and in the first-run dialog) now shows
@@ -25,6 +25,8 @@ settings: a manual proxy with its exceptions, a setup script (PAC) or automatic 
 - Windows runs the script itself. This covers the FoxxyCode window for Windows and VS Code with an
 empty `http.proxy`; IntelliJ still passes the IDE's proxy. `FOXXYCODE_SYSTEM_PROXY=off` turns it
 off.
+
+## 0.3.20 — 2026-09-24
 
 **A detailed network log in debug mode.**
 With `debug.enable` on, the FoxxyCode log now spells out every request to the model step by
