@@ -533,6 +533,16 @@ func isRetryableLLMError(err error) bool {
 		// one falls through to normal classification of its cause.
 		return false
 	}
+	var stalled *streamStalledError
+	if errors.As(err, &stalled) {
+		// A stall before any delta reached the caller (after one, the wrapper
+		// above already refused): the server took the request and never
+		// answered it, the same wager as a connection cut before output.
+		// Upstream 1.1.47's rule; the fork's guard sits outside this wrapper
+		// (stream_idle_guard.go), so it only fires for a stall another layer
+		// reports.
+		return true
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
@@ -560,7 +570,11 @@ func isTransientTransportError(err error) bool {
 	}
 	s := err.Error()
 	for _, needle := range []string{
-		"http2: stream error",
+		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):
+		// net/http prints it as "stream error: stream ID N; CODE; received
+		// from peer", with no "http2:" prefix (upstream 1.1.47). The
+		// connection lives on; the one request on that stream died.
+		"stream error: stream ID",
 		"http2: server sent GOAWAY",
 		// The HTTP/2 health check (proxy_http_client.go) closed a connection that
 		// stopped answering: the request died with it, a new connection will not.

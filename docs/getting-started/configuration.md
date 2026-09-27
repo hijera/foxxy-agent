@@ -227,8 +227,12 @@ agent:
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard);
                                      # a reasoning model given a large tool result can need most of it
-  llm_stall_timeout_ms: 300000 # cut a stream that has already produced output but stopped sending data
-                               # (0 disables); the partial answer is kept and the model asked to continue
+  llm_stream_idle_timeout_ms: 300000 # cut a stream that has already delivered something but stopped sending
+                               # data (0 disables); keep-alive comments do not count, and the old name
+                               # llm_stall_timeout_ms is still read. The partial answer is kept
+  llm_continue: true           # ...and the model asked to carry on from it (off: the turn ends at the cut)
+  llm_continue_max: 3          # continuations per turn before it ends with a notice (0 = end at the first cut)
+  llm_continue_stall_delays_ms: [0]  # pause before each continuation after a stall; the last entry repeats
   llm_stall_retry: true        # wait and re-issue a call that failed without producing output
                                # (silence, unexpected EOF, Client.Timeout, 5xx); a refused 4xx is not retried
   llm_stall_retry_delays_ms: [60000, 180000, 300000]  # pause before each retry; the last entry

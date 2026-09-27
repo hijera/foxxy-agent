@@ -7,6 +7,29 @@
       "additionalProperties": false,
       "description": "Defaults for the main agent loop (model id and safety caps).",
       "properties": {
+        "llm_continue": {
+          "default": true,
+          "description": "When a stream stalls after it delivered text, keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.",
+          "title": "Continue a cut answer",
+          "type": "boolean"
+        },
+        "llm_continue_max": {
+          "default": 3,
+          "description": "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).",
+          "title": "Continuation limit",
+          "type": "integer"
+        },
+        "llm_continue_stall_delays_ms": {
+          "default": [
+            0
+          ],
+          "description": "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Continuation delays ms",
+          "type": "array"
+        },
         "llm_first_token_timeout_ms": {
           "default": 90000,
           "description": "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
@@ -55,10 +78,10 @@
           "title": "Retry budget ms",
           "type": "integer"
         },
-        "llm_stall_timeout_ms": {
+        "llm_stream_idle_timeout_ms": {
           "default": 300000,
-          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).",
-          "title": "LLM stall timeout ms",
+          "description": "How long a streamed LLM call that has already delivered something may deliver nothing more before the stream is cut as stalled; the partial answer is kept. Keep-alive comments do not count as delivery (an explicit 0 disables the guard).",
+          "title": "LLM stream idle timeout ms",
           "type": "integer"
         },
         "loop_guard": {
@@ -141,10 +164,13 @@
         "llm_retry_base_ms",
         "llm_min_interval_ms",
         "llm_first_token_timeout_ms",
-        "llm_stall_timeout_ms",
+        "llm_stream_idle_timeout_ms",
         "llm_stall_retry",
         "llm_stall_retry_delays_ms",
         "llm_stall_retry_max_wait_ms",
+        "llm_continue",
+        "llm_continue_max",
+        "llm_continue_stall_delays_ms",
         "loop_guard",
         "loop_tool_repeat_limit",
         "loop_stream_repeat_cycles",

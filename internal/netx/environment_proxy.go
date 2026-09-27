@@ -1,10 +1,12 @@
 package netx
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -74,6 +76,21 @@ func environmentNamesProxy() bool {
 		}
 	}
 	return false
+}
+
+// EnvironmentProxyKey names what EnvironmentProxyResolver reads - the proxy
+// variables, NO_PROXY and the system proxy in effect - so a caller that keeps
+// what it built from them can tell when that no longer holds.
+func EnvironmentProxyKey() string {
+	var b strings.Builder
+	for _, k := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"} {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(os.Getenv(k))
+		b.WriteByte(0)
+	}
+	fmt.Fprintf(&b, "system=%p", systemProxy())
+	return b.String()
 }
 
 // EnvironmentProxyResolver returns the route resolver for requests nothing else

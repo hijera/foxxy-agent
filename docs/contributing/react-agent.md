@@ -355,9 +355,19 @@ turn says something:
   thinking is billed against the same budget as the visible answer, so the text can run
   out well before the number suggests. Measured on `kimi-k2.6` at `max_tokens: 8192`,
   roughly half the budget went to reasoning the user never saw.
-- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stall_timeout_ms`** and the
-  **`agent.llm_stall_retry`** family, which keep the partial answer and ask the model to
-  carry on rather than ending the turn. See `docs/reference/config.md` for the keys.
+- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stream_idle_timeout_ms`**, the
+  stall guard every streamed call carries (**`llm.WithStreamIdleGuard`**,
+  `internal/llm/stream_idle_guard.go`). It watches the chunks the stream readers hand on -
+  text, reasoning, and the **`Progress`** frames a tool call's argument fragments become -
+  so a gateway that keeps sending keep-alive comments for a dead model is still cut, which
+  a byte counter would never do. It sits outside the retry wrapper, so its clock spans a
+  replayed attempt. The ReAct loop keeps the partial answer and, while
+  **`agent.llm_continue`** is on, asks the model to carry on from it, up to
+  **`agent.llm_continue_max`** times per turn (**`llm_continue_stall_delays_ms`** between
+  them); off, the turn ends at the cut and says why. A stall before anything visible goes
+  to the **`agent.llm_stall_retry`** family instead. The same guard bounds compaction, the
+  title pass, the memory copilot and the direct model routes. See
+  `docs/reference/config.md` for the keys.
 - **A lane, not a model, that failed.** One model name at a proxy is usually a group of
   interchangeable deployments, and a sick member fails per attempt rather than per
   conversation. Two failures are therefore answered by re-issuing the identical request

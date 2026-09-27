@@ -220,7 +220,7 @@ func newStallHarness(t *testing.T, provider *stallProvider, tune func(*config.Ag
 		Model:                  "fake/model",
 		MaxTurns:               12,
 		LLMFirstTokenTimeoutMS: &firstToken,
-		LLMStallTimeoutMS:      &stall,
+		LLMStreamIdleTimeoutMS: &stall,
 		LLMStallRetryDelaysMS:  []int{1, 2},
 		LLMStallRetryMaxWaitMS: &maxWait,
 	}
@@ -516,8 +516,8 @@ func TestStallContinuationIsBounded(t *testing.T) {
 	if !strings.Contains(err.Error(), "stopped sending data mid-answer") {
 		t.Errorf("error = %q, want it to name the provider as the cause", err)
 	}
-	if got := p.callCount(); got != maxStallContinuations+1 {
-		t.Errorf("provider called %d times, want %d", got, maxStallContinuations+1)
+	if got := p.callCount(); got != config.AgentDefaultLLMContinueMax+1 {
+		t.Errorf("provider called %d times, want %d", got, config.AgentDefaultLLMContinueMax+1)
 	}
 	if len(h.assistantMessages()) == 0 {
 		t.Error("the partial answer must survive in the transcript")
@@ -698,8 +698,8 @@ func TestRepeatedRestartTellsTheModelItIsRepeating(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the turn to stop once the continuation budget ran out")
 	}
-	if got := p.callCount(); got != maxStallContinuations+1 {
-		t.Fatalf("provider called %d times, want %d", got, maxStallContinuations+1)
+	if got := p.callCount(); got != config.AgentDefaultLLMContinueMax+1 {
+		t.Fatalf("provider called %d times, want %d", got, config.AgentDefaultLLMContinueMax+1)
 	}
 
 	// The first continuation cannot know it is a repeat yet.

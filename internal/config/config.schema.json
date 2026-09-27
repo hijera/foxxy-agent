@@ -150,10 +150,16 @@
           "default": 90000,
           "minimum": 0
         },
+        "llm_stream_idle_timeout_ms": {
+          "type": "integer",
+          "description": "How long a streamed LLM call that has already delivered something may deliver nothing more before the stream is cut as stalled, keeping the partial answer. Every data frame counts - text, reasoning, a fragment of a tool call's arguments, a usage frame - but keep-alive comments and empty frames do not, so a gateway pinging for a dead model is still cut. Covers the case the first-token guard cannot: it stops at the first token and never re-arms. Applies to the agent's calls and to compaction, titles, the memory copilot and the direct model routes. An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
+          "default": 300000,
+          "minimum": 0
+        },
         "llm_stall_timeout_ms": {
           "type": "integer",
-          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it, keeping the partial answer. Covers the case the first-token guard cannot: it stops at the first token and never re-arms. An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
-          "default": 300000,
+          "deprecated": true,
+          "description": "Deprecated alias of `llm_stream_idle_timeout_ms`, the name FoxxyCode used before 0.3.x. It is still read, `llm_stream_idle_timeout_ms` wins when both are set, and the next save writes `llm_stream_idle_timeout_ms`.",
           "minimum": 0
         },
         "llm_stall_retry": {
@@ -179,6 +185,28 @@
           "description": "Total time that may be spent waiting between retries of one LLM call before the turn gives up and surfaces the error. An explicit 0 retries until the model answers or the user stops the turn.",
           "default": 3600000,
           "minimum": 0
+        },
+        "llm_continue": {
+          "type": "boolean",
+          "description": "Carry on an answer the provider cut short: when a stream stalls (llm_stream_idle_timeout_ms) after it delivered text, the text is kept and the model is asked to continue from where it stopped. Off, the turn ends at the cut, keeps the text and says why.",
+          "default": true
+        },
+        "llm_continue_max": {
+          "type": "integer",
+          "description": "How many times one turn may carry on a cut answer before it ends with a notice. The model is told when it restarts the same answer instead of continuing it. 0 ends the turn at the first cut, as llm_continue: false does.",
+          "default": 3,
+          "minimum": 0
+        },
+        "llm_continue_stall_delays_ms": {
+          "type": "array",
+          "description": "Pause before each continuation after a stall, in milliseconds. The last entry repeats for every later continuation. The default is no pause: the stall guard has already waited llm_stream_idle_timeout_ms of silence before it cut.",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": [
+            0
+          ]
         },
         "loop_guard": {
           "type": "boolean",

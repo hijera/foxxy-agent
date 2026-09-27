@@ -34,7 +34,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	waitForLimitResetMaxMS := AgentDefaultWaitForLimitResetMaxMS
 	llmRetryMax := AgentDefaultLLMRetryMax
 	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
-	llmStallTimeoutMS := AgentDefaultLLMStallTimeoutMS
+	llmStreamIdleTimeoutMS := AgentDefaultLLMStreamIdleTimeoutMS
+	llmContinue := true
+	llmContinueMax := AgentDefaultLLMContinueMax
 	llmStallRetry := true
 	llmStallRetryMaxWaitMS := AgentDefaultLLMStallRetryMaxWaitMS
 	return &ConfigJSON{
@@ -50,23 +52,26 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			},
 		},
 		Agent: AgentJSON{
-			Model:                  "openai/gpt-5.6-terra",
-			MaxTurns:               AgentDefaultMaxTurns,
-			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
-			LLMRetryMax:            &llmRetryMax,
-			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
-			LLMFirstTokenTimeoutMS: &llmFirstTokenTimeoutMS,
-			LLMStallTimeoutMS:      &llmStallTimeoutMS,
-			LLMStallRetry:          &llmStallRetry,
-			LLMStallRetryDelaysMS:  append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
-			LLMStallRetryMaxWaitMS: &llmStallRetryMaxWaitMS,
-			LoopGuard:              &loopGuard,
-			LoopToolRepeatLimit:    &loopToolRepeatLimit,
-			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
-			LoopToolCycleRepeats:   &loopToolCycleRepeats,
-			LoopStuckAction:        AgentDefaultLoopStuckAction,
-			LoopNudgeMax:           &loopNudgeMax,
-			WaitForLimitResetMaxMS: &waitForLimitResetMaxMS,
+			Model:                    "openai/gpt-5.6-terra",
+			MaxTurns:                 AgentDefaultMaxTurns,
+			MaxTokensPerTurn:         AgentDefaultMaxTokensPerTurn,
+			LLMRetryMax:              &llmRetryMax,
+			LLMRetryBaseMS:           AgentDefaultLLMRetryBaseMS,
+			LLMFirstTokenTimeoutMS:   &llmFirstTokenTimeoutMS,
+			LLMStreamIdleTimeoutMS:   &llmStreamIdleTimeoutMS,
+			LLMStallRetry:            &llmStallRetry,
+			LLMStallRetryDelaysMS:    append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
+			LLMStallRetryMaxWaitMS:   &llmStallRetryMaxWaitMS,
+			LLMContinue:              &llmContinue,
+			LLMContinueMax:           &llmContinueMax,
+			LLMContinueStallDelaysMS: append([]int(nil), agentDefaultLLMContinueStallDelaysMS...),
+			LoopGuard:                &loopGuard,
+			LoopToolRepeatLimit:      &loopToolRepeatLimit,
+			LoopStreamRepeatCycles:   &loopStreamRepeatCycles,
+			LoopToolCycleRepeats:     &loopToolCycleRepeats,
+			LoopStuckAction:          AgentDefaultLoopStuckAction,
+			LoopNudgeMax:             &loopNudgeMax,
+			WaitForLimitResetMaxMS:   &waitForLimitResetMaxMS,
 		},
 		Autocomplete: AutocompleteJSON{
 			Enabled:        &autocompleteEnabled,
