@@ -83,6 +83,10 @@ type State struct {
 	persistOnce sync.Once
 	persistID   uint64
 
+	// diskMsgs is what messages.json looked like when this State last read it
+	// or a save wrote or confirmed it (disk_refresh.go).
+	diskMsgs diskStamp
+
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 

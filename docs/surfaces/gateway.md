@@ -689,7 +689,10 @@ conversation and the web UI are two views of one session.
   `/context` in Telegram shows it; reply in Telegram and the browser has it on
   the next load. Only one turn runs at a time: the session's turn lock is a
   file lock, so a message that arrives while a browser turn is in flight is
-  answered with a busy notice instead of interleaving.
+  answered with a busy notice instead of interleaving. When the other side is
+  a separate process - an editor panel's `foxxycode http` over the same home,
+  holding a session the chat resumed - each turn first re-reads what that
+  process wrote ([Sessions](../features/sessions.md#one-store-every-surface)).
 - **A turn already being watched is left alone.** If a browser turn is running
   on the session, an arriving chat message does not take over its stream - the
   chat message gets the busy answer a moment later anyway.

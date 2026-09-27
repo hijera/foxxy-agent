@@ -468,6 +468,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	// Timed: a cold panel used to spend minutes here without any way to see it from the log.
 	startedAt := time.Now()
 
+	// Stat before the read (disk_refresh.go): a write racing it then reads as
+	// a change at the next turn instead of being stamped as already seen.
+	diskFile := statMessages(m.store.SessionPath(params.SessionID))
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -497,11 +500,6 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		contextWindows: m,
 	}
 
-	mode := Mode(snap.Meta.Mode)
-	if !IsValidMode(string(mode)) {
-		mode = ModeAgent
-	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
 	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
 		// and the parent link, the role and tool set are not needed any more.
@@ -512,18 +510,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			Depth:           snap.Meta.SubagentDepth,
 		})
 	}
-	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
-	st.SetTagsWithoutPersist(snap.Meta.Tags)
-	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
-	st.SetOriginWithoutPersist(snap.Meta.Origin)
-	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
-	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
-	st.SetTitleAutoWithoutPersist(snap.Meta.TitleAuto)
-	st.ReplaceMessagesWithoutPersist(snap.Messages)
-	st.SetPlanWithoutPersist(snap.Plan)
-	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys, snap.PermissionHTTPKeys)
-	st.RestoreUILogWithoutPersist(snap.UILog)
+	restorePersistedFields(st, snap)
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
+	st.stampCurrentDisk(diskFile)
 	restoreContextBreakdown(st)
 
 	active := m.activeCfg()
@@ -1512,6 +1501,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 	if err != nil {
 		return nil, err
 	}
+	// fork(session-disk-refresh): under the lock another process holding the
+	// same bundle is not in a turn, so what it wrote is complete.
+	m.refreshFromDiskIfChanged(st)
 	return func() {
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)

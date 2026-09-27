@@ -923,6 +923,20 @@ func (f *FileStore) Save(state *State) error {
 
 	newActivitySeq := state.GetActivitySeq()
 	newReadSeq := state.GetReadActivitySeq()
+	// The counters only grow. Another process over the same bundle may have
+	// moved them on since this State read them, and writing the older value
+	// back would mark its turn as never having happened.
+	if metaExisted {
+		newActivitySeq = max(newActivitySeq, prevMeta.ActivitySeq)
+		newReadSeq = max(newReadSeq, prevMeta.ReadActivitySeq)
+	}
+
+	// fork(session-disk-refresh): a State whose history has not moved since it
+	// last saw messages.json, while the file has, is older than the file:
+	// another process ran a turn over this bundle. Its save still writes the
+	// meta, but leaves the transcript side to the newer writer; the next turn
+	// here re-reads it (disk_refresh.go).
+	stale := state.staleAgainstDisk(dir, msgs, msgRev, msgEditRev)
 
 	// What was last written is remembered rather than read back and compared:
 	// the old code encoded the history a second time only to diff it against
@@ -936,7 +950,7 @@ func (f *FileStore) Save(state *State) error {
 	usable := cached != nil && cached.owner == stateID && cached.matchesFile(msgPath)
 
 	var pending []byte
-	messagesUnchanged := usable && cached.rev == msgRev
+	messagesUnchanged := stale || (usable && cached.rev == msgRev)
 	if !messagesUnchanged {
 		// Only a history that grew purely at the end can be spliced onto what
 		// was written last; an edit or a replacement re-encodes everything.
@@ -1081,6 +1095,11 @@ func (f *FileStore) Save(state *State) error {
 		moved.rev, moved.editRev, moved.count = msgRev, msgEditRev, len(msgs)
 		f.rememberMessages(msgPath, &moved)
 	}
+	if stale {
+		return nil
+	}
+	// The file now holds this history, written or confirmed above.
+	state.setDiskStamp(statMessages(dir), msgRev, msgEditRev)
 	uiWrap := uiLogFileData{
 		Version: uiLogLayout,
 		Entries: state.GetUILog(),
