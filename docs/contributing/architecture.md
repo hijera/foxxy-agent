@@ -84,16 +84,16 @@ Maintains the state for each conversation session:
 - Working directory
 - Active context (skills + project rules in separate prompt sections)
 - In-memory plan entries for todo tools (**`session.Plan`**), mirrored to **`todos/active.md`** when persistence is enabled (**`filesystem.go`**)
-- Child sessions for subagent runs (**`sub_<hex>`** ids, **`subagent.go`**): **`CreateSubagentSession`**, **`RunSubagentTurn`** and **`RetireSubagentSession`** implement **`agent.SubagentRuntime`**, so a child is created, run for its one turn and retired through the manager, never built inside the agent. Every other prompt path against a child answers **`ErrSubagentReadOnly`** (**409** over HTTP); **`ListSnapshotsWith(ListOptions{IncludeSubagents: true})`** is the only listing that shows children; **`SessionTree`** / **`DeleteSessionTree`** remove a parent together with its descendants, stopping their tasks first. See **`docs/features/subagents.md`**.
+- Child sessions for subagent runs (**`subagent.go`**): **`CreateSubagentSession`**, **`RunSubagentTurn`** and **`RetireSubagentSession`** implement **`agent.SubagentRuntime`**, so a child is created, run for its one turn and retired through the manager, never built inside the agent. A child carries an ordinary **`sess_`** id and its bundle is written **inside its parent's**, under **`session.ChildSessionsDirName`** (**`subagents/`**), by **`FileStore.EnsureChildLayout`**; **`FileStore.SessionPath`** resolves a nested id from an index the store fills as bundles are created and, for a bundle written by an earlier process, by walking the root. Every prompt path against a child answers **`ErrSubagentReadOnly`** (**409** over HTTP), decided on the bundle's **`subagentRun`** metadata rather than on the shape of its id; **`ListSnapshotsWith(ListOptions{IncludeSubagents: true})`** is the only listing that descends into the nested bundles; **`SessionTree`** / **`DeleteSessionTree`** walk that directory tree and remove a parent together with its descendants, stopping their tasks first. See **`docs/features/subagents.md`**.
 
 ### ReAct Agent Loop (`internal/agent`)
 
 The core reasoning engine (**`react.go`**):
 
 1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`**, **`plan`**, and **`debug`**. Ask and docs have closed tool surfaces with no MCP.
-2. Builds the system prompt from **`internal/prompts.Render`**. The built-in defaults are assembled from reusable section fragments under **`internal/prompts/sections/`** (one ordered manifest per mode and provider family; see **`sections.go`**), so shared blocks like the agent body, the conditional footer, and the read/search and background guidance stay in one place instead of being forked per family. Custom files under **`prompts.dir`** keep the legacy one-file-per-mode shape and bypass section assembly. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, **`prompts.docs_prompt`**, and **`prompts.ask_prompt`** default to **`agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`**. Model-specific and family-specific built-ins resolve to a notes fragment spliced into the mode manifest (for example the **`openai`** family adds **`agent/notes_openai`**; ask ships **`openai`** and **`gpt-oss`** alternate manifests). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+2. Builds the system prompt from **`internal/prompts.Render`**. The built-in defaults are assembled from reusable section fragments under **`internal/prompts/sections/`** (one ordered manifest per mode and provider family; see **`sections.go`**), so shared blocks like the agent body, the conditional footer, and the read/search and background guidance stay in one place instead of being forked per family. Custom files under **`prompts.dir`** keep the legacy one-file-per-mode shape and bypass section assembly. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, **`prompts.docs_prompt`**, and **`prompts.ask_prompt`** default to **`agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`**. Model-specific and family-specific built-ins resolve to a notes fragment spliced into the mode manifest (for example the **`openai`** family adds **`agent/notes_openai`**; ask ships **`openai`** and **`gpt-oss`** alternate manifests). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used. The message is rendered **once per turn** and then frozen, so the provider's prompt cache keeps the conversation behind it; the built-in section footers render neither **`UTCNow`** nor **`TodoList`**, and what moves during a turn is sent after the history in a **`<turn_context>`** block (**`internal/agent/turn_context.go`**, and *The turn context block* in **`docs/contributing/react-agent.md`**).
 3. Prepends that system message to the session message list and appends the newest user turn.
-4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
+4. **Before every LLM invocation** inside one **`session/prompt`**, appends the **`<turn_context>`** block after the history (**`internal/agent/turn_context.go`**): the wall clock, the todo checklist after a **`foxxycode_todo_*`** call, and the rules a filesystem tool call activated since the prompt was frozen. The **`system` message itself is not touched** - rewriting it would throw away the provider's cached copy of the conversation behind it. The exception is a template under **`prompts.dir`** that prints **`{{.UTCNow}}`** or **`{{.TodoList}}`** itself: it is re-rendered per call as before, and gets no block.
 5. Streams the LLM response, executes tool calls (each one passing through the operator hooks of **`internal/hooks`**: `PreToolUse` before the permission gate, `PostToolUse` or `PostToolUseFailure` after the tool), appends assistant and tool messages.
 6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
 6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, a tool call repeated with identical canonical arguments stops being executed, and a whole sequence of calls the model keeps rotating through (**`agent.loop_tool_cycle_repeats`**, the case a consecutive counter cannot see) stops being executed too. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which **`agent.loop_stuck_action`** decides: **`quarantine`** (default) blocks the looping calls for the rest of the turn - pinning a re-read's content first - and lets the turn finish, withholding the tools for one request if nothing but the loop is left; **`stop`** ends the turn with **`StopReasonRefused`** and a UI notice. A degenerate stream always ends the turn.
@@ -136,6 +136,9 @@ Each fragment may use Go **`text/template`** with the **`TemplateData`** fields 
 ### LLM Provider (`internal/llm`)
 
 Abstracted interface for LLM backends. Configured via `config.yaml`.
+
+The resilient wrapper (**`resilient.go`**) repeats a call up to **`agent.llm_retry_max`** times when **`isRetryableLLMError`** says the failure belongs to the attempt, not to the request: HTTP **`429`**, **`408`**, **`500`**, **`502`**, **`503`** and **`504`**; a transport failure with no status while nothing reached the caller (an unexpected EOF, a connection reset, an http2 stream error or **`GOAWAY`**); and a request that never left the client - a TLS handshake that timed out or a dial that did not complete (**`isDialFailure`**: a timeout, no route, a temporary DNS failure). The dial check runs ahead of the **`context.DeadlineExceeded`** gate, because a dial timeout matches that sentinel just like the caller's own timer; the caller's timer is ruled out earlier by the **`ctx.Err()`** check in **`callWithRetry`**. A cancellation, an unknown host and any failure after deltas were emitted stay final.
+
 Supported backends (see **`docs/getting-started/configuration.md`** for shapes):
 - OpenAI and OpenAI-compatible HTTP APIs (**`type: openai`**)
 - Anthropic (**`type: anthropic`**)
@@ -149,7 +152,7 @@ The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`
 composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
 call sites such as **`internal/agent`** keep importing **`tools`** only.
 
-- **`internal/tools/web`** - **`websearch`** (DuckDuckGo text search) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
+- **`internal/tools/web`** - **`http_request`** (`http_request.go`: the curl-like tool, `ParseHTTPRequest` is the one validated value the tool sends and the permission gate in **`internal/permission/http.go`** decides on; `client.go`: the shared client - transport per route (proxy, certificate check), redirect policy, per-hop guard), **`websearch`** (several engines asked in parallel behind the `searchFn` seam, each reporting `ok` / `empty` / `blocked` / `error` so a backend that was turned away is named rather than counted as nothing found; merge deduplicated by normalised URL, relevance gate against decoy result sets) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
 
 Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 
@@ -194,7 +197,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 - **`internal/tools/svn`** - Subversion working copy tools (**`svn_info`**, **`svn_status`**, **`svn_diff`**,
   **`svn_log`**, **`svn_list`**, **`svn_add`**, **`svn_revert`**, **`svn_resolve`**, **`svn_update`**,
   **`svn_commit`**, **`svn_switch`**, **`svn_merge`**, **`svn_checkout`**) over **`internal/svnws`**.
-  Registered only when **`vcs.svn.enabled`** is on (default) **and** an svn client is installed; the
+  Registered only when **`vcs.svn.enable`** is on (default) **and** an svn client is installed; the
   registry is rebuilt every prompt turn, so unchecking the setting removes them without a restart.
   Mutating tools require permission; detection is independent of git, so a branch folder that also
   holds a git repository works with both.
@@ -202,7 +205,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
   **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)
 - **`internal/tools/spawn_agent.go`** - **`spawn_agent`**, delegation of a self-contained task to a subagent
-  (registered when **`subagents.enabled`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
+  (registered when **`subagents.enable`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
   that **`internal/agent`** wires, so the registry stays below the session layer; the runtime, the project
   trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
   **`internal/session`**. It is offered in **`agent`**, **`plan`** and **`debug`** turns and never in **`ask`**
@@ -280,7 +283,7 @@ filtered per turn by the disable switches. Ask and docs never receive MCP tools.
 
 ### Skills loader (`internal/skills`)
 
-Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.foxxycode/skills`** (foxxycode-specific), **`${CWD}/.foxxycode/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
+Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.foxxycode/skills`** (foxxycode-specific), **`${CWD}/.foxxycode/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. The **standard delivery** - the skills the binary carries in **`internal/skills/bundled/`** - is prepended below all of them, and is also written into **`~/.foxxycode/skills`** on first sight (**`internal/skills/seed.go`**), so the copy on disk is what a session actually reads and the in-binary one is the fallback for a home that could not be written.
 
 ### Subagents (`internal/subagents`)
 
@@ -304,12 +307,13 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 
 ### Diagnostics (`debug`)
 
-An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enabled` forces the process logger to debug level, turns on raw LLM HTTP capture, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/operate/debugging.md`**.
+An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enable` forces the process logger to debug level, turns on raw LLM HTTP capture and the LLM connection trace, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/operate/debugging.md`**.
 
 The three moving parts:
 
 - **Runtime log level.** The logger is built once over a shared **`slog.LevelVar`** (**`internal/logger`**), so **`PUT /foxxycode/config`** re-levels the live handler through **`Server.ReplaceConfig`** instead of rebuilding the logger. Toggling diagnostics needs no restart.
 - **Raw LLM capture.** A debug **`http.RoundTripper`** wraps every provider client in **`HTTPClientForOptionalProxy`** (**`internal/llm/debug_transport.go`**), so openai, anthropic, codex, and neuraldeep are covered uniformly. Bodies are capped at 16 KB for the log while the provider still receives them whole, and the response is **teed as it is read** so SSE streams are not buffered. Request **headers are never logged**, which keeps provider API keys out of the log; request **bodies are**, and they carry the whole conversation.
+- **Connection trace.** The same wrapper follows each request at the network level (**`internal/llm/net_trace.go`**): the route through a proxy, DNS, dial, SOCKS handshake, proxy `CONNECT`, TLS, connection reuse, first byte, a heartbeat while it is silent, and how it ended. It logs no bodies and no headers. The agent's guards cancel a call with a cause of their own (**`internal/agent/llm_call_log.go`**), so the trace names who cut a request.
 - **Trace.** The ReAct loop emits `turn_start` / `llm_request` / `llm_response` / `tool_start` / `tool_finish` through **`internal/agent/debug_emit.go`**. Each event is appended to **`<session>/debug_trace.jsonl`** (**`internal/session/debug_trace.go`**) and forwarded as an ACP **`DebugUpdate`**, which the HTTP bridge emits as SSE **`event: debug`**. **`GET /foxxycode/sessions/{id}/debug`** returns the persisted timeline. Tracing is best-effort: a write error is logged and never breaks a turn.
 
 This is unrelated to the **`debug`** session mode below; the mode changes the model's behaviour, this layer changes what FoxxyCode records.
@@ -379,4 +383,4 @@ Top level after **`git clone`** (folder name is arbitrary; **`foxxy-agent`** is 
 └── README.md
 ```
 
-Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/contributing/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enabled`** when the binary was built with **`memory`**.
+Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/contributing/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enable`** when the binary was built with **`memory`**.

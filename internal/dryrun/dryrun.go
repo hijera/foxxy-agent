@@ -129,6 +129,7 @@ func Run(ctx context.Context, req Request) *Report {
 	r.mcpCommands()
 	r.webLogin()
 	r.listeners()
+	r.unsentModelSettings()
 
 	var probes []probe
 	probes = append(probes, r.providerProbes()...)

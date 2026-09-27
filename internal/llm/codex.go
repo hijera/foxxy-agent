@@ -18,6 +18,20 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
+// reasoningPartSeparator is what has to be appended before a new summary part so
+// the parts read as the separate blocks they are. Nothing before the first part,
+// and never more than the one blank line a part boundary is worth.
+func reasoningPartSeparator(reasoning string) string {
+	switch {
+	case reasoning == "", strings.HasSuffix(reasoning, "\n\n"):
+		return ""
+	case strings.HasSuffix(reasoning, "\n"):
+		return "\n"
+	default:
+		return "\n\n"
+	}
+}
+
 // codexProvider implements Provider using the OpenAI Responses API served by the
 // Codex backend (backend-api/codex) with ChatGPT (OAuth) credentials read from
 // ~/.codex/auth.json. Credentials are resolved (and refreshed) per request.
@@ -73,7 +87,9 @@ func (p *codexProvider) responsesClient(ctx context.Context) (responses.Response
 
 func (p *codexProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
 	// The Codex backend only serves streaming responses; accumulate the stream.
-	return p.Stream(ctx, messages, tools, func(StreamChunk) {})
+	// Without a callback no chunk reaches the caller, so a stream that fails
+	// midway stays as safe to retry as one that never started.
+	return p.Stream(ctx, messages, tools, nil)
 }
 
 func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
@@ -88,8 +104,38 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	var fullContent, reasoning string
 	var toolCalls []ToolCall
 	var reasoningItems []json.RawMessage
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 	stopReason := ""
+	// terminal is the event that ended the response: response.completed or
+	// response.incomplete. A stream that closes without one was cut, however
+	// clean the close looked on the wire.
+	terminal := ""
+	incompleteReason := ""
+
+	// emitted flips once any chunk reached the caller; a stream that fails
+	// after that must not be retried, or the same deltas would stream twice.
+	// Complete passes no callback and never flips it.
+	var emitted bool
+	emit := func(c StreamChunk) {
+		if onChunk == nil {
+			return
+		}
+		emitted = true
+		onChunk(c)
+	}
+	// progress tells the caller the server is still working without counting
+	// as content: it bypasses emit, so a retry of a stream that only ever
+	// reported progress stays safe.
+	progress := func() {
+		if onChunk != nil {
+			onChunk(StreamChunk{Progress: true})
+		}
+	}
+	usage := func(u responses.ResponseUsage) {
+		inputTokens = int(u.InputTokens)
+		outputTokens = int(u.OutputTokens)
+		cachedInputTokens = int(u.InputTokensDetails.CachedTokens)
+	}
 
 	for stream.Next() {
 		ev := stream.Current()
@@ -97,12 +143,34 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		case "response.output_text.delta":
 			if d := ev.Delta.OfString; d != "" {
 				fullContent += d
-				onChunk(StreamChunk{TextDelta: d})
+				emit(StreamChunk{TextDelta: d})
+			}
+		case "response.reasoning_summary_part.added":
+			// Every summary part is a headed block of its own and opens with its
+			// own bold title. Concatenated raw they run into one paragraph where
+			// the markdown of one title swallows the next, so the boundary the
+			// model drew is kept as a blank line - in the stream as well, or the
+			// body redraws once the turn is persisted.
+			if sep := reasoningPartSeparator(reasoning); sep != "" {
+				reasoning += sep
+				emit(StreamChunk{ReasoningDelta: sep})
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_summary.delta":
 			if d := ev.Delta.OfString; d != "" {
 				reasoning += d
-				onChunk(StreamChunk{ReasoningDelta: d})
+				emit(StreamChunk{ReasoningDelta: d})
+			}
+		case "response.output_item.added":
+			// The name of a tool call is known as soon as the model starts
+			// writing it, while its arguments are still streaming - which can
+			// take seconds. Announcing it here is what keeps the transcript from
+			// standing still with nothing but a Stop button on screen. The call
+			// is collected on .done, so this only names it.
+			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
+				emit(StreamChunk{ToolCallNamed: &ToolCall{
+					ID:   ev.Item.CallID,
+					Name: ev.Item.Name,
+				}})
 			}
 		case "response.output_item.done":
 			switch ev.Item.Type {
@@ -113,33 +181,53 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 					InputJSON: ev.Item.Arguments,
 				}
 				toolCalls = append(toolCalls, tc)
-				onChunk(StreamChunk{ToolCall: &tc})
+				emit(StreamChunk{ToolCall: &tc})
 			case "reasoning":
 				// Keep the item verbatim: it is replayed on the next request so the
 				// model resumes its own chain of thought across tool calls.
 				if raw := strings.TrimSpace(ev.Item.RawJSON()); raw != "" {
 					reasoningItems = append(reasoningItems, json.RawMessage(raw))
 				}
-				onChunk(StreamChunk{Progress: true})
+				progress()
 			}
 		case "response.completed":
-			inputTokens = int(ev.Response.Usage.InputTokens)
-			outputTokens = int(ev.Response.Usage.OutputTokens)
-			onChunk(StreamChunk{Progress: true})
-		case "error", "response.failed":
-			msg := strings.TrimSpace(ev.Message)
-			if msg == "" {
-				msg = "codex stream error"
+			terminal = ev.Type
+			usage(ev.Response.Usage)
+			progress()
+		case "response.incomplete":
+			// The backend ended the response on purpose, short of a whole
+			// answer. What it wrote is real and stays; the reason is reported
+			// instead of passing the answer off as an end_turn.
+			terminal = ev.Type
+			usage(ev.Response.Usage)
+			switch reason := ev.Response.IncompleteDetails.Reason; reason {
+			case "max_output_tokens":
+				stopReason = "max_tokens"
+			case "content_filter":
+				stopReason = "content_filter"
+			case "":
+				incompleteReason = "no reason given"
+			default:
+				incompleteReason = reason
 			}
-			return nil, fmt.Errorf("codex stream: %s", msg)
+		case "error":
+			return nil, codexStreamEventError(ev.Message, "codex stream error", emitted)
+		case "response.failed":
+			// A failed response carries its explanation on the response
+			// object, not on the event.
+			msg := strings.TrimSpace(ev.Response.Error.Message)
+			if code := strings.TrimSpace(string(ev.Response.Error.Code)); code != "" && msg != "" {
+				msg = code + ": " + msg
+			}
+			return nil, codexStreamEventError(msg, "codex response failed", emitted)
 		default:
 			// The Responses event vocabulary is large and versioned, and this switch
 			// handles only a slice of it. Anything else that arrived is the server
 			// still working - notably response.function_call_arguments.delta, which
 			// is not handled at all, so a model writing one large tool call is
-			// otherwise silent to the caller for its whole duration. There is no
-			// emitted flag on this path to protect, so onChunk is called directly.
-			onChunk(StreamChunk{Progress: true})
+			// otherwise silent to the caller for its whole duration. A progress
+			// chunk is not content, so it goes past emit and leaves emitted alone.
+			progress()
 		}
 	}
 
@@ -154,9 +242,37 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				StopReason:         codexStopReason(toolCalls),
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
 			}, fmt.Errorf("codex stream: %w", err)
 		}
-		return nil, fmt.Errorf("codex stream: %w", err)
+		// Same transport wrapper as the openai and anthropic paths: a failure
+		// mid-read is retried only while nothing reached the caller, and an
+		// HTTP error keeps its status reachable through Unwrap.
+		return nil, fmt.Errorf("codex stream: %w", &streamTransportError{cause: err, emitted: emitted})
+	}
+
+	if terminal == "" || incompleteReason != "" {
+		// Cut before a terminal event, or ended for a reason nothing maps.
+		// Mirror the other providers: keep the delivered text and reasoning
+		// next to the error, and drop the tool calls, which must not run on the
+		// strength of an answer that never finished.
+		streamErr := fmt.Errorf("codex stream: %w", &streamTruncatedError{emitted: emitted})
+		if terminal != "" {
+			// Not a cut, so not a truncation, but held to the same rule: once
+			// deltas reached the caller no retry replays them.
+			streamErr = codexStreamEventError("response incomplete: "+incompleteReason, "", emitted)
+		}
+		if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoning) != "" {
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          reasoning,
+				ReasoningSignature: p.encodeReasoningItems(reasoningItems),
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
+			}, streamErr
+		}
+		return nil, streamErr
 	}
 
 	if stopReason == "" {
@@ -170,6 +286,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		StopReason:         stopReason,
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
+		CachedInputTokens:  cachedInputTokens,
 	}, nil
 }
 
@@ -277,6 +394,21 @@ func codexErrorDetail(raw []byte) string {
 		}
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+// codexStreamEventError reports a failure the backend sent inside the stream.
+// Before any chunk reached the caller its text is classified like any other
+// error; after that it is a streamServerError marked as emitted, which no
+// retry replays whatever its message happens to contain.
+func codexStreamEventError(msg, fallback string, emitted bool) error {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		msg = fallback
+	}
+	if emitted {
+		return fmt.Errorf("codex stream: %w", &streamServerError{msg: msg, emitted: true})
+	}
+	return fmt.Errorf("codex stream: %s", msg)
 }
 
 func codexStopReason(toolCalls []ToolCall) string {

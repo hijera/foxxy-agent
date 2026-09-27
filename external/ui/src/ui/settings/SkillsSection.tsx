@@ -49,6 +49,12 @@ type AvailablePlugin = {
   installed: boolean;
 };
 
+async function fetchSystemSources(): Promise<string[]> {
+  const res = await fetch("/foxxycode/skills/sources");
+  const data = (await res.json()) as { system?: string[] };
+  return data.system ?? [];
+}
+
 async function fetchAvailable(): Promise<AvailablePlugin[]> {
   const res = await fetch("/foxxycode/skills/available");
   if (!res.ok) return [];
@@ -134,14 +140,22 @@ const SYNC_ALL_KEY = "\0all";
  */
 function SourcesEditor(props: {
   value: string[];
+  /** Sources built into FoxxyCode: shown, syncable, and not editable away. */
+  system: string[];
   onChange: (next: string[]) => void;
   onSyncOne: (source: string) => void;
   onSyncAll: () => void;
   syncing: boolean;
   flash: string | null;
 }) {
-  const { value, onChange, onSyncOne, onSyncAll, syncing, flash } = props;
+  const { value, system, onChange, onSyncOne, onSyncAll, syncing, flash } =
+    props;
   const sources = Array.isArray(value) ? value : [];
+  // A config that repeats a built-in marketplace must not show it twice: the
+  // server lists it once, and so does this. Rows are skipped where they are,
+  // never compacted into a new array - two rows can hold the same text (click
+  // Add twice) and an index recovered by value would then edit the wrong one.
+  const lowerSystem = new Set(system.map((one) => one.trim().toLowerCase()));
   return (
     <fieldset className="settings-fieldset">
       <legend>{t("settings.skills.sourcesLegend")}</legend>
@@ -153,49 +167,90 @@ function SourcesEditor(props: {
         {t("settings.skills.sourcesDescAfter")}
       </p>
       <ul className="settings-array">
-        {sources.map((src, i) => (
-          <li key={i} className="settings-array-row">
+        {system.map((src) => (
+          <li key={`system-${src}`} className="settings-array-row">
             <div className="settings-array-row-field">
               <input
                 className="settings-input"
                 type="text"
                 value={src}
-                placeholder={t("settings.skills.sourcePlaceholder")}
-                onChange={(e) => {
-                  const next = [...sources];
-                  next[i] = e.target.value;
-                  onChange(next);
-                }}
+                readOnly
+                disabled
+                title={t("settings.skills.systemSource")}
               />
             </div>
             <button
               type="button"
               className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
-              disabled={syncing || !src.trim()}
+              disabled={syncing}
               onClick={() => onSyncOne(src)}
               title={
                 flash === src
                   ? t("settings.skills.synced")
-                  : t("settings.skills.syncSource", {
-                      source: src.trim() || t("settings.skills.thisMarketplace"),
-                    })
+                  : t("settings.skills.syncSource", { source: src })
               }
               aria-label={t("settings.skills.syncThisMarketplace")}
-              data-testid={`skills-sync-source-${i}`}
+              data-testid={`skills-sync-system-${src}`}
             >
               {flash === src ? <IconCheck /> : <IconSync />}
             </button>
             <button
               type="button"
               className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-              onClick={() => onChange(sources.filter((_, j) => j !== i))}
-              title={t("settings.skills.remove")}
+              disabled
+              title={t("settings.skills.systemSource")}
               aria-label={t("settings.skills.removeMarketplace")}
+              data-testid={`skills-remove-system-${src}`}
             >
               <IconTrash />
             </button>
           </li>
         ))}
+        {sources.map((src, i) =>
+          lowerSystem.has(src.trim().toLowerCase()) ? null : (
+            <li key={i} className="settings-array-row">
+              <div className="settings-array-row-field">
+                <input
+                  className="settings-input"
+                  type="text"
+                  value={src}
+                  placeholder={t("settings.skills.sourcePlaceholder")}
+                  onChange={(e) => {
+                    const next = [...sources];
+                    next[i] = e.target.value;
+                    onChange(next);
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
+                disabled={syncing || !src.trim()}
+                onClick={() => onSyncOne(src)}
+                title={
+                  flash === src
+                    ? t("settings.skills.synced")
+                    : t("settings.skills.syncSource", {
+                        source: src.trim() || t("settings.skills.thisMarketplace"),
+                      })
+                }
+                aria-label={t("settings.skills.syncThisMarketplace")}
+                data-testid={`skills-sync-source-${i}`}
+              >
+                {flash === src ? <IconCheck /> : <IconSync />}
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
+                onClick={() => onChange(sources.filter((_, j) => j !== i))}
+                title={t("settings.skills.remove")}
+                aria-label={t("settings.skills.removeMarketplace")}
+              >
+                <IconTrash />
+              </button>
+            </li>
+          ),
+        )}
       </ul>
       <div className="skills-sources-footer">
         <button
@@ -208,7 +263,7 @@ function SourcesEditor(props: {
         <button
           type="button"
           className={`settings-btn skills-sync-all-btn${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
-          disabled={syncing || sources.length === 0}
+          disabled={syncing || sources.length + system.length === 0}
           onClick={onSyncAll}
           title={t("settings.skills.syncAllTitle")}
           data-testid="skills-sync-all"
@@ -243,6 +298,7 @@ export function SkillsSection(props: {
   onChange: (next: Record<string, unknown>) => void;
 }) {
   const { schema, value, onChange } = props;
+  const [systemSources, setSystemSources] = useState<string[]>([]);
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
   const [updates, setUpdates] = useState<Record<string, SkillUpdate>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -311,6 +367,12 @@ export function SkillsSection(props: {
   useEffect(() => {
     void loadInstalled(true);
   }, [loadInstalled]);
+
+  // The sources FoxxyCode carries itself. They are not in config.yaml, so the
+  // editor cannot derive them from the value it edits.
+  useEffect(() => {
+    void (async () => setSystemSources(await fetchSystemSources()))();
+  }, []);
 
   // After an install, briefly flash the new row so it is easy to spot, then
   // clear the flag. No scroll — the list position is left untouched.
@@ -458,6 +520,7 @@ export function SkillsSection(props: {
     if (path === "sources") {
       return (
         <SourcesEditor
+          system={systemSources}
           value={(fv as string[]) ?? []}
           onChange={(next) => fc(next)}
           onSyncOne={onSyncOne}

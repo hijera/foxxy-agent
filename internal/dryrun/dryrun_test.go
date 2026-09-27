@@ -197,7 +197,7 @@ func TestTelegramTokenProbe(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv(TelegramAPIBaseEnv, srv.URL)
+	t.Setenv(config.TelegramAPIBaseEnv, srv.URL)
 	body := "gateways:\n  telegram:\n    enabled: true\n    token: \"123:abc\"\n"
 
 	status = http.StatusOK
@@ -403,7 +403,7 @@ func TestSwarmPeersAreProbedOnlyForServe(t *testing.T) {
 
 func TestSubsystemErrorIsReported(t *testing.T) {
 	rep := run(t, "agent:\n  max_turns: 3\n", func(r *Request) {
-		r.SubsystemErr = errors.New("httpserver.enabled is true but this binary has no httpserver support")
+		r.SubsystemErr = errors.New("httpserver.enable is true but this binary has no httpserver support")
 	})
 	if c := find(t, rep, "serve"); c.Status != StatusError || !strings.Contains(c.Message, "no httpserver support") {
 		t.Errorf("subsystem %+v", c)
@@ -582,6 +582,25 @@ func TestWebLoginIsNotCheckedOutsideServe(t *testing.T) {
 	for _, c := range rep.Checks {
 		if c.Path == "httpserver.login" {
 			t.Fatalf("a console dry run reported the web sign-in: %+v", c)
+		}
+	}
+}
+
+func TestCodexMaxTokensIsAWarningOnItsLine(t *testing.T) {
+	// The provider probes still run: keep the codex one on a closed local port.
+	t.Setenv("FOXXYCODE_CODEX_BASE_URL", "http://127.0.0.1:9")
+	body := "providers:\n  - name: codex\n    type: codex\n  - name: local\n    type: openai\n    api_base: http://127.0.0.1:9/v1\n" +
+		"models:\n  - model: codex/gpt-5.5\n    max_tokens: 4096\n  - model: local/qwen\n    max_tokens: 4096\n" +
+		"agent:\n  model: codex/gpt-5.5\n"
+	rep := run(t, body, nil)
+	c := find(t, rep, "models[codex/gpt-5.5].max_tokens")
+	// Line 10: the fixture's line 9 below the modeline prepare writes first.
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "bounds nothing") || c.Line != 10 || c.Fix != "remove max_tokens from this model" {
+		t.Errorf("codex max_tokens check %+v", c)
+	}
+	for _, c := range rep.Checks {
+		if c.Path == "models[local/qwen].max_tokens" {
+			t.Errorf("an openai model's max_tokens is sent and must stay quiet: %+v", c)
 		}
 	}
 }

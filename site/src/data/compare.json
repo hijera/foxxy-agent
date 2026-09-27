@@ -1,0 +1,4443 @@
+{
+  "compiled": "2026-09",
+  "harnesses": [
+    {
+      "id": "foxxycode",
+      "name": "FoxxyCode",
+      "url": "https://github.com/hijera/foxxy-agent",
+      "role": "self"
+    },
+    {
+      "id": "coddy",
+      "name": "Coddy",
+      "url": "https://coddy.dev",
+      "role": "upstream"
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "url": "https://cline.bot",
+      "role": "other"
+    },
+    {
+      "id": "kilo",
+      "name": "Kilo Code",
+      "url": "https://kilo.ai",
+      "role": "other"
+    },
+    {
+      "id": "roo",
+      "name": "Roo Code",
+      "url": "https://github.com/RooCodeInc/Roo-Code",
+      "role": "other",
+      "note": {
+        "en": "shut down on 15 May 2026",
+        "ru": "закрыт 15 мая 2026"
+      }
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "url": "https://github.com/continuedev/continue",
+      "role": "other",
+      "note": {
+        "en": "read-only since 2.0.0",
+        "ru": "только чтение после 2.0.0"
+      }
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "url": "https://cursor.com",
+      "role": "other"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "url": "https://code.claude.com",
+      "role": "other"
+    },
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "url": "https://github.com/openai/codex",
+      "role": "other"
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "url": "https://opencode.ai",
+      "role": "other"
+    },
+    {
+      "id": "koda",
+      "name": "Koda",
+      "url": "https://kodacode.ru",
+      "role": "other"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "url": "https://antigravity.google",
+      "role": "other"
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "url": "https://github.com/aaif-goose/goose",
+      "role": "other"
+    },
+    {
+      "id": "pi",
+      "name": "Pi",
+      "url": "https://github.com/earendil-works/pi",
+      "role": "other"
+    },
+    {
+      "id": "omp",
+      "name": "OMP (oh-my-pi)",
+      "url": "https://github.com/can1357/oh-my-pi",
+      "role": "other"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek Harness",
+      "url": "https://github.com/deepseek-ai/deepseek-harness",
+      "role": "other"
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "url": "https://github.com/openclaw/openclaw",
+      "role": "other"
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes Agent",
+      "url": "https://github.com/NousResearch/hermes-agent",
+      "role": "other"
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "url": "https://aider.chat",
+      "role": "other"
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands",
+      "url": "https://github.com/OpenHands/OpenHands",
+      "role": "other"
+    },
+    {
+      "id": "crush",
+      "name": "Crush",
+      "url": "https://github.com/charmbracelet/crush",
+      "role": "other"
+    },
+    {
+      "id": "reasonix",
+      "name": "Reasonix",
+      "url": "https://github.com/esengine/DeepSeek-Reasonix",
+      "role": "other"
+    },
+    {
+      "id": "codewhale",
+      "name": "CodeWhale",
+      "url": "https://github.com/Hmbown/Codewhale",
+      "role": "other"
+    },
+    {
+      "id": "grok",
+      "name": "Grok Build",
+      "url": "https://docs.x.ai/build",
+      "role": "other"
+    },
+    {
+      "id": "drift",
+      "name": "Drift (NeuralDeep)",
+      "url": "https://neuraldeep.ru",
+      "role": "other"
+    }
+  ],
+  "tables": [
+    {
+      "id": "ide",
+      "title": {
+        "en": "IDE and desktop",
+        "ru": "IDE и десктоп"
+      },
+      "lead": {
+        "en": "Where the agent meets your editor: native plugins, a desktop app, reviewing edits in place, what the IDE tells the model, a browser the agent drives, and a Russian interface.",
+        "ru": "Где агент встречается с редактором: нативные плагины, десктопное приложение, проверка правок на месте, что IDE сообщает модели, браузер под управлением агента и русский интерфейс."
+      },
+      "columns": [
+        {
+          "id": "vscode",
+          "label": {
+            "en": "VS Code",
+            "ru": "VS Code"
+          }
+        },
+        {
+          "id": "jetbrains",
+          "label": {
+            "en": "JetBrains IDEs",
+            "ru": "IDE JetBrains"
+          }
+        },
+        {
+          "id": "desktop",
+          "label": {
+            "en": "Desktop app",
+            "ru": "Десктоп"
+          }
+        },
+        {
+          "id": "inlineDiff",
+          "label": {
+            "en": "Inline diff review",
+            "ru": "Правки в редакторе"
+          }
+        },
+        {
+          "id": "ideContext",
+          "label": {
+            "en": "IDE context",
+            "ru": "Контекст IDE"
+          }
+        },
+        {
+          "id": "browser",
+          "label": {
+            "en": "Browser tool",
+            "ru": "Браузер"
+          }
+        },
+        {
+          "id": "ruUi",
+          "label": {
+            "en": "Russian UI",
+            "ru": "Русский интерфейс"
+          }
+        }
+      ],
+      "rows": {
+        "foxxycode": {
+          "vscode": {
+            "s": "yes",
+            "en": "native extension",
+            "ru": "нативное расширение"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "native plugin, 2022.2+",
+            "ru": "нативный плагин, 2022.2+"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "Windows (WebView2)",
+            "ru": "Windows (WebView2)"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "accept, reject, revert in both IDEs",
+            "ru": "принять, отклонить, откатить в обеих IDE"
+          },
+          "ideContext": {
+            "s": "yes",
+            "en": "open files, .vscode and .idea, terminal, @terminal",
+            "ru": "открытые файлы, .vscode и .idea, терминал, @terminal"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "Chrome via chromedp, screenshots",
+            "ru": "Chrome через chromedp, скриншоты"
+          },
+          "ruUi": {
+            "s": "yes",
+            "en": "interface, settings, change notes",
+            "ru": "интерфейс, настройки, описания изменений"
+          }
+        },
+        "coddy": {
+          "vscode": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "inlineDiff": {
+            "s": "partial",
+            "en": "diff in the permission card",
+            "ru": "дифф в карточке разрешения"
+          },
+          "ideContext": {
+            "s": "no"
+          },
+          "browser": {
+            "s": "no"
+          },
+          "ruUi": {
+            "s": "yes",
+            "en": "English or Russian",
+            "ru": "английский или русский"
+          }
+        },
+        "cline": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "plugin",
+            "ru": "плагин"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS; Windows in beta",
+            "ru": "macOS; Windows в бете"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "diff view, approve or reject",
+            "ru": "дифф, одобрить или отклонить"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "files, lint and compiler errors",
+            "ru": "файлы, ошибки линтера и компилятора"
+          },
+          "browser": {
+            "s": "partial",
+            "en": "browser session in the VS Code extension",
+            "ru": "браузерная сессия в расширении VS Code"
+          },
+          "ruUi": {
+            "s": "no"
+          }
+        },
+        "kilo": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "native plugin",
+            "ru": "нативный плагин"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "inlineDiff": {
+            "s": "partial",
+            "en": "diff view, approve or reject",
+            "ru": "дифф, одобрить или отклонить"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "@terminal, @git-changes",
+            "ru": "@terminal, @git-changes"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "browser automation in VS Code",
+            "ru": "автоматизация браузера в VS Code"
+          },
+          "ruUi": {
+            "s": "yes"
+          }
+        },
+        "roo": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "diff view, approve or reject",
+            "ru": "дифф, одобрить или отклонить"
+          },
+          "ideContext": {
+            "s": "yes",
+            "en": "@problems, @terminal, @git-changes",
+            "ru": "@problems, @terminal, @git-changes"
+          },
+          "browser": {
+            "s": "no",
+            "en": "removed in 3.48",
+            "ru": "удалён в 3.48"
+          },
+          "ruUi": {
+            "s": "yes"
+          }
+        },
+        "continue": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "plugin, not recommended by the authors",
+            "ru": "плагин, авторы его не рекомендуют"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "Edit mode accept or reject",
+            "ru": "принять или отклонить в режиме Edit"
+          },
+          "ideContext": {
+            "s": "yes",
+            "en": "@Terminal, open file, selection, git diff",
+            "ru": "@Terminal, открытый файл, выделение, git diff"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "no"
+          }
+        },
+        "cursor": {
+          "vscode": {
+            "s": "info",
+            "en": "is its own VS Code-based editor",
+            "ru": "сам редактор на основе VS Code"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Windows, Linux",
+            "ru": "macOS, Windows, Linux"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "diff view, reject changes",
+            "ru": "дифф, отклонение правок"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "@Terminals, @Browser, git diff",
+            "ru": "@Terminals, @Browser, git diff"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "built-in browser",
+            "ru": "встроенный браузер"
+          },
+          "ruUi": {
+            "s": "partial",
+            "en": "VS Code language pack only",
+            "ru": "только языковой пакет VS Code"
+          }
+        },
+        "claude": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "plugin, beta",
+            "ru": "плагин, бета"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Windows; Linux beta",
+            "ru": "macOS, Windows; Linux в бете"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "accept or reject side by side",
+            "ru": "принять или отклонить рядом"
+          },
+          "ideContext": {
+            "s": "yes",
+            "en": "selection, open file, diagnostics",
+            "ru": "выделение, открытый файл, диагностика"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "Claude in Chrome",
+            "ru": "Claude in Chrome"
+          },
+          "ruUi": {
+            "s": "no"
+          }
+        },
+        "codex": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "integration built by JetBrains",
+            "ru": "интеграция от JetBrains"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "inside the ChatGPT app",
+            "ru": "внутри приложения ChatGPT"
+          },
+          "inlineDiff": {
+            "s": "partial",
+            "en": "focused diff",
+            "ru": "дифф изменений"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "open files, selection",
+            "ru": "открытые файлы, выделение"
+          },
+          "browser": {
+            "s": "partial",
+            "en": "desktop app only",
+            "ru": "только в десктопе"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "opencode": {
+          "vscode": {
+            "s": "partial",
+            "en": "extension runs the TUI",
+            "ru": "расширение запускает TUI"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "beta, three systems",
+            "ru": "бета, три системы"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "selection, LSP diagnostics",
+            "ru": "выделение, диагностика LSP"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "partial",
+            "en": "desktop app",
+            "ru": "в десктопе"
+          }
+        },
+        "koda": {
+          "vscode": {
+            "s": "yes",
+            "en": "plugin",
+            "ru": "плагин"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "plugin, 2025.3+",
+            "ru": "плагин, 2025.3+"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Windows, Linux",
+            "ru": "macOS, Windows, Linux"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "native IDE diff",
+            "ru": "нативный дифф IDE"
+          },
+          "ideContext": {
+            "s": "yes",
+            "en": "@terminal, @problems, recent files",
+            "ru": "@terminal, @problems, недавние файлы"
+          },
+          "browser": {
+            "s": "no"
+          },
+          "ruUi": {
+            "s": "yes"
+          }
+        },
+        "antigravity": {
+          "vscode": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "jetbrains": {
+            "s": "yes",
+            "en": "extension",
+            "ru": "расширение"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "own IDE, macOS",
+            "ru": "своя IDE, macOS"
+          },
+          "inlineDiff": {
+            "s": "yes",
+            "en": "granular inline diffs",
+            "ru": "построчные правки"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "browser subagent",
+            "ru": "браузерный субагент"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "goose": {
+          "vscode": {
+            "s": "partial",
+            "en": "experimental, over ACP",
+            "ru": "экспериментально, через ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Linux, Windows",
+            "ru": "macOS, Linux, Windows"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "selected code",
+            "ru": "выделенный код"
+          },
+          "browser": {
+            "s": "partial",
+            "en": "through MCP",
+            "ru": "через MCP"
+          },
+          "ruUi": {
+            "s": "yes",
+            "en": "desktop app",
+            "ru": "в десктопе"
+          }
+        },
+        "pi": {
+          "vscode": {
+            "s": "unknown"
+          },
+          "jetbrains": {
+            "s": "unknown"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "omp": {
+          "vscode": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "inlineDiff": {
+            "s": "partial",
+            "en": "accept cards in the TUI",
+            "ru": "карточки принятия в TUI"
+          },
+          "ideContext": {
+            "s": "yes",
+            "en": "LSP diagnostics, current buffer",
+            "ru": "диагностика LSP, текущий буфер"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "drives Chromium",
+            "ru": "управляет Chromium"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "deepseek": {
+          "vscode": {
+            "s": "unknown"
+          },
+          "jetbrains": {
+            "s": "unknown"
+          },
+          "desktop": {
+            "s": "partial",
+            "en": "Electron shell",
+            "ru": "оболочка на Electron"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "openclaw": {
+          "vscode": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Windows, Linux",
+            "ru": "macOS, Windows, Linux"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "openclaw browser",
+            "ru": "openclaw browser"
+          },
+          "ruUi": {
+            "s": "yes",
+            "en": "Control UI",
+            "ru": "Control UI"
+          }
+        },
+        "hermes": {
+          "vscode": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Windows, Linux",
+            "ru": "macOS, Windows, Linux"
+          },
+          "inlineDiff": {
+            "s": "partial",
+            "en": "diffs through ACP",
+            "ru": "диффы через ACP"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "browser toolset",
+            "ru": "набор браузерных инструментов"
+          },
+          "ruUi": {
+            "s": "yes",
+            "en": "desktop app",
+            "ru": "в десктопе"
+          }
+        },
+        "aider": {
+          "vscode": {
+            "s": "no",
+            "en": "watches files from any editor",
+            "ru": "следит за файлами из любого редактора"
+          },
+          "jetbrains": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no",
+            "en": "browser GUI only",
+            "ru": "только GUI в браузере"
+          },
+          "inlineDiff": {
+            "s": "no"
+          },
+          "ideContext": {
+            "s": "no"
+          },
+          "browser": {
+            "s": "no",
+            "en": "/web scraping only",
+            "ru": "только /web"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "openhands": {
+          "vscode": {
+            "s": "partial",
+            "en": "community ACP extension",
+            "ru": "расширение сообщества через ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "yes",
+            "en": "Browser Use",
+            "ru": "Browser Use"
+          },
+          "ruUi": {
+            "s": "no"
+          }
+        },
+        "crush": {
+          "vscode": {
+            "s": "no"
+          },
+          "jetbrains": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "inlineDiff": {
+            "s": "no"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "LSP diagnostics, no IDE",
+            "ru": "диагностика LSP, без IDE"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "reasonix": {
+          "vscode": {
+            "s": "partial",
+            "en": "extension over ACP",
+            "ru": "расширение через ACP"
+          },
+          "jetbrains": {
+            "s": "unknown"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS, Windows, Linux",
+            "ru": "macOS, Windows, Linux"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "partial",
+            "en": "editor context in the extension",
+            "ru": "контекст редактора в расширении"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "no"
+          }
+        },
+        "codewhale": {
+          "vscode": {
+            "s": "partial",
+            "en": "community extension",
+            "ru": "расширение сообщества"
+          },
+          "jetbrains": {
+            "s": "unknown"
+          },
+          "desktop": {
+            "s": "no",
+            "en": "in development",
+            "ru": "в разработке"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "yes"
+          }
+        },
+        "grok": {
+          "vscode": {
+            "s": "partial",
+            "en": "ACP only officially",
+            "ru": "официально только ACP"
+          },
+          "jetbrains": {
+            "s": "partial",
+            "en": "over ACP",
+            "ru": "через ACP"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "inlineDiff": {
+            "s": "unknown"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        },
+        "drift": {
+          "vscode": {
+            "s": "no",
+            "en": "API usable from other agents",
+            "ru": "API подключается к другим агентам"
+          },
+          "jetbrains": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "inlineDiff": {
+            "s": "no"
+          },
+          "ideContext": {
+            "s": "unknown"
+          },
+          "browser": {
+            "s": "unknown"
+          },
+          "ruUi": {
+            "s": "unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "foundation",
+      "title": {
+        "en": "Foundation and delivery",
+        "ru": "Основа и поставка"
+      },
+      "lead": {
+        "en": "What each harness is written in, how it is licensed, and how it reaches your machine.",
+        "ru": "На чём написан каждый агент, под какой лицензией и как попадает на ваш компьютер."
+      },
+      "columns": [
+        {
+          "id": "maintainer",
+          "label": {
+            "en": "Maintainer",
+            "ru": "Автор"
+          }
+        },
+        {
+          "id": "language",
+          "label": {
+            "en": "Language",
+            "ru": "Язык"
+          }
+        },
+        {
+          "id": "license",
+          "label": {
+            "en": "License",
+            "ru": "Лицензия"
+          }
+        },
+        {
+          "id": "delivery",
+          "label": {
+            "en": "Delivery",
+            "ru": "Поставка"
+          }
+        },
+        {
+          "id": "stars",
+          "label": {
+            "en": "Stars, Sep 2026",
+            "ru": "Звёзды, сен 2026"
+          }
+        }
+      ],
+      "rows": {
+        "foxxycode": {
+          "maintainer": {
+            "s": "info",
+            "en": "hijera, a fork of Coddy",
+            "ru": "hijera, форк Coddy"
+          },
+          "language": {
+            "s": "info",
+            "en": "Go; Kotlin and TypeScript plugins",
+            "ru": "Go; плагины на Kotlin и TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "one static binary, VSIX, JetBrains plugin repository, Windows desktop, .deb, .rpm, Homebrew",
+            "ru": "один статический бинарник, VSIX, репозиторий плагинов JetBrains, десктоп для Windows, .deb, .rpm, Homebrew"
+          },
+          "stars": {
+            "s": "info",
+            "t": "<0.01k"
+          }
+        },
+        "coddy": {
+          "maintainer": {
+            "s": "info",
+            "t": "Coddy Project"
+          },
+          "language": {
+            "s": "info",
+            "t": "Go"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "one static binary, build tags, distroless",
+            "ru": "один статический бинарник, build-теги, distroless"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~0.14k"
+          }
+        },
+        "cline": {
+          "maintainer": {
+            "s": "info",
+            "t": "Cline Bot Inc."
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "VS Code and JetBrains marketplaces, npm CLI, desktop app",
+            "ru": "маркетплейсы VS Code и JetBrains, CLI в npm, десктоп"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~68k"
+          }
+        },
+        "kilo": {
+          "maintainer": {
+            "s": "info",
+            "t": "Kilo Code"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "VS Code and JetBrains marketplaces, CLI (npm, brew, binaries)",
+            "ru": "маркетплейсы VS Code и JetBrains, CLI (npm, brew, бинарники)"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~27k"
+          }
+        },
+        "roo": {
+          "maintainer": {
+            "s": "info",
+            "t": "Roo Code, Inc."
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "VS Code extension, discontinued",
+            "ru": "расширение VS Code, закрыто"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~24k"
+          }
+        },
+        "continue": {
+          "maintainer": {
+            "s": "info",
+            "t": "Continue Dev, Inc."
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "VS Code and JetBrains extensions, npm CLI; final release",
+            "ru": "расширения VS Code и JetBrains, CLI в npm; финальный релиз"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~36k"
+          }
+        },
+        "cursor": {
+          "maintainer": {
+            "s": "info",
+            "t": "Anysphere"
+          },
+          "language": {
+            "s": "unknown"
+          },
+          "license": {
+            "s": "info",
+            "en": "proprietary",
+            "ru": "проприетарная"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "desktop editor, CLI, cloud agents",
+            "ru": "десктопный редактор, CLI, облачные агенты"
+          },
+          "stars": {
+            "s": "info",
+            "en": "no public repo",
+            "ru": "нет публичного репозитория"
+          }
+        },
+        "claude": {
+          "maintainer": {
+            "s": "info",
+            "t": "Anthropic"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "en": "source-available",
+            "ru": "исходники открыты, не OSS"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "npm, installers, desktop, web",
+            "ru": "npm, установщики, десктоп, веб"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~144k"
+          }
+        },
+        "codex": {
+          "maintainer": {
+            "s": "info",
+            "t": "OpenAI"
+          },
+          "language": {
+            "s": "info",
+            "t": "Rust"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "binary, npm, brew",
+            "ru": "бинарник, npm, brew"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~122k"
+          }
+        },
+        "opencode": {
+          "maintainer": {
+            "s": "info",
+            "t": "SST"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "t": "npm, brew, scoop, AUR, Nix"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~206k"
+          }
+        },
+        "koda": {
+          "maintainer": {
+            "s": "info",
+            "en": "Koda, ex-GigaCode team",
+            "ru": "Koda, бывшая команда GigaCode"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "en": "proprietary, on Apache-2.0 forks",
+            "ru": "проприетарная, на форках под Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "npm CLI, VS Code and JetBrains plugins, desktop installers",
+            "ru": "CLI в npm, плагины VS Code и JetBrains, десктопные установщики"
+          },
+          "stars": {
+            "s": "info",
+            "en": "no public repo",
+            "ru": "нет публичного репозитория"
+          }
+        },
+        "antigravity": {
+          "maintainer": {
+            "s": "info",
+            "t": "Google"
+          },
+          "language": {
+            "s": "info",
+            "t": "Go"
+          },
+          "license": {
+            "s": "info",
+            "en": "proprietary",
+            "ru": "проприетарная"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "CLI binary, own IDE, editor extensions",
+            "ru": "бинарник CLI, своя IDE, расширения редакторов"
+          },
+          "stars": {
+            "s": "info",
+            "en": "no public repo",
+            "ru": "нет публичного репозитория"
+          }
+        },
+        "goose": {
+          "maintainer": {
+            "s": "info",
+            "t": "AAIF, Linux Foundation"
+          },
+          "language": {
+            "s": "info",
+            "t": "Rust"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "binary, desktop app",
+            "ru": "бинарник, десктоп"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~54k"
+          }
+        },
+        "pi": {
+          "maintainer": {
+            "s": "info",
+            "t": "earendil-works"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "npm (SDK and CLI)",
+            "ru": "npm (SDK и CLI)"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~103k"
+          }
+        },
+        "omp": {
+          "maintainer": {
+            "s": "info",
+            "t": "can1357, Stencil Labs"
+          },
+          "language": {
+            "s": "info",
+            "t": "Rust + TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "bun, brew, Nix, script",
+            "ru": "bun, brew, Nix, скрипт"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~30k"
+          }
+        },
+        "deepseek": {
+          "maintainer": {
+            "s": "info",
+            "t": "DeepSeek"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "npx, pnpm build",
+            "ru": "npx, сборка pnpm"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~203-215k"
+          }
+        },
+        "openclaw": {
+          "maintainer": {
+            "s": "info",
+            "en": "community, P. Steinberger",
+            "ru": "сообщество, P. Steinberger"
+          },
+          "language": {
+            "s": "info",
+            "t": "TypeScript"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "npm, script, Docker",
+            "ru": "npm, скрипт, Docker"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~375-389k"
+          }
+        },
+        "hermes": {
+          "maintainer": {
+            "s": "info",
+            "t": "Nous Research"
+          },
+          "language": {
+            "s": "info",
+            "t": "Python + Node"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "script (Python 3.11+, Node, ripgrep, ffmpeg)",
+            "ru": "скрипт (Python 3.11+, Node, ripgrep, ffmpeg)"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~243k"
+          }
+        },
+        "aider": {
+          "maintainer": {
+            "s": "info",
+            "t": "Paul Gauthier"
+          },
+          "language": {
+            "s": "info",
+            "t": "Python"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "t": "pip"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~49k"
+          }
+        },
+        "openhands": {
+          "maintainer": {
+            "s": "info",
+            "t": "All Hands AI"
+          },
+          "language": {
+            "s": "info",
+            "t": "Python"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "t": "pip, Docker"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~86k"
+          }
+        },
+        "crush": {
+          "maintainer": {
+            "s": "info",
+            "t": "Charmbracelet"
+          },
+          "language": {
+            "s": "info",
+            "t": "Go"
+          },
+          "license": {
+            "s": "info",
+            "t": "FSL-1.1-MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "binary, brew, npm",
+            "ru": "бинарник, brew, npm"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~28k"
+          }
+        },
+        "reasonix": {
+          "maintainer": {
+            "s": "info",
+            "en": "community",
+            "ru": "сообщество"
+          },
+          "language": {
+            "s": "info",
+            "t": "Go"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "one binary, CGO_ENABLED=0",
+            "ru": "один бинарник, CGO_ENABLED=0"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~35k"
+          }
+        },
+        "codewhale": {
+          "maintainer": {
+            "s": "info",
+            "en": "community",
+            "ru": "сообщество"
+          },
+          "language": {
+            "s": "info",
+            "t": "Rust"
+          },
+          "license": {
+            "s": "info",
+            "t": "MIT"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "binary",
+            "ru": "бинарник"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~41k"
+          }
+        },
+        "grok": {
+          "maintainer": {
+            "s": "info",
+            "t": "xAI"
+          },
+          "language": {
+            "s": "info",
+            "t": "Rust"
+          },
+          "license": {
+            "s": "info",
+            "t": "Apache-2.0"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "binary",
+            "ru": "бинарник"
+          },
+          "stars": {
+            "s": "info",
+            "t": "~26k"
+          }
+        },
+        "drift": {
+          "maintainer": {
+            "s": "info",
+            "t": "NeuralDeep, V. Kovalskii"
+          },
+          "language": {
+            "s": "info",
+            "t": "Python"
+          },
+          "license": {
+            "s": "info",
+            "en": "proprietary SaaS, open source announced",
+            "ru": "проприетарный SaaS, открытие исходников анонсировано"
+          },
+          "delivery": {
+            "s": "info",
+            "en": "hosted, part of a NeuralDeep subscription",
+            "ru": "хостинг, входит в подписку NeuralDeep"
+          },
+          "stars": {
+            "s": "info",
+            "en": "no public repo",
+            "ru": "нет публичного репозитория"
+          }
+        }
+      }
+    },
+    {
+      "id": "surfaces",
+      "title": {
+        "en": "Surfaces",
+        "ru": "Интерфейсы"
+      },
+      "lead": {
+        "en": "Where you can actually talk to the agent, and whether those entry points share one set of sessions.",
+        "ru": "Где с агентом действительно можно говорить и общие ли у этих входов сессии."
+      },
+      "columns": [
+        {
+          "id": "terminal",
+          "label": {
+            "en": "Terminal",
+            "ru": "Терминал"
+          }
+        },
+        {
+          "id": "editor",
+          "label": {
+            "en": "Editor",
+            "ru": "Редактор"
+          }
+        },
+        {
+          "id": "web",
+          "label": {
+            "en": "HTTP + web UI",
+            "ru": "HTTP и веб"
+          }
+        },
+        {
+          "id": "desktop",
+          "label": {
+            "en": "Desktop",
+            "ru": "Десктоп"
+          }
+        },
+        {
+          "id": "messengers",
+          "label": {
+            "en": "Messengers",
+            "ru": "Мессенджеры"
+          }
+        },
+        {
+          "id": "headless",
+          "label": {
+            "en": "Headless / CI",
+            "ru": "Без UI / CI"
+          }
+        },
+        {
+          "id": "remote",
+          "label": {
+            "en": "Remote",
+            "ru": "Удалённо"
+          }
+        }
+      ],
+      "rows": {
+        "foxxycode": {
+          "terminal": {
+            "s": "yes",
+            "t": "TUI"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "VS Code and JetBrains plugins, ACP",
+            "ru": "плагины VS Code и JetBrains, ACP"
+          },
+          "web": {
+            "s": "yes",
+            "en": "embedded SPA",
+            "ru": "встроенное SPA"
+          },
+          "desktop": {
+            "s": "yes",
+            "t": "Windows"
+          },
+          "messengers": {
+            "s": "yes",
+            "en": "Telegram, extensible",
+            "ru": "Telegram, расширяемо"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "foxxycode -p, REST"
+          },
+          "remote": {
+            "s": "yes",
+            "t": "--remote"
+          }
+        },
+        "coddy": {
+          "terminal": {
+            "s": "yes",
+            "t": "TUI"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "ACP server",
+            "ru": "сервер ACP"
+          },
+          "web": {
+            "s": "yes",
+            "en": "embedded SPA",
+            "ru": "встроенное SPA"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "yes",
+            "en": "Telegram, extensible",
+            "ru": "Telegram, расширяемо"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "coddy -p, REST"
+          },
+          "remote": {
+            "s": "yes",
+            "t": "--remote"
+          }
+        },
+        "cline": {
+          "terminal": {
+            "s": "yes",
+            "en": "CLI and TUI",
+            "ru": "CLI и TUI"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "VS Code, JetBrains, ACP"
+          },
+          "web": {
+            "s": "partial",
+            "en": "local Kanban board",
+            "ru": "локальная Kanban-доска"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "macOS; Windows beta",
+            "ru": "macOS; Windows в бете"
+          },
+          "messengers": {
+            "s": "yes",
+            "t": "Telegram, Slack, Discord, WhatsApp"
+          },
+          "headless": {
+            "s": "yes",
+            "en": "--json, piped input",
+            "ru": "--json, ввод через пайп"
+          },
+          "remote": {
+            "s": "partial",
+            "en": "Kanban over tunnels",
+            "ru": "Kanban через туннели"
+          }
+        },
+        "kilo": {
+          "terminal": {
+            "s": "yes",
+            "t": "kilo CLI"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "VS Code, JetBrains"
+          },
+          "web": {
+            "s": "yes",
+            "t": "Cloud Agent"
+          },
+          "desktop": {
+            "s": "unknown"
+          },
+          "messengers": {
+            "s": "yes",
+            "t": "Slack"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "kilo run --auto"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "cloud agents",
+            "ru": "облачные агенты"
+          }
+        },
+        "roo": {
+          "terminal": {
+            "s": "partial",
+            "en": "CLI in the repo",
+            "ru": "CLI в репозитории"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "VS Code"
+          },
+          "web": {
+            "s": "partial",
+            "en": "Roo Code Cloud, discontinued",
+            "ru": "Roo Code Cloud, закрыт"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "partial",
+            "en": "Slack, discontinued",
+            "ru": "Slack, закрыт"
+          },
+          "headless": {
+            "s": "partial",
+            "t": "CLI --print"
+          },
+          "remote": {
+            "s": "partial",
+            "en": "cloud agents, discontinued",
+            "ru": "облачные агенты, закрыты"
+          }
+        },
+        "continue": {
+          "terminal": {
+            "s": "yes",
+            "t": "cn TUI"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "VS Code, JetBrains"
+          },
+          "web": {
+            "s": "unknown"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "unknown"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "cn -p"
+          },
+          "remote": {
+            "s": "partial",
+            "en": "remote environment commands",
+            "ru": "команды удалённого окружения"
+          }
+        },
+        "cursor": {
+          "terminal": {
+            "s": "yes",
+            "t": "agent CLI"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "own editor",
+            "ru": "свой редактор"
+          },
+          "web": {
+            "s": "yes",
+            "en": "cloud agents on the web",
+            "ru": "облачные агенты в вебе"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "the editor",
+            "ru": "сам редактор"
+          },
+          "messengers": {
+            "s": "yes",
+            "t": "Slack, Microsoft Teams"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "agent -p"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "cloud VMs, self-hosted pools",
+            "ru": "облачные ВМ, свои пулы"
+          }
+        },
+        "claude": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "en": "via adapter",
+            "ru": "через адаптер"
+          },
+          "web": {
+            "s": "partial",
+            "en": "separate web app",
+            "ru": "отдельное веб-приложение"
+          },
+          "desktop": {
+            "s": "yes"
+          },
+          "messengers": {
+            "s": "partial",
+            "en": "Slack tag",
+            "ru": "тег в Slack"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "-p, SDK"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "cloud",
+            "ru": "облако"
+          }
+        },
+        "codex": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "en": "via adapter",
+            "ru": "через адаптер"
+          },
+          "web": {
+            "s": "partial",
+            "en": "cloud product, separate",
+            "ru": "облачный продукт, отдельно"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "codex exec"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "opencode": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "native",
+            "ru": "нативно"
+          },
+          "web": {
+            "s": "yes",
+            "en": "server plus sharing",
+            "ru": "сервер и общий доступ"
+          },
+          "desktop": {
+            "s": "yes"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "server",
+            "ru": "сервер"
+          }
+        },
+        "koda": {
+          "terminal": {
+            "s": "yes",
+            "en": "TUI, Gemini CLI lineage",
+            "ru": "TUI, наследник Gemini CLI"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "koda --acp, VS Code and JetBrains plugins",
+            "ru": "koda --acp, плагины VS Code и JetBrains"
+          },
+          "web": {
+            "s": "no",
+            "en": "the API is closed",
+            "ru": "API закрыт"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "Koda Desktop, beta",
+            "ru": "Koda Desktop, бета"
+          },
+          "messengers": {
+            "s": "yes",
+            "en": "Telegram remote",
+            "ru": "удалёнка через Telegram"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "koda -p"
+          },
+          "remote": {
+            "s": "partial",
+            "en": "Telegram remote only",
+            "ru": "только через Telegram"
+          }
+        },
+        "antigravity": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "own IDE, extensions",
+            "ru": "своя IDE, расширения"
+          },
+          "web": {
+            "s": "unknown"
+          },
+          "desktop": {
+            "s": "yes",
+            "en": "own IDE",
+            "ru": "своя IDE"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "cloud",
+            "ru": "облако"
+          }
+        },
+        "goose": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "yes",
+            "en": "native",
+            "ru": "нативно"
+          },
+          "web": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "yes"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes",
+            "en": "recipes",
+            "ru": "рецепты"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "pi": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "t": "RPC"
+          },
+          "web": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "print/JSON, SDK"
+          },
+          "remote": {
+            "s": "partial",
+            "t": "RPC"
+          }
+        },
+        "omp": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "omp acp"
+          },
+          "web": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "omp -p, RPC, SDK"
+          },
+          "remote": {
+            "s": "partial",
+            "t": "relay /collab"
+          }
+        },
+        "deepseek": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "no"
+          },
+          "web": {
+            "s": "yes",
+            "en": "web-first, dsh web",
+            "ru": "сначала веб, dsh web"
+          },
+          "desktop": {
+            "s": "partial",
+            "en": "Electron shell",
+            "ru": "оболочка на Electron"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "openclaw": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "en": "ACP bridge",
+            "ru": "мост ACP"
+          },
+          "web": {
+            "s": "yes",
+            "en": "gateway",
+            "ru": "шлюз"
+          },
+          "desktop": {
+            "s": "yes"
+          },
+          "messengers": {
+            "s": "yes",
+            "en": "25+ channels",
+            "ru": "25+ каналов"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "gateway",
+            "ru": "шлюз"
+          }
+        },
+        "hermes": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "t": "ACP"
+          },
+          "web": {
+            "s": "yes"
+          },
+          "desktop": {
+            "s": "yes",
+            "t": "Hermes Desktop"
+          },
+          "messengers": {
+            "s": "yes",
+            "en": "8 channels",
+            "ru": "8 каналов"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "yes",
+            "t": "Modal, Daytona, SSH"
+          }
+        },
+        "aider": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "no"
+          },
+          "web": {
+            "s": "partial",
+            "en": "browser GUI",
+            "ru": "GUI в браузере"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes",
+            "en": "scripted",
+            "ru": "скриптами"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "openhands": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "t": "ACP"
+          },
+          "web": {
+            "s": "yes"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "yes"
+          }
+        },
+        "crush": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "no"
+          },
+          "web": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "partial"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "reasonix": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "ACP"
+          },
+          "web": {
+            "s": "yes",
+            "en": "dashboard",
+            "ru": "панель"
+          },
+          "desktop": {
+            "s": "yes"
+          },
+          "messengers": {
+            "s": "yes",
+            "t": "QQ"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "partial",
+            "en": "shared local engine",
+            "ru": "общий локальный движок"
+          }
+        },
+        "codewhale": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "partial",
+            "en": "community extension",
+            "ru": "расширение сообщества"
+          },
+          "web": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no",
+            "en": "in development",
+            "ru": "в разработке"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes",
+            "t": "codewhale exec"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "grok": {
+          "terminal": {
+            "s": "yes"
+          },
+          "editor": {
+            "s": "yes",
+            "t": "ACP"
+          },
+          "web": {
+            "s": "no"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "no"
+          },
+          "headless": {
+            "s": "yes"
+          },
+          "remote": {
+            "s": "no"
+          }
+        },
+        "drift": {
+          "terminal": {
+            "s": "no"
+          },
+          "editor": {
+            "s": "no"
+          },
+          "web": {
+            "s": "yes",
+            "en": "web app plus an OpenAI-compatible API",
+            "ru": "веб-приложение и API, совместимый с OpenAI"
+          },
+          "desktop": {
+            "s": "no"
+          },
+          "messengers": {
+            "s": "yes",
+            "t": "Telegram, Bitrix24"
+          },
+          "headless": {
+            "s": "yes",
+            "en": "API, webhook-triggered agents",
+            "ru": "API, агенты по вебхукам"
+          },
+          "remote": {
+            "s": "yes",
+            "en": "hosted, everything is remote",
+            "ru": "хостинг, всё удалённо"
+          }
+        }
+      }
+    },
+    {
+      "id": "extensibility",
+      "title": {
+        "en": "Extensibility",
+        "ru": "Расширяемость"
+      },
+      "lead": {
+        "en": "How you teach a harness about your project and plug new capabilities into it.",
+        "ru": "Как рассказать агенту о своём проекте и подключить к нему новые возможности."
+      },
+      "columns": [
+        {
+          "id": "mcp",
+          "label": {
+            "en": "MCP",
+            "ru": "MCP"
+          }
+        },
+        {
+          "id": "skills",
+          "label": {
+            "en": "Skills",
+            "ru": "Скилы"
+          }
+        },
+        {
+          "id": "subagents",
+          "label": {
+            "en": "Subagents",
+            "ru": "Субагенты"
+          }
+        },
+        {
+          "id": "hooks",
+          "label": {
+            "en": "Hooks",
+            "ru": "Хуки"
+          }
+        },
+        {
+          "id": "rules",
+          "label": {
+            "en": "Rules / AGENTS.md",
+            "ru": "Правила / AGENTS.md"
+          }
+        },
+        {
+          "id": "plugins",
+          "label": {
+            "en": "Plugins",
+            "ru": "Плагины"
+          }
+        }
+      ],
+      "rows": {
+        "foxxycode": {
+          "mcp": {
+            "s": "yes",
+            "en": "3 transports, 3 config levels, self-signed TLS",
+            "ru": "3 транспорта, 3 уровня настроек, самоподписанный TLS"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "SKILL.md, skills.sh, agents standard",
+            "ru": "SKILL.md, skills.sh, стандарт agents"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "capabilities only narrow",
+            "ru": "права только сужаются"
+          },
+          "hooks": {
+            "s": "yes",
+            "en": "11 events, Claude Code format",
+            "ru": "11 событий, формат Claude Code"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".cursor, .claude, .codex, .foxxycode, AGENTS.md"
+          },
+          "plugins": {
+            "s": "partial",
+            "en": "skill marketplaces",
+            "ru": "маркетплейсы скилов"
+          }
+        },
+        "coddy": {
+          "mcp": {
+            "s": "yes",
+            "en": "3 transports, 3 config levels",
+            "ru": "3 транспорта, 3 уровня настроек"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "SKILL.md, skills.sh, agents standard",
+            "ru": "SKILL.md, skills.sh, стандарт agents"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "capabilities only narrow",
+            "ru": "права только сужаются"
+          },
+          "hooks": {
+            "s": "yes",
+            "en": "11 events, Claude Code format",
+            "ru": "11 событий, формат Claude Code"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".cursor, .claude, .codex, .coddy, AGENTS.md"
+          },
+          "plugins": {
+            "s": "partial",
+            "en": "skill marketplaces",
+            "ru": "маркетплейсы скилов"
+          }
+        },
+        "cline": {
+          "mcp": {
+            "s": "yes",
+            "t": "cline mcp"
+          },
+          "skills": {
+            "s": "yes",
+            "t": "SKILL.md"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "read-only subagents, agent teams",
+            "ru": "субагенты только для чтения, команды агентов"
+          },
+          "hooks": {
+            "s": "partial",
+            "en": "through SDK plugins",
+            "ru": "через плагины SDK"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".clinerules, .cursorrules, AGENTS.md"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "plugins, desktop marketplace",
+            "ru": "плагины, маркетплейс в десктопе"
+          }
+        },
+        "kilo": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "yes",
+            "en": ".kilo, .agents and .claude skills",
+            "ru": "скилы из .kilo, .agents и .claude"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "Task tool subagents",
+            "ru": "субагенты через Task"
+          },
+          "hooks": {
+            "s": "partial",
+            "en": "plugin hooks",
+            "ru": "хуки плагинов"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".kilo/rules, AGENTS.md"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "marketplace: agents, skills, MCP",
+            "ru": "маркетплейс: агенты, скилы, MCP"
+          }
+        },
+        "roo": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "yes",
+            "t": ".roo/skills"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "Orchestrator subtasks",
+            "ru": "подзадачи Orchestrator"
+          },
+          "hooks": {
+            "s": "unknown"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".roo/rules, AGENTS.md"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "marketplace: modes, MCP",
+            "ru": "маркетплейс: режимы, MCP"
+          }
+        },
+        "continue": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "partial",
+            "en": "in the source, undocumented",
+            "ru": "в исходниках, без документации"
+          },
+          "subagents": {
+            "s": "partial",
+            "en": "CLI subagent tool, undocumented",
+            "ru": "субагенты в CLI, без документации"
+          },
+          "hooks": {
+            "s": "partial",
+            "en": "Claude Code-compatible, undocumented",
+            "ru": "совместимые с Claude Code, без документации"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".continue/rules, AGENTS.md"
+          },
+          "plugins": {
+            "s": "unknown"
+          }
+        },
+        "cursor": {
+          "mcp": {
+            "s": "yes",
+            "en": "with an allowlist",
+            "ru": "со списком разрешённых"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "SKILL.md; reads .claude and .codex",
+            "ru": "SKILL.md; читает .claude и .codex"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "local and cloud",
+            "ru": "локальные и облачные"
+          },
+          "hooks": {
+            "s": "yes",
+            "en": "hooks.json, ~18 events",
+            "ru": "hooks.json, ~18 событий"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".cursor/rules, AGENTS.md"
+          },
+          "plugins": {
+            "s": "yes",
+            "t": "Cursor Marketplace"
+          }
+        },
+        "claude": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "origin of the format",
+            "ru": "автор формата"
+          },
+          "subagents": {
+            "s": "yes"
+          },
+          "hooks": {
+            "s": "yes",
+            "en": "origin of the format",
+            "ru": "автор формата"
+          },
+          "rules": {
+            "s": "yes",
+            "t": "CLAUDE.md, AGENTS.md"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "versioned bundles",
+            "ru": "версионируемые наборы"
+          }
+        },
+        "codex": {
+          "mcp": {
+            "s": "yes",
+            "en": "client and server",
+            "ru": "клиент и сервер"
+          },
+          "skills": {
+            "s": "no",
+            "en": "none of its own",
+            "ru": "своих нет"
+          },
+          "subagents": {
+            "s": "no"
+          },
+          "hooks": {
+            "s": "yes"
+          },
+          "rules": {
+            "s": "yes",
+            "en": "AGENTS.md, origin",
+            "ru": "AGENTS.md, автор формата"
+          },
+          "plugins": {
+            "s": "partial",
+            "en": "profiles",
+            "ru": "профили"
+          }
+        },
+        "opencode": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "no",
+            "en": "none of its own",
+            "ru": "своих нет"
+          },
+          "subagents": {
+            "s": "yes",
+            "t": "build, plan, general"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "yes",
+            "t": "AGENTS.md"
+          },
+          "plugins": {
+            "s": "yes"
+          }
+        },
+        "koda": {
+          "mcp": {
+            "s": "yes",
+            "en": "CLI, plugin and desktop",
+            "ru": "CLI, плагин и десктоп"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "SKILL.md, KodaSkills catalog",
+            "ru": "SKILL.md, каталог KodaSkills"
+          },
+          "subagents": {
+            "s": "no"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "yes",
+            "en": "KODA.md or AGENTS.md, .kodarules",
+            "ru": "KODA.md или AGENTS.md, .kodarules"
+          },
+          "plugins": {
+            "s": "partial",
+            "en": "CLI extensions",
+            "ru": "расширения CLI"
+          }
+        },
+        "antigravity": {
+          "mcp": {
+            "s": "unknown"
+          },
+          "skills": {
+            "s": "unknown"
+          },
+          "subagents": {
+            "s": "unknown"
+          },
+          "hooks": {
+            "s": "unknown"
+          },
+          "rules": {
+            "s": "unknown"
+          },
+          "plugins": {
+            "s": "unknown"
+          }
+        },
+        "goose": {
+          "mcp": {
+            "s": "yes",
+            "en": "70+ extensions",
+            "ru": "70+ расширений"
+          },
+          "skills": {
+            "s": "partial",
+            "en": "YAML recipes",
+            "ru": "YAML-рецепты"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "separate processes",
+            "ru": "отдельные процессы"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".goosehints"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "extensions",
+            "ru": "расширения"
+          }
+        },
+        "pi": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "partial",
+            "en": "through app code",
+            "ru": "через код приложения"
+          },
+          "subagents": {
+            "s": "partial",
+            "en": "through the SDK",
+            "ru": "через SDK"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "partial",
+            "en": "minimal",
+            "ru": "минимально"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "npm packages",
+            "ru": "пакеты npm"
+          }
+        },
+        "omp": {
+          "mcp": {
+            "s": "yes",
+            "en": "inherits other tools' configs",
+            "ru": "берёт настройки других агентов"
+          },
+          "skills": {
+            "s": "yes",
+            "t": "manage_skill"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "parallel, typed results",
+            "ru": "параллельные, типизированные результаты"
+          },
+          "hooks": {
+            "s": "partial",
+            "en": "stream rules",
+            "ru": "правила потока"
+          },
+          "rules": {
+            "s": "yes",
+            "en": "inherits 7 ecosystems",
+            "ru": "берёт из 7 экосистем"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "TypeScript extensions",
+            "ru": "расширения на TypeScript"
+          }
+        },
+        "deepseek": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "partial",
+            "en": "plugin",
+            "ru": "плагин"
+          },
+          "subagents": {
+            "s": "partial",
+            "en": "plugin, delegation to Claude Code and Codex",
+            "ru": "плагин, делегирование в Claude Code и Codex"
+          },
+          "hooks": {
+            "s": "partial",
+            "en": "plugin (loops)",
+            "ru": "плагин (циклы)"
+          },
+          "rules": {
+            "s": "unknown"
+          },
+          "plugins": {
+            "s": "yes",
+            "en": "everything is a plugin",
+            "ru": "всё — плагины"
+          }
+        },
+        "openclaw": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "own system, selective injection",
+            "ru": "своя система, выборочная подстановка"
+          },
+          "subagents": {
+            "s": "yes"
+          },
+          "hooks": {
+            "s": "yes"
+          },
+          "rules": {
+            "s": "unknown"
+          },
+          "plugins": {
+            "s": "yes",
+            "t": "ClawHub"
+          }
+        },
+        "hermes": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "yes",
+            "en": "agentskills.io, self-authored",
+            "ru": "agentskills.io, пишет сам"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "isolated",
+            "ru": "изолированные"
+          },
+          "hooks": {
+            "s": "unknown"
+          },
+          "rules": {
+            "s": "yes",
+            "t": "SOUL.md, MEMORY.md, USER.md"
+          },
+          "plugins": {
+            "s": "yes",
+            "t": "Skills Hub"
+          }
+        },
+        "aider": {
+          "mcp": {
+            "s": "partial"
+          },
+          "skills": {
+            "s": "no"
+          },
+          "subagents": {
+            "s": "no"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "partial",
+            "en": "conventions files",
+            "ru": "файлы соглашений"
+          },
+          "plugins": {
+            "s": "no"
+          }
+        },
+        "openhands": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "partial",
+            "en": "microagents",
+            "ru": "микроагенты"
+          },
+          "subagents": {
+            "s": "yes"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "partial",
+            "en": "microagents",
+            "ru": "микроагенты"
+          },
+          "plugins": {
+            "s": "yes"
+          }
+        },
+        "crush": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "no"
+          },
+          "subagents": {
+            "s": "no"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "yes",
+            "t": "CRUSH.md"
+          },
+          "plugins": {
+            "s": "no"
+          }
+        },
+        "reasonix": {
+          "mcp": {
+            "s": "yes",
+            "t": "stdio, SSE, HTTP"
+          },
+          "skills": {
+            "s": "partial",
+            "en": "markdown playbooks",
+            "ru": "плейбуки в markdown"
+          },
+          "subagents": {
+            "s": "unknown"
+          },
+          "hooks": {
+            "s": "yes",
+            "en": "tools and events",
+            "ru": "инструменты и события"
+          },
+          "rules": {
+            "s": "yes",
+            "t": ".reasonix/"
+          },
+          "plugins": {
+            "s": "yes",
+            "t": "Extension Protocol v1"
+          }
+        },
+        "codewhale": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "no"
+          },
+          "subagents": {
+            "s": "partial",
+            "en": "role fleets",
+            "ru": "группы ролей"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "unknown"
+          },
+          "plugins": {
+            "s": "no"
+          }
+        },
+        "grok": {
+          "mcp": {
+            "s": "yes"
+          },
+          "skills": {
+            "s": "no"
+          },
+          "subagents": {
+            "s": "yes",
+            "en": "parallel, on git worktrees",
+            "ru": "параллельно, на git worktree"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "yes",
+            "t": "AGENTS.md"
+          },
+          "plugins": {
+            "s": "no"
+          }
+        },
+        "drift": {
+          "mcp": {
+            "s": "yes",
+            "en": "remote HTTP and SSE servers",
+            "ru": "удалённые серверы HTTP и SSE"
+          },
+          "skills": {
+            "s": "yes",
+            "t": "SKILL.md, skills.sh"
+          },
+          "subagents": {
+            "s": "no"
+          },
+          "hooks": {
+            "s": "no"
+          },
+          "rules": {
+            "s": "partial",
+            "en": "custom instructions, nothing from a repo",
+            "ru": "свои инструкции, ничего из репозитория"
+          },
+          "plugins": {
+            "s": "partial",
+            "en": "no-code hosted agents",
+            "ru": "агенты без кода на хостинге"
+          }
+        }
+      }
+    },
+    {
+      "id": "context",
+      "title": {
+        "en": "Context, memory and autonomy",
+        "ru": "Контекст, память и автономность"
+      },
+      "lead": {
+        "en": "What happens to a long session, and how much work a harness can carry without you watching.",
+        "ru": "Что происходит с длинной сессией и сколько работы агент тянет без присмотра."
+      },
+      "columns": [
+        {
+          "id": "compaction",
+          "label": {
+            "en": "Compaction",
+            "ru": "Сжатие"
+          }
+        },
+        {
+          "id": "eviction",
+          "label": {
+            "en": "Result eviction",
+            "ru": "Вытеснение результатов"
+          }
+        },
+        {
+          "id": "memory",
+          "label": {
+            "en": "Long-term memory",
+            "ru": "Долгая память"
+          }
+        },
+        {
+          "id": "scheduler",
+          "label": {
+            "en": "Scheduler",
+            "ru": "Планировщик"
+          }
+        },
+        {
+          "id": "background",
+          "label": {
+            "en": "Background tasks",
+            "ru": "Фоновые задачи"
+          }
+        },
+        {
+          "id": "checkpoints",
+          "label": {
+            "en": "Checkpoints",
+            "ru": "Чекпоинты"
+          }
+        }
+      ],
+      "rows": {
+        "foxxycode": {
+          "compaction": {
+            "s": "yes",
+            "en": "/compact plus auto",
+            "ru": "/compact и автоматически"
+          },
+          "eviction": {
+            "s": "yes",
+            "en": "keep_result pins",
+            "ru": "закрепление через keep_result"
+          },
+          "memory": {
+            "s": "yes",
+            "en": "memory copilot",
+            "ru": "копилот памяти"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "cron inside the binary",
+            "ru": "cron внутри бинарника"
+          },
+          "background": {
+            "s": "yes",
+            "en": "adopts timed-out work",
+            "ru": "подхватывает зависшую работу"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "en": "revert in the IDE, session branches",
+            "ru": "откат в IDE, ветки сессий"
+          }
+        },
+        "coddy": {
+          "compaction": {
+            "s": "yes",
+            "en": "/compact plus auto at 80%",
+            "ru": "/compact и автоматически на 80%"
+          },
+          "eviction": {
+            "s": "yes",
+            "en": "keep_result pins",
+            "ru": "закрепление через keep_result"
+          },
+          "memory": {
+            "s": "yes",
+            "en": "memory copilot",
+            "ru": "копилот памяти"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "cron inside the binary",
+            "ru": "cron внутри бинарника"
+          },
+          "background": {
+            "s": "yes",
+            "en": "adopts timed-out work",
+            "ru": "подхватывает зависшую работу"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "en": "config snapshots, session branches",
+            "ru": "снимки настроек, ветки сессий"
+          }
+        },
+        "cline": {
+          "compaction": {
+            "s": "yes",
+            "t": "Auto Compact, /smol"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "Memory Bank convention",
+            "ru": "соглашение Memory Bank"
+          },
+          "scheduler": {
+            "s": "yes",
+            "t": "cline schedule"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "yes",
+            "en": "shadow git",
+            "ru": "теневой git"
+          }
+        },
+        "kilo": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "Memory Bank deprecated",
+            "ru": "Memory Bank устарел"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "cloud triggers",
+            "ru": "облачные триггеры"
+          },
+          "background": {
+            "s": "yes",
+            "en": "subagent tasks, Agent Manager",
+            "ru": "задачи субагентов, Agent Manager"
+          },
+          "checkpoints": {
+            "s": "yes"
+          }
+        },
+        "roo": {
+          "compaction": {
+            "s": "yes",
+            "en": "context condensing",
+            "ru": "сжатие контекста"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "unknown"
+          },
+          "scheduler": {
+            "s": "unknown"
+          },
+          "background": {
+            "s": "partial",
+            "en": "cloud agents only",
+            "ru": "только облачные агенты"
+          },
+          "checkpoints": {
+            "s": "yes"
+          }
+        },
+        "continue": {
+          "compaction": {
+            "s": "yes",
+            "en": "/compact, auto",
+            "ru": "/compact, автоматически"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "unknown"
+          },
+          "scheduler": {
+            "s": "unknown"
+          },
+          "background": {
+            "s": "yes",
+            "t": "/jobs"
+          },
+          "checkpoints": {
+            "s": "unknown"
+          }
+        },
+        "cursor": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "in Automations only",
+            "ru": "только в Automations"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "Automations with cron",
+            "ru": "Automations по cron"
+          },
+          "background": {
+            "s": "yes",
+            "en": "cloud agents",
+            "ru": "облачные агенты"
+          },
+          "checkpoints": {
+            "s": "yes"
+          }
+        },
+        "claude": {
+          "compaction": {
+            "s": "yes",
+            "en": "auto",
+            "ru": "автоматически"
+          },
+          "eviction": {
+            "s": "partial"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "file-based memory",
+            "ru": "память в файлах"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "task scheduler",
+            "ru": "планировщик задач"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "codex": {
+          "compaction": {
+            "s": "yes",
+            "en": "auto",
+            "ru": "автоматически"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "partial",
+            "t": "AGENTS.md"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "no"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "opencode": {
+          "compaction": {
+            "s": "yes",
+            "en": "auto",
+            "ru": "автоматически"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "no"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "no"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "koda": {
+          "compaction": {
+            "s": "yes",
+            "en": "/compress, auto at 75%",
+            "ru": "/compress, автоматически на 75%"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "/memory into KODA.md",
+            "ru": "/memory в KODA.md"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "desktop scheduled tasks",
+            "ru": "задачи по расписанию в десктопе"
+          },
+          "background": {
+            "s": "partial",
+            "en": "scheduled runs only",
+            "ru": "только запуски по расписанию"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "en": "shadow git with /restore, opt-in",
+            "ru": "теневой git с /restore, по желанию"
+          }
+        },
+        "antigravity": {
+          "compaction": {
+            "s": "unknown"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "unknown"
+          },
+          "scheduler": {
+            "s": "unknown"
+          },
+          "background": {
+            "s": "unknown"
+          },
+          "checkpoints": {
+            "s": "unknown"
+          }
+        },
+        "goose": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "no"
+          },
+          "scheduler": {
+            "s": "yes",
+            "t": "goose schedule"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "pi": {
+          "compaction": {
+            "s": "partial",
+            "en": "through the app",
+            "ru": "через приложение"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "through the app",
+            "ru": "через приложение"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "no"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "en": "session replay",
+            "ru": "повтор сессии"
+          }
+        },
+        "omp": {
+          "compaction": {
+            "s": "yes",
+            "t": "snapcompact"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "yes",
+            "t": "retain/recall, SQLite"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "partial",
+            "en": "parallel subagents",
+            "ru": "параллельные субагенты"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "en": "edit previews",
+            "ru": "предпросмотр правок"
+          }
+        },
+        "deepseek": {
+          "compaction": {
+            "s": "partial",
+            "en": "plugin",
+            "ru": "плагин"
+          },
+          "eviction": {
+            "s": "unknown"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "storage plugin",
+            "ru": "плагин хранения"
+          },
+          "scheduler": {
+            "s": "partial",
+            "en": "scheduling plugin",
+            "ru": "плагин расписания"
+          },
+          "background": {
+            "s": "partial",
+            "en": "loops plugin",
+            "ru": "плагин циклов"
+          },
+          "checkpoints": {
+            "s": "unknown"
+          }
+        },
+        "openclaw": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "skills and local workspace",
+            "ru": "скилы и локальное рабочее место"
+          },
+          "scheduler": {
+            "s": "yes"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "hermes": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "yes",
+            "en": "self-improving loop, FTS5",
+            "ru": "самообучающийся цикл, FTS5"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "built-in cron",
+            "ru": "встроенный cron"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "aider": {
+          "compaction": {
+            "s": "partial",
+            "t": "repomap"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "no"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "no"
+          },
+          "checkpoints": {
+            "s": "yes",
+            "en": "git commits",
+            "ru": "git-коммиты"
+          }
+        },
+        "openhands": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "microagents",
+            "ru": "микроагенты"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "crush": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "no"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "no"
+          },
+          "checkpoints": {
+            "s": "no"
+          }
+        },
+        "reasonix": {
+          "compaction": {
+            "s": "yes",
+            "en": "pruning before compaction",
+            "ru": "обрезка перед сжатием"
+          },
+          "eviction": {
+            "s": "yes",
+            "en": "protects the prefix cache",
+            "ru": "бережёт кэш префикса"
+          },
+          "memory": {
+            "s": "partial",
+            "en": "fragments pinned in the prefix",
+            "ru": "фрагменты в префиксе"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "yes"
+          },
+          "checkpoints": {
+            "s": "yes",
+            "en": "per turn",
+            "ru": "на каждый ход"
+          }
+        },
+        "codewhale": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "no"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "no"
+          },
+          "checkpoints": {
+            "s": "yes",
+            "en": "workspace snapshots",
+            "ru": "снимки рабочей папки"
+          }
+        },
+        "grok": {
+          "compaction": {
+            "s": "yes"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "no"
+          },
+          "scheduler": {
+            "s": "no"
+          },
+          "background": {
+            "s": "partial",
+            "en": "worktree parallelism",
+            "ru": "параллельно на worktree"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "t": "worktree"
+          }
+        },
+        "drift": {
+          "compaction": {
+            "s": "yes",
+            "en": "semantic summary",
+            "ru": "смысловая выжимка"
+          },
+          "eviction": {
+            "s": "no"
+          },
+          "memory": {
+            "s": "yes",
+            "en": "MEMORY.md per user, recall",
+            "ru": "MEMORY.md на пользователя, поиск по чатам"
+          },
+          "scheduler": {
+            "s": "yes",
+            "en": "cron and one-off tasks",
+            "ru": "cron и разовые задачи"
+          },
+          "background": {
+            "s": "yes",
+            "en": "runs survive a dropped connection",
+            "ru": "работа переживает обрыв связи"
+          },
+          "checkpoints": {
+            "s": "partial",
+            "en": "per-file versions",
+            "ru": "версии файлов"
+          }
+        }
+      }
+    },
+    {
+      "id": "trust",
+      "title": {
+        "en": "Security and trust",
+        "ru": "Безопасность и доверие"
+      },
+      "lead": {
+        "en": "What stops an agent, or a repository you just cloned, from doing something you did not ask for.",
+        "ru": "Что мешает агенту или только что склонированному репозиторию сделать то, о чём вы не просили."
+      },
+      "columns": [
+        {
+          "id": "sandbox",
+          "label": {
+            "en": "Sandbox",
+            "ru": "Песочница"
+          }
+        },
+        {
+          "id": "permissions",
+          "label": {
+            "en": "Permissions",
+            "ru": "Разрешения"
+          }
+        },
+        {
+          "id": "projectTrust",
+          "label": {
+            "en": "Trust for project files",
+            "ru": "Доверие к файлам проекта"
+          }
+        },
+        {
+          "id": "subagentLimits",
+          "label": {
+            "en": "Subagent limits",
+            "ru": "Ограничения субагентов"
+          }
+        }
+      ],
+      "rows": {
+        "foxxycode": {
+          "sandbox": {
+            "s": "partial",
+            "en": "container, read-only rootfs",
+            "ru": "контейнер, read-only rootfs"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "ask, accept_edits, bypass; program-wide grants",
+            "ru": "ask, accept_edits, bypass; разрешения на программу"
+          },
+          "projectTrust": {
+            "s": "yes",
+            "en": "digest-bound receipts for MCP, subagents, hooks",
+            "ru": "подтверждения по дайджесту для MCP, субагентов и хуков"
+          },
+          "subagentLimits": {
+            "s": "yes",
+            "en": "capabilities only narrow",
+            "ru": "права только сужаются"
+          }
+        },
+        "coddy": {
+          "sandbox": {
+            "s": "partial",
+            "en": "container, distroless, read-only rootfs",
+            "ru": "контейнер, distroless, read-only rootfs"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "dialog, guarded program-wide grants",
+            "ru": "диалог, защищённые разрешения на программу"
+          },
+          "projectTrust": {
+            "s": "yes",
+            "en": "digest-bound receipts for MCP, subagents, hooks",
+            "ru": "подтверждения по дайджесту для MCP, субагентов и хуков"
+          },
+          "subagentLimits": {
+            "s": "yes",
+            "en": "capabilities only narrow",
+            "ru": "права только сужаются"
+          }
+        },
+        "cline": {
+          "sandbox": {
+            "s": "unknown"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "per-category auto-approve, YOLO",
+            "ru": "автоодобрение по категориям, YOLO"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "partial",
+            "en": "read-only subagents",
+            "ru": "субагенты только для чтения"
+          }
+        },
+        "kilo": {
+          "sandbox": {
+            "s": "partial",
+            "en": "Seatbelt or bwrap, off by default",
+            "ru": "Seatbelt или bwrap, выключено по умолчанию"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "allow, ask, deny patterns",
+            "ru": "шаблоны allow, ask, deny"
+          },
+          "projectTrust": {
+            "s": "partial",
+            "en": "project config cannot weaken the sandbox",
+            "ru": "настройки проекта не ослабляют песочницу"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "roo": {
+          "sandbox": {
+            "s": "unknown"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "per-category auto-approve",
+            "ru": "автоодобрение по категориям"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "continue": {
+          "sandbox": {
+            "s": "unknown"
+          },
+          "permissions": {
+            "s": "yes",
+            "t": "allow, ask, exclude"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "cursor": {
+          "sandbox": {
+            "s": "yes",
+            "en": "Seatbelt, Landlock and seccomp, cloud VMs",
+            "ru": "Seatbelt, Landlock и seccomp, облачные ВМ"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "run modes, auto-review, allowlist",
+            "ru": "режимы запуска, автопроверка, список разрешённых"
+          },
+          "projectTrust": {
+            "s": "partial",
+            "en": "workspace trust off by default",
+            "ru": "доверие к папке выключено по умолчанию"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "claude": {
+          "sandbox": {
+            "s": "yes",
+            "en": "built in",
+            "ru": "встроенная"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "permissions, auto mode",
+            "ru": "разрешения, автоматический режим"
+          },
+          "projectTrust": {
+            "s": "yes",
+            "en": "folder trust",
+            "ru": "доверие к папке"
+          },
+          "subagentLimits": {
+            "s": "yes"
+          }
+        },
+        "codex": {
+          "sandbox": {
+            "s": "yes",
+            "en": "kernel level: Landlock, seccomp, Seatbelt",
+            "ru": "уровень ядра: Landlock, seccomp, Seatbelt"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "approval policy",
+            "ru": "политика одобрения"
+          },
+          "projectTrust": {
+            "s": "yes",
+            "en": "folder trust",
+            "ru": "доверие к папке"
+          },
+          "subagentLimits": {
+            "s": "na",
+            "en": "no subagents",
+            "ru": "нет субагентов"
+          }
+        },
+        "opencode": {
+          "sandbox": {
+            "s": "no"
+          },
+          "permissions": {
+            "s": "partial",
+            "en": "plan blocks edits, asks before bash",
+            "ru": "plan запрещает правки, спрашивает перед bash"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "koda": {
+          "sandbox": {
+            "s": "partial",
+            "en": "Docker, Podman or Seatbelt, opt-in",
+            "ru": "Docker, Podman или Seatbelt, по желанию"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "default, auto-edit, yolo and plan modes",
+            "ru": "режимы default, auto-edit, yolo и plan"
+          },
+          "projectTrust": {
+            "s": "partial",
+            "en": "folder trust, off by default",
+            "ru": "доверие к папке, выключено по умолчанию"
+          },
+          "subagentLimits": {
+            "s": "na",
+            "en": "no subagents",
+            "ru": "нет субагентов"
+          }
+        },
+        "antigravity": {
+          "sandbox": {
+            "s": "unknown"
+          },
+          "permissions": {
+            "s": "unknown"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "goose": {
+          "sandbox": {
+            "s": "no"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "yes",
+            "en": "separate processes",
+            "ru": "отдельные процессы"
+          }
+        },
+        "pi": {
+          "sandbox": {
+            "s": "yes",
+            "t": "Gondolin, Docker, OpenShell"
+          },
+          "permissions": {
+            "s": "partial",
+            "en": "through the app",
+            "ru": "через приложение"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "partial",
+            "en": "through the app",
+            "ru": "через приложение"
+          }
+        },
+        "omp": {
+          "sandbox": {
+            "s": "partial",
+            "en": "subagent workspace isolation",
+            "ru": "изоляция рабочих папок субагентов"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "no",
+            "en": "inherits other tools' configs with no gate",
+            "ru": "берёт чужие настройки без проверки"
+          },
+          "subagentLimits": {
+            "s": "yes"
+          }
+        },
+        "deepseek": {
+          "sandbox": {
+            "s": "partial",
+            "en": "sandbox plugin",
+            "ru": "плагин песочницы"
+          },
+          "permissions": {
+            "s": "unknown"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "openclaw": {
+          "sandbox": {
+            "s": "no",
+            "en": "none by default",
+            "ru": "нет по умолчанию"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "partial",
+            "en": "ClawHub skills",
+            "ru": "скилы ClawHub"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "hermes": {
+          "sandbox": {
+            "s": "yes",
+            "t": "Docker, Singularity, Modal, Daytona"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "yes",
+            "en": "process isolation",
+            "ru": "изоляция процессов"
+          }
+        },
+        "aider": {
+          "sandbox": {
+            "s": "no"
+          },
+          "permissions": {
+            "s": "partial",
+            "en": "edit confirmation",
+            "ru": "подтверждение правок"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "na",
+            "en": "no subagents",
+            "ru": "нет субагентов"
+          }
+        },
+        "openhands": {
+          "sandbox": {
+            "s": "yes",
+            "en": "Docker required",
+            "ru": "обязателен Docker"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "yes"
+          }
+        },
+        "crush": {
+          "sandbox": {
+            "s": "no"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "na",
+            "en": "no subagents",
+            "ru": "нет субагентов"
+          }
+        },
+        "reasonix": {
+          "sandbox": {
+            "s": "yes",
+            "en": "workspace sandbox",
+            "ru": "песочница рабочей папки"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "per-workspace command allowlist",
+            "ru": "список разрешённых команд на папку"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "unknown"
+          }
+        },
+        "codewhale": {
+          "sandbox": {
+            "s": "no"
+          },
+          "permissions": {
+            "s": "yes",
+            "en": "three approval modes",
+            "ru": "три режима одобрения"
+          },
+          "projectTrust": {
+            "s": "no"
+          },
+          "subagentLimits": {
+            "s": "no"
+          }
+        },
+        "grok": {
+          "sandbox": {
+            "s": "partial",
+            "t": "worktree"
+          },
+          "permissions": {
+            "s": "yes"
+          },
+          "projectTrust": {
+            "s": "unknown"
+          },
+          "subagentLimits": {
+            "s": "partial",
+            "t": "worktree"
+          }
+        },
+        "drift": {
+          "sandbox": {
+            "s": "yes",
+            "en": "Docker container per user",
+            "ru": "Docker-контейнер на пользователя"
+          },
+          "permissions": {
+            "s": "partial",
+            "en": "blocked command patterns, no per-action approval",
+            "ru": "запрещённые шаблоны команд, без подтверждения действий"
+          },
+          "projectTrust": {
+            "s": "na",
+            "en": "nothing loads from a checkout",
+            "ru": "ничего не грузится из репозитория"
+          },
+          "subagentLimits": {
+            "s": "na",
+            "en": "no subagents",
+            "ru": "нет субагентов"
+          }
+        }
+      }
+    }
+  ],
+  "sources": [
+    {
+      "label": "Coddy — comparison of 2026 agent harnesses",
+      "url": "https://coddy.dev/compare/"
+    },
+    {
+      "label": "FoxxyCode — what the fork adds",
+      "url": "https://github.com/hijera/foxxy-agent/blob/main/docs/getting-started/foxxycode-and-coddy.md"
+    },
+    {
+      "label": "FoxxyCode — editor plugins",
+      "url": "https://github.com/hijera/foxxy-agent/blob/main/docs/surfaces/editors.md"
+    },
+    {
+      "label": "Cline documentation",
+      "url": "https://docs.cline.bot/"
+    },
+    {
+      "label": "Cline repository",
+      "url": "https://github.com/cline/cline"
+    },
+    {
+      "label": "Kilo Code documentation",
+      "url": "https://kilo.ai/docs"
+    },
+    {
+      "label": "Kilo Code repository",
+      "url": "https://github.com/Kilo-Org/kilocode"
+    },
+    {
+      "label": "Roo Code documentation (archived)",
+      "url": "https://roocodeinc.github.io/Roo-Code/"
+    },
+    {
+      "label": "Roo Code repository",
+      "url": "https://github.com/RooCodeInc/Roo-Code"
+    },
+    {
+      "label": "Continue documentation",
+      "url": "https://docs.continue.dev/"
+    },
+    {
+      "label": "Continue repository",
+      "url": "https://github.com/continuedev/continue"
+    },
+    {
+      "label": "Cursor documentation",
+      "url": "https://cursor.com/docs"
+    },
+    {
+      "label": "Claude Code documentation",
+      "url": "https://code.claude.com/docs"
+    },
+    {
+      "label": "Codex in the IDE",
+      "url": "https://learn.chatgpt.com/docs/codex/ide"
+    },
+    {
+      "label": "OpenCode documentation",
+      "url": "https://opencode.ai/docs"
+    },
+    {
+      "label": "Koda documentation",
+      "url": "https://docs.kodacode.ru/"
+    },
+    {
+      "label": "Antigravity documentation",
+      "url": "https://antigravity.google/docs"
+    },
+    {
+      "label": "Goose repository",
+      "url": "https://github.com/aaif-goose/goose"
+    },
+    {
+      "label": "OpenClaw repository",
+      "url": "https://github.com/openclaw/openclaw"
+    },
+    {
+      "label": "Hermes Agent documentation",
+      "url": "https://hermes-agent.nousresearch.com/docs"
+    },
+    {
+      "label": "OpenHands documentation",
+      "url": "https://docs.openhands.dev/"
+    },
+    {
+      "label": "Aider documentation",
+      "url": "https://aider.chat/docs"
+    },
+    {
+      "label": "Crush repository",
+      "url": "https://github.com/charmbracelet/crush"
+    },
+    {
+      "label": "Reasonix repository",
+      "url": "https://github.com/esengine/DeepSeek-Reasonix"
+    },
+    {
+      "label": "CodeWhale repository",
+      "url": "https://github.com/Hmbown/Codewhale"
+    },
+    {
+      "label": "Grok Build reference",
+      "url": "https://docs.x.ai/build/cli/reference"
+    },
+    {
+      "label": "NeuralDeep documentation",
+      "url": "https://neuraldeep.ru/llms-full.txt"
+    }
+  ]
+}

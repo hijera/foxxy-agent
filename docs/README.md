@@ -2,7 +2,7 @@
 
 FoxxyCode is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, the IntelliJ and VS Code plugins, a desktop window on Windows, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.foxxycode`. FoxxyCode is a fork of [coddy-agent](https://github.com/coddy-project/coddy-agent); what it adds is in [FoxxyCode and coddy-agent](getting-started/foxxycode-and-coddy.md).
 
-New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt) for agents that read documentation. How the pages are organised and what a change to FoxxyCode must carry into them is in [Writing documentation](contributing/documentation.md).
+New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds <https://hijera.github.io/foxxy-agent/llms.txt> and <https://hijera.github.io/foxxy-agent/llms-full.txt> for agents that read documentation, built on every website run and published from there rather than kept here. How the pages are organised and what a change to FoxxyCode must carry into them is in [Writing documentation](contributing/documentation.md).
 
 <!-- docsgen:nav:start -->
 ## Getting started
@@ -50,6 +50,9 @@ What the agent can do and how each capability is configured.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
 - [Browser tool](features/browser-tool.md) - The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+- [Web search](features/web-search.md) - The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
+- [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+- [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
 - [Long-term memory](features/memory.md) - The memory copilot, what it recalls and saves, the storage layout, configuration and cost.
@@ -88,12 +91,14 @@ How FoxxyCode is built, tested, documented and released.
 
 - [Contributing guide](../CONTRIBUTING.md) - The development environment, the branch and pull request flow, what every change must carry.
 - [Writing documentation](contributing/documentation.md) - Page types, the navigation map, screenshots, the assets index, generated references and the checks that guard them.
+- [Brand assets](contributing/brand.md) - The one vector every icon and the social preview are generated from, make brand, and the lock file that fails when an export goes stale.
 - [Architecture](contributing/architecture.md) - System design and component overview, package boundaries, session modes, the directory structure.
 - [Build from source](contributing/build.md) - Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
 - [Custom tools](contributing/custom-tools.md) - Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.
 - [ReAct agent](contributing/react-agent.md) - The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour.
 - [Web UI design](../DESIGN.md) - Tokens, layout and component contracts of the embedded SPA.
 - [Embedding the UI in IntelliJ](contributing/intellij-embedding.md) - How the JCEF panel hosts the SPA - the Chromium 104 baseline, the embed markers, the theme bridge and the window API the plugin calls.
+- [The website](contributing/website.md) - The site on GitHub Pages - React pages in English and Russian, data baked from the releases and the changelog twins, the comparison, the screenshots, and the workflow that publishes it together with docs/.
 - [Release setup](contributing/release-setup.md) - How releases of this fork are published on GitHub - the workflows, the tags and the artefacts, the desktop build included (in Russian).
 - [Codex hooks](contributing/codex-hooks.md) - How the Cursor rules reach a Codex CLI session working on this repository.
 - [OpenCode hooks](contributing/opencode-hooks.md) - Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository.

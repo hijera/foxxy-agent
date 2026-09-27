@@ -556,7 +556,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 	cfg := a.cfg
 	if !cfg.Subagents.ResolvedEnabled() {
-		return "", fmt.Errorf("subagents are disabled (subagents.enabled is false)")
+		return "", fmt.Errorf("subagents are disabled (subagents.enable is false)")
 	}
 	maxDepth := cfg.Subagents.EffectiveMaxDepth()
 	if a.subagentDepth() >= maxDepth {
@@ -628,7 +628,10 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 
 	parentID := a.state.GetID()
-	childID := session.NewSubagentSessionID()
+	childID, err := session.NewSessionID()
+	if err != nil {
+		return "", fmt.Errorf("cannot start subagent %q: %w", def.Name, err)
+	}
 	background := req.Background || def.Background
 
 	// SubagentStart hooks in the parent may refuse the spawn or hand the child

@@ -1,0 +1,4 @@
+<!-- Intentionally empty. The optional com.intellij.modules.jcef dependency in plugin.xml exists
+     only to put the "Web Browser (JCEF)" plugin on FoxxyCode's class loader (IDE 2026.2, build 262
+     and later); IntelliJ requires an optional <depends> to name a descriptor, and this is it. -->
+<idea-plugin/>

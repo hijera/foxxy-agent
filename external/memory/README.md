@@ -1,6 +1,6 @@
 # Long-term memory (Memory Copilot)
 
-Implementation lives under **`external/memory`** and is linked only when you build with **`-tags memory`** (recommended together with **`http`** for REST routes under **`/foxxycode/sessions/{id}/memory/*`**). Turn behavior on or off at runtime with **`memory.enabled`** in **`config.yaml`** when the binary includes the **`memory`** tag. What the copilot does, when it runs, the storage layout, the configuration keys, the HTTP routes and the cost are described in the user guide, [docs/features/memory.md](../../docs/features/memory.md).
+Implementation lives under **`external/memory`** and is linked only when you build with **`-tags memory`** (recommended together with **`http`** for REST routes under **`/foxxycode/sessions/{id}/memory/*`**). Turn behavior on or off at runtime with **`memory.enable`** in **`config.yaml`** when the binary includes the **`memory`** tag. What the copilot does, when it runs, the storage layout, the configuration keys, the HTTP routes and the cost are described in the user guide, [docs/features/memory.md](../../docs/features/memory.md).
 
 ## Build
 

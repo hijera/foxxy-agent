@@ -236,9 +236,9 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 - **`http`** - **`foxxycode http`** and REST gateway (see **[docs/reference/http-api.md](../reference/http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/operate/scheduler.md](../operate/scheduler.md)**).
-- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
+- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
 - **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/surfaces/gateway.md](../surfaces/gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
-- **`browser`** - interactive browser tools (**[docs/features/browser-tool.md](../features/browser-tool.md)**), off until **`browser.enabled`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
+- **`browser`** - interactive browser tools (**[docs/features/browser-tool.md](../features/browser-tool.md)**), off until **`browser.enable`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 

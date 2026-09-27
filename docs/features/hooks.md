@@ -70,7 +70,7 @@ Claude Code's rules apply:
 - a value made only of letters, digits, `_`, `-`, spaces, `,` and `|` is an exact name or a list of exact names: `run_command`, `edit|write`, `Edit, Write`;
 - anything else is an unanchored regular expression (Go syntax): `^run_.*`, `mcp__filesystem__.*`. An invalid expression never matches.
 
-Tool events compare the matcher with the tool name. FoxxyCode's own names are the ones the model sees (`run_command`, `read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `webfetch`, `websearch`, `spawn_agent`, `question`, ...). MCP tools are `server__tool` and also match the `mcp__server__tool` spelling. The names Claude Code and Codex use are accepted as aliases, so `Bash` matches `run_command`, `Edit` and `Write` match `edit`, `write` and `apply_patch`, `Read` matches `read`, `Task` and `Agent` match `spawn_agent`, `WebFetch` and `WebSearch` match `webfetch` and `websearch`. Argument names are not translated: `tool_input` carries FoxxyCode's fields (`command` for `run_command`; `path` and `content` for `write`; `path`, `pattern` and friends for the filesystem tools), so a script ported from Claude Code that reads `tool_input.file_path` must read `tool_input.path`.
+Tool events compare the matcher with the tool name. FoxxyCode's own names are the ones the model sees (`run_command`, `read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `webfetch`, `websearch`, `http_request`, `spawn_agent`, `question`, ...). MCP tools are `server__tool` and also match the `mcp__server__tool` spelling. The names Claude Code and Codex use are accepted as aliases, so `Bash` matches `run_command`, `Edit` and `Write` match `edit`, `write` and `apply_patch`, `Read` matches `read`, `Task` and `Agent` match `spawn_agent`, `WebFetch` and `WebSearch` match `webfetch` and `websearch`. Argument names are not translated: `tool_input` carries FoxxyCode's fields (`command` for `run_command`; `path` and `content` for `write`; `path`, `pattern` and friends for the filesystem tools), so a script ported from Claude Code that reads `tool_input.file_path` must read `tool_input.path`.
 
 ## Events
 
@@ -185,7 +185,7 @@ Several matching hooks run one after another, in catalog order; each sees the in
 
 ```yaml
 hooks:
-  enabled: true
+  enable: true
   files:
     - "${FOXXYCODE_HOME}/hooks.json"
     - "${CWD}/.claude/settings.json"
@@ -199,7 +199,7 @@ hooks:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | load and run hooks at all |
+| `enable` | `true` | load and run hooks at all |
 | `files` | the four above | definition files, lowest priority first |
 | `project_trust` | `ask` | what a project-scope file may do: `ask` (listed, held until approved), `allow` (runs like your own file), `deny` (never read) |
 | `default_timeout_seconds` | `60` | per handler when the definition gives no `timeout` |

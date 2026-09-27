@@ -1,0 +1,74 @@
+import { afterEach, expect, test } from "vitest";
+
+import { setLocale } from "../i18n/i18n";
+import { toolDisplayName } from "./toolDisplayName";
+
+afterEach(() => setLocale("en"));
+
+test("catalogued tools read as what the agent is doing, not as a tool id", () => {
+  expect(toolDisplayName("run_command")).toBe("running a command");
+  expect(toolDisplayName("read")).toBe("reading a file");
+  expect(toolDisplayName("write")).toBe("writing a file");
+  expect(toolDisplayName("grep")).toBe("searching in files");
+  expect(toolDisplayName("load_skill")).toBe("loading a skill");
+});
+
+test("the same catalogue is translated", () => {
+  setLocale("ru");
+  expect(toolDisplayName("run_command")).toBe("выполняю команду");
+  expect(toolDisplayName("read")).toBe("читаю файл");
+  expect(toolDisplayName("write")).toBe("пишу файл");
+  expect(toolDisplayName("grep")).toBe("ищу по файлам");
+  expect(toolDisplayName("load_skill")).toBe("загружаю скил");
+});
+
+test("the ACP `Run: ` prefix and casing do not hide the label", () => {
+  expect(toolDisplayName("Run: apply_patch")).toBe("applying a patch");
+  expect(toolDisplayName("  RUN_COMMAND  ")).toBe("running a command");
+});
+
+test("tools outside the catalogue keep their own id", () => {
+  expect(toolDisplayName("mcp__github__create_issue")).toBe(
+    "mcp__github__create_issue",
+  );
+  expect(toolDisplayName("something_new")).toBe("something_new");
+});
+
+test("an empty name falls back to the generic tool label", () => {
+  expect(toolDisplayName("")).toBe("tool");
+  setLocale("ru");
+  expect(toolDisplayName("   ")).toBe("инструмент");
+});
+
+test("a backgrounded command says so on the row", () => {
+  const args = '{"command":"make test","background":true}';
+  expect(toolDisplayName("run_command", args)).toBe(
+    "running a command in the background",
+  );
+  setLocale("ru");
+  expect(toolDisplayName("run_command", args)).toBe("выполняю команду в фоне");
+});
+
+test("background is read from the arguments, not guessed", () => {
+  expect(toolDisplayName("run_command", '{"command":"make test"}')).toBe(
+    "running a command",
+  );
+  expect(
+    toolDisplayName("run_command", '{"command":"x","background":false}'),
+  ).toBe("running a command");
+  // Streaming arguments that have not closed yet must not change the label.
+  expect(toolDisplayName("run_command", '{"command":"x","backgro')).toBe(
+    "running a command",
+  );
+});
+
+// Every scheduler tool is an action on a job; a missing entry left the raw id
+// `foxxycode_scheduler_job_resume` on the row. The fork's dictionary already had
+// it, in the words its other scheduler rows use ("задача планировщика").
+test("resuming a scheduled job is named like the other scheduler actions", () => {
+  expect(toolDisplayName("foxxycode_scheduler_job_resume")).toBe("resuming a scheduled job");
+  setLocale("ru");
+  expect(toolDisplayName("foxxycode_scheduler_job_resume")).toBe(
+    "возобновляю задачу планировщика",
+  );
+});

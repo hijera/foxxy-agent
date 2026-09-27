@@ -8,7 +8,8 @@ import { expect, test } from "vitest";
 // the two families of `[data-embed=...]` rules must not drift apart: a new
 // flat-chrome rule keyed on one id would leave the other host with the glass
 // card, and a Chromium-104 workaround keyed on both would slow the modern
-// Electron webview down for nothing.
+// Electron webview down for nothing. (The panel's reduced animations and glass
+// are keyed on [data-effects], not on the host: reducedEffectsCss.test.ts.)
 
 const cssPath = join(dirname(fileURLToPath(import.meta.url)), "../styles.css");
 

@@ -17,6 +17,7 @@ The messenger gateway lets you drive a FoxxyCode agent directly from a chat appl
   - [Private chats](#private-chats)
   - [Group chats](#group-chats)
   - [Commands](#commands)
+- [What the messenger needs, and where it is said](#what-the-messenger-needs-and-where-it-is-said)
 - [Writing a new adapter](#writing-a-new-adapter)
   - [1. Implement the Adapter interface](#1-implement-the-adapter-interface)
   - [2. Register in Start()](#2-register-in-start)
@@ -109,7 +110,7 @@ In `~/.foxxycode/config.yaml` (or wherever your `config.yaml` lives), add:
 ```yaml
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [98874093]           # your Telegram user ID
     default_access: "all"
@@ -134,7 +135,7 @@ All gateway config lives under the `gateways` key in `config.yaml`. When running
 ```yaml
 gateways:
   telegram:
-    enabled: false
+    enable: false
     # Bot token. Optional: leave empty (or omit) to read it from the TELEGRAM_BOT_TOKEN
     # environment variable (e.g. via .env), the same way provider api_key falls back to
     # NAME_API_KEY. When telegram is enabled but no token can be resolved, the gateway
@@ -203,7 +204,8 @@ gateways:
 | Final message | `mdToTelegram` downgrades headings/tables to plain text | Agent's native Markdown sent verbatim via `sendRichMessage` — headings, tables, task lists, fenced code, footnotes, LaTeX all render |
 | Streaming (private chats) | progressive `editMessageText` of a live message | ephemeral `sendRichMessageDraft` preview (30 s, animated) |
 | Tool activity | `⚙️ toolname…` line, dropped from the final message | live `<tg-thinking>` placeholder during streaming **and** one collapsed `<details>` block per executed tool (name + output, `❌` on failure) in the final message |
-| Formatting hint | one-time "use the restricted Telegram subset" note on the first turn | none — the agent's natural Markdown renders as-is, so every turn is identical |
+| What the session sees | what the person typed | what the person typed |
+| System prompt block | the legacy subset, spelled out for the turn | full GFM renders; keep it short for a phone |
 
 **Behaviour notes:**
 
@@ -356,6 +358,116 @@ grep '"component":"gateway.telegram"' /var/log/foxxycode/foxxycode.log
 
 A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, and `telegram: set model` when the manager refuses the change. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
 
+### Debugging against a fake Bot API
+
+The log tells what the bot did with an update; it does not let you send one
+without a phone, a token and a model behind the answer. `cmd/tgfake` does: a
+stand-in Bot API server that answers every method the gateway calls
+(`getMe`, `getUpdates` with real long polling, `sendMessage`,
+`editMessageText`, `answerCallbackQuery`, the Bot API 10.1 `sendRichMessage`
+and `sendRichMessageDraft`, ...), keeps the chats it is sent, and serves a page
+where you are the person in the chat - the bot's inline keyboards are buttons.
+With `--llm` it also serves a scripted model, so the whole stand runs with no
+network at all:
+
+```bash
+go run ./cmd/tgfake --llm --llm-delay 50ms      # Bot API + model on 127.0.0.1:18790
+```
+
+Point `foxxycode serve` at it with **`FOXXYCODE_TELEGRAM_API_BASE`**, the origin the
+`--dry-run` probe honours as well, and give it the stub as its provider (the
+command prints this snippet on start):
+
+```yaml
+providers:
+  - name: stub
+    type: openai
+    api_base: "http://127.0.0.1:18790/v1"
+    api_key: "sk-tgfake"
+models:
+  - model: stub/foxxycode-demo
+agent:
+  model: stub/foxxycode-demo
+httpserver:
+  enable: false                     # the stand is the bot alone; drop this to watch the chat in the web UI too
+gateways:
+  telegram:
+    enable: true
+    token: "123456:fake"            # any token; the fake accepts all of them
+logger:
+  levels:
+    - component: gateway.telegram
+      level: debug
+```
+
+```bash
+export FOXXYCODE_TELEGRAM_API_BASE=http://127.0.0.1:18790   # PowerShell: $env:FOXXYCODE_TELEGRAM_API_BASE="http://127.0.0.1:18790"
+foxxycode serve --dry-run --config stand.yaml               # ok  gateways.telegram: token accepted by the Bot API, bot @foxxycode_fake_bot
+foxxycode serve --gateway --http=false --config stand.yaml  # telegram: api base override ... telegram bot connected
+```
+
+Then open `http://127.0.0.1:18790/`, type `hello`, tap a `/mode` button, and
+read the Bot API calls on the right as the log fills on the left.
+
+![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /mode keyboard as buttons, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+
+*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/mode` keyboard with the tap applied, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+
+The same page is an HTTP API, which is what a script or a coding agent drives:
+
+| Route | Body / answer |
+|-------|---------------|
+| `POST /sim/message` | `{"chat_id": 4242, "user_id": 4242, "username": "alice", "text": "hello"}`; `chat_type: group`, `mention: true` and `reply_to_message_id` for the group paths. A leading `/word` becomes a `bot_command` entity. |
+| `POST /sim/callback` | `{"chat_id": 4242, "label": "Plan"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "mode:plan"}`. |
+| `GET /sim/chat/4242` | the transcript: messages, keyboards after every edit, drafts, `typing`; `?format=text` for `grep`. |
+| `GET /sim/outbox?method=sendMessage&since=10` | every Bot API call with its parameters and the answer; `/sim/outbox/count?method=...` for a script. |
+| `POST /sim/fault` | `{"method": "sendMessage", "code": 429, "retry_after": 2, "times": 1}` makes the next `sendMessage` fail like a flood; `"method": "*"` fails everything until `DELETE /sim/fault`; `"contains": "<details>"` narrows the fault to calls whose parameters carry that text, which is Telegram refusing one entity rather than the method. |
+| `POST /sim/reset` | forgets chats, outbox and faults. Update ids keep growing, so a polling bot is not confused. |
+
+The fake is strict where Telegram is. An edit that changes nothing, an edit
+of a message that was never sent, a text over 4096 characters, a reply to a
+message the chat does not hold (unless `allow_sending_without_reply` says to
+send it anyway), an answer to a callback query the fake never issued, and a
+keyboard whose `callback_data` is longer than 64 bytes (`BUTTON_DATA_INVALID`)
+are refused with Telegram's own error, so a keyboard that works on the stand
+works in a chat.
+
+It also remembers `allowed_updates` the way Telegram does. A bot token that
+once ran under another framework may be subscribed to messages alone, and a
+poll that names no kinds inherits that: text arrives, keyboard taps are
+dropped before anyone sees them. The gateway therefore asks for `message` and
+`callback_query` on every poll. `GET /sim/state` shows the subscription in
+force; `tgfake.Options.AllowedUpdates` starts a bot under a stale one, which
+is how the polling feature reproduces the case. On a real bot,
+`getWebhookInfo` reports the same field.
+The subscription is applied when an update is created: changing it preserves
+already queued updates and cannot recover events excluded at creation.
+
+Rich-message previews expire 30 seconds after their last successful revision.
+The chat page and `/sim/chat/{id}` stop showing expired drafts; reading the
+chat or writing another draft also removes expired entries from its storage.
+The outbox retains the calls for debugging, and persistent messages remain.
+
+`--llm-answer` (repeatable) scripts the model's replies in turn, `--llm-script
+rules.json` matches them by substring (`[{"match": "weather", "answer":
+"Sunny."}]`), and without either the model echoes the prompt - the person's
+message, not the `<turn_context>` block FoxxyCode appends to every request. Rules are the
+reliable choice: the title a session derives from its first message is one more
+model call, so a list of answers advances a step earlier than the chat shows.
+The streamed answer arrives one word per `--llm-delay`, long enough for the
+live `editMessageText` path, or the draft path with `rich_messages: true`, to
+run.
+
+**`examples/gateway/tg_e2e_offline.sh`** does all of the above in one go -
+builds `tgfake`, writes a temporary home, boots `foxxycode serve` against it, sends
+`hello` and checks the reply - and `TG_E2E_KEEP=1` leaves the stand running
+with the page URL printed. It runs in Git Bash on Windows as well.
+
+The variable is not only for the fake: a self-hosted Bot API server
+(`telegram-bot-api` for large files or a local network) is pointed at the same
+way, and `foxxycode serve --dry-run` confirms which server answered before the bot
+starts.
+
 ---
 
 ## Bot interaction model
@@ -384,6 +496,59 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
 | `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk). |
+
+---
+
+## What the messenger needs, and where it is said
+
+A messenger has its own dialect and its own shape of screen. FoxxyCode says both in
+two places that belong to the gateway, and neither of them touches the
+conversation the session keeps.
+
+### The model is told, for that turn
+
+Before a chat turn runs, the adapter hands the session a block of the **system
+prompt** describing how to answer into this chat: the emphasis Telegram
+renders, the headings it does not, that a table becomes a wall of pipes, that
+identifiers belong in backticks because a bare `_` opens italics, and that a
+chat is a narrow column on a phone. It lives in
+`external/gateway/telegram/prompt.go`, and `rich_messages: true` sends a
+different one - there the chat renders GitHub-flavoured Markdown in full, so
+the only thing worth saying is how much of it a phone screen wants.
+
+The block belongs to the **turn**, not to the session
+(`session.PromptRunOpts.SurfaceSystemPrompt`). Nothing of it is persisted, so
+the transcript holds the conversation and not the surface that ran it, and a
+browser turn on the same session is built without it. That does mean the prompt
+prefix differs between surfaces, so a turn that follows one from elsewhere does
+not reuse its cached prefix. It is the deliberate price of letting each
+integration speak for itself instead of teaching the core about messengers.
+
+### The answer is rendered, on its way out
+
+A model does not always comply, and a chat that shows a raw `##` is a worse
+answer than one the gateway quietly fixed, so the reply is also converted as it
+leaves, in `external/gateway/telegram/markdown.go`.
+
+For the legacy send: ATX headings and `**bold**` become `*bold*`, `__x__`
+becomes `_x_`, an asterisk bullet becomes `•`, a table is flattened to plain
+rows and a horizontal rule to a separator line. Fenced blocks and inline code
+spans are set aside before any rule runs and put back untouched, so a Go `**p`
+or a `# comment` inside a block reaches the chat as the model wrote it. The live
+streaming preview is sent with no parse mode - half a sentence is half a markup
+- so it gets the same conversion with the emphasis markers dropped rather than
+shown as punctuation. If Telegram still refuses to parse a message, the sender
+resends it without a parse mode: a stray asterisk in prose costs formatting,
+never the reply.
+
+With `rich_messages: true` there is nothing to downgrade - the agent's Markdown
+goes out verbatim - and the fallback path is the legacy rendering above.
+
+### Adding an integration
+
+Both halves are the new adapter's to write: a `prompt.go` saying what its
+messenger needs, and a renderer for its syntax. Nothing in `internal/` learns
+about it.
 
 ---
 
@@ -500,12 +665,14 @@ Update the `start.go` / `start_stub.go` constraint to include the new tag.
 
 ## The same session in the chat and in the browser
 
-With `httpserver.enabled` and `gateways.telegram.enabled` both on, a Telegram
+With `httpserver.enable` and `gateways.telegram.enable` both on, a Telegram
 conversation and the web UI are two views of one session.
 
-- **The chat session appears in the browser.** Gateway sessions are stored the
-  way every other session is, so `GET /foxxycode/sessions` lists them (their ids
-  carry a `gw_` prefix) and opening one loads the same transcript.
+- **The chat session appears in the browser.** A chat conversation is an
+  ordinary session with an ordinary `sess_` id - where a person is sitting
+  decides nothing about the session behind the conversation - so
+  `GET /foxxycode/sessions` lists it beside the sessions started in a terminal or
+  a browser tab, and opening one loads the same transcript.
 - **A chat turn streams into the browser while it runs.** The gateway publishes
   its turn into the session's composer relay - the same mechanism a background
   task's wake turn uses - so a tab watching that session sees the tokens as
@@ -551,13 +718,13 @@ manager.HandleSessionPromptWithSender(ctx, params, sender, nil)
         ▼
 sender.Flush()
         │  replaces the live streaming message with the final formatted text
-        │  (Telegram-compatible markdown; headers, double-star bold, and tables
-        │   converted to Telegram legacy format)
+        │  (markdown.go renders the answer for Telegram: headings, double-star
+        │   bold and tables into the legacy subset, fenced code untouched)
         ▼
 Session bundle written to disk ($FOXXYCODE_HOME/sessions/<id>/)
 ```
 
-**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$FOXXYCODE_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly, without re-sending the one-time formatting hint to sessions that already received it.
+**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$FOXXYCODE_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly.
 
 **`/clear` flow:**
 

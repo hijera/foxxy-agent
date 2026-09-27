@@ -38,7 +38,7 @@ func TestDebugTransportOffIsPassthrough(t *testing.T) {
 	SetDebugLogger(newCaptureLogger(&buf))
 
 	mr := &mockRT{respBody: "RESP"}
-	dt := debugTransportFor(mr)
+	dt := debugTransportFor(mr, nil)
 	client := &http.Client{Transport: dt}
 
 	req, _ := http.NewRequest(http.MethodPost, "https://example.com/v1/chat", strings.NewReader("REQ"))
@@ -68,7 +68,7 @@ func TestDebugTransportOnLogsAndPreservesBodies(t *testing.T) {
 	SetDebugLogger(newCaptureLogger(&buf))
 
 	mr := &mockRT{respBody: "RESPONSE-BODY"}
-	dt := debugTransportFor(mr)
+	dt := debugTransportFor(mr, nil)
 	client := &http.Client{Transport: dt}
 
 	req, _ := http.NewRequest(http.MethodPost, "https://example.com/v1/chat", strings.NewReader("REQUEST-BODY"))
@@ -107,7 +107,7 @@ func TestDebugTransportTruncatesLargeBodiesButDeliversFull(t *testing.T) {
 	bigReq := strings.Repeat("R", debugBodyCap+4096)
 	bigResp := strings.Repeat("S", debugBodyCap+4096)
 	mr := &mockRT{respBody: bigResp}
-	dt := debugTransportFor(mr)
+	dt := debugTransportFor(mr, nil)
 	client := &http.Client{Transport: dt}
 
 	req, _ := http.NewRequest(http.MethodPost, "https://example.com/v1/chat", strings.NewReader(bigReq))

@@ -54,7 +54,7 @@ const (
 type AutocompleteConfig struct {
 	// Enabled turns inline completion on. A pointer so an unset value is distinguishable, but
 	// unlike the other sections the default is false. Use AutocompleteEnabled to read it.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 
 	// Model selects a cfg.models entry for the completion pass. Empty uses agent.model. A small,
 	// fast model matters more here than a clever one: the suggestion is worthless once the user

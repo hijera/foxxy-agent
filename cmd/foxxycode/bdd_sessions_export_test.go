@@ -19,6 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/svnws/svntest"
 )
 
 type sessionsExportFeatureState struct {
@@ -32,6 +33,7 @@ type sessionsExportFeatureState struct {
 	stdout    bytes.Buffer
 	runErr    error
 	exported  string
+	restore   []func()
 }
 
 func (s *sessionsExportFeatureState) reset() error {
@@ -55,6 +57,10 @@ func (s *sessionsExportFeatureState) reset() error {
 }
 
 func (s *sessionsExportFeatureState) close() {
+	for _, undo := range s.restore {
+		undo()
+	}
+	s.restore = nil
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -85,6 +91,37 @@ func (s *sessionsExportFeatureState) storedSessionAlsoHoldsToolCall(tool, result
 	s.state.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_bdd", Content: result})
 	s.state.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "canned answer after the tool", Model: "fake/model"})
 	return s.store.Save(s.state)
+}
+
+// workspaceIsSVNWorkingCopy builds the fake svn client, points vcs.svn.binary
+// at it and registers the session workspace as a working copy on the branch.
+func (s *sessionsExportFeatureState) workspaceIsSVNWorkingCopy(branch string) error {
+	fake, err := svntest.Build(filepath.Join(s.root, "fakesvn"))
+	if err != nil {
+		return fmt.Errorf("build fake svn: %w", err)
+	}
+	fake.Setenv(func(key, value string) {
+		previous, had := os.LookupEnv(key)
+		s.restore = append(s.restore, func() {
+			if had {
+				_ = os.Setenv(key, previous)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		})
+		_ = os.Setenv(key, value)
+	})
+	if err := os.MkdirAll(s.state.CWD, 0o755); err != nil {
+		return err
+	}
+	state := svntest.NewState("https://svn.example.test/repo", s.state.CWD)
+	state.WorkingCopies[s.state.CWD].Branch = branch
+	if err := fake.WriteState(state); err != nil {
+		return err
+	}
+	s.cfg.VCS.SVN.Binary = fake.Binary
+	s.cfg.VCS.SVN.TimeoutSeconds = 30
+	return nil
 }
 
 func (s *sessionsExportFeatureState) emptyOutputDir() error {
@@ -202,6 +239,7 @@ func initializeSessionsExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a sessions root holding the session "([^"]*)" with (\d+) completed exchanges$`, s.storedSession)
 	sc.Step(`^the stored session also holds a "([^"]*)" tool call returning "([^"]*)" after reasoning "([^"]*)"$`, s.storedSessionAlsoHoldsToolCall)
 	sc.Step(`^the shell runs in an empty output directory$`, s.emptyOutputDir)
+	sc.Step(`^the session workspace is a Subversion working copy on "([^"]*)"$`, s.workspaceIsSVNWorkingCopy)
 	sc.Step(`^I run foxxycode sessions export "([^"]*)"$`, s.runExport)
 	sc.Step(`^the command prints "([^"]*)"$`, s.commandPrints)
 	sc.Step(`^a "([^"]*)" file exists in the output directory$`, s.globFileExists)

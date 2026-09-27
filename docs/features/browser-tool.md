@@ -9,7 +9,7 @@ checks.
 
 It is built on [chromedp](https://github.com/chromedp/chromedp) (pure Go, over the
 Chrome DevTools Protocol — no Node.js required) and is **disabled by default** via the
-`browser.enabled` config flag.
+`browser.enable` config flag.
 
 ## Requirements
 
@@ -21,14 +21,14 @@ Chrome DevTools Protocol — no Node.js required) and is **disabled by default**
   VS Code plugins bundle inside themselves (each plugin builds its own — see
   `editors/intellij/build.gradle.kts` and `editors/vscode/scripts/prepare-binary.mjs`,
   kept in sync by `TestBundledBinaryTagsMatchShippedTagSet`). A trimmed build without
-  the tag registers no browser tools at all, whatever `browser.enabled` says.
+  the tag registers no browser tools at all, whatever `browser.enable` says.
 
 ## Enable it
 
 The settings form tells you which side of that line your binary is on: the **Browser
 tool** section is always listed, but in a build without the tag it renders read-only
 with a notice naming the tag to rebuild with, instead of a switch that would save
-`browser.enabled: true` and change nothing. That is driven by two schema annotations
+`browser.enable: true` and change nothing. That is driven by two schema annotations
 on `GET /foxxycode/config/schema` — `x-foxxycode-requires-build-tag` (always present,
 names the tag) and `x-foxxycode-build-tag-missing` (added by the responding process
 when it lacks that tag). See [http-api.md](../reference/http-api.md).
@@ -45,7 +45,7 @@ Then turn it on in `config.yaml` — this step is required in every build:
 
 ```yaml
 browser:
-  enabled: true          # off by default
+  enable: true          # off by default
   headless: true         # false to watch the automated session in a real window
   screenshots: true      # false = text-only, use read_page / page_log / evaluate
   executable_path: ""    # "" = auto-detect; or a path to a Chrome/Chromium binary
@@ -160,7 +160,7 @@ the transcript renders it inline in a browser‑action card.
 - The navigate target must be `http`/`https` and must not embed userinfo
   credentials. Unlike the `webfetch` SSRF guard, localhost/private hosts **are**
   allowed, because driving a local dev server is the primary use case — the tool is
-  already opt‑in behind the build tag and `browser.enabled`.
-- Keep `browser.enabled: false` (or build without the `browser` build tag) in
+  already opt‑in behind the build tag and `browser.enable`.
+- Keep `browser.enable: false` (or build without the `browser` build tag) in
   environments where you do not want the agent launching a browser. The flag
   defaults to off, so a full build is inert until it is switched on.

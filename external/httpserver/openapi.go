@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
+	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -30,7 +32,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /foxxycode/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be
@@ -67,13 +69,15 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**), **`temperature`** and **`reasoning_effort`** for that one request in place of the configured values (the model's **`reasoning_default`** when no level is given), and refuses with **400**, before a session is created or the provider is contacted, a value its provider or model cannot take as asked; Anthropic thinking accepts only temperature 1. " +
 						"Optional **`metadata`** on agent/plan/docs/ask/debug only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the FoxxyCode events (**`tool_call`**, **`token_usage`**, **`foxxycode_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the FoxxyCode events (**`tool_call`**, **`token_usage`**, **`foxxycode_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
 						"A direct **`models[].model`** id is FoxxyCode standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **docs** / **ask** / **debug** profiles run FoxxyCode's own tools, never read the client's, and take no trailing **`tool`** message. " +
+						"**409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
-						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
+						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
@@ -95,7 +99,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, or `length` for a turn cut by `max_turns` / `max_tokens`), an optional usage chunk, then `data: [DONE]`.",
+							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -122,7 +126,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -199,7 +203,10 @@ func openAPISpec() map[string]interface{} {
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
-						"Child sessions of subagent runs (**subagentRun** metadata, **sub_** ids) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
+						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
+						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
+						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
+						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(foxxycodePagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
@@ -210,6 +217,34 @@ func openAPISpec() map[string]interface{} {
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
+					}, map[string]interface{}{
+						"name":        "archived",
+						"in":          "query",
+						"schema":      map[string]interface{}{"type": "string", "enum": []string{"exclude", "only", "all"}},
+						"description": "Which side of the archive to list: **`exclude`** (the default, the working list), **`only`** (the archive) or **`all`**. An unknown value is a **400** rather than a silent default.",
+					}, map[string]interface{}{
+						"name":   "tags",
+						"in":     "query",
+						"schema": map[string]string{"type": "string"},
+						"description": "Comma separated tags; a session is kept when it carries **any** of them. Values are normalized the same way stored tags are (lower case, inner whitespace as a hyphen), " +
+							"so **`Backend`** finds what was stored as **`backend`**.",
+					}, map[string]interface{}{
+						"name":   "origin",
+						"in":     "query",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway"}},
+						"description": "Keeps the sessions of one surface: **`local`** for the ones opened on this host, **`gateway`** for the chats a messenger gateway is holding. " +
+							"Omit it for every surface. A row a gateway started carries **`origin`** (**`gateway:telegram`**), written once by the surface that created the session. An unknown value is a **400**.",
+					}, map[string]interface{}{
+						"name":   "sort",
+						"in":     "query",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"updated", "created", "title", "messages", "tokens"}},
+						"description": "The column the listing is ordered by; **`updated`** by default. A session the column says nothing about (no creation stamp, no title) sorts **last in both directions**, and ties break by id so paging is stable. " +
+							"**`tokens`** reads each bundle's **stats.json**, so it costs one extra small file read per session and only when it is the column asked for. An unknown key is a **400**.",
+					}, map[string]interface{}{
+						"name":        "order",
+						"in":          "query",
+						"schema":      map[string]interface{}{"type": "string", "enum": []string{"desc", "asc"}},
+						"description": "Direction of **sort**; **`desc`** by default. An unknown value is a **400**.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -239,14 +274,47 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/pins/reorder": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Write the order of the pinned sessions",
+					"description": "Rewrites **pinnedRank** across the pinned sessions so they list in the order given. The **whole** order is sent, not the id that moved: a list rewritten from what the client was looking at cannot interleave with a concurrent change into an order nobody asked for. " +
+						"Every id is checked before anything is written - it must be a valid id, name a stored session, be **pinned**, and appear once - so a refused request leaves every pin exactly where it was. " +
+						"A session pinned afterwards goes **above** them all; unpinning forgets the placement, so pinning again is a new pin rather than a return to an old seat.",
+					"operationId": "foxxycodeSessionPinsReorder",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"ids": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "The pinned session ids, top first.",
+										},
+									},
+									"required": []string{"ids"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The order that was written"},
+						"400": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/bulk-delete": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Delete many sessions in one request",
 					"description": "Removes several session trees with the same semantics as **DELETE /foxxycode/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
-						"The body names either an explicit **ids** list, or **scope** **`all`** with an optional **except** list of ids to keep. **`all`** is resolved on the server against the default session listing " +
-						"(scheduler runs excluded, subagent children going with their parents), so it means the whole stored history rather than the page a client happens to have loaded. " +
+						"The body names either an explicit **ids** list, **scope** **`all`**, or **scope** **`archived`**, either of the two scopes with an optional **except** list of ids to keep. The scopes are resolved on the server against the session listing " +
+						"(scheduler runs excluded, subagent children going with their parents), so they mean the whole stored history rather than the page a client happens to have loaded. " +
+						"**`all`** reaches into the archive as well - a scope that left sessions behind because they were put aside would not be the whole history - while **`archived`** empties the archive and touches nothing else. " +
 						"An **except** entry is a promise that the session survives, so it is checked before anything is removed: a malformed id, or one with no bundle on disk, is a **400** and nothing is deleted - a misspelt exception would otherwise turn *keep this one* into *delete everything*. " +
-						"Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a **`sub_`** child keeps the parent it hangs from, which the listing names and the child does not. **except** is refused beside an **ids** list, where nothing would consult it. " +
+						"Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a child keeps the parent it hangs from, which the listing names and the child does not. **except** is refused beside an **ids** list, where nothing would consult it. " +
 						"One id that cannot be removed does not abandon the rest: every id is attempted and the answer lists **deleted** and **failed** separately, so a table can drop the rows that went and keep the others with their reason. " +
 						"A **failed** entry carries the retryable conflict verbatim (a turn that would not settle, an unstable tree) and a generic **`delete failed`** for anything else, which is logged rather than returned. " +
 						"A duplicate id is deleted once, and an id with no bundle on disk counts as deleted, exactly as the single-session route answers **200** for it. " +
@@ -262,18 +330,19 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"scope": map[string]interface{}{
 											"type":        "string",
-											"enum":        []string{"ids", "all"},
-											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every listed session minus **except**.",
+											"enum":        []string{"ids", "all", "archived"},
+											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every stored session minus **except**, the archive included; **`archived`** deletes only the sessions in the archive.",
 										},
+
 										"ids": map[string]interface{}{
 											"type":        "array",
 											"items":       map[string]string{"type": "string"},
-											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`**.",
+											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`** or **`archived`**.",
 										},
 										"except": map[string]interface{}{
 											"type":        "array",
 											"items":       map[string]string{"type": "string"},
-											"description": "Session ids to keep, for scope **`all`** only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
+											"description": "Session ids to keep, for the **`all`** and **`archived`** scopes only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
 										},
 										"cwd": map[string]interface{}{
 											"type": "string",
@@ -322,8 +391,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/describe": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Generate a short text description",
-					"description": "Accepts arbitrary text and returns a short phrase describing what it is about. If the input is 3 words or fewer, the response echoes them.",
+					"summary": "Generate a short text description",
+					"description": "Accepts arbitrary text and returns a short phrase describing what it is about, plus the **tags** the model proposed for filing the conversation. " +
+						"The tags ride on the call that already names a new chat, so a session is filed without a second request to the model; a model that ignores the instruction answers the phrase alone and **tags** is empty. " +
+						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled.",
 					"operationId": "foxxycodeDescribe",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -349,6 +420,11 @@ func openAPISpec() map[string]interface{} {
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "foxxycode.describe"},
 											"short":  map[string]string{"type": "string"},
+											"tags": map[string]interface{}{
+												"type":        "array",
+												"items":       map[string]string{"type": "string"},
+												"description": "Normalized topic labels, empty when the model proposed none.",
+											},
 										},
 										"required": []string{"object", "short"},
 									},
@@ -463,7 +539,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List built-in slash commands",
 					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, on their own: **GET /foxxycode/slash-commands** leads with the same rows ahead of the skills, and the remote console merges both lists. " +
-						"**`compact`** appears only while **`compaction.enable`** is true and **`compaction.engine`** is **`coddy`**, the engine that owns the manual command; **`export`** and **`plugin`** are always present. " +
+						"**`compact`** appears only while **`compaction.enable`** is true (both engines answer the manual command); **`export`** and **`plugin`** are always present. " +
 						"Optional **`prefix`** filters by case-insensitive name prefix.",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
@@ -819,9 +895,9 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
 					"description": "Describes the workspace of the session in **`X-FoxxyCode-Session-ID`** (or the server default cwd without the header). " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
-						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. " +
+						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host. " +
 						"Subversion is detected independently of git, so a branch folder that also holds a git repository reports both: **`is_svn_repo`** plus an **`svn`** object with **`available`**, **`wc_root`**, **`url`**, **`relative_url`**, **`repository_root`**, **`revision`**, **`branch`** (`trunk`, `branches/<name>`), **`branches`** (when `vcs.svn.branch_lookup` is on), and **`nested`** (the working copy root sits above the folder). " +
-						"With **`vcs.svn.enabled: false`** or no svn client installed, **`is_svn_repo`** is false.",
+						"With **`vcs.svn.enable: false`** or no svn client installed, **`is_svn_repo`** is false.",
 					"operationId": "foxxycodeWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1041,7 +1117,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**, as in **config.yaml**; **`enabled`**, the name FoxxyCode used before 0.3.x, is still accepted in a request body and answered as **`enable`**.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1119,7 +1195,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/debug": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Debug trace for a session",
-					"description": "Returns the persisted debug-trace events (**object** `foxxycode.session_debug`, **sessionId**, **events**) collected while **debug.enabled** is on: one record per turn start, LLM request/response, and tool start/finish boundary. Raw LLM HTTP bodies go to the process log; this endpoint surfaces the lightweight structured timeline. A session with no trace returns **events: null**.",
+					"description": "Returns the persisted debug-trace events (**object** `foxxycode.session_debug`, **sessionId**, **events**) collected while **debug.enable** is on: one record per turn start, LLM request/response, and tool start/finish boundary. Raw LLM HTTP bodies go to the process log; this endpoint surfaces the lightweight structured timeline. A session with no trace returns **events: null**.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1174,6 +1250,94 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/queue": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Follow-ups queued for the running turn",
+					"description": "Lists what the operator wrote while the session's current turn is working: each row carries **id**, **text** and **createdAt**, and the answer carries the **version** the SSE frames carry, so a client applying both keeps whichever is newer. The queue belongs to the turn, not to the session bundle - it opens when a turn is admitted and is gone when that turn releases - so a session that is not working answers with an empty list. The running turn reads the queue at its next step (between the tool calls it just made and the request that follows them) and publishes the change as the **message_queue** SSE event on the composer stream.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The queue as it stands"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Queue a follow-up for the running turn",
+					"description": "Adds **text** to the queue of the turn in flight and answers **201** with the stored **message** (its **id** is what a later **DELETE** names) and the whole **messages** list. A session with no turn running answers **409** with code **no_active_turn**: the caller sends that text as an ordinary prompt through **POST /v1/responses** instead. When the turn runs in another FoxxyCode process over the same home (a second IDE window, the console), that process holds the queue and the answer is **409** with code **session_busy**. Past " + strconv.Itoa(session.MaxQueuedMessages) + " waiting messages the answer is **409** with code **queue_full**; a child (subagent) session answers **409** with code **subagent_read_only**. Nothing is persisted: a queued message the turn never read is dropped when the turn ends.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"text"},
+									"properties": map[string]interface{}{
+										"text": map[string]interface{}{"type": "string", "description": "What the operator wrote. Trimmed; empty is a **400**."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"201": map[string]interface{}{"description": "The queued message and the queue"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Drop every queued follow-up",
+					"description": "Empties the queue of the running turn and answers with the (now empty) **messages** list.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The empty queue"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/queue/{message_id}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Take one queued follow-up back",
+					"description": "Removes a message the agent has not read yet and answers with the rest of the queue. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "message_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Queued message id (for example **q_3**).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The queue without that message"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -1502,8 +1666,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
-					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **mode** (session profile: **`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**; **400** for anything else), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **mode** persists the profile without sending a turn, so a client that switches Mode and reloads gets it back; a turn sets it too, through the top-level **`model`** of **POST /v1/responses**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"summary": "Patch session composer metadata",
+					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **mode** (session profile: **`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**; **400** for anything else), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **mode** persists the profile without sending a turn, so a client that switches Mode and reloads gets it back; a turn sets it too, through the top-level **`model`** of **POST /v1/responses**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved). " +
+						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters).  " +
+						"**titleIfUnpinned** marks **title** as a suggestion rather than a rename: the describe call that names a new chat sends it, and the title is then stored only while the session has no pinned title of its own, so a name written during that first turn (in the chat header, or by the agent's **session_describe** tool) is not overwritten by an answer that was already in flight. The response reports the title the session kept. ",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1518,10 +1684,17 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"title":             map[string]string{"type": "string"},
-										"mode":              map[string]string{"type": "string"},
+										"title": map[string]string{"type": "string"},
+										"mode":  map[string]string{"type": "string"},
+										"tags": map[string]interface{}{
+											"type":  "array",
+											"items": map[string]string{"type": "string"},
+										},
+										"archived":          map[string]string{"type": "boolean"},
+										"pinned":            map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
+										"titleIfUnpinned":   map[string]string{"type": "boolean"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
 								},
@@ -1629,7 +1802,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "The source is a subagent child session (**sub_** ids): its transcript is read-only and cannot be forked; branch the parent instead.",
+							"description": "The source is a subagent child session: its transcript is read-only and cannot be forked; branch the parent instead.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -1922,11 +2095,11 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Switch the session workspace folder, git branch, worktree, or svn branch",
 					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
 						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
-						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created under **`<home>/worktrees/<repo>/`** on demand) and moves the session cwd into it. " +
+						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created on demand under **`<repo>/.foxxycode/worktrees/<branch>/`**, below a self-ignoring folder) and moves the session cwd into it. " +
 						"**`vcs`** selects the version control system: **`git`** (default) or **`svn`**. With **`{\"vcs\": \"svn\", \"branch\": b}`** the working copy is switched in place (`svn switch`); " +
 						"Subversion has no worktrees, so **`{\"vcs\": \"svn\", \"branch\": b, \"worktree\": true}`** checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** and moves the session cwd there. An existing checkout of that branch is reused. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
-						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enabled: false`** or no svn client installed. " +
+						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enable: false`** or no svn client installed. " +
 						"The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "foxxycodeSessionWorkspacePost",
 					"parameters": []interface{}{
@@ -1970,7 +2143,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "The workspace is locked (the conversation already has messages), or the session is a subagent child (**sub_** ids) whose transcript is read-only.",
+							"description": "The workspace is locked (the conversation already has messages), or the session is a subagent child whose transcript is read-only.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -1987,6 +2160,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** is the stored session profile (**`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**), so a client restores the composer's Mode on load instead of dropping every reopened session back to **agent**. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
+						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /foxxycode/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
@@ -2151,9 +2325,11 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids. Because EventSource cannot set an **Authorization** header, this route also accepts **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. A client that has just loaded the transcript instead passes that response's **messagesRev** as **`?since_rev=`**: the replay then leaves out every frame a persisted message already describes (the finished steps of the turn), so nothing on screen arrives twice; a frame cursor wins when both are sent. When the frames a client needs have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. A frame older than 250ms when it is written to the subscriber - replayed history, or a subscriber that fell behind - carries an **`age:`** field with its age in milliseconds, so a client can date it when it happened rather than when it arrived. The primary **POST** stream is unchanged and carries no ids. Because EventSource cannot set an **Authorization** header, this route also accepts **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "since_rev", "in": "query", "required": false, "schema": map[string]string{"type": "integer"}, "description": "The **messagesRev** of the transcript the client holds; replays only the frames it lacks."},
+						map[string]interface{}{"name": "last_event_id", "in": "query", "required": false, "schema": map[string]string{"type": "integer"}, "description": "Resume after this frame (for clients that cannot send **Last-Event-ID**)."},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream composer relay"},
@@ -2183,7 +2359,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/completion": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Suggest the code to insert at the caret",
-					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enabled`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
+					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enable`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -2503,7 +2679,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3042,7 +3218,8 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "foxxycode.skills_sources"},
-											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Every source in effect: the built-in ones first, then what skills.sources names."},
+											"system": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The subset of items FoxxyCode brings itself. They are not in config.yaml, DELETE refuses them, and a client should offer no remove control for them."},
 										},
 									},
 								},
@@ -3077,7 +3254,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Remove a remote skill source",
-					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400, and so does a source listed under **`system`** by `GET /foxxycode/skills/sources`: those are built into FoxxyCode and are not in the file.",
 					"operationId": "removeSkillSource",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3262,7 +3439,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript (coddy compaction engine). As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running). A child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript, by whichever engine **compaction.engine** names. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. It runs as a turn of the session: **GET /foxxycode/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** with code **session_busy** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3400,7 +3577,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "The session is in **ask** mode (read-only: switch the mode first, then run), the session is a subagent child (**sub_** ids, whose transcript is read-only), or another turn holds the turn lock.",
+							"description": "The session is in **ask** mode (read-only: switch the mode first, then run), the session is a subagent child whose transcript is read-only, or another turn holds the turn lock.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -3567,6 +3744,7 @@ func openAPISpec() map[string]interface{} {
 						"compacted_messages": map[string]string{"type": "integer", "description": "How many history messages were folded into the summary."},
 						"kept_messages":      map[string]string{"type": "integer", "description": "How many messages after the summary stayed verbatim."},
 						"model":              map[string]string{"type": "string", "description": "models[].model that produced the summary."},
+						"steps":              map[string]string{"type": "integer", "description": "How many summarization calls the fold took: 1 while the history fits one request, more when it was folded in passes because it did not."},
 					},
 				},
 				"ErrorEnvelope": map[string]interface{}{
@@ -3881,12 +4059,15 @@ func openAPISpec() map[string]interface{} {
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"id":                 map[string]string{"type": "string"},
-									"object":             map[string]string{"type": "string", "example": "model"},
-									"created":            map[string]string{"type": "integer", "format": "int64"},
-									"owned_by":           map[string]string{"type": "string", "example": "foxxycode"},
-									"max_context_tokens": map[string]string{"type": "integer"},
-									"multimodal":         map[string]string{"type": "boolean"},
+									"id":       map[string]string{"type": "string"},
+									"object":   map[string]string{"type": "string", "example": "model"},
+									"created":  map[string]string{"type": "integer", "format": "int64"},
+									"owned_by": map[string]string{"type": "string", "example": "foxxycode"},
+									"max_context_tokens": map[string]string{
+										"type":        "integer",
+										"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of `agent.model`.",
+									},
+									"multimodal": map[string]string{"type": "boolean"},
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
@@ -4002,8 +4183,27 @@ func openAPISpec() map[string]interface{} {
 								map[string]interface{}{"type": "object", "additionalProperties": true},
 							},
 						},
-						"max_tokens":  map[string]string{"type": "integer"},
-						"temperature": map[string]interface{}{"type": "number", "format": "float"},
+						"max_tokens": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "Output cap of this request for a direct `models[].model` id, replacing the model's configured `max_tokens`; omitted, the configured value applies. **400** below 1 and on a `codex` model, whose backend takes no cap. The agent/plan/ask profiles do not read it: their turn runs on the profile model's configured values.",
+						},
+						"max_completion_tokens": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "OpenAI's newer name for `max_tokens`, with the same meaning. A request may carry both only when they agree, else **400**.",
+						},
+						"temperature": map[string]interface{}{
+							"type":        "number",
+							"format":      "float",
+							"minimum":     0,
+							"maximum":     2,
+							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider), when it differs from 1 with Anthropic thinking (including the model's `reasoning_default`), and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles do not read it.",
+						},
+						"reasoning_effort": map[string]interface{}{
+							"type":        "string",
+							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning parameter at all, which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**) or Codex `reasoning.effort`. The agent/plan/ask profiles take `metadata.reasoning` instead.",
+						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
 							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
@@ -4021,7 +4221,7 @@ func openAPISpec() map[string]interface{} {
 						"model":   map[string]string{"type": "string"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Effective YAML model selector under `model`, optional `api_model`.",
+							"description":          "Effective YAML model selector under `model`, optional `api_model`, and for a direct completion that reasoned, the level the provider was asked for under `reasoning_effort`.",
 							"additionalProperties": map[string]string{"type": "string"},
 						},
 						"choices": map[string]interface{}{
@@ -4045,7 +4245,7 @@ func openAPISpec() map[string]interface{} {
 											},
 										},
 									},
-									"finish_reason": map[string]interface{}{"type": "string", "enum": []interface{}{"stop", "length", "tool_calls"}},
+									"finish_reason": map[string]interface{}{"type": "string", "enum": []interface{}{"stop", "length", "tool_calls", "content_filter"}},
 								},
 							},
 						},
@@ -4227,8 +4427,13 @@ func openAPISpec() map[string]interface{} {
 						"name":        map[string]string{"type": "string"},
 						"is_git_repo": map[string]string{"type": "boolean"},
 						"is_worktree": map[string]string{"type": "boolean"},
-						"repo_root":   map[string]string{"type": "string"},
-						"branch":      map[string]string{"type": "string"},
+						"shell": map[string]string{
+							"type":        "string",
+							"description": "Path of the interpreter run_command executes through on the server host.",
+							"example":     "/usr/bin/bash",
+						},
+						"repo_root": map[string]string{"type": "string"},
+						"branch":    map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]string{"type": "string"},
@@ -4250,7 +4455,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"svn": map[string]interface{}{
 							"type":        "object",
-							"description": "Subversion state; present whenever vcs.svn.enabled is on, with available:false when no client is installed. Absent when Subversion support is disabled.",
+							"description": "Subversion state; present whenever vcs.svn.enable is on, with available:false when no client is installed. Absent when Subversion support is disabled.",
 							"properties": map[string]interface{}{
 								"available":       map[string]string{"type": "boolean"},
 								"wc_root":         map[string]string{"type": "string"},
@@ -4277,7 +4482,7 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id (present on POST /foxxycode/sessions/{id}/workspace responses).",
 						},
 					},
-					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree", "is_svn_repo"},
+					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree", "is_svn_repo", "shell"},
 				},
 			},
 		},

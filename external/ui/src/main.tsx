@@ -4,6 +4,7 @@ import "./styles.css";
 import { App } from "./ui/App";
 import { AppErrorBoundary } from "./ui/AppErrorBoundary";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
+import { bootstrapUiEffects } from "./ui/theme/uiEffects";
 import { installFoxxyCodeUiApi } from "./ui/theme/foxxycodeUiApi";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
@@ -13,6 +14,7 @@ import { bootstrapDesktopFlag } from "./ui/desktopShell";
 import { bootstrapEmbedFlag } from "./ui/embedShell";
 import { installEmbedLocaleBridge } from "./ui/embedLocaleBridge";
 import { installEmbedHostBridge } from "./ui/embedHostBridge";
+import { installEmbedExternalLinks } from "./ui/embedExternalLinks";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
@@ -26,8 +28,11 @@ initLocale(bootLocale);
 installFoxxyCodeUiApi();
 bootstrapDesktopFlag();
 bootstrapEmbedFlag();
+// After the embed flag: the IntelliJ panel defaults to reduced effects.
+bootstrapUiEffects();
 installEmbedLocaleBridge();
 installEmbedHostBridge();
+installEmbedExternalLinks();
 startActiveHealthMonitor();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

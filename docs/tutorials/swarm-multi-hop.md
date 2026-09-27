@@ -6,7 +6,7 @@
 
 ## 1. The idea
 
-A relay is a node from its parent's point of view. A process that runs a relay (`swarm.enabled`) and also lists a parent in `swarm.join` registers into that parent exactly the way an agent does, with `kind: relay`. That is all chaining requires: no second mechanism, and no hop that knows how deep the chain goes.
+A relay is a node from its parent's point of view. A process that runs a relay (`swarm.enable`) and also lists a parent in `swarm.join` registers into that parent exactly the way an agent does, with `kind: relay`. That is all chaining requires: no second mechanism, and no hop that knows how deep the chain goes.
 
 ## 2. The files
 
@@ -14,10 +14,10 @@ A relay is a node from its parent's point of view. A process that runs a relay (
 
 ```yaml
 httpserver:
-  enabled: false
+  enable: false
 
 swarm:
-  enabled: true
+  enable: true
   host: "0.0.0.0"
   port: 12346
   name: "inner"

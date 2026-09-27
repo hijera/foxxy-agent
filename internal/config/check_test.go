@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,7 +71,7 @@ agent:
 httpserver:
   port:
 compaction:
-  enabled: null
+  enable: null
 `))
 	if !rep.Valid() || len(rep.Findings) != 0 {
 		t.Fatalf("a valid config must produce no findings, got %+v", rep.Findings)
@@ -89,11 +90,42 @@ func TestCheckUnknownKeySuggestsTheClosestOne(t *testing.T) {
 	if !strings.Contains(f.Message, `unknown key "enbaled"`) {
 		t.Errorf("message %q does not name the key", f.Message)
 	}
-	if !strings.Contains(f.Fix, `did you mean "enabled"`) {
-		t.Errorf("fix %q does not suggest enabled", f.Fix)
+	if !strings.Contains(f.Fix, `did you mean "enable"`) {
+		t.Errorf("fix %q does not suggest enable", f.Fix)
 	}
 	if !strings.Contains(f.Fix, "allow_insecure") || !strings.Contains(f.Fix, "remotes") {
 		t.Errorf("fix %q does not list the keys allowed under httpserver", f.Fix)
+	}
+}
+
+// A config written before the rename spells the switch `enabled`. The loader reads it, so
+// the check must not fail the file over it - it points at the current spelling instead.
+func TestCheckLegacyEnabledIsAWarning(t *testing.T) {
+	rep := checkYAML(t, withModeline("httpserver:\n  port: 8080\n  enabled: false\n"))
+	if !rep.Valid() {
+		t.Fatalf("the old spelling of a switch must not fail the check: %+v", rep.Findings)
+	}
+	warns := warningsOf(rep)
+	if len(warns) != 1 {
+		t.Fatalf("want one warning, got %+v", rep.Findings)
+	}
+	w := warns[0]
+	if w.Line != 4 || w.Column != 3 || w.Path != "httpserver.enabled" {
+		t.Errorf("warning at %d:%d %q, want 4:3 httpserver.enabled", w.Line, w.Column, w.Path)
+	}
+	if !strings.Contains(w.Message, `"enable"`) || !strings.Contains(w.Fix, `"enable"`) {
+		t.Errorf("warning does not name the current key: %+v", w)
+	}
+}
+
+func TestCheckLegacyEnabledBesideTheSwitchIsIgnored(t *testing.T) {
+	rep := checkYAML(t, withModeline("scheduler:\n  enable: true\n  enabled: false\n"))
+	if !rep.Valid() {
+		t.Fatalf("both spellings must not fail the check: %+v", rep.Findings)
+	}
+	warns := warningsOf(rep)
+	if len(warns) != 1 || warns[0].Line != 4 || !strings.Contains(warns[0].Message, "wins") {
+		t.Fatalf("want one warning on the enabled line saying enable wins, got %+v", rep.Findings)
 	}
 }
 
@@ -155,7 +187,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 		}
 	})
 	t.Run("string for a boolean", func(t *testing.T) {
-		rep := checkYAML(t, withModeline("subagents:\n  enabled: sure\n"))
+		rep := checkYAML(t, withModeline("subagents:\n  enable: sure\n"))
 		f := onlyError(t, rep)
 		if !strings.Contains(f.Message, "boolean") {
 			t.Errorf("message %q", f.Message)
@@ -174,7 +206,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 }
 
 func TestCheckYAML11BooleansAreAWarning(t *testing.T) {
-	rep := checkYAML(t, withModeline("subagents:\n  enabled: yes\n"))
+	rep := checkYAML(t, withModeline("subagents:\n  enable: yes\n"))
 	if !rep.Valid() {
 		t.Fatalf("yes is read as a boolean by the loader, so it must not fail the check: %+v", rep.Findings)
 	}
@@ -497,6 +529,9 @@ httpserver:
   port: 8080
 skills:
   dirs: ["/one", "/two"]
+models:
+  - model: codex/gpt-5.5
+    max_tokens: 4096
 `
 	loc := NewLocator([]byte(doc))
 	cases := map[string][2]int{
@@ -506,6 +541,9 @@ skills:
 		"httpserver.port":       {8, 9},
 		"skills.dirs[1]":        {10, 18},
 		"httpserver":            {7, 1},
+		// A dot inside a selector belongs to the id, not the path.
+		"models[codex/gpt-5.5]":            {12, 5},
+		"models[codex/gpt-5.5].max_tokens": {13, 17},
 	}
 	for path, want := range cases {
 		line, col, ok := loc.Locate(path)
@@ -600,5 +638,32 @@ func TestCheckKeepsTheLinesOfEveryDecodeError(t *testing.T) {
 	}
 	if !lines[3] || !lines[4] {
 		t.Fatalf("want a finding on line 3 and on line 4, got %+v", rep.Findings)
+	}
+}
+
+func TestUnsentModelSettingsNameCodexMaxTokensOnly(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{{Name: "codex", Type: "codex"}, {Name: "local", Type: "openai"}},
+		Models: []ModelEntry{
+			{Model: "codex/gpt-5.5", MaxTokens: 4096},
+			{Model: "codex/gpt-5.4"},
+			{Model: "local/qwen", MaxTokens: 4096},
+			{Model: "ghost/model", MaxTokens: 4096},
+		},
+	}
+	got := cfg.UnsentModelSettings()
+	if len(got) != 1 || got[0].Path() != "models[codex/gpt-5.5].max_tokens" || !strings.Contains(got[0].Message, "bounds nothing") {
+		t.Fatalf("UnsentModelSettings = %+v, want only the codex model carrying max_tokens", got)
+	}
+
+	var buf bytes.Buffer
+	cfg.LogUnsentModelSettings(slog.New(slog.NewTextHandler(&buf, nil)))
+	if line := buf.String(); strings.Count(line, "\n") != 1 || !strings.Contains(line, "level=WARN") || !strings.Contains(line, "setting=models[codex/gpt-5.5].max_tokens") {
+		t.Fatalf("startup log = %q, want one warning naming the setting", line)
+	}
+	buf.Reset()
+	(&Config{Models: []ModelEntry{{Model: "local/qwen", MaxTokens: 4096}}, Providers: []ProviderConfig{{Name: "local", Type: "openai"}}}).LogUnsentModelSettings(slog.New(slog.NewTextHandler(&buf, nil)))
+	if buf.Len() != 0 {
+		t.Fatalf("a config without unsent settings logged %q", buf.String())
 	}
 }

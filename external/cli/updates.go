@@ -3,7 +3,10 @@
 package cli
 
 import (
+	"errors"
+
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/remote"
 )
 
 // applyLoopMessage applies one queued update to the UI tree. Runs on the UI
@@ -18,6 +21,15 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
 			a.stopSpinner()
+			// A remote EOF/error only ends our request. The server may still
+			// own a turn and queue (or already have admitted another client).
+			if u.sessionID == a.sessionID {
+				if a.remoteURL != "" {
+					a.refreshRemoteControls()
+				} else {
+					a.queue.SetRows(nil)
+				}
+			}
 			a.stopUsageResume()
 			// A permission or question modal belonging to this turn is now
 			// orphaned (the worker already unblocked via ctx cancellation).
@@ -34,6 +46,17 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			return
 		}
 		a.curAssistant = nil
+		if errors.Is(u.err, remote.ErrSessionBusy) {
+			// The server answered 409 session_busy: a turn this console had not
+			// heard of yet owns the session (another client, or another process
+			// on the same home). Nothing ran, so the prompt is taken back off the
+			// screen and joins that turn's queue, the way it would have had the
+			// activity update arrived first. A refused queue restores the draft.
+			a.chat.RemoveChild(u.row)
+			a.appendStatus(roleDim, "The session is busy with another turn; your message was queued for it.")
+			a.enqueuePrompt(u.text)
+			return
+		}
 		if u.err != nil {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
 		} else if u.stop == "cancelled" {
@@ -128,6 +151,21 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	}
 
 	switch u := msg.update.(type) {
+	case remote.QueueControlUpdate:
+		a.queue.ApplyControl(u)
+	case remote.ActivityUpdate:
+		if u.Revision >= a.remoteActivityRevision {
+			a.remoteActivityRevision = u.Revision
+			a.remoteTurnActive = u.TurnActive
+		}
+	case remote.CancelUpdate:
+		if u.Error != "" {
+			a.appendStatus(roleWarning, "Could not stop the turn: "+u.Error+" (escape to retry)")
+		} else {
+			a.appendStatus(roleDim, "Stop requested")
+		}
+	case queueResult:
+		a.applyQueueResult(u)
 	case acp.MessageChunkUpdate:
 		a.applyMessageChunk(u)
 	case acp.ToolCallUpdate:
@@ -201,6 +239,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		} else if a.turnActive {
 			a.setStatus(newWaitingStatus())
 		}
+	case acp.MessageQueueUpdate:
+		// The queue changes from outside this goroutine - another surface, or
+		// the agent reading a batch - so the widget follows the update rather
+		// than what this console last sent. The version orders the two streams
+		// the same update can arrive down.
+		a.queue.Apply(u.Messages, u.Version)
 	case acp.MemoryMessageChunkUpdate:
 		// Memory copilot deltas render as a dim italic stream under the
 		// phase status line (collapses with ctrl+t like thinking).

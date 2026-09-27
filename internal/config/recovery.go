@@ -107,8 +107,12 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 
 // parseValidateYAMLBytes parses expanded YAML and validates (includes applyDefaults).
 func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(expanded), &doc); err != nil {
+		return nil, relocateSyntaxError(err, expanded)
+	}
 	var cfg Config
-	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
+	if err := decodeConfigDocument(&doc, &cfg); err != nil {
 		return nil, relocateSyntaxError(err, expanded)
 	}
 	cfg.Paths = paths

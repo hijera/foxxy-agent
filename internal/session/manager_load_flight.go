@@ -110,9 +110,17 @@ func (m *Manager) ensureSessionSingleFlight(ctx context.Context, sessionID, defa
 // ever make it.
 func (m *Manager) loadOrCreateSession(ctx context.Context, id, defaultCWD string, allowCreate bool) (*State, error) {
 	if m.store != nil && m.store.HasPersistedSnapshot(id) {
+		// No cwd is handed to the load. A stored session belongs to the folder
+		// it was started in, and params.CWD outranks that - which is right for
+		// an editor saying which checkout a session is for, and wrong here,
+		// where the only cwd on offer is the server's own. Rebinding somebody's
+		// conversation to another folder because a listing route had to load it
+		// is not a thing a caller asked for, and it rewrites the bundle, which
+		// moves the session in a listing ordered by when it last changed. The
+		// load falls back to the manager's default by itself for a bundle that
+		// recorded none (upstream #272).
 		if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       defaultCWD,
 		}); err != nil {
 			return nil, err
 		}
@@ -126,14 +134,6 @@ func (m *Manager) loadOrCreateSession(ctx context.Context, id, defaultCWD string
 	if !allowCreate {
 		return nil, ErrSessionSnapshotMissing
 	}
-	// The sub_ prefix is how bundles are recognised as subagent runs. A
-	// client must not be able to mint an ordinary chat under it: the listing
-	// would hide it and a reload would turn it read-only. An existing child
-	// (live or persisted) is served above; only creation is refused.
-	if strings.HasPrefix(id, subagentSessionPrefix) {
-		return nil, fmt.Errorf("%w: %s", ErrReservedSessionID, id)
-	}
-
 	// preferredNewSessionID is a single slot on the manager: the pin and the create that
 	// consumes it have to be one atomic step, or two sessions being created at once can
 	// swap ids. Per-id single-flight does not cover this - the ids differ by definition.

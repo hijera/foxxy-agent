@@ -230,6 +230,7 @@ scripts/
   stamp-changelog.mjs             rewrite `## Unreleased` in CHANGELOG.md to the packaged version
 test/                             vitest unit tests (no vscode dependency)
 CHANGELOG.md                      user-facing change notes (Russian); the extension's Changelog tab
+CHANGELOG.en.md                   English twin for the project website; not packaged
 ```
 
 ## Changelog
@@ -239,3 +240,7 @@ Russian for users, newest section first. While a PR is open its section is heade
 `## Unreleased — YYYY-MM-DD`; `make vscode-package` stamps that heading with the release tag in
 the packaged copy and restores the file afterwards. Which changelog a change belongs in (this
 one, the IntelliJ one, or both) is spelled out in `.claude/rules/release-changelog.md`.
+
+Every section also goes, in English, into `CHANGELOG.en.md`, which the project website reads.
+The twin keeps the same headings and entries from the top down; `.vscodeignore` keeps it out of
+the VSIX, and `test/changelog.test.ts` fails when it drifts from `CHANGELOG.md`.

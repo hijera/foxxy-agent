@@ -48,6 +48,7 @@ import org.cef.browser.CefFrame
 import org.cef.callback.CefBeforeDownloadCallback
 import org.cef.callback.CefDownloadItem
 import org.cef.handler.CefDownloadHandlerAdapter
+import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.awt.datatransfer.DataFlavor
@@ -205,6 +206,20 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                     // Empty path + showDialog: CEF picks the download directory and
                     // opens the save dialog seeded with the suggested name.
                     callback?.Continue(suggestedName ?: "", true)
+                }
+            }, it.cefBrowser)
+            // A new-tab link in the SPA (API docs, the website) arrives here as a popup, which
+            // CEF would open as an empty native window. Cancel it and let the system browser
+            // open http(s) links; anything else is simply dropped.
+            it.jbCefClient.addLifeSpanHandler(object : CefLifeSpanHandlerAdapter() {
+                override fun onBeforePopup(
+                    browser: CefBrowser?,
+                    frame: CefFrame?,
+                    targetUrl: String?,
+                    targetFrameName: String?,
+                ): Boolean {
+                    ExternalLinks.systemBrowserUrl(targetUrl)?.let { url -> BrowserUtil.browse(url) }
+                    return true
                 }
             }, it.cefBrowser)
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.

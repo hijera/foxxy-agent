@@ -5,6 +5,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/permission"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
 // permissionRequired decides whether a tool call must be confirmed by the
@@ -21,7 +22,9 @@ import (
 //   - config writes always prompt outside bypass: committing or rolling back
 //     the agent's own configuration can start MCP processes and change the
 //     permission policy itself.
-func permissionRequired(registryRequires bool, tc llm.ToolCall, env *tools.Env, sessCmdGrants, sessWriteGrants []string) bool {
+//   - http_request asks its own gate, which weighs the address against the
+//     allowlist and the session grants and then each extra the request carries.
+func permissionRequired(registryRequires bool, tc llm.ToolCall, env *tools.Env, sessCmdGrants, sessWriteGrants, sessHTTPGrants []string) bool {
 	switch {
 	case tc.Name == "run_command":
 		if env.PermissionMode == config.PermModeBypass {
@@ -29,6 +32,12 @@ func permissionRequired(registryRequires bool, tc llm.ToolCall, env *tools.Env, 
 		}
 		cmd := permission.ExtractRunCommand(tc.InputJSON)
 		return !permission.CommandAllowedWithSession(env, sessCmdGrants, cmd)
+	case tc.Name == toolweb.ToolHTTPRequest:
+		// The gate decides on where the request goes and on what it carries
+		// beyond that - files, a proxy, an unchecked certificate, a file it
+		// writes - so an approved origin never approves an upload by itself.
+		// It answers for bypass itself, like the command gate above.
+		return !permission.HTTPRequestAllowedWithSession(env, sessHTTPGrants, tc.InputJSON)
 	case configWriteTool(tc.Name):
 		return env.PermissionMode != config.PermModeBypass
 	case filesystemWriteTool(tc.Name):

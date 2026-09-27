@@ -22,7 +22,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/hijera/foxxycode-agent/internal/dryrun"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 type dryRunState struct {
@@ -154,7 +154,7 @@ func (s *dryRunState) telegramAccepting(username string) error {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"ok":true,"result":{"id":1,"is_bot":true,"username":%q}}`, username)
 	})
-	s.setenv(dryrun.TelegramAPIBaseEnv, srv.URL)
+	s.setenv(config.TelegramAPIBaseEnv, srv.URL)
 	return s.write(dryRunModeline + "gateways:\n  telegram:\n    enabled: true\n    token: \"123456:dry-run\"\n")
 }
 

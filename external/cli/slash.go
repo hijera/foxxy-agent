@@ -59,6 +59,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "hotkeys":
 		a.showHotkeys()
 		return true
+	case "queue":
+		a.dispatchQueueCommand(strings.Join(fields[1:], " "))
+		return true
 	case "usage":
 		a.showUsage()
 		return true

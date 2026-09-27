@@ -14,7 +14,7 @@ import (
 // invoked at process exit; it closes the file output if any.
 //
 // The returned *slog.LevelVar backs the handler's level: call lv.Set to change
-// verbosity at runtime (the debug.enabled toggle does this through ReplaceConfig)
+// verbosity at runtime (the debug.enable toggle does this through ReplaceConfig)
 // without rebuilding the logger.
 //
 // Validate is called automatically; the returned error is formatted to be

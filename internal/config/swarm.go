@@ -30,7 +30,7 @@ type SwarmConfig struct {
 	// Enabled runs the relay in this process. It is independent of Join: an
 	// agent registering into a parent relay does not itself relay, and a relay
 	// that chains into another one does both.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 	// Host is the bind address for the relay when the CLI does not override it.
 	Host string `yaml:"host"`
 	// Port is the relay's listen port. Zero falls back to 12346.

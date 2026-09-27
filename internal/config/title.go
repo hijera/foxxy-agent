@@ -19,7 +19,7 @@ const (
 type TitleConfig struct {
 	// Enabled is a pointer so an unset value defaults to true while an explicit false is
 	// preserved. Use TitleEnabled to read the effective value.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 
 	// Model selects a cfg.models entry for the title pass. Empty uses agent.model. A small, cheap
 	// model is a good choice here.

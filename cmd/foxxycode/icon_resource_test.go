@@ -9,7 +9,9 @@ import (
 // cannot be silently dropped. The .syso embeds foxxycode.ico as RT_GROUP_ICON id 1
 // and is auto-linked into every windows/amd64 build (desktop shell and CLI) as the
 // .exe file icon; internal/desktop wires the same id into the WebView2 window.
-// Regenerate with `make icon` when foxxycode2-Photoroom.png changes.
+// Regenerate with `make icon` when the brand mark changes; it renders
+// docs/assets/foxxycode-logo-glyph.svg, the one vector every icon comes from.
+// See docs/contributing/brand.md.
 func TestWindowsIconResourcePresent(t *testing.T) {
 	const syso = "rsrc_windows_amd64.syso"
 	info, err := os.Stat(syso)

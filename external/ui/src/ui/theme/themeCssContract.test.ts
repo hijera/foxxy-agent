@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { UI_THEME_IDS } from "./themeCookie";
+import { FOXXYCODE_UI_EFFECTS_COOKIE } from "./uiEffects";
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -60,6 +61,18 @@ test("index.html honors the ?theme= query param for IDE embeddings", () => {
   );
   expect(html).toMatch(/theme=\(\[\^&\]\+\)/); // location.search parsing
   expect(html).toContain("Max-Age=31536000"); // persisted to the cookie
+});
+
+// The IntelliJ panel starts with reduced effects (ui/theme/uiEffects.ts); marking
+// <html> before paint keeps the first frame from animating or frosting.
+test("index.html marks the effects level before paint, reduced by default in IntelliJ", () => {
+  const html = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../index.html"),
+    "utf8",
+  );
+  expect(html).toContain(FOXXYCODE_UI_EFFECTS_COOKIE);
+  expect(html).toContain("dataset.effects");
+  expect(html).toMatch(/et === "intellij" \? "reduced" : "full"/);
 });
 
 test("index.html VALID theme map stays in sync with UI_THEME_IDS", () => {

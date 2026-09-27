@@ -106,10 +106,10 @@ func TestToolsAreNotRegisteredWhenDisabled(t *testing.T) {
 	registered := 0
 	toolsvn.RegisterBuiltins(func(*tooling.Tool) { registered++ }, cfg)
 	if registered != 0 {
-		t.Fatalf("registered %d tools with vcs.svn.enabled=false", registered)
+		t.Fatalf("registered %d tools with vcs.svn.enable=false", registered)
 	}
 	if toolsvn.Enabled(cfg) {
-		t.Errorf("Enabled reports true with vcs.svn.enabled=false")
+		t.Errorf("Enabled reports true with vcs.svn.enable=false")
 	}
 }
 

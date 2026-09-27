@@ -67,3 +67,44 @@ describe("programGrantFromOptionName", () => {
     expect(programGrantFromOptionName("")).toBe("");
   });
 });
+
+describe("http_request grants", () => {
+  it("names the address or the origin the grant covers", () => {
+    const url = {
+      optionId: "allow_always_url",
+      name: "Always allow https://api.x.dev/v1/items",
+    };
+    const origin = {
+      optionId: "allow_always_origin",
+      name: "Always allow https://api.x.dev",
+    };
+    expect(permissionOptionLabel(url)).toBe(
+      "Always allow https://api.x.dev/v1/items",
+    );
+    setLocale("ru");
+    try {
+      expect(permissionOptionLabel(url)).toBe(
+        "Всегда разрешать https://api.x.dev/v1/items",
+      );
+      expect(permissionOptionLabel(origin)).toBe(
+        "Всегда разрешать https://api.x.dev",
+      );
+    } finally {
+      setLocale("en");
+    }
+  });
+
+  it("falls back to the backend's own text for a name it cannot read", () => {
+    setLocale("ru");
+    try {
+      expect(
+        permissionOptionLabel({
+          optionId: "allow_always_origin",
+          name: "Allow everything",
+        }),
+      ).toBe("Allow everything");
+    } finally {
+      setLocale("en");
+    }
+  });
+});

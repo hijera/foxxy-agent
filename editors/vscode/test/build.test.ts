@@ -154,7 +154,7 @@ describe("VSIX packaging invariants", () => {
 describe("version stamping", () => {
   // The VSIX manifest version and the bundled binary version both used to be wrong:
   // vsce read the static package.json version, and prepare-binary built with `-s -w`
-  // only. Guard both mechanisms so a release cannot silently ship 0.1.6 / dev again.
+  // only. Guard both mechanisms so a release cannot silently ship the static fallback / dev again.
   const prepareBinary = fs.readFileSync(
     path.join(root, "scripts", "prepare-binary.mjs"),
     "utf8",

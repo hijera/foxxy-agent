@@ -14,10 +14,12 @@ import (
 
 // anthropicProvider implements Provider using the Anthropic API.
 type anthropicProvider struct {
-	client          anthropic.Client
-	model           string
-	maxTokens       int
-	temp            float64
+	client    anthropic.Client
+	model     string
+	maxTokens int
+	temp      float64
+	// tempSet sends temp even at zero: the caller asked for that value.
+	tempSet         bool
 	reasoningEffort string
 	// Generation tuning taken from ProviderInput; see withTuning.
 	stop          []string
@@ -114,7 +116,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var fullContent string
 	var toolCalls []ToolCall
 	var stopReason string
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
@@ -191,6 +193,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.MessageStartEvent:
 			inputTokens = int(e.Message.Usage.InputTokens)
 			progress()
+			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
 		}
 	}
 
@@ -214,6 +217,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					StopReason:         sr,
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
+					CachedInputTokens:  cachedInputTokens,
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
 		}
@@ -237,6 +241,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				ReasoningSignature: thinkingSig,
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
 			}, truncErr
 		}
 		return nil, truncErr
@@ -256,6 +261,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		StopReason:         stopReason,
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
+		CachedInputTokens:  cachedInputTokens,
 	}, nil
 }
 
@@ -340,7 +346,13 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 			params.MaxTokens = budget + anthropicMinThinkingBudget
 		}
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-	} else if p.temp > 0 {
+		// Only a temperature the caller asked for travels next to thinking.
+		// Anthropic takes nothing but 1 there, and RequestOptions.Validate
+		// refuses any other value before a direct request gets this far.
+		if p.tempSet {
+			params.Temperature = anthropic.Float(p.temp)
+		}
+	} else if p.temp > 0 || p.tempSet {
 		params.Temperature = anthropic.Float(p.temp)
 	} else if p.deterministic {
 		params.Temperature = anthropic.Float(0)
@@ -379,9 +391,10 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
 	r := &Response{
-		StopReason:   mapAnthropicStopReason(string(resp.StopReason)),
-		InputTokens:  int(resp.Usage.InputTokens),
-		OutputTokens: int(resp.Usage.OutputTokens),
+		StopReason:        mapAnthropicStopReason(string(resp.StopReason)),
+		InputTokens:       int(resp.Usage.InputTokens),
+		OutputTokens:      int(resp.Usage.OutputTokens),
+		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
 
 	for _, block := range resp.Content {

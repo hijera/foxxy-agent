@@ -30,6 +30,32 @@ features: `:has()`, `oklch()`/`oklab()`, `@container`, native CSS nesting,
 `dvh`/`svh` units are allowed only with a preceding `vh` fallback
 declaration for the same property.
 
+## Depending on JCEF (IDE 2026.2 and later)
+
+From build 262 (IDE 2026.2) `com.intellij.ui.jcef.*` is no longer part of the
+platform core: it ships as the bundled plugin **Web Browser (JCEF)**, id
+`com.intellij.modules.jcef`, and its classes reach only plugins that depend on
+it. A plugin that declares nothing but `com.intellij.modules.platform` still
+installs, but the first class with a JCEF type in its signatures fails with
+`NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser` and the tool window
+stays empty.
+
+The dependency must be **optional**, because IDEs before 2025.3.1 have no such
+plugin and would refuse a required one. IntelliJ only accepts an optional
+`<depends>` that names a descriptor, so the plugin ships an empty one:
+
+```xml
+<depends optional="true" config-file="foxxycode-jcef.xml">com.intellij.modules.jcef</depends>
+```
+
+That covers the plugin on every supported IDE, but not a user who disabled Web
+Browser (JCEF). `JcefSupport.isAvailable()` (in `editors/intellij`) resolves the
+JCEF classes by name, without linking a JCEF type, and the tool window factory
+shows a message instead of the browser panel when they are missing.
+`TestPluginDescriptorDependsOnJcefOptionally` and
+`TestToolWindowFactoryGuardsJcef` in `editors/intellij/plugin_build_test.go`
+keep both in place.
+
 ## Serving the UI to JCEF
 
 Run the agent's HTTP server and point `JBCefBrowser` at it:
@@ -201,14 +227,49 @@ What the two ids share and where they differ:
 | --- | --- | --- |
 | Flat composer chrome (above) | yes | yes |
 | Hide the folder chip, reopen the last project session, History scoped to the project, Enter sends on narrow panels (`isEditorEmbed()`) | yes | yes |
-| Transcript-row `content-visibility` opt-out (Chromium 104 raises "ResizeObserver loop limit exceeded") | yes | no — Electron is current |
 | File drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
 | Host → SPA `@`-mention channel | `window.foxxycodeUi.insertFileMention` via `executeJavaScript` | `postMessage` `{ type: "foxxycode:insertFileMention", paths }` from the parent frame (`embedHostBridge.ts`) |
+| Visual effects (infinite animations, frosted glass) default | off (`data-effects="reduced"`) | on (`data-effects="full"`) |
+
+#### Reduced effects in the JCEF panel
+
+JCEF renders the IntelliJ panel off-screen (the default in 2022.3–2026.2 IDEs) and
+copies every frame the page paints into the IDE on its UI thread. An effect that
+repaints continuously therefore slows the whole IDE, badly without a GPU: measured in
+PyCharm 2023.3 with the GPU off, the bouncing typing dots kept the IDE's UI thread
+~5% busy through every turn and the dark hero title 5.4% with the panel merely open.
+
+So the page carries `<html data-effects="full|reduced">`. The inline bootstrap in
+`src/index.html` sets it before the first paint: the `foxxycode_ui_effects` cookie
+when present, else `reduced` for `?embed=intellij` and `full` everywhere else
+(`ui/theme/uiEffects.ts` holds the same logic for the running app). `reduced` stops
+the long-lived infinite animations (the typing dots keep a slow stepped glow: colour
+only, six steps over three seconds: ~0.2% of the IDE's UI thread idle, where the CSS
+bounce cost 3.6-5.4%, an eased cycle 5.5% and the bounce as a 12 fps animated WebP 2.3%)
+and switches the glass blur off: the
+`--foxxycode-glass-panel-backdrop` token becomes `none` and the literal blurs are
+switched off, because a blur of what scrolls under a panel is recomputed on every
+repaint, in software without a GPU. Without the blur a translucent tint would let the
+transcript read straight through the sticky header and the top bar, so the panel tokens
+(`--foxxycode-glass-panel-bg`, `--foxxycode-chat-header-bg`, `--nav`) turn opaque per
+theme, in the colour they showed: the tint composited over the top of that theme's
+canvas. The light theme is the exception: its composite is plain white, which read as
+harsh, so its panels take the composer field's soft grey (`#f3f3f4`). The canvas keeps its gradient and glow (a flattened canvas was tried and looked
+worse). The **Animations and translucency** switch in **Settings → Appearance** is one
+setting for every client: it applies at once and saves `ui.effects` to `config.yaml`,
+so turning the effects on in the IntelliJ panel turns them on everywhere; only an
+unset key falls back to each client's default. The cookie caches the value for the
+inline bootstrap, which paints before any request can read the config; the SPA
+re-applies the config value at startup. JCEF keeps cookies in its persistent
+`jcef_cache`, and a cookie ignores the port, so even the cached copy survives IDE
+restarts and the backend's random port. `reducedEffectsCss.test.ts` fails when a new infinite animation or literal
+backdrop blur is not covered.
 
 `embedChromeCss.test.ts` keeps the two CSS families in step: every
-`[data-embed]` rule must name both ids unless it is the `content-visibility`
-workaround, which must name only `intellij`. Any other id is accepted but gets
-none of the CSS overrides.
+`[data-embed]` rule must name both ids. Any other id is accepted but gets none of
+the CSS overrides. (The transcript rows used `content-visibility: auto` until
+upstream #278, and the IntelliJ panel had an opt-out of its own because Chromium
+104 raised "ResizeObserver loop limit exceeded" on it; both are gone.)
 
 ```text
 http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij

@@ -386,9 +386,9 @@ Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cance
 
 ### Subagent runs and child sessions (FoxxyCode-specific)
 
-Nothing protocol-level changes when the agent delegates to a subagent (`docs/features/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
+Nothing protocol-level changes when the agent delegates to a subagent (`docs/features/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
 
-Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a `sub_…` id returns an error naming the parent (`subagent sessions are read-only transcripts: sub_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard.
+Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a child's id returns an error naming the parent (`subagent sessions are read-only transcripts: sess_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard. Nothing about the id says which is which - the bundle's `subagentRun` metadata does.
 
 ### `session/cancel`
 
@@ -521,7 +521,7 @@ Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancel
 
 ### `memory_phase` - Memory copilot phase boundary
 
-When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
+When `memory.enable` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
 
 Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`foxxycode_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
 
@@ -555,7 +555,7 @@ See `external/memory/README.md` (including **Related work** and the link to [Mem
 
 ### `debug` - Diagnostics trace event
 
-Emitted only when the diagnostics layer is on (**`debug.enabled`**, the **`--debug`** flag, or a runtime toggle through **`PUT /foxxycode/config`**). One record per boundary in the ReAct loop, so a client can render a live debug timeline. The HTTP bridge forwards these as SSE **`event: debug`**; the same records are persisted to **`<session>/debug_trace.jsonl`** and served by **`GET /foxxycode/sessions/{id}/debug`**.
+Emitted only when the diagnostics layer is on (**`debug.enable`**, the **`--debug`** flag, or a runtime toggle through **`PUT /foxxycode/config`**). One record per boundary in the ReAct loop, so a client can render a live debug timeline. The HTTP bridge forwards these as SSE **`event: debug`**; the same records are persisted to **`<session>/debug_trace.jsonl`** and served by **`GET /foxxycode/sessions/{id}/debug`**.
 
 **`phase`** is one of **`turn_start`**, **`llm_request`**, **`llm_response`**, **`tool_start`**, **`tool_finish`**. **`title`** names the subject of the phase where there is one (the session mode on **`turn_start`**, the tool name on **`tool_start`** / **`tool_finish`**). **`_meta`** carries lightweight per-phase metadata (mode, model, message and tool counts, token usage, stop reason, tool call id and status) — never the raw LLM bodies, which go to the process log instead. Tracing is best-effort and never affects the turn.
 

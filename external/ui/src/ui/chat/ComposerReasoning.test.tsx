@@ -1,9 +1,13 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { setLocale } from "../i18n/i18n";
 import { Composer } from "./Composer";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 function renderComposerWithReasoning(opts: {
   levels?: string[];
@@ -45,6 +49,26 @@ test("choosing a level calls onLlmReasoningChange", () => {
   fireEvent.click(screen.getByRole("button", { name: "Reasoning level" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Low" }));
   expect(onChange).toHaveBeenCalledWith("low");
+});
+
+// Level ids come from the config ("medium"), so the pill and the menu have to
+// translate them rather than display-case the id.
+test("reasoning pill and menu follow the UI locale", () => {
+  setLocale("ru");
+  renderComposerWithReasoning({ reasoning: "medium" });
+  const btn = screen.getByRole("button", { name: "Уровень рассуждения" });
+  expect(btn).toHaveTextContent("Средний");
+  fireEvent.click(btn);
+  expect(screen.getByRole("menuitem", { name: "Минимальный" })).toBeTruthy();
+  expect(screen.getByRole("menuitem", { name: "Низкий" })).toBeTruthy();
+  expect(screen.getByRole("menuitem", { name: "Средний" })).toBeTruthy();
+  expect(screen.getByRole("menuitem", { name: "Высокий" })).toBeTruthy();
+});
+
+test("a level the UI has no name for is shown as its id", () => {
+  renderComposerWithReasoning({ levels: ["low", "turbo"], reasoning: "turbo" });
+  const btn = screen.getByRole("button", { name: "Reasoning level" });
+  expect(btn).toHaveTextContent("Turbo");
 });
 
 test("reasoning selector is hidden when no levels offered", () => {

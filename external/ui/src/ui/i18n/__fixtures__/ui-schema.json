@@ -165,7 +165,7 @@
           "title": "Debounce ms",
           "type": "integer"
         },
-        "enabled": {
+        "enable": {
           "default": false,
           "description": "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
           "title": "Enabled",
@@ -242,7 +242,7 @@
       "title": "Autocomplete",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "mode",
         "trigger",
@@ -260,7 +260,7 @@
       "additionalProperties": false,
       "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
       "properties": {
-        "enabled": {
+        "enable": {
           "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
           "title": "Enabled",
           "type": "boolean"
@@ -292,7 +292,7 @@
       "title": "Browser tool",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "headless",
         "screenshots",
         "executable_path",
@@ -304,7 +304,7 @@
       "additionalProperties": false,
       "description": "Summarize older turns when the conversation approaches the model context window.",
       "properties": {
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Turns on auto-compaction; only fires near the context window.",
           "title": "Enabled",
@@ -312,7 +312,7 @@
         },
         "engine": {
           "default": "coddy",
-          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
           "enum": [
             "coddy",
             "opencode"
@@ -320,9 +320,18 @@
           "title": "Compaction engine",
           "type": "string"
         },
+        "fallback_models": {
+          "default": [],
+          "description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback summarizer models",
+          "type": "array"
+        },
         "keep_recent_turns": {
           "default": 2,
-          "description": "Most recent user turns preserved verbatim (default 2).",
+          "description": "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.",
           "title": "Keep recent turns",
           "type": "integer"
         },
@@ -341,7 +350,7 @@
           "additionalProperties": false,
           "description": "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
           "properties": {
-            "enabled": {
+            "enable": {
               "description": "Master switch for result eviction. Defaults to true.",
               "title": "Enabled",
               "type": "boolean"
@@ -355,19 +364,25 @@
               "description": "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
               "title": "Min result bytes",
               "type": "integer"
+            },
+            "start_percent": {
+              "description": "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.",
+              "title": "Start at (%)",
+              "type": "integer"
             }
           },
           "title": "Read/grep result eviction",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "keep_recent",
-            "min_result_bytes"
+            "min_result_bytes",
+            "start_percent"
           ]
         },
         "threshold_percent": {
           "default": 80,
-          "description": "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).",
+          "description": "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).",
           "title": "Threshold percent",
           "type": "integer"
         }
@@ -376,8 +391,9 @@
       "type": "object",
       "x-foxxycode-property-order": [
         "engine",
-        "enabled",
+        "enable",
         "model",
+        "fallback_models",
         "threshold_percent",
         "keep_recent_turns",
         "max_tokens",
@@ -393,7 +409,7 @@
           "title": "Capture LLM bodies",
           "type": "boolean"
         },
-        "enabled": {
+        "enable": {
           "default": false,
           "description": "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).",
           "title": "Enabled",
@@ -403,7 +419,7 @@
       "title": "Debug",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "capture_llm"
       ]
     },
@@ -481,7 +497,7 @@
               "title": "Default isolation",
               "type": "string"
             },
-            "enabled": {
+            "enable": {
               "description": "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
               "title": "Enabled",
               "type": "boolean"
@@ -539,7 +555,7 @@
           "title": "Telegram",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "token",
             "rich_messages",
             "proxy",
@@ -567,7 +583,7 @@
           "title": "Default timeout (s)",
           "type": "integer"
         },
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Load and run hooks at all (default true).",
           "title": "Enabled",
@@ -614,7 +630,7 @@
       "title": "Hooks",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "files",
         "project_trust",
         "default_timeout_seconds",
@@ -864,10 +880,19 @@
           "title": "Memory root",
           "type": "string"
         },
-        "enabled": {
+        "enable": {
           "description": "Turns on the memory copilot for eligible builds.",
           "title": "Enabled",
           "type": "boolean"
+        },
+        "fallback_models": {
+          "default": [],
+          "description": "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback memory models",
+          "type": "array"
         },
         "max_search_hits": {
           "default": 8,
@@ -896,8 +921,9 @@
       "title": "Long-term memory",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
+        "fallback_models",
         "dir",
         "recall_max_turns",
         "persist_max_turns",
@@ -918,8 +944,8 @@
         "additionalProperties": false,
         "properties": {
           "max_context_tokens": {
-            "description": "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.",
-            "title": "Max context tokens (UI hint)",
+            "description": "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
+            "title": "Context window (tokens)",
             "type": "integer"
           },
           "max_tokens": {
@@ -1008,7 +1034,7 @@
           "additionalProperties": false,
           "description": "Select a system prompt tuned to the active model family (falls back to the shared prompt).",
           "properties": {
-            "enabled": {
+            "enable": {
               "default": true,
               "description": "Use a per-family prompt file (agent.\u003cfamily\u003e.md) when available.",
               "title": "Enabled",
@@ -1018,7 +1044,7 @@
           "title": "Per-provider prompts",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled"
+            "enable"
           ]
         },
         "plan_prompt": {
@@ -1130,7 +1156,7 @@
           "title": "Jobs directory",
           "type": "string"
         },
-        "enabled": {
+        "enable": {
           "description": "When true, this process may run the scheduler daemon and REST.",
           "title": "Enabled",
           "type": "boolean"
@@ -1157,7 +1183,7 @@
       "title": "Scheduler",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "dir",
         "max_queue",
         "timeout",
@@ -1205,7 +1231,7 @@
         },
         "sources": {
           "default": [],
-          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.",
           "items": {
             "type": "string"
           },
@@ -1244,7 +1270,7 @@
           "title": "Definition directories",
           "type": "array"
         },
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
           "title": "Enabled",
@@ -1282,7 +1308,7 @@
       "title": "Subagents",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "dirs",
         "project_trust",
         "max_concurrent",
@@ -1295,7 +1321,7 @@
       "additionalProperties": false,
       "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
       "properties": {
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Turns on backend auto-title generation for all clients.",
           "title": "Enabled",
@@ -1316,7 +1342,7 @@
       "title": "Automatic session title",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "max_tokens"
       ]
@@ -1334,7 +1360,7 @@
               "title": "Default timeout (s)",
               "type": "integer"
             },
-            "enabled": {
+            "enable": {
               "description": "Offer the background option on run_command and the background task tools (default true).",
               "title": "Enabled",
               "type": "boolean"
@@ -1358,7 +1384,7 @@
           "title": "Background tasks",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "max_concurrent",
             "default_timeout_seconds",
             "max_timeout_seconds",
@@ -1373,6 +1399,26 @@
           },
           "title": "Command allowlist",
           "type": "array"
+        },
+        "http_request": {
+          "additionalProperties": false,
+          "description": "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+          "properties": {
+            "allowlist": {
+              "default": [],
+              "description": "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowlist",
+              "type": "array"
+            }
+          },
+          "title": "HTTP requests",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "allowlist"
+          ]
         },
         "output_limits": {
           "additionalProperties": false,
@@ -1459,6 +1505,75 @@
           "description": "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.",
           "title": "Forbid the model from running the plan itself",
           "type": "boolean"
+        },
+        "websearch": {
+          "additionalProperties": false,
+          "description": "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
+          "properties": {
+            "brave_api_key": {
+              "description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.foxxycode/.env.",
+              "title": "Brave Search API key",
+              "type": "string"
+            },
+            "cache_ttl_seconds": {
+              "description": "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).",
+              "title": "Cache TTL (s)",
+              "type": "integer"
+            },
+            "engine_timeout_seconds": {
+              "description": "Seconds one engine may take before it is reported as unavailable (default 8).",
+              "title": "Engine timeout (s)",
+              "type": "integer"
+            },
+            "engines": {
+              "default": [],
+              "description": "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.",
+              "items": {
+                "enum": [
+                  "brave",
+                  "bing",
+                  "ddg",
+                  "google",
+                  "searxng"
+                ],
+                "type": "string"
+              },
+              "title": "Engines",
+              "type": "array"
+            },
+            "max_concurrent_engines": {
+              "description": "How many engines are asked at once (default 4).",
+              "title": "Max concurrent engines",
+              "type": "integer"
+            },
+            "searxng_url": {
+              "description": "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.",
+              "title": "SearXNG URL",
+              "type": "string"
+            },
+            "snippet_chars": {
+              "description": "Maximum characters of one result description (default 320).",
+              "title": "Snippet length",
+              "type": "integer"
+            },
+            "total_timeout_seconds": {
+              "description": "Seconds the whole search may take, however many engines it asks (default 20).",
+              "title": "Total timeout (s)",
+              "type": "integer"
+            }
+          },
+          "title": "Web search",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "engines",
+            "engine_timeout_seconds",
+            "total_timeout_seconds",
+            "max_concurrent_engines",
+            "snippet_chars",
+            "cache_ttl_seconds",
+            "searxng_url",
+            "brave_api_key"
+          ]
         }
       },
       "title": "Tools and permissions",
@@ -1469,14 +1584,21 @@
         "permission_timeout_seconds",
         "plan_no_self_run",
         "output_limits",
-        "background"
+        "background",
+        "websearch",
+        "http_request"
       ]
     },
     "ui": {
       "additionalProperties": false,
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "properties": {
-        "enabled": {
+        "effects": {
+          "description": "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings \u003e Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else.",
+          "title": "Animations and translucency",
+          "type": "boolean"
+        },
+        "enable": {
           "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.",
           "title": "Serve the SPA",
           "type": "boolean"
@@ -1516,11 +1638,12 @@
       "title": "UI",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "locale",
         "send_mode",
         "status_line",
-        "session_changes"
+        "session_changes",
+        "effects"
       ]
     },
     "vcs": {
@@ -1542,7 +1665,7 @@
               "title": "List repository branches",
               "type": "boolean"
             },
-            "enabled": {
+            "enable": {
               "default": true,
               "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
               "title": "Enabled",
@@ -1558,7 +1681,7 @@
           "title": "Subversion",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "binary",
             "timeout_seconds",
             "branch_lookup"
@@ -1578,6 +1701,7 @@
     "providers",
     "models",
     "agent",
+    "compaction",
     "autocomplete",
     "tools",
     "subagents",
@@ -1585,7 +1709,6 @@
     "mcp_servers",
     "skills",
     "memory",
-    "compaction",
     "title",
     "scheduler",
     "prompts",

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { Chevron } from "../components/Chevron";
 import type { BackgroundTask } from "./types";
 import { SubagentPermissionCard } from "./SubagentPermissionCard";
 import {
@@ -356,23 +357,19 @@ export function BackgroundTasksPanel(props: {
             </div>
           ) : null}
 
-          {running.length > 0 ? (
-            <>
-              <div className="bgtask-section-label" data-testid="bgtask-section-running">
-                {t("tasks.sectionRunning")}
-              </div>
-              {running.map((task) => (
-                <RunningCard
-                  key={task.id}
-                  task={task}
-                  nowMs={props.nowMs}
-                  onOpen={props.onOpenTask}
-                  onStop={props.onStopTask}
-                  onPermissionAnswered={() => props.onRefresh?.()}
-                />
-              ))}
-            </>
-          ) : null}
+          {/* No heading over the live cards: a row that is not under the
+              finished counter below is running, and saying so twice only
+              costs a line of the panel. */}
+          {running.map((task) => (
+            <RunningCard
+              key={task.id}
+              task={task}
+              nowMs={props.nowMs}
+              onOpen={props.onOpenTask}
+              onStop={props.onStopTask}
+              onPermissionAnswered={() => props.onRefresh?.()}
+            />
+          ))}
 
           {finished.length > 0 ? (
             <>
@@ -384,10 +381,7 @@ export function BackgroundTasksPanel(props: {
                   aria-expanded={finishedOpen}
                   onClick={() => setFinishedOpen((v) => !v)}
                 >
-                  <span
-                    className={`bgtask-section-chevron ${finishedOpen ? "is-open" : ""}`}
-                    aria-hidden="true"
-                  />
+                  <Chevron open={finishedOpen} />
                   {t("tasks.sectionFinished", { count: finished.length })}
                 </button>
                 <button

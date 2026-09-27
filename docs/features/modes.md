@@ -19,17 +19,18 @@ Made for design documents, specs and the investigation that precedes a change. T
 - `plan_write`, `plan_list` and `plan_read` for the plan document, and `plan_exit`, which switches the session to agent mode and starts the implementation (dropped under `tools.plan_no_self_run`, so only **Run plan** can start it);
 - `svn_info`, `svn_status`, `svn_diff`, `svn_log` and `svn_list` while `vcs.svn` is on;
 - `load_skill`, and `spawn_agent`, whose child stays in plan mode;
+- `compact_context`, to fold the history a long investigation piled up ([Context compaction](compaction.md#the-model-can-ask-for-it)), and `session_describe`, to file the session under a title and tags of its own ([Sessions](sessions.md#tags-and-the-archive));
 - the tools of connected MCP servers.
 
 No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode.
 
 ### `docs`
 
-Made for writing and maintaining documentation. The model is offered `read`, `keep_result`, `glob`, `grep`, `websearch`, `webfetch` and `question`, plus `docs_write` and `docs_edit`, which create and edit Markdown files only - `README.md`, `AGENTS.md`, `DESIGN.md` and pages under `docs/` - and never source code or prompt templates. No shell, no MCP tools, no `spawn_agent`. The system prompt comes from `docs.md` (`prompts.docs_prompt`).
+Made for writing and maintaining documentation. The model is offered `read`, `keep_result`, `glob`, `grep`, `websearch`, `webfetch` and `question`, plus `docs_write` and `docs_edit`, which create and edit Markdown files only - `README.md`, `AGENTS.md`, `DESIGN.md` and pages under `docs/` - and never source code or prompt templates, and `session_describe` for the session's own title and tags. No shell, no MCP tools, no `spawn_agent`. The system prompt comes from `docs.md` (`prompts.docs_prompt`).
 
 ### `ask`
 
-Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question` and `load_skill`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
+Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill` and `session_describe`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. Filing is on that list because it writes the session's own title and tags - a long question earns a name, and a reader of the workspace sees nothing of it. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
 
 ### `debug`
 
@@ -37,7 +38,7 @@ Made for finding the cause of a failure before changing anything. The tool set i
 
 ### What they share
 
-The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enabled` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded prompt sections (`internal/prompts/sections/<mode>`), replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt`, `docs_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
+The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded prompt sections (`internal/prompts/sections/<mode>`), replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt`, `docs_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
 
 ## Plan mode and the plan document
 
@@ -48,7 +49,7 @@ The web UI renders that row as the plan document card in the chat column:
 - **Collapsed**: the title (`name`, else the slug, with the file path as tooltip), a one-line description, and **Discard** and **Run plan** in the footer.
 - **Expanded**: the rendered markdown by default; the eye toggle switches to the markdown line editor, which holds the body without the frontmatter and autosaves through `PUT /foxxycode/sessions/{id}/plans/{slug}` about 600 ms after the last keystroke. The pane grows with the document instead of scrolling inside itself.
 - **Discard** (`DELETE` on the same route) marks the plan discarded: the card stays in the transcript, muted, with its controls disabled, and the plan leaves the plan-mode system prompt.
-- **Run plan** sends the next prompt with `metadata.runPlanSlug` (`_meta` `foxxycode.dev/runPlanSlug` over ACP): FoxxyCode switches the session to agent mode, injects the plan body into the system prompt and runs the turn. The session todo list is not filled from the plan.
+- **Run plan** sends the next prompt with `metadata.runPlanSlug` (`_meta` `foxxycode.dev/runPlanSlug` over ACP): FoxxyCode switches the session to agent mode, injects the plan body into the system prompt and runs the turn. The session todo list is not filled from the plan. The plan body stays with that turn for as long as it can still be continued - a turn stopped on a permission prompt renders its system prompt again when the answer arrives, so the text is held in the bundle (`pending_plan_context.json`) and released once the turn is over.
 - In the read-only transcript of a subagent child the card has no footer and its editor is read-only.
 
 The portable route, for a client without that hook, is to switch to agent mode and mention `@plans/<slug>.plan.md` in the prompt. Details: [Web UI](../surfaces/web-ui.md#plan-document-card-plan-mode-transcript), [ACP protocol](../reference/acp-protocol.md#design-plans-plan-mode).

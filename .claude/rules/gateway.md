@@ -17,13 +17,14 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 | `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
 | `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to FoxxyCode session IDs; persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
-| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `markdown.go` (md → Telegram format) |
+| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
+| `internal/tgfake` (untagged) | The fake Bot API: every method the adapter calls, long-polled `getUpdates`, the `/sim/*` API and the chat page, `llmstub` for a scripted model. `cmd/tgfake` serves it; the adapter's polling feature runs it on httptest |
 
 ## Session store
 
-`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$FOXXYCODE_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue without re-sending the one-time initialization hint.
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$FOXXYCODE_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off.
 
-`KnownIDs()` is called at startup to pre-populate the `seenSessions` set (prevents re-injecting the Telegram formatting hint into existing sessions after a restart).
+`newID()` mints ids through `session.NewSessionID()`: a chat conversation is an ordinary FoxxyCode session with an ordinary `sess_` id, so `GET /foxxycode/sessions` lists it beside the sessions started in a terminal or a browser.
 
 ## SessionRunner interface
 
@@ -50,15 +51,21 @@ type SessionRunner interface {
 - `Flush()` → replaces the live message with the final formatted text, converted to Telegram legacy Markdown via `markdown.go`.
 - `RequestPermission` auto-approves (the admin configured the bot deliberately).
 
+## Answering through a surface
+
+`prompt.go` holds what this adapter tells the model about answering into a Telegram chat: the legacy subset when `rich_messages` is off, and a shorter note about phone-sized answers when it is on. The bot passes it per turn as `session.PromptRunOpts.SurfaceSystemPrompt`; `internal/session` holds it on the state for the length of the turn (`SetSurfaceSystemPrompt`, cleared before the turn lock is released, never persisted) and `internal/agent` appends it to the system prompt after the hook context (`Agent.surfaceBlock`). A turn from another surface on the same session carries a different prefix and loses the cached one - the accepted cost of keeping messenger quirks out of the core.
+
 ## Markdown conversion
 
-`markdown.go` converts standard Markdown to Telegram legacy format: ATX headers → `*bold*`, `**text**` → `*text*`, bullet `* item` → `• item`, tables → plain text, horizontal rules → separator. Fenced code blocks are preserved verbatim.
+`markdown.go` is the gateway's **outbound rendering step**: the safety net under the prompt block above, because a model does not always comply. The transcript carries none of it, so a chat conversation is an ordinary session, and the next integration adds its own `prompt.go` plus its own renderer.
+
+`convertMarkdown` does the work behind two entry points. `mdToTelegram` renders for `ParseMode="Markdown"` (ATX headings and `**text**` → `*text*`, `__x__` → `_x_`, bullet `* item` → `• item`, tables flattened, horizontal rules → a separator) and `mdToPlainPreview` renders for the live streaming message, which is sent with **no** parse mode and therefore drops the emphasis markers rather than showing them as punctuation. Fenced code blocks are set aside **before** any rule runs and restored afterwards, so a `**p` or a `# comment` inside a block is never rewritten; an unclosed fence (a truncated answer) is taken to run to the end. Capture groups are written `${1}`, not `$1`: an underscore is a word character, so `"_$1_"` names a group called `1_` and expands to nothing.
 
 ## Rich Messages (Bot API 10.1)
 
 Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGatewayConfig.RichMessages`). When on, the agent's native Markdown is sent verbatim instead of being downgraded by `markdown.go`.
 
-- `richmsg.go` (pure, table-tested): `buildRichMarkdown` (final message = tool `<details>` blocks first, each with its output via the `toolCall` type, then the answer verbatim) and `buildRichDraftMarkdown` (streaming preview + draft-only `<tg-thinking>` block while a tool runs). Rich mode prepends **no** formatting hint (unlike legacy `telegramFormattingHint`), so the first turn is identical to later ones — a hint-prefixed first message was suppressing replies. The Sender captures tool args/results from `acp.ToolCallStatusUpdate`. `flushRich` retries with the answer alone if the combined message (answer + tool blocks) is rejected, so the reply is never lost.
+- `richmsg.go` (pure, table-tested): `buildRichMarkdown` (final message = tool `<details>` blocks first, each with its output via the `toolCall` type, then the answer verbatim) and `buildRichDraftMarkdown` (streaming preview + draft-only `<tg-thinking>` block while a tool runs). Rich mode has nothing to downgrade, so the answer goes out verbatim. The Sender captures tool args/results from `acp.ToolCallStatusUpdate`. `flushRich` retries with the answer alone if the combined message (answer + tool blocks) is rejected, so the reply is never lost.
 - `richclient.go`: `inputRichMessage` type, `richParams`/`richDraftParams` builders, and `sendRichMessage`/`sendRichMessageDraft` issued via `bot.MakeRequest` (the `go-telegram-bot-api/v5` library has no native methods). `InputRichMessage` takes a `markdown` string — no hand-built `RichBlock` JSON tree.
 - `Sender` carries a `richConfig{enabled, allowDraft, draftID}`. `allowDraft` is true only in private chats (drafts are private-only). `Flush()` finalizes via `sendRichMessage`; on error it falls back to the legacy formatted send so the bot never goes silent.
 - No `editRichMessage` exists; drafts are ephemeral 30 s previews and need no deletion. `<tg-thinking>` (RichBlockThinking) may be used only in drafts.
@@ -66,6 +73,16 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 ## Proxy
 
 `proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.
+
+## Bot API origin
+
+`Start()` reads `config.TelegramAPIBaseEnv` (`FOXXYCODE_TELEGRAM_API_BASE`, the variable the `--dry-run` probe honours too) and builds the library's endpoint template with `telegramAPIEndpoint` (`<origin>/bot%s/%s`; empty means api.telegram.org). It logs `telegram: api base override` at `info` when set. Tests set the unexported `Bot.apiBase` instead of the environment. `internal/tgfake` is the stand-in server that origin points at, in `go run ./cmd/tgfake` and in the polling feature; it is untagged and imports no Telegram library, so it must stay free of `tgbotapi` types. Operator guide: `docs/surfaces/gateway.md` (Debugging against a fake Bot API).
+
+The poll names its `allowed_updates` (`subscribedUpdates`: `message`, `callback_query`) on every request. Telegram remembers the last subscription a bot asked for, and the library sends none by default, which inherits whatever a previous process left - a token once run under another framework with messages only drops every keyboard tap server-side (found on a real bot). Extend that list when the adapter starts handling another update kind; `tgfake` models the memory (`Options.AllowedUpdates`, `SetAllowedUpdates`) and the polling feature starts under a stale subscription.
+
+## Tests
+
+Every test in `external/gateway/telegram` that needs Telegram reaches it through `fakeapi_test.go`: `newFakeAPI(t, opts)` (or `openFakeAPI` for a godog world) serves `internal/tgfake` on httptest and hands back a `tgbotapi` client pointed at it; `userMessage` and `tap` put the person's side into the fake's chat, so the message a handler replies to and the keyboard a tap presses are ones the server knows. Assert on `fake.Calls(method)` (what the bot posted) and `fake.Chat(id)` (what the chat ends up holding). Do not hand-roll an `http.HandlerFunc` for the Bot API: a canned answer accepts what Telegram refuses (an edit of a message never sent, 65 bytes of `callback_data`, a 4097-character text, a reply to a message the chat does not hold, an answer to a callback query it never issued). When a test needs Telegram to behave in a new way - a new method, a new refusal - extend `internal/tgfake` with its own unit test; `Fault` (`Times`, `Contains`) covers refusals by method and by payload. The godog harnesses call `processMessage` / `handleCallback` directly to stay synchronous; only `bdd_polling_test.go` runs `Bot.Start`.
 
 ## Adding a new adapter
 

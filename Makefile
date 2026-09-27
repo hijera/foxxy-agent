@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -36,7 +36,8 @@ LDFLAGS := -X github.com/hijera/foxxycode-agent/internal/version.Version=$(VERSI
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/foxxycode
+GOEXE := $(shell go env GOEXE)
+BINARY := $(BUILD_DIR)/foxxycode$(GOEXE)
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory cli browser gateway swarm
@@ -56,12 +57,29 @@ endif
 DESKTOP_TAGS := http ui scheduler memory desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
-# Regenerate the Windows app icon resource from the source PNG. Run manually when
-# foxxycode2-Photoroom.png changes; the generated .syso is committed so routine
-# builds don't need this step. cmd/foxxycode/rsrc_windows_amd64.syso is auto-linked
-# by every windows/amd64 go build (desktop shell and CLI) as the .exe file icon.
-icon:
-	go run internal/desktop/icon/gen.go foxxycode2-Photoroom.png build/foxxycode.ico
+# ---- Brand assets ----
+#
+# Everything the product is recognised by - the favicons, the social preview,
+# the editor plugin icons and the Windows executable icon - is rendered from one
+# vector, docs/assets/foxxycode-logo-glyph.svg. Both targets need a local Chrome
+# (the generator rasterises through chromedp) and are run by hand: the output is
+# committed, so an ordinary build and CI never see this step.
+#
+# `brand` also rewrites docs/assets/brand.lock.json, which internal/brand's test
+# reads. Editing a brand vector without re-running this fails `make test`, which
+# is how the social preview kept the upstream product's name for months.
+#
+# The fox itself is traced from docs/assets/brand/foxxycode-mark-1024.png by
+# scripts/brand/trace.py; that step is only needed when the artwork changes.
+# See docs/contributing/brand.md.
+brand:
+	go run scripts/brand/gen.go
+
+# icon adds the Windows executable resource on top: rsrc wraps build/foxxycode.ico
+# (written by `brand`) into cmd/foxxycode/rsrc_windows_amd64.syso, which every
+# windows/amd64 go build links as the .exe file icon and internal/desktop shows
+# on the WebView2 window.
+icon: brand
 	go run github.com/akavel/rsrc -arch amd64 -ico build/foxxycode.ico -o cmd/foxxycode/rsrc_windows_amd64.syso
 
 build-desktop: ui-build
@@ -113,7 +131,7 @@ install:
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/foxxycode
+	cp $(BINARY) $(INSTALL_DIR)/foxxycode$(GOEXE)
 	cp packaging/man/foxxycode.1 $(MAN_DIR)/foxxycode.1
 	@echo "Installed to $(INSTALL_DIR)/foxxycode and $(MAN_DIR)/foxxycode.1"
 
@@ -166,25 +184,53 @@ brew-check:
 # binary. docs-check regenerates into memory and fails on drift, on a page missing
 # from nav.yaml, on a broken relative link or anchor, and on an asset nothing uses.
 #
-# Windows starts a program only under a name with an executable extension, and
-# build writes $(BINARY) without one, so the help screens are read from a copy.
-DOCS_BINARY := $(BINARY)$(if $(filter Windows_NT,$(OS)),.exe,)
+# $(BINARY) carries Go's executable suffix (GOEXE), so on Windows the help
+# screens are read from build/foxxycode.exe directly.
 
 docs:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
-	$(if $(filter Windows_NT,$(OS)),cp $(BINARY) $(DOCS_BINARY))
-	go run ./cmd/docsgen -write -foxxycode $(DOCS_BINARY) -tags "$(FULL_TAGS_CSV)"
+	go run ./cmd/docsgen -write -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
 
 docs-check:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
-	$(if $(filter Windows_NT,$(OS)),cp $(BINARY) $(DOCS_BINARY))
-	go run ./cmd/docsgen -foxxycode $(DOCS_BINARY) -tags "$(FULL_TAGS_CSV)"
+	go run ./cmd/docsgen -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
 
 # docs-fast regenerates everything but the CLI reference, so a machine without
 # Node (the ui tag needs the SPA build) can still refresh the hub, the llms
 # files, the config tables and the assets inventory.
 docs-fast:
 	go run ./cmd/docsgen -write -skip-cli
+
+# ---- Website (site/, published on GitHub Pages together with docs/) ----
+# site-check is what CI runs on every pull request: the release and changelog data are baked
+# from a fixture (no network) in strict mode, so an untranslated changelog entry fails here.
+# site bakes the live data the way the Website workflow does and assembles the Pages artifact
+# in site/_site. See docs/contributing/website.md.
+SITE_NPM_CI := cd site && npm ci --no-fund --no-audit
+
+site-check:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs --offline test/fixtures/releases.json --strict
+	cd site && npm run typecheck && npm test && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+site:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+# The skills FoxxyCode carries inside its binary (internal/skills/bundled). Those
+# that live in their own repositories are vendored rather than fetched at
+# runtime: skills-vendor refreshes the copies from the upstreams named in
+# scripts/bundled-skills.json, skills-vendor-check reports drift without
+# writing. Needs jq, git and network.
+skills-vendor:
+	scripts/vendor-bundled-skills.sh
+
+skills-vendor-check:
+	scripts/vendor-bundled-skills.sh --check
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:

@@ -43,7 +43,7 @@ type VCSJSON struct {
 // SVNJSON mirrors SVNConfig for JSON APIs. Enabled and BranchLookup are pointers
 // so an unset value round-trips as "use default" (true) rather than false.
 type SVNJSON struct {
-	Enabled        *bool  `json:"enabled,omitempty"`
+	Enabled        *bool  `json:"enable,omitempty"`
 	Binary         string `json:"binary,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 	BranchLookup   *bool  `json:"branch_lookup,omitempty"`
@@ -52,7 +52,7 @@ type SVNJSON struct {
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
 // value round-trips as "use default" (true) rather than an explicit false.
 type BrowserJSON struct {
-	Enabled        bool   `json:"enabled,omitempty"`
+	Enabled        bool   `json:"enable,omitempty"`
 	Headless       *bool  `json:"headless,omitempty"`
 	ExecutablePath string `json:"executable_path,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
@@ -60,10 +60,12 @@ type BrowserJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled    *bool  `json:"enabled,omitempty"`
+	Enabled    *bool  `json:"enable,omitempty"`
 	Locale     string `json:"locale,omitempty"`
 	SendMode   string `json:"send_mode,omitempty"`
 	StatusLine *bool  `json:"status_line,omitempty"`
+	// Effects mirrors UIConfig.Effects.
+	Effects *bool `json:"effects,omitempty"`
 }
 
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
@@ -73,7 +75,7 @@ type GatewaysJSON struct {
 
 // TelegramGatewayJSON mirrors TelegramGatewayConfig.
 type TelegramGatewayJSON struct {
-	Enabled          bool                    `json:"enabled,omitempty"`
+	Enabled          bool                    `json:"enable,omitempty"`
 	Token            string                  `json:"token,omitempty"`
 	Proxy            string                  `json:"proxy,omitempty"`
 	RichMessages     bool                    `json:"rich_messages,omitempty"`
@@ -173,7 +175,7 @@ type PromptsJSON struct {
 // PerProviderPromptsJSON mirrors PerProviderPrompts. Enabled is a pointer so an
 // unset value round-trips as "use default" rather than an explicit false.
 type PerProviderPromptsJSON struct {
-	Enabled *bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enable,omitempty"`
 }
 
 // SkillsJSON mirrors Skills for JSON APIs.
@@ -220,14 +222,38 @@ type ToolsJSON struct {
 	CommandAllowlist         []string `json:"command_allowlist,omitempty"`
 	PermissionTimeoutSeconds int      `json:"permission_timeout_seconds,omitempty"`
 	PlanNoSelfRun            *bool    `json:"plan_no_self_run,omitempty"`
+	SSHConnectTimeout        int      `json:"ssh_connect_timeout,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
+	WebSearch    ToolWebSearchJSON    `json:"websearch,omitempty"`
+	HTTPRequest  ToolHTTPRequestJSON  `json:"http_request,omitempty"`
+}
+
+// ToolWebSearchJSON mirrors ToolWebSearch for JSON APIs. BraveAPIKey travels
+// both ways, like a provider's api_key: it is a credential for a third-party
+// service the settings screen edits, not one that grants access to FoxxyCode
+// itself, which is what the write-only fields (httpserver.auth_token, the login
+// hash, the swarm tokens) are. config_get still redacts it from the model.
+type ToolWebSearchJSON struct {
+	Engines              []string `json:"engines,omitempty"`
+	EngineTimeoutSeconds int      `json:"engine_timeout_seconds,omitempty"`
+	TotalTimeoutSeconds  int      `json:"total_timeout_seconds,omitempty"`
+	MaxConcurrentEngines int      `json:"max_concurrent_engines,omitempty"`
+	SnippetChars         int      `json:"snippet_chars,omitempty"`
+	CacheTTLSeconds      int      `json:"cache_ttl_seconds,omitempty"`
+	SearXNGURL           string   `json:"searxng_url,omitempty"`
+	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
+}
+
+// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs.
+type ToolHTTPRequestJSON struct {
+	Allowlist []string `json:"allowlist,omitempty"`
 }
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
 type ToolBackgroundJSON struct {
-	Enabled               *bool `json:"enabled,omitempty"`
+	Enabled               *bool `json:"enable,omitempty"`
 	MaxConcurrent         int   `json:"max_concurrent,omitempty"`
 	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
 	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
@@ -258,7 +284,7 @@ type LoggerJSON struct {
 // DebugJSON mirrors Debug for JSON APIs. CaptureLLM is a pointer so an unset
 // value round-trips as "follow Enabled" rather than false.
 type DebugJSON struct {
-	Enabled    bool  `json:"enabled"`
+	Enabled    bool  `json:"enable"`
 	CaptureLLM *bool `json:"capture_llm,omitempty"`
 }
 
@@ -275,13 +301,16 @@ type SessionsJSON struct {
 
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
-	Enabled          bool   `json:"enabled,omitempty"`
+	Enabled          bool   `json:"enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	Dir              string `json:"dir,omitempty"`
 	RecallMaxTurns   int    `json:"recall_max_turns,omitempty"`
 	PersistMaxTurns  int    `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens int    `json:"copilot_max_tokens,omitempty"`
 	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
+	// FallbackModels rides the DTO so a settings save keeps it: upstream left it
+	// out of its DTO, which drops the key from config.yaml on the first save.
+	FallbackModels []string `json:"fallback_models,omitempty"`
 }
 
 // CompactionJSON mirrors CompactionConfig. Enabled is a pointer so an unset value round-trips as
@@ -289,26 +318,29 @@ type MemoryJSON struct {
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
 	Engine           string `json:"engine,omitempty"`
-	Enabled          *bool  `json:"enabled,omitempty"`
+	Enabled          *bool  `json:"enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
 	MaxTokens        int    `json:"max_tokens,omitempty"`
+	// FallbackModels: see MemoryJSON.FallbackModels.
+	FallbackModels []string `json:"fallback_models,omitempty"`
 	// omitempty does not apply to structs; unset eviction serializes as {}.
 	ResultEviction ResultEvictionJSON `json:"result_eviction"`
 }
 
 type ResultEvictionJSON struct {
-	Enabled        *bool `json:"enabled,omitempty"`
+	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
+	StartPercent   *int  `json:"start_percent,omitempty"`
 }
 
 // AutocompleteJSON mirrors AutocompleteConfig. Enabled and MultiLine are pointers so an unset
 // value round-trips as "use the default" rather than an explicit false. Note that Enabled defaults
 // to false here, unlike the other optional sections: suggestions cost tokens per keystroke.
 type AutocompleteJSON struct {
-	Enabled        *bool   `json:"enabled,omitempty"`
+	Enabled        *bool   `json:"enable,omitempty"`
 	Model          string  `json:"model,omitempty"`
 	Mode           string  `json:"mode,omitempty"`
 	Temperature    float64 `json:"temperature,omitempty"`
@@ -325,7 +357,7 @@ type AutocompleteJSON struct {
 // TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
 // "use default" (true) rather than an explicit false.
 type TitleJSON struct {
-	Enabled   *bool  `json:"enabled,omitempty"`
+	Enabled   *bool  `json:"enable,omitempty"`
 	Model     string `json:"model,omitempty"`
 	MaxTokens int    `json:"max_tokens,omitempty"`
 }
@@ -355,7 +387,7 @@ type HTTPServerJSON struct {
 // the config never returns it, and writing the config back without it keeps the
 // hash that is already on disk.
 type HTTPLoginJSON struct {
-	Enabled         *bool  `json:"enabled,omitempty"`
+	Enabled         *bool  `json:"enable,omitempty"`
 	Mode            string `json:"mode,omitempty"`
 	User            string `json:"user,omitempty"`
 	PasswordHash    string `json:"password_hash,omitempty"`
@@ -364,7 +396,7 @@ type HTTPLoginJSON struct {
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
 type HTTPCORSJSON struct {
-	Enabled        bool     `json:"enabled,omitempty"`
+	Enabled        bool     `json:"enable,omitempty"`
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
@@ -436,7 +468,7 @@ type SwarmJoinJSON struct {
 
 // SubagentsJSON mirrors Subagents.
 type SubagentsJSON struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
+	Enabled               *bool    `json:"enable,omitempty"`
 	Dirs                  []string `json:"dirs,omitempty"`
 	ProjectTrust          string   `json:"project_trust,omitempty"`
 	MaxConcurrent         int      `json:"max_concurrent,omitempty"`
@@ -447,7 +479,7 @@ type SubagentsJSON struct {
 
 // HooksJSON mirrors Hooks.
 type HooksJSON struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
+	Enabled               *bool    `json:"enable,omitempty"`
 	Files                 []string `json:"files,omitempty"`
 	ProjectTrust          string   `json:"project_trust,omitempty"`
 	DefaultTimeoutSeconds int      `json:"default_timeout_seconds,omitempty"`
@@ -457,7 +489,7 @@ type HooksJSON struct {
 
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
-	Enabled        bool   `json:"enabled,omitempty"`
+	Enabled        bool   `json:"enable,omitempty"`
 	Dir            string `json:"dir,omitempty"`
 	MaxQueue       int    `json:"max_queue,omitempty"`
 	Timeout        string `json:"timeout,omitempty"`
@@ -540,6 +572,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CommandAllowlist:         append([]string(nil), c.Tools.CommandAllowlist...),
 		PermissionTimeoutSeconds: c.Tools.PermissionTimeoutSeconds,
 		PlanNoSelfRun:            c.Tools.PlanNoSelfRun,
+		SSHConnectTimeout:        c.Tools.SSHConnectTimeout,
+		WebSearch:                ToolWebSearchJSON(c.Tools.WebSearch),
 		OutputLimits: ToolOutputLimitsJSON{
 			Read: c.Tools.OutputLimits.Read, Grep: c.Tools.OutputLimits.Grep,
 			Glob: c.Tools.OutputLimits.Glob, PrintTree: c.Tools.OutputLimits.PrintTree,
@@ -554,6 +588,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
 		},
+		HTTPRequest: ToolHTTPRequestJSON{
+			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
+		},
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -566,14 +603,17 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
+		FallbackModels: append([]string(nil), c.Memory.FallbackModels...),
 	}
 	out.Compaction = CompactionJSON{
 		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
 		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
-		MaxTokens: c.Compaction.MaxTokens,
+		MaxTokens:      c.Compaction.MaxTokens,
+		FallbackModels: append([]string(nil), c.Compaction.FallbackModels...),
 		ResultEviction: ResultEvictionJSON{
 			Enabled: c.Compaction.ResultEviction.Enabled, KeepRecent: c.Compaction.ResultEviction.KeepRecent,
 			MinResultBytes: c.Compaction.ResultEviction.MinResultBytes,
+			StartPercent:   c.Compaction.ResultEviction.StartPercent,
 		},
 	}
 	out.Title = TitleJSON{
@@ -695,6 +735,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.UI = UIJSON{
 		Enabled: c.UI.Enabled, Locale: c.UI.Locale,
 		SendMode: c.UI.SendMode, StatusLine: c.UI.StatusLine,
+		Effects: c.UI.Effects,
 	}
 	out.Browser = BrowserJSON{
 		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
@@ -810,6 +851,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CommandAllowlist:         append([]string(nil), j.Tools.CommandAllowlist...),
 		PermissionTimeoutSeconds: j.Tools.PermissionTimeoutSeconds,
 		PlanNoSelfRun:            j.Tools.PlanNoSelfRun,
+		SSHConnectTimeout:        j.Tools.SSHConnectTimeout,
+		WebSearch:                ToolWebSearch(j.Tools.WebSearch),
 		OutputLimits: ToolOutputLimits{
 			Read: j.Tools.OutputLimits.Read, Grep: j.Tools.OutputLimits.Grep,
 			Glob: j.Tools.OutputLimits.Glob, PrintTree: j.Tools.OutputLimits.PrintTree,
@@ -823,6 +866,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
+		HTTPRequest: ToolHTTPRequest{
+			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
 		},
 	}
 	cfg.Logger = Logger{
@@ -838,14 +884,17 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
+		FallbackModels: append([]string(nil), j.Memory.FallbackModels...),
 	}
 	cfg.Compaction = CompactionConfig{
 		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
 		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
-		MaxTokens: j.Compaction.MaxTokens,
+		MaxTokens:      j.Compaction.MaxTokens,
+		FallbackModels: append([]string(nil), j.Compaction.FallbackModels...),
 		ResultEviction: ResultEviction{
 			Enabled: j.Compaction.ResultEviction.Enabled, KeepRecent: j.Compaction.ResultEviction.KeepRecent,
 			MinResultBytes: j.Compaction.ResultEviction.MinResultBytes,
+			StartPercent:   j.Compaction.ResultEviction.StartPercent,
 		},
 	}
 	cfg.Title = TitleConfig{
@@ -960,6 +1009,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.UI = UIConfig{
 		Enabled: j.UI.Enabled, Locale: j.UI.Locale,
 		SendMode: j.UI.SendMode, StatusLine: j.UI.StatusLine,
+		Effects: j.UI.Effects,
 	}
 	cfg.Browser = BrowserConfig{
 		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
@@ -983,7 +1033,9 @@ func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
 // This lets the UI save an edited, redacted config without wiping tokens it never received.
 func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
 	var j ConfigJSON
-	if err := json.Unmarshal(data, &j); err != nil {
+	// A client written against the old spelling sends `enabled`; it means the same
+	// switch as `enable` (switch_alias.go).
+	if err := json.Unmarshal(normalizeJSONSwitchAliases(data), &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)

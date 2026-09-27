@@ -43,20 +43,33 @@ func TestSessionKey_GroupAdmin(t *testing.T) {
 	}
 }
 
+// mustGet is Get with the entropy failure turned into a test failure.
+func mustGet(t *testing.T, s *sessionstore.Store, key string) string {
+	t.Helper()
+	id, err := s.Get(key)
+	if err != nil {
+		t.Fatalf("Get(%q): %v", key, err)
+	}
+	return id
+}
+
 func TestStore_GetAndReset(t *testing.T) {
 	s := sessionstore.New()
-	id1 := s.Get("tg:user:1")
+	id1 := mustGet(t, s, "tg:user:1")
 	if id1 == "" {
 		t.Fatal("expected non-empty session ID")
 	}
-	if s.Get("tg:user:1") != id1 {
+	if mustGet(t, s, "tg:user:1") != id1 {
 		t.Fatal("second Get should return same ID")
 	}
-	id2 := s.Reset("tg:user:1")
+	id2, err := s.Reset("tg:user:1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if id2 == id1 {
 		t.Fatal("Reset should produce a different ID")
 	}
-	if s.Get("tg:user:1") != id2 {
+	if mustGet(t, s, "tg:user:1") != id2 {
 		t.Fatal("Get after Reset should return new ID")
 	}
 }
@@ -75,7 +88,7 @@ func TestPeekDoesNotMintAMapping(t *testing.T) {
 		t.Fatalf("Peek wrote the store file: %v", err)
 	}
 
-	id := s.Get("tg:user:1")
+	id := mustGet(t, s, "tg:user:1")
 	if id == "" {
 		t.Fatal("Get returned no id")
 	}

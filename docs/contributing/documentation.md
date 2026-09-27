@@ -16,7 +16,7 @@ How the documentation under `docs/` is organised, what a change to FoxxyCode mus
 | `docs/plans/` | Design records, decisions as they were taken | Internal: not in the map, frozen, not rewritten to match a later rename |
 | `docs/assets/` | What the pages embed: screenshots and brand files | See [the assets index](../assets/INDEX.md) |
 
-The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub), [`docs/llms.txt`](../llms.txt) and [`docs/llms-full.txt`](../llms-full.txt) are generated from it. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
+The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub) is generated from it, and so are the `llms.txt` and `llms-full.txt` the website publishes. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
 
 A page that moves takes its address with it: there are no redirect stubs, so an old link breaks. Links that leave the repository - the binary, the schema descriptions, the bundled skill - name the page on GitHub, `https://github.com/hijera/foxxy-agent/blob/main/docs/<group>/<page>.md`, and move with it.
 
@@ -61,6 +61,10 @@ Capture the real surface, never a mockup and never a re-used older image that no
 
 Screenshots taken as evidence for a pull request (before and after pairs, every theme, every width) belong to the pull request: push them to the orphan `screenshots` branch and link the raw file, or drag them into the description on GitHub. They never go under `docs/assets/`.
 
+## The website
+
+GitHub Pages publishes this `docs/` tree as it is, with [the website](website.md) laid over it, so a page's address never changes because of the site and `updatePlugins.xml` and `config.schema.json` stay where IDEs and configs look for them. Screenshots for the website live in `site/public/screenshots/`, never under `docs/assets/`, and the site may not add a path that `docs/` already has.
+
 ## Assets index
 
 [`docs/assets/INDEX.md`](../assets/INDEX.md) states what belongs in the folder, the capture recipes and the brand files, and carries a generated inventory: every asset with its size and the files that reference it. `make docs-check` fails on an asset nothing references, so a file is either used by a page, the README, `DESIGN.md`, the `Dockerfile` or a capture script, or it is deleted.
@@ -72,7 +76,7 @@ Screenshots taken as evidence for a pull request (before and after pairs, every 
 | File | Block | Source |
 |------|-------|--------|
 | `docs/README.md` | `docsgen:nav` | `nav.yaml`: groups, pages, summaries |
-| `docs/llms.txt`, `docs/llms-full.txt` | whole file | `nav.yaml` and the pages themselves; `docs/plans/` is outside the map, so neither file carries a design record |
+| `llms.txt`, `llms-full.txt` (published by the website, **not** kept in this repository) | whole file | `nav.yaml` and the pages themselves; `docs/plans/` is outside the map, so neither file carries a design record |
 | `docs/reference/config.md` | `docsgen:config` | `internal/config/config.schema.json` descriptions and the loader's defaults (`config.DocDefaults`) |
 | `docs/reference/cli.md` | `docsgen:cli` | `foxxycode --help` and the `--help` of every command with a flag set |
 | `docs/assets/INDEX.md` | `docsgen:assets` | the files under `docs/assets` and their references |
@@ -84,6 +88,10 @@ make docs-check      # regenerate into memory and fail on drift, missing pages, 
 ```
 
 `make docs-check` runs in CI as the job **Documentation** and in the pre-commit hook for commits that touch `docs/`, the README, `AGENTS.md`, `DESIGN.md`, `CONTRIBUTING.md` or the config schema (there without the CLI build: `go run ./cmd/docsgen -skip-cli`). The link check resolves every relative link and image and every `#anchor` against the headings of the target page (and explicit `<a id>` anchors), GitHub style; fenced code blocks are ignored.
+
+`llms.txt` and `llms-full.txt` are **not kept in this repository**: a concatenation of every page conflicted in every branch that touched one. The website build renders them (`go run ./cmd/docsgen -publish -skip-cli`, run by `make site` / `make site-check` and by the **Website** workflow) into the checkout it publishes, where they are served at **`https://hijera.github.io/foxxy-agent/llms.txt`** and **`https://hijera.github.io/foxxy-agent/llms-full.txt`**; `.gitignore` covers the paths, so a local copy never reaches a commit.
+
+The walk over `docs/` asks git what it excludes and skips it, so a folder `.gitignore` keeps out of the repository is neither a page missing from the map nor a source of broken links - local scratch under `docs/` costs nothing. Only untracked files count, so a tracked page an exclude rule happens to match stays a page, and `docs/plans/` keeps leaving the map through its own rule rather than this one. Without git, or outside a repository, nothing is filtered and the whole tree is walked as before.
 
 Every read normalises CRLF to LF, so a Windows checkout under `core.autocrlf` checks the same as the Linux runner. The CLI reference is the one block that depends on the machine: it follows the `--help` screens of a full-tag binary, and although the generator replaces the binary path and the temporary home it ran with, regenerate it on Linux or in WSL (`make docs`) and use `make docs-fast` on Windows.
 

@@ -1,7 +1,7 @@
 # Documentation map.
 #
 # This file is the single ordered list of the documentation: docs/README.md (the hub),
-# docs/llms.txt and docs/llms-full.txt are generated from it, and the sidebar of the
+# the llms.txt and llms-full.txt the website publishes are generated from it, and the sidebar of the
 # documentation site will be too. Every Markdown page under docs/ must appear here
 # except docs/plans/, the design records, which are ours and not a reader's;
 # `make docs-check` fails when the map and the tree drift apart, and it reports a
@@ -103,6 +103,15 @@ groups:
       - path: features/browser-tool.md
         title: Browser tool
         summary: The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+      - path: features/web-search.md
+        title: Web search
+        summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
+      - path: features/http-requests.md
+        title: HTTP requests
+        summary: The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+      - path: features/message-queue.md
+        title: Message queue
+        summary: Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
       - path: features/background-tasks.md
         title: Background tasks
         summary: Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
@@ -184,6 +193,9 @@ groups:
       - path: contributing/documentation.md
         title: Writing documentation
         summary: Page types, the navigation map, screenshots, the assets index, generated references and the checks that guard them.
+      - path: contributing/brand.md
+        title: Brand assets
+        summary: The one vector every icon and the social preview are generated from, make brand, and the lock file that fails when an export goes stale.
       - path: contributing/architecture.md
         title: Architecture
         summary: System design and component overview, package boundaries, session modes, the directory structure.
@@ -202,6 +214,9 @@ groups:
       - path: contributing/intellij-embedding.md
         title: Embedding the UI in IntelliJ
         summary: How the JCEF panel hosts the SPA - the Chromium 104 baseline, the embed markers, the theme bridge and the window API the plugin calls.
+      - path: contributing/website.md
+        title: The website
+        summary: The site on GitHub Pages - React pages in English and Russian, data baked from the releases and the changelog twins, the comparison, the screenshots, and the workflow that publishes it together with docs/.
       - path: contributing/release-setup.md
         title: Release setup
         summary: How releases of this fork are published on GitHub - the workflows, the tags and the artefacts, the desktop build included (in Russian).

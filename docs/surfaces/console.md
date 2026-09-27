@@ -93,11 +93,52 @@ it; a second one ends the process the default way instead of being swallowed.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server.
+
+Submitting while a turn is running does not refuse the prompt: it joins the
+session's message queue, which the running turn reads at its next step
+(`docs/features/message-queue.md`). What is waiting shows directly above the
+input, numbered in reading order:
+
+```
+queued for the next step (2) · /queue to manage
+1. check the Windows path too
+2. and skip the integration suite
+```
+
+`/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties
+the queue, and `escape` cancels the turn together with everything queued for
+it. Under `--remote`, these controls also work for a turn another client
+started on the same `foxxycode serve`: **Enter** queues text for that turn and
+**Escape** requests cancellation. A successful cancel response acknowledges
+the request; the server can still be releasing the turn.
+
+The remote console reads the session's activity and queue on open and
+reconnect, and receives changes through `GET /foxxycode/events`. Ordinary queue
+deliveries keep the highest observed version. After a server restart, only
+the latest fresh snapshot, with no intervening queue update, may lower that
+version (including to zero). Recovery also fences delayed pre-restart replies
+and notifications, so they cannot bring old rows back. This works even when
+the restarted server is already running a turn. A failed read or crossed snapshot is re-read, with up to three attempts
+and a short delay; a newer refresh or shutdown stops the old recovery. Queue reads have their own timeout budget, so a slow activity
+read cannot use it up. Server activity stays separate
+from the console's own prompt request: observing another client's turn does
+not start or finish that request. These controls do not subscribe to the
+other client's live transcript or transfer its permission/question dialogs.
+
+If a turn ends between Enter and queue admission, the console restores the
+submitted text alongside any newer draft rather than automatically starting
+another prompt. Send it again once the session is idle.
+
+This shared queue requires clients of the same server process. A bare local
+console or local ACP process that shares only the sessions directory has its
+own queue and answer channels; cross-process cancellation uses the bundle's
+cancel marker. One-shot `-p/--prompt` callers retain their existing prompt
+and non-interactive permission/question behavior.
 
 `/reasoning` without an argument opens a selector with the active model's
 available levels; selecting a value persists that level on the session.
@@ -237,8 +278,9 @@ token comes from `--remote-token` or `FOXXYCODE_REMOTE_TOKEN`; tokens are
 deliberately never read from config.yaml. The same pair of flags works on
 `foxxycode acp`, so an ACP editor can drive a remote foxxycode too.
 
-Remotely, turns execute on the server in its workspace: the transcript, tool
-boxes, thinking, plan updates, token and context stats stream back over SSE;
+Turns execute on the server in its workspace. For a turn this console starts,
+the transcript, tool boxes, thinking, plan updates, token and context stats
+stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
 the remote catalog (`GET /v1/models`), `/mode` picks the agent or plan
@@ -305,7 +347,7 @@ the prompt the child received, and the child's report follows it*
 
 A child's permission request, while its spawning turn is
 still alive, opens the usual modal in the parent chat with the title prefixed
-`[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
+`[subagent <name>]`. Child sessions are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
 the parent session.
 
@@ -369,6 +411,17 @@ and is visible via `foxxycode mcp list` (approve with `foxxycode mcp trust <name
   (job `test-macos`, which also runs the platform packages and the console
   suite there), because the Go suite never opens a pty and the console's
   terminal path is exactly what differs between hosts.
+
+Stop/queue regression checklist for the interactive `--remote` console:
+
+- Open a session whose turn another client started: Enter queues the text
+  instead of attempting a second prompt; Escape sends cancellation.
+- Reconnect while follow-ups are waiting: the queue read restores them
+  without another mutation, and older HTTP/SSE versions do not replace newer ones.
+- Observe an external turn starting or ending: its activity does not complete
+  the console's own prompt request or attach a foreign transcript reader.
+- Confirm that one-shot `-p` calls and permission/question modals retain their
+  existing ownership and handling.
 
 ## Known v1 divergences from pi
 

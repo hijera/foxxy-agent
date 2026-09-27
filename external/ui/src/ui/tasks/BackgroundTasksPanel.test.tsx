@@ -70,8 +70,10 @@ test("a closed panel renders nothing", () => {
 test("running tasks get a card, finished ones stay behind a counter", () => {
   renderPanel({ tasks: [task(), done("bg_2"), done("bg_3")] });
 
-  expect(screen.getByTestId("bgtask-section-running")).toBeInTheDocument();
   expect(screen.getByTestId("bgtask-card-bg_1")).toBeInTheDocument();
+  // Anything above the finished counter is running, so the live cards carry no
+  // heading of their own.
+  expect(screen.queryByTestId("bgtask-section-running")).toBeNull();
 
   // History is counted, not listed: that is what keeps the panel cheap when a
   // session has hundreds of finished tasks.
@@ -168,6 +170,33 @@ test("selecting a task shows its command and captured output", () => {
   expect(screen.getByText("make build TAGS=http")).toBeInTheDocument();
 });
 
+test("the detail pane is where a run's outcome is read", () => {
+  // The transcript row deliberately says none of this: it names the command and
+  // the time it took, and the state of the run lives here.
+  renderPanel({
+    selectedTaskId: "bg_1",
+    tasks: [
+      task({
+        running: false,
+        status: "failed",
+        exit_code: 2,
+        elapsed_seconds: 90,
+        expected_seconds: 45,
+        error: "make: *** [site-docs-check] Error 2",
+      }),
+    ],
+  });
+
+  expect(screen.getByText("Failed")).toBeInTheDocument();
+  const timing = document.querySelector(".bgtask-detail-timing");
+  expect(timing).toHaveTextContent("1m30s");
+  expect(timing).toHaveTextContent("est. 45s");
+  expect(timing).toHaveTextContent("exit 2");
+  expect(
+    screen.getByText("make: *** [site-docs-check] Error 2"),
+  ).toBeInTheDocument();
+});
+
 test("a task with no output yet says so", () => {
   renderPanel({ selectedTaskId: "bg_1", selectedOutput: "   " });
   expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
@@ -207,7 +236,7 @@ function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
     session_id: "s1",
     kind: "agent",
     label: "agent explore: survey the repo",
-    agent: { name: "explore", session_id: "sub_0a1b2c" },
+    agent: { name: "explore", session_id: "sess_0a1b2c" },
     status: "running",
     started_at: new Date(START_MS).toISOString(),
     timeout_seconds: 1800,
@@ -266,7 +295,7 @@ test("an agent task's detail names the subagent and opens its transcript", () =>
   );
 
   fireEvent.click(screen.getByTestId("bgtask-open-transcript"));
-  expect(onOpenSession).toHaveBeenCalledWith("sub_0a1b2c");
+  expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
 });
 
 test("Open transcript stays disabled until the child session is known", () => {
@@ -286,7 +315,7 @@ test("Open transcript stays disabled until the child session is known", () => {
 function awaitingTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
   return agentTask({
     pending_permission: {
-      sessionId: "sub_0a1b2c",
+      sessionId: "sess_0a1b2c",
       agent_name: "explore",
       asked_at: new Date(START_MS + 10_000).toISOString(),
       toolCall: {
@@ -329,7 +358,7 @@ test("a detached subagent's prompt is answered on its task card", async () => {
   await waitFor(() => expect(calls.length).toBe(1));
   // Answered against the child session - the one actually waiting - not the
   // parent chat the task belongs to.
-  expect(calls[0]?.url).toBe("/foxxycode/sessions/sub_0a1b2c/permission");
+  expect(calls[0]?.url).toBe("/foxxycode/sessions/sess_0a1b2c/permission");
   expect(calls[0]?.body).toBe(
     JSON.stringify({ toolCallId: "call_9", optionId: "allow" }),
   );

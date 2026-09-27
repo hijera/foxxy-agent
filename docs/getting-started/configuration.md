@@ -44,36 +44,38 @@ The `foxxycode acp` subcommand also accepts **`--home`** (override `FOXXYCODE_HO
 
 Every command that loads `config.yaml` also takes `-t` (long form `--test-config`): bare `foxxycode -t`, `foxxycode cli -t`, `foxxycode acp -t`, `foxxycode http -t` (the server the editor plugins start) and `foxxycode serve -t`. The flag checks the file that command would load - `--config PATH` and `--home DIR` pick it exactly as they do for a start, `~/.foxxycode/.env` is loaded and `${VAR}` references are expanded first - and exits without starting anything. It never writes: the recovery from `config.yaml.bak` that a normal load performs on a broken file (see above) does not run, so the file you are told about is the file on disk. The flag works in every build, the lean one without the `cli` tag included.
 
-The check has two stages. First the document is validated against the JSON Schema above, the same one editors use, embedded into the binary. This is what catches the mistakes the loader accepts silently: `config.yaml` is decoded leniently, so an unknown or misspelled key (`enbaled` for `enabled`) is ignored rather than rejected, and a value of the wrong shape, a value outside an enum or a range, a missing required key or a duplicate key surfaces later as odd behaviour. Then the loader's own rules run on the parsed document: a model naming a provider that does not exist, a `file` output without `logger.file`, `agent.model` missing from `models`. Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line saying how to correct it and, where the schema has one, a `doc:` line carrying the field's description:
+The check has two stages. First the document is validated against the JSON Schema above, the same one editors use, embedded into the binary. This is what catches the mistakes the loader accepts silently: `config.yaml` is decoded leniently, so an unknown or misspelled key (`enbaled` for `enable`) is ignored rather than rejected, and a value of the wrong shape, a value outside an enum or a range, a missing required key or a duplicate key surfaces later as odd behaviour. Then the loader's own rules run on the parsed document: a model naming a provider that does not exist, a `file` output without `logger.file`, `agent.model` missing from `models`. Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line saying how to correct it and, where the schema has one, a `doc:` line carrying the field's description:
 
 ```text
 $ foxxycode serve -t
 /home/me/.foxxycode/config.yaml:13:3: httpserver.enbaled: unknown key "enbaled" (the loader ignores it, so it has no effect)
-    fix: did you mean "enabled"? keys allowed under httpserver: allow_insecure, auth_token, cors, enabled, host, port, public_docs, remotes, stream_tickets_only
+    fix: did you mean "enable"? keys allowed under httpserver: allow_insecure, auth_token, cors, enable, host, port, public_docs, remotes, stream_tickets_only
     doc: Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm.
 /home/me/.foxxycode/config.yaml:16:10: logger.level: "verbose" is not an allowed value
     fix: use one of debug, info, warn, warning, error
     doc: Minimum severity written to the configured outputs ("warning" is accepted as an alias of "warn").
-/home/me/.foxxycode/config.yaml:18:11: warning: subagents.enabled: "yes" is read as the boolean true, but the schema and editors expect true or false
-    fix: write enabled: true (true or false, unquoted)
+/home/me/.foxxycode/config.yaml:18:11: warning: subagents.enable: "yes" is read as the boolean true, but the schema and editors expect true or false
+    fix: write enable: true (true or false, unquoted)
 /home/me/.foxxycode/config.yaml: 2 errors, 1 warning
 config test failed
 ```
 
-The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `foxxycode serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
+The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `foxxycode serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer, the old `enabled` for `enable` - a file without the `# yaml-language-server:` header, and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `foxxycode serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
 A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `foxxycode -t` and `foxxycode serve` send you to the same place.
 
 What an editor leaves in the file is not part of the configuration. A file written on Windows ends its lines with a carriage return and a line feed and may carry a byte order mark in front of the first one; both are dropped on the way in, so the `# yaml-language-server:` header behind a mark is still found and a finding still names the line the editor shows, and a save puts the file's own line endings back. A file saved as UTF-16 - Notepad's "Unicode", and what a `>` redirect writes in Windows PowerShell 5.1 - is decoded on the way in too; the check names it in a warning, because a save from the settings screen writes the file back as UTF-8.
+
+Every on/off switch is spelled `enable` (`httpserver.enable`, `memory.enable`, `gateways.telegram.enable`, `compaction.enable`, ...), the way [coddy-agent](https://github.com/coddy-project/coddy-agent) spells it, so a configuration written for either agent is read by the other. FoxxyCode called the key `enabled` until 0.3.x, and a file that still says so keeps working: the loader takes `enabled` as `enable` in every section that has the switch, and `config_get` answers for the `enable` path either way. The check names each old key in a warning, because the schema marks it deprecated and editors offer only `enable`; when a section sets both, `enable` wins and the `enabled` line has no effect. Loading never rewrites the file: the next write - a save from the settings screen, a `config_commit`, `foxxycode serve set-password` - renders the key as `enable`, with the comment that stood above it. A key called `enabled` that is not a switch, such as a swarm label, keeps its name.
 
 ## Dry run: probing what the file points at
 
 `--dry-run` looks at the world the file describes, after the same check `--test-config` performs. Every command that takes `-t` takes it too: `foxxycode --dry-run`, `foxxycode cli --dry-run`, `foxxycode acp --dry-run`, `foxxycode http --dry-run`, `foxxycode serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
 
 - **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
-- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`foxxycode providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list;
+- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`foxxycode providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
 - **MCP servers** from `config.yaml` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.foxxycode/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
-- **Telegram** - when `gateways.telegram.enabled` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
+- **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
 - **remotes** - each `httpserver.remotes[]` URL is asked for an answer (a warning when down, since it is used only on request), and the `--remote` target of a console or `acp` run has to accept the token;
 - **listen addresses** - `foxxycode http` binds the address `-H`/`-P` select (`httpserver.host` and `httpserver.port` when the flags are left alone) once and releases it; `foxxycode serve` does the same for every subsystem the configuration and the typed flags enable, resolved as a start would resolve them (a surface this binary was not built with is an error, not a silent skip). A port another process holds is named together with the line that set it;
 - **`foxxycode serve` only** - the relays in `swarm.join` and the upstreams a relay mounts are reached through their dial settings.
@@ -139,7 +141,7 @@ dry run: 2 errors, 3 warnings, 4 ok
 dry run failed
 ```
 
-`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe at a stand-in Bot API (tests and self-hosted gateways).
+`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `FOXXYCODE_TELEGRAM_API_BASE` points the Telegram probe, and the bot itself, at another Bot API origin: a self-hosted server, or the offline stand of [`cmd/tgfake`](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Full Configuration Schema
 
@@ -248,11 +250,15 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until foxxycode todo tools update state)
-  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enabled is true
+  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, optional TodoList block, Memory (session notes plus optional recall), trailing Current UTC time.
-  # The checklist section is emitted only when the session plan is non-empty.
+  # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
+  # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
+  # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
+  # FoxxyCode sends the clock, the checklist and the rules a tool call activated after the history instead,
+  # in a <turn_context> block. Your own template may still render them, at the cost of that cache.
+  # See docs/contributing/react-agent.md (The turn context block).
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
@@ -265,9 +271,9 @@ prompts:
   #   <mode>.<family>.md      per-family (anthropic, openai, gemini, gpt-oss, qwen,
   #                           gemma, neuraldeep); family defaults are built in
   #   <mode>.md               shared fallback
-  # Place custom variants in dir. Set enabled: false to always use the shared prompt.
+  # Place custom variants in dir. Set enable: false to always use the shared prompt.
   per_provider:
-    enabled: true
+    enable: true
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:
@@ -275,9 +281,9 @@ sessions:
   dir: ""
 
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Implementation is always linked; enable at runtime with memory.enabled.
+# Implementation is always linked; enable at runtime with memory.enable.
 memory:
-  enabled: false
+  enable: false
   # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
   # Example: "rpa/gpt-oss:120b". Empty means fall back to agent.model / session override.
   model: ""
@@ -347,7 +353,7 @@ tools:
 # Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
 # from markdown definitions; each run is a background task with its own child session. See docs/features/subagents.md.
 # subagents:
-#   enabled: true
+#   enable: true
 #   dirs: ["${FOXXYCODE_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.foxxycode/agents"]
 #   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
 #   max_concurrent: 4             # subagent runs in flight across the whole process
@@ -358,7 +364,7 @@ tools:
 # Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
 # defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/features/hooks.md.
 # hooks:
-#   enabled: true
+#   enable: true
 #   files: ["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]
 #   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
 #   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
@@ -372,7 +378,7 @@ tools:
 
 # Cron scheduler (only with go build -tags=scheduler). UTC crontab; flat *.md jobs under scheduler.dir.
 # scheduler:
-#   enabled: false
+#   enable: false
 #   dir: ""
 #   max_queue: 10
 #   timeout: "30m"
@@ -401,15 +407,16 @@ ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`*
 debug:
   # Off by default and free when off. When true: forces the process logger to
   # debug level (overriding logger.level), captures raw LLM HTTP request and
-  # response bodies, and writes <session>/debug_trace.jsonl.
-  enabled: false
-  # Gates only the raw body capture. Omit to follow `enabled`. Set to false to
-  # keep debug logs and the trace while suppressing bodies, which carry the whole
+  # response bodies, traces every LLM connection (proxy route, dial, TLS,
+  # silences, how each request ended), and writes <session>/debug_trace.jsonl.
+  enable: false
+  # Gates only the raw body capture. Omit to follow `enable`. Set to false to
+  # keep debug logs and both traces while suppressing bodies, which carry the whole
   # conversation including the contents of every file the agent read.
   # capture_llm: false
 ```
 
-**`--debug`** on **`foxxycode acp`**, **`foxxycode http`**, and **`foxxycode gateway`** forces **`enabled: true`** for that process; it only ever turns the layer on, never off. **`foxxycode desktop`** and the console have no flag but honour **`debug.enabled`** from the config. **`PUT /foxxycode/config`** applies the toggle without a restart.
+**`--debug`** on **`foxxycode acp`**, **`foxxycode http`**, and **`foxxycode gateway`** forces **`enable: true`** for that process; it only ever turns the layer on, never off. **`foxxycode desktop`** and the console have no flag but honour **`debug.enable`** from the config. **`PUT /foxxycode/config`** applies the toggle without a restart.
 
 The timeline is readable at **`GET /foxxycode/sessions/{id}/debug`** and streamed live as SSE **`event: debug`**. Full guide: **[docs/operate/debugging.md](../operate/debugging.md)**.
 
@@ -459,7 +466,7 @@ httpserver:
   host: 0.0.0.0
   auth_token: "${FOXXYCODE_HTTP_TOKEN}"   # unchanged: the credential API clients present
   login:
-    enabled: true                      # omit to follow the credentials; false wins over everything
+    enable: true                      # omit to follow the credentials; false wins over everything
     user: "pasha"
     password_hash: "$$argon2id$$v=19$$..."   # argon2id, written by the command above
     session_ttl_hours: 720                   # 0 = the browser drops the cookie on close (the server still expires its record after 30 days)
@@ -480,7 +487,7 @@ Full guide in [docs/features/mcp.md](../features/mcp.md).
 
 ## Scheduler (optional build)
 
-The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`foxxycode acp -scheduler-enabled`** / **`foxxycode http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
+The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enable: true`** in YAML or pass **`foxxycode acp -scheduler-enabled`** / **`foxxycode http -scheduler-enabled`** to set **`scheduler.enable`** for that process without editing the config file.
 
 Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent`, `plan`, `docs`, `ask`, or `debug`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
@@ -498,7 +505,7 @@ Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`
 gateways:
   telegram:
     # Set to true to activate the Telegram adapter when foxxycode gateway starts.
-    enabled: false
+    enable: false
 
     # Bot token from @BotFather. Never hard-code; always use an env reference.
     token: "${TELEGRAM_BOT_TOKEN}"
@@ -543,7 +550,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enabled: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enable: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/surfaces/gateway.md](../surfaces/gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
@@ -606,6 +613,12 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 **not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
 write `$$` by hand.
 
+**A save keeps the references.** The loaded configuration holds what a reference resolved to, so the
+Settings UI works with the secret itself. When it saves, a value written as `${VAR}` in the file is
+written back as `${VAR}` as long as it still resolves to the value being saved; only a value you
+changed on the screen replaces the reference. A key kept in the environment or in `~/.foxxycode/.env`
+therefore never lands in `config.yaml` because of an unrelated save.
+
 Two placeholders are not environment variables:
 
 - **`${FOXXYCODE_HOME}`** - the resolved `FOXXYCODE_HOME` directory, substituted when the file is read.
@@ -620,7 +633,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (for `neuraldeep` it selects one of the two official deployments; ignored for the fixed-endpoint `codex` provider), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`**, optional **`multimodal`**, optional **`reasoning_levels`** (omitted: auto-detected from the API model id — **`gpt-5*`** → **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, ...) and Claude extended-thinking models → **`low,medium,high`**), and optional **`reasoning_default`**. For **`qwen3*`** models on OpenAI-compatible providers a selected level also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`**, because Qwen thinking is a chat-template switch rather than an effort tier. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (the context window the web UI context ring, the console context percentage and automatic compaction measure against; **`0`** reads it from the provider's model listing when the provider reports one, else 128000 - see [Context compaction](../features/compaction.md#the-context-window)), optional **`multimodal`**, optional **`reasoning_levels`** (omitted: auto-detected from the API model id — **`gpt-5*`** → **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, ...) and Claude extended-thinking models → **`low,medium,high`**), and optional **`reasoning_default`**. For **`qwen3*`** models on OpenAI-compatible providers a selected level also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`**, because Qwen thinking is a chat-template switch rather than an effort tier. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

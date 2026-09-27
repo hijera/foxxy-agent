@@ -36,8 +36,8 @@ jobs:
       contents: write # commit the document to main and re-attach it to the Release
 
     steps:
-      # GitHub Pages serves docs/ from main, so this is both the source of the generator and
-      # the branch the document is published on.
+      # GitHub Pages is built from docs/ on main (site.yaml, called below), so this is both the
+      # source of the generator and the branch the document is published on.
       - name: Check out main
         uses: actions/checkout@v4
         with:
@@ -124,3 +124,14 @@ jobs:
           gh release upload "$VERSION" docs/updatePlugins.xml \
             --repo "${{ github.repository }}" \
             --clobber
+
+  # The commit above is pushed with GITHUB_TOKEN, which starts no workflow, so Pages would keep
+  # serving the previous document. Redeploy it explicitly.
+  site:
+    name: Website
+    needs: publish
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yaml

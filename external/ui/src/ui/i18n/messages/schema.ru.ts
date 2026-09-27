@@ -58,9 +58,9 @@ export const schemaTextRu: Record<string, string> = {
   Temperature: "Температура",
   "Sampling temperature for this logical model (0 = deterministic, higher = more random).":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
-  "Max context tokens (UI hint)": "Макс. токенов контекста (подсказка UI)",
-  "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.":
-    "Необязательная подсказка UI для полосы контекста композера; 0 означает вывести из метаданных провайдера, если доступно.",
+  "Context window (tokens)": "Окно контекста (токены)",
+  "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.":
+    "Окно контекста модели: по нему считаются индикатор контекста в композере и автоматическое сжатие. 0 — взять из списка моделей провайдера, если он сообщает окно, иначе 128000.",
   Multimodal: "Мультимодальность",
   "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. Интерфейс предложит прикрепление файлов для сообщений, отправляемых этой моделью.",
@@ -308,8 +308,8 @@ export const schemaTextRu: Record<string, string> = {
   "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.":
     "Пути поиска скилов. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} подставляется при загрузке файла; ${CWD} остаётся в записи и раскрывается для каждой сессии против её рабочей папки.",
   "Remote skill sources": "Удалённые источники скилов",
-  "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.":
-    "Удалённые источники для установки скилов: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог скилов.",
+  "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.":
+    "Удалённые источники для установки скилов: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог скилов. EvilFreelancer/rpa-skills — каталог, из которого опубликованы встроенные скилы rpa-*, — всегда действует как системный источник и в этот список не входит.",
   "Auto-discovery": "Авто-обнаружение",
   "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.":
     "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего скила в ход. По умолчанию включено.",
@@ -344,19 +344,25 @@ export const schemaTextRu: Record<string, string> = {
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
   "Compaction engine": "Движок сжатия",
-  'Which compaction implementation to use. "coddy" (default) keeps a summary row and replays only the window after it, and supports the /compact command. "opencode" flags older turns and filters them from the payload.':
-    'Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё, поддерживает команду /compact. «opencode» помечает старые шаги и исключает их из отправляемого контекста.',
+  "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
+    "Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
   "Model override for the summary pass; empty uses agent model.":
     "Замена модели для прохода сводки; пусто — используется модель агента.",
+  "Fallback summarizer models": "Запасные модели сводки",
+  "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.":
+    "Модели сводки, которые пробуются по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
+  "Fallback memory models": "Запасные модели памяти",
+  "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.":
+    "Модели, которые копилот памяти пробует по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
   "Threshold percent": "Порог, %",
-  "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).":
-    "Срабатывает при этом проценте окна контекста модели. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
   "Keep recent turns": "Сохранять последних шагов",
-  "Most recent user turns preserved verbatim (default 2).":
-    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2).",
+  "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
+    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
   "Summary max tokens": "Макс. токенов сводки",
   "Completion token cap for the summary generation (opencode engine only).":
     "Лимит токенов ответа для генерации сводки (только движок opencode).",
@@ -371,6 +377,9 @@ export const schemaTextRu: Record<string, string> = {
   "Min result bytes": "Минимальный размер результата",
   "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).":
     "Результаты этого размера или меньше не вытесняются (по умолчанию 2000; 0 делает кандидатами все результаты).",
+  "Start at (%)": "Начинать с (%)",
+  "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.":
+    "Вытеснять, только когда оценка контекста достигла этого процента окна модели (по умолчанию 50; 0 — с первого результата). До порога история уходит без правок, и кэш промпта у провайдера сохраняется.",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",
@@ -546,6 +555,9 @@ export const schemaTextRu: Record<string, string> = {
   "Changed files card": "Карточка изменённых файлов",
   "Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Turn off to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available.":
     "Показывать под перепиской карточку со всеми файлами, которые изменила сессия: просмотр диффов и кнопка отката. Выключите, чтобы скрыть карточку; кнопка «Изменения» в плагинах IntelliJ и VS Code останется.",
+  "Animations and translucency": "Анимации и прозрачность",
+  "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else.":
+    "Показывать визуальные эффекты интерфейса: долгие анимации и полупрозрачные панели с размытием (без них панели становятся непрозрачными своего цвета). Значение пишет переключатель в Настройки → Оформление, оно общее для всех клиентов. Если ключ не задан, действует умолчание клиента: в панели IntelliJ эффекты выключены (она рисуется вне экрана и копирует каждый кадр в IDE, а это тормозит IDE, особенно без GPU), в остальных — включены.",
 
   // Browser tool
   "Browser tool": "Инструмент браузера",
@@ -626,6 +638,39 @@ export const schemaTextRu: Record<string, string> = {
     "Панель лимитов аккаунта",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.":
     "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; затрагивает только провайдеров, у которых есть источник лимитов (neuraldeep).",
+  "Web search": "Веб-поиск",
+  "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".":
+    "Какие поисковые движки опрашивает инструмент websearch, в каком порядке сливаются их результаты и сколько на это можно потратить. Каждый движок сообщает свой исход рядом с результатами, поэтому отказавший бэкенд назван по имени, а не посчитан за «ничего не найдено».",
+  "Engines": "Движки",
+  "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.":
+    "Поисковые движки в порядке слияния результатов (по умолчанию: brave, bing). «ddg» и «google» по умолчанию не опрашиваются: с сервера DuckDuckGo отвечает антибот-страницей, а Google отрисовывает результаты в браузере. Для «searxng» нужен адрес ниже.",
+  "Engine timeout (s)": "Таймаут движка (с)",
+  "Seconds one engine may take before it is reported as unavailable (default 8).":
+    "Сколько секунд отводится одному движку, прежде чем он будет отмечен как недоступный (по умолчанию 8).",
+  "Total timeout (s)": "Общий таймаут (с)",
+  "Seconds the whole search may take, however many engines it asks (default 20).":
+    "Сколько секунд отводится всему поиску, сколько бы движков он ни опрашивал (по умолчанию 20).",
+  "Max concurrent engines": "Движков одновременно",
+  "How many engines are asked at once (default 4).":
+    "Сколько движков опрашивается одновременно (по умолчанию 4).",
+  "Snippet length": "Длина фрагмента",
+  "Maximum characters of one result description (default 320).":
+    "Максимальная длина описания одного результата в символах (по умолчанию 320).",
+  "Cache TTL (s)": "Время жизни кэша (с)",
+  "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).":
+    "Сколько секунд ответ движка переиспользуется, прежде чем движок опросят снова (по умолчанию 300; отрицательное значение выключает кэш).",
+  "SearXNG URL": "Адрес SearXNG",
+  "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.":
+    "Базовый адрес вашего экземпляра SearXNG, к которому обращаются по JSON API (включите формат json в его settings.yml). Адреса localhost и локальной сети разрешены.",
+  "Brave Search API key": "Ключ Brave Search API",
+  "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.foxxycode/.env.":
+    "С токеном подписки движок brave использует официальный JSON API вместо чтения публичной страницы результатов. Оставьте пустым, чтобы взять BRAVE_API_KEY из окружения или из ~/.foxxycode/.env.",
+  "HTTP requests": "HTTP-запросы",
+  "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.":
+    "Политика инструмента http_request — curl-а агента. В режимах ask и accept_edits запрос спрашивает разрешения, если его назначение не разрешено здесь и не было одобрено в этой сессии; bypass не спрашивает никогда.",
+  "Allowlist": "Список разрешённых",
+  "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.":
+    "Назначения, к которым обращаются без вопроса: хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/); «*» разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат; для прокси нужна своя запись, а сохранение ответа в файл подчиняется политике записи.",
 };
 
 /**
@@ -682,4 +727,9 @@ export const schemaEnumLabelRu: Record<string, string> = {
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",
+  brave: "Brave",
+  bing: "Bing",
+  ddg: "DuckDuckGo",
+  google: "Google",
+  searxng: "SearXNG",
 };

@@ -77,7 +77,7 @@ func (a *Agent) maybeGenerateTitleForConfig(ctx context.Context, provider llm.Pr
 	p := a.titleProviderForConfig(provider, cfg)
 	msgs := []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(titleSystemPrompt)},
-		{Role: llm.RoleUser, Content: "Generate a title for this conversation:\n" + firstUser},
+		{Role: llm.RoleUser, Content: titleRequest(firstUser)},
 	}
 	resp, err := p.Complete(ctx, msgs, nil)
 	if err != nil || resp == nil {
@@ -87,12 +87,20 @@ func (a *Agent) maybeGenerateTitleForConfig(ctx context.Context, provider llm.Pr
 		return
 	}
 
-	title := cleanTitle(resp.Content)
+	phrase, tags := splitTitleTags(resp.Content)
+	title := cleanTitle(phrase)
 	if title == "" {
 		return
 	}
 
 	a.state.SetTitleAuto(title)
+	// The labels ride on the call that names the conversation, so a new session
+	// is filed without a second request to the model. They are a first guess
+	// and nothing more: a session that already carries tags - from the operator,
+	// or from session_describe earlier in this very turn - keeps them.
+	if len(tags) > 0 && len(a.state.GetTags()) == 0 {
+		a.state.ReplaceTags(tags)
+	}
 	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.SessionTitleUpdate{
 		SessionUpdate: acp.UpdateTypeSessionTitle,
 		Title:         title,
@@ -117,8 +125,36 @@ func firstUserMessageContent(history []llm.Message) string {
 	return ""
 }
 
-// cleanTitle strips <think> reasoning, takes the first non-empty line, and clamps to titleMaxRunes.
-func cleanTitle(raw string) string {
+// titleTagsPrefix is how prompts/title.md asks for the labels. It is the same
+// line POST /foxxycode/sessions/{id}/describe reads, so both ways of naming a
+// session file it alike.
+const titleTagsPrefix = "tags:"
+
+// splitTitleTags takes the tag line out of the model answer and returns what is
+// left for the title. A model that ignored the instruction leaves no such line
+// and gets the behaviour it had before tags existed. Reasoning is dropped
+// first, so a "tags:" line a model thought aloud is not mistaken for the answer.
+func splitTitleTags(raw string) (rest string, tags []string) {
+	kept := make([]string, 0, 4)
+	for _, line := range strings.Split(stripThink(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		trimmed = strings.TrimPrefix(trimmed, "- ")
+		trimmed = strings.TrimPrefix(trimmed, "* ")
+		trimmed = strings.TrimSpace(strings.ReplaceAll(trimmed, "**", ""))
+		// The prefix is ASCII: match it on the head of the line at its own byte
+		// length instead of lower-casing the line, which can move rune offsets.
+		if len(trimmed) >= len(titleTagsPrefix) &&
+			strings.EqualFold(trimmed[:len(titleTagsPrefix)], titleTagsPrefix) {
+			tags = append(tags, session.ParseTagList(trimmed[len(titleTagsPrefix):])...)
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n"), session.NormalizeTags(tags)
+}
+
+// stripThink removes <think> reasoning blocks; an unclosed block runs to the end.
+func stripThink(raw string) string {
 	s := raw
 	for {
 		start := strings.Index(strings.ToLower(s), "<think>")
@@ -132,7 +168,12 @@ func cleanTitle(raw string) string {
 		}
 		s = s[:start] + s[start+end+len("</think>"):]
 	}
-	for _, line := range strings.Split(s, "\n") {
+	return s
+}
+
+// cleanTitle strips <think> reasoning, takes the first non-empty line, and clamps to titleMaxRunes.
+func cleanTitle(raw string) string {
+	for _, line := range strings.Split(stripThink(raw), "\n") {
 		line = strings.TrimSpace(line)
 		line = strings.Trim(line, "\"'")
 		line = strings.TrimSpace(line)
@@ -146,4 +187,20 @@ func cleanTitle(raw string) string {
 		return line
 	}
 	return ""
+}
+
+// The first message travels to the title model inside these tags, which
+// prompts/title.md names as data. Sent bare, a message that is itself an
+// instruction ("Reply with exactly: OK") was read as one: the model described
+// the title request instead of the conversation.
+const (
+	titleFrameOpen  = "<conversation>"
+	titleFrameClose = "</conversation>"
+)
+
+// titleRequest frames the first user message for the title pass. A closing tag
+// inside the message is defused so the frame ends where the message does.
+func titleRequest(firstUser string) string {
+	body := strings.ReplaceAll(firstUser, titleFrameClose, "<\\/conversation>")
+	return "Generate a title for this conversation:\n" + titleFrameOpen + "\n" + body + "\n" + titleFrameClose
 }

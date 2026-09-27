@@ -99,7 +99,6 @@ func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (stri
 		if fs != nil && fs.HasPersistedSnapshot(sid) {
 			if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 				SessionID: sid,
-				CWD:       s.sessionDefaultCWD(),
 			}); err != nil {
 				http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 				return "", false
@@ -155,7 +154,7 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 	// Built-in slash commands (e.g. /compact) lead the catalog so the composer
 	// menu surfaces them above skills.
 	cfg := s.activeCfg()
-	builtins := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled() && cfg.Compaction.EngineIsCoddy())
+	builtins := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
 	sums = append(append([]skills.SkillSummary(nil), builtins...), sums...)
 	prefix := strings.TrimSpace(q.Get("prefix"))
 	filtered := skills.FilterSummariesByPrefix(sums, prefix)
@@ -175,14 +174,14 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 // foxxycodeCommandsGet lists the deterministic built-in slash commands (/compact,
 // /export, /plugin) on their own, so a client can surface a "Commands" group without paging
 // through the skills catalogue. They run without an LLM turn. compact appears only
-// while compaction is enabled on the coddy engine, matching the slash catalogue.
+// while compaction is enabled (either engine answers it), matching the slash catalogue.
 func (s *Server) foxxycodeCommandsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	cfg := s.activeCfg()
-	items := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled() && cfg.Compaction.EngineIsCoddy())
+	items := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
 	if prefix := strings.TrimSpace(r.URL.Query().Get("prefix")); prefix != "" {
 		items = skills.FilterSummariesByPrefix(items, prefix)
 	}

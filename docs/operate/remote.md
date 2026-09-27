@@ -6,7 +6,7 @@ A `foxxycode serve` on one machine can be driven from another. The console and `
 
 | Client | How it connects | What it needs from the server |
 |---|---|---|
-| console (`foxxycode`, `foxxycode cli`, `foxxycode -p "..."`) | `--remote <target>` | the HTTP API (`http` build tag, `httpserver.enabled`, on by default) |
+| console (`foxxycode`, `foxxycode cli`, `foxxycode -p "..."`) | `--remote <target>` | the HTTP API (`http` build tag, `httpserver.enable`, on by default) |
 | editor over ACP (`foxxycode acp`) | `--remote <target>` | the same |
 | web UI | the environment chip above the composer | the same, plus CORS on the server |
 
@@ -62,14 +62,14 @@ foxxycode serve set-password --user pasha
 
 The command asks for the password twice, writes an argon2id hash into `config.yaml` in place (comments and key order survive) and switches the form on. From then on an anonymous browser gets a sign-in screen instead of the app, and nothing under `/v1/*` or `/foxxycode/*` is readable until it passes. The page itself and its static assets stay public, so the screen can load; `/docs` follows `public_docs` as before.
 
-For a container or a systemd unit, the account can live in the environment instead, as `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` (typically in `$FOXXYCODE_HOME/.env`). They enable the form on their own, they win over an account in the file, and they are never written into it. An explicit `login.enabled: false` switches the form off with the variables still set.
+For a container or a systemd unit, the account can live in the environment instead, as `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` (typically in `$FOXXYCODE_HOME/.env`). They enable the form on their own, they win over an account in the file, and they are never written into it. An explicit `login.enable: false` switches the form off with the variables still set.
 
 ```yaml
 httpserver:
   host: 0.0.0.0
   auth_token: "${FOXXYCODE_HTTP_TOKEN}"   # for foxxycode --remote, foxxycode acp --remote, a relay, scripts
   login:
-    enabled: true
+    enable: true
     user: "pasha"
     password_hash: "$$argon2id$$v=19$$..."
     session_ttl_hours: 720            # 0 = until the browser closes
@@ -91,14 +91,14 @@ A browser that loaded the UI from one origin and calls the API of another needs 
 httpserver:
   auth_token: "${FOXXYCODE_HTTP_TOKEN}"
   cors:
-    enabled: true
+    enable: true
     allowed_origins: ["http://localhost:12345", "https://my-ui.example"]   # or ["*"]
   remotes:                       # optional: offered in this server's own UI
     - name: "prod box"
       url: "https://box.example:12345"
 ```
 
-With `cors.enabled` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-FoxxyCode-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /foxxycode/sessions/{id}/composer-stream` and `GET /foxxycode/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication--cors).
+With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-FoxxyCode-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /foxxycode/sessions/{id}/composer-stream` and `GET /foxxycode/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication--cors).
 
 ## The environment chip
 

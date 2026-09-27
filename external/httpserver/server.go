@@ -40,7 +40,7 @@ type Server struct {
 	mgr   *session.Manager
 	log   *slog.Logger
 	// logLevel backs the process logger's slog.LevelVar so PUT /foxxycode/config can
-	// flip verbosity at runtime (debug.enabled forces debug level). Nil when the server
+	// flip verbosity at runtime (debug.enable forces debug level). Nil when the server
 	// was constructed by a caller that did not hand one in (tests).
 	logLevel             *slog.LevelVar
 	defaultCWD           string
@@ -52,8 +52,9 @@ type Server struct {
 	// streamTickets holds the short-lived, single-use credentials the SSE routes accept in
 	// place of the durable token (see stream_ticket.go).
 	streamTickets *streamTicketStore
-	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
-	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion)
+	// with the generation options of the one request applied on top. Tests override.
+	makeLLMFromYAML func(*config.Config, string, llm.RequestOptions) (llm.Provider, error)
 	// drives lists the machine's drive roots for the folder picker's volume
 	// level (Windows only; empty elsewhere). Tests override.
 	drives func() []string
@@ -103,6 +104,10 @@ type Server struct {
 	// removeUsageObserver detaches the provider usage observer that feeds
 	// provider_usage frames to the events stream.
 	removeUsageObserver func()
+	// removeQueueObserver detaches the message queue observer that feeds
+	// message_queue frames to the events stream, so every client of this
+	// server sees what anyone queued on a shared session.
+	removeQueueObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -128,6 +133,9 @@ func (s *Server) Drain() {
 	if s.removeTurnObserver != nil {
 		s.removeTurnObserver()
 	}
+	if s.removeQueueObserver != nil {
+		s.removeQueueObserver()
+	}
 	if s.removeConfigObserver != nil {
 		s.removeConfigObserver()
 	}
@@ -144,7 +152,7 @@ func (s *Server) Drain() {
 
 // New creates an HTTP server wrapper (handlers registered on mux).
 // An optional logLevel lets ReplaceConfig change the process log level at runtime
-// (the debug.enabled toggle forces debug verbosity); tests and callers that do not
+// (the debug.enable toggle forces debug verbosity); tests and callers that do not
 // need runtime toggling may omit it.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string, logLevel ...*slog.LevelVar) *Server {
 	var lv *slog.LevelVar
@@ -177,6 +185,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	if mgr != nil {
 		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
 		s.removeUsageObserver = mgr.AddUsageObserver(s.publishProviderUsageEvent)
+		// A session is shared: a follow-up queued in one browser has to appear
+		// in the others and in a console attached over --remote, none of which
+		// may be reading the stream of the turn that is running.
+		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
 		// The manager is the one place every reload path passes through - the
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.
@@ -223,7 +235,7 @@ func (s *Server) activeCfg() *config.Config {
 // is the reload announced.
 //
 // The diagnostics layer rides along - the process log level and the raw LLM capture
-// flag - so toggling debug.enabled through PUT /foxxycode/config takes effect without a
+// flag - so toggling debug.enable through PUT /foxxycode/config takes effect without a
 // restart.
 func (s *Server) ReplaceConfig(c *config.Config) {
 	if c == nil {
@@ -232,11 +244,19 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	if s.logLevel != nil {
 		s.logLevel.Set(logger.EffectiveLevel(c.Debug.Enabled, c.Logger.Level))
 	}
-	llm.SetDebugCapture(c.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(c.Debug)
 	s.cfgAt.Store(c)
 	s.invalidateSlashCache()
 	s.publishConfigReloaded()
 }
+
+// describeMaxTokens is the completion budget of POST /foxxycode/describe, the one
+// caller of defaultProviderFromAgentModel. The answer is a phrase and a tag line,
+// but a reasoning model thinks before it answers: at the old cap of 96 tokens
+// gpt-oss on NeuralDeep spent all of it on reasoning (finish_reason "length",
+// content null) and the route fell back to the first words of the text. A model
+// configured with a smaller max_tokens keeps its own limit.
+const describeMaxTokens = 1024
 
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	if cfg == nil {
@@ -251,8 +271,8 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		return nil, err
 	}
 	maxTok := rm.MaxTokens
-	if maxTok <= 0 || maxTok > 96 {
-		maxTok = 96
+	if maxTok <= 0 || maxTok > describeMaxTokens {
+		maxTok = describeMaxTokens
 	}
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:          rm.ProviderName,
@@ -268,7 +288,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
-func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
+func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.RequestOptions) (llm.Provider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config unavailable")
 	}
@@ -280,8 +300,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	if err != nil {
 		return nil, err
 	}
-	maxTok := resolveDirectYAMLMaxTokens(rm)
-	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
+	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -289,10 +308,12 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		BaseURL:       rm.BaseURL,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
-		MaxTokens:     maxTok,
+		MaxTokens:     resolveDirectYAMLMaxTokens(rm),
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+	}
+	opts.Apply(&in)
+	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {
@@ -331,41 +352,52 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   nil,
 	}
-	if s.activeCfg() != nil {
-		if dm := strings.TrimSpace(s.activeCfg().Agent.Model); dm != "" {
+	cfg := s.activeCfg()
+	if cfg != nil {
+		if dm := strings.TrimSpace(cfg.Agent.Model); dm != "" {
 			out.DefaultAgentModel = dm
 		}
+		// max_context_tokens is the window the composer ring draws against,
+		// so it is the one the session's compaction trigger measures against
+		// (session.Manager.ContextWindow). A model without the key reads its
+		// provider's listing: wait a bounded moment for one never read.
+		refs := make([]string, 0, len(cfg.Models))
+		for i := range cfg.Models {
+			refs = append(refs, cfg.Models[i].Model)
+		}
+		if s.mgr != nil {
+			s.mgr.AwaitContextWindows(r.Context(), cfg, refs, session.ContextWindowWait)
+		}
 	}
-	maxCtx := maxContextDefault(s)
+	profileWindow := config.DefaultContextWindowTokens
+	if cfg != nil {
+		profileWindow = s.contextWindowFor(cfg, cfg.Agent.Model)
+	}
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs, session.ModeAsk, session.ModeDebug} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
 			Created:          0,
 			OwnedBy:          ownedByFoxxyCodeSession,
-			MaxContextTokens: maxCtx,
+			MaxContextTokens: profileWindow,
 		})
 	}
-	if s.activeCfg() != nil {
-		for i := range s.activeCfg().Models {
-			ent := &s.activeCfg().Models[i]
+	if cfg != nil {
+		for i := range cfg.Models {
+			ent := &cfg.Models[i]
 			mid := strings.TrimSpace(ent.Model)
 			if mid == "" {
 				continue
-			}
-			mc := maxCtx
-			if ent.MaxContextTokens > 0 {
-				mc = ent.MaxContextTokens
 			}
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: mc,
+				MaxContextTokens: s.contextWindowFor(cfg, mid),
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
-				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
+				ReasoningLevels:  cfg.ReasoningLevelsFor(ent),
+				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 			})
 		}
 	}
@@ -377,9 +409,18 @@ type chatCompletionRequest struct {
 	Model    string          `json:"model"`
 	Messages []openAIMessage `json:"messages"`
 	Stream   bool            `json:"stream"`
-	MaxTok   int             `json:"max_tokens"`
-	Temp     float64         `json:"temperature"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// MaxTokens and MaxCompletionTokens are one output cap under OpenAI's
+	// older and newer names, and Temperature replaces the model's own: a
+	// direct model sends them for this request, a profile turn runs on its
+	// model's configured values.
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64 `json:"temperature,omitempty"`
+	// ReasoningEffort is OpenAI's reasoning_effort: a level the direct model
+	// offers, in place of its reasoning_default. A profile turn reads the level
+	// from metadata.reasoning instead.
+	ReasoningEffort *string         `json:"reasoning_effort,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	// StreamOptions is OpenAI's stream_options; include_usage asks for the
 	// usage chunk after the choice finishes.
 	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
@@ -508,8 +549,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// session is created or touched, so a refused tool list leaves nothing
 	// behind. A profile turn never reads them.
 	var clientTools []llm.ToolDefinition
+	var genOpts llm.RequestOptions
 	if !httpModelIsFoxxyCodeProfile(model) {
 		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		// Refused here for the same reason: an option the provider cannot
+		// send as asked must not cost a session, nor reach the provider.
+		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 			return
@@ -590,6 +639,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
+		defer cancelProfile()
 		rel := s.beginComposerRelay(sessionID)
 		defer s.endComposerRelay(sessionID, rel)
 		if req.Stream {
@@ -602,13 +653,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, acp.SessionPromptParams{
 			SessionID:  sessionID,
 			Prompt:     prompt,
 			ImageParts: promptImages,
@@ -698,7 +749,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools)
+	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools, genOpts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
@@ -717,6 +768,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := metadataResponse(s.activeCfg(), model)
+	if genOpts.ReasoningEffort != "" {
+		// The level the provider was asked for, the model's default included,
+		// so a caller comparing model and level pairs can tell which ran.
+		meta["reasoning_effort"] = genOpts.ReasoningEffort
+	}
 	if stop := directStopReason(directRes); stop != "" {
 		// The strict stream finishes its choice with this: tool_use becomes
 		// finish_reason tool_calls, max_tokens becomes length.
@@ -780,6 +836,18 @@ func writeSessionBusy(w http.ResponseWriter, sessionID, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": errBody})
 }
 
+// profileTurnContext makes Stop effective as soon as HTTP owns the turn lock,
+// before headers, workspace preparation and manager admission. Streaming calls
+// detach exactly once here; detaching again in the manager would lose an early Stop.
+func profileTurnContext(ctx context.Context, st *session.State, stream bool) (context.Context, context.CancelFunc) {
+	if stream {
+		ctx = context.WithoutCancel(ctx)
+	}
+	turnCtx, cancel := context.WithCancel(ctx)
+	st.SetCancel(cancel)
+	return turnCtx, cancel
+}
+
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
 	sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID"))
 	if sid != "" {
@@ -788,11 +856,6 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		}
 		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.sessionDefaultCWD())
 		if err != nil {
-			if errors.Is(err, session.ErrReservedSessionID) {
-				// Only the runtime creates sub_ sessions; a header naming an
-				// unknown one is a missing session, not a request for a new one.
-				return nil, "", false, errSessionNotFound
-			}
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil
@@ -1186,6 +1249,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		profileCtx, cancelProfile := profileTurnContext(ctx, st, body.Stream)
+		defer cancelProfile()
 		rel := s.beginComposerRelay(sid)
 		defer s.endComposerRelay(sid, rel)
 		if body.Stream {
@@ -1195,7 +1260,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: body.Stream}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
@@ -1212,7 +1277,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
@@ -1283,7 +1348,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)
 	defer respCancelTurn()
-	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil); err != nil {
+	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{}); err != nil {
 		if errors.Is(err, context.Canceled) && body.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)

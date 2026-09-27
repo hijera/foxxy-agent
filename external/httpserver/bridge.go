@@ -230,6 +230,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 	// turn writes straight back onto the session.
 	case acp.ModeUpdate:
 		return s.writeNamedEventJSON("mode", u)
+	case acp.MessageQueueUpdate:
+		return s.writeNamedEventJSON("message_queue", u)
 	default:
 		return nil
 	}
@@ -248,6 +250,16 @@ func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
 }
 
 func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
+	// A user chunk mid-turn is a queued follow-up the agent has just read. It
+	// is not part of the assistant's answer, so it travels as its own named
+	// event rather than as a content delta: a client renders it as the user
+	// bubble it is, where it was read.
+	if u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
+		if strings.TrimSpace(u.Content.Text) == "" {
+			return nil
+		}
+		return s.writeNamedEventJSON("user_message", u)
+	}
 	if u.SessionUpdate != acp.UpdateTypeAgentMessageChunk {
 		return nil
 	}
@@ -361,6 +373,10 @@ func (s *Sender) SendError(streamErr error) error {
 	return nil
 }
 
+// writePendingPermission is indirected so tests can answer a prompt at the
+// instant its record lands on disk; production always writes through session.
+var writePendingPermission = session.WritePendingPermission
+
 // RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /foxxycode/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	// A subagent's request carries the child's own effective mode, which
@@ -402,29 +418,32 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	// is answered live or not at all and never becomes the parent's pending
 	// record, which stays reserved for the parent's own gate.
 	relayed := strings.TrimSpace(params.EffectivePermissionMode) != ""
-	if sd != "" && !relayed {
-		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
-	}
-	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
+	// Registered before anything announces the prompt, so an answer that
+	// arrives the instant a client learns of it already has somewhere to land.
+	// The record is one of those announcements (it is what permissionPending
+	// reports to clients not reading this stream), and an answer that finds no
+	// wait falls through to tryResumePendingPermission, which replies 204 but
+	// cannot take the turn this prompt still holds: the answer is lost and the
+	// turn keeps waiting.
 	ch := registerPermissionWait(sid, tcid, sd)
 	defer unregisterPermissionWait(sid, tcid, sd)
+	if sd != "" && !relayed {
+		_ = writePendingPermission(sd, params, toolName, argsJSON)
+		// The record exists so a prompt can still be answered after the stream
+		// drops or the process restarts. Every way out of this function ends
+		// the gate, the failed event write below included, so none of them may
+		// leave it behind: a stranded record is matched by
+		// tryResumePendingPermission, which reports the late answer as handled
+		// and then fails with "already has a result". Deferred after the
+		// registration, the removal runs before unregisterPermissionWait.
+		defer func() { _ = session.ClearPendingPermission(sd) }()
+	}
+	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
 		return nil, err
 	}
-	// The record on disk exists so a prompt can still be answered after the
-	// stream drops or the process restarts. Every way out of this select ends
-	// the gate, so none of them may leave it behind: a stranded record is
-	// matched by tryResumePendingPermission, which reports the late answer as
-	// handled and then fails with "already has a result", and nothing ever
-	// clears it.
-	clearPending := func() {
-		if sd != "" && !relayed {
-			_ = session.ClearPendingPermission(sd)
-		}
-	}
 	select {
 	case res := <-ch:
-		clearPending()
 		if res == nil {
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 		}
@@ -432,7 +451,6 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	case <-ctx.Done():
 		// The turn was cancelled, or tools.permission_timeout_seconds expired.
 		// Either way the tool call is already finished with a denial.
-		clearPending()
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 }

@@ -53,9 +53,16 @@ func (e changelogEntry) label() string {
 
 func parseChangelog(t *testing.T) []changelogEntry {
 	t.Helper()
-	data, err := os.ReadFile(changelogPath)
+	return parseChangelogFile(t, changelogPath)
+}
+
+// parseChangelogFile splits a changelog into its `##` sections. It serves CHANGELOG.md and
+// its English twin CHANGELOG.en.md, which share the heading format.
+func parseChangelogFile(t *testing.T, path string) []changelogEntry {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read %s: %v", changelogPath, err)
+		t.Fatalf("read %s: %v", path, err)
 	}
 	var entries []changelogEntry
 	var current *changelogEntry
@@ -87,7 +94,7 @@ func parseChangelog(t *testing.T) []changelogEntry {
 		entries = append(entries, *current)
 	}
 	if len(entries) == 0 {
-		t.Fatalf("%s has no `## X.Y.Z — YYYY-MM-DD` sections; the plugin would ship without change notes", changelogPath)
+		t.Fatalf("%s has no `## X.Y.Z — YYYY-MM-DD` sections; the plugin would ship without change notes", path)
 	}
 	return entries
 }

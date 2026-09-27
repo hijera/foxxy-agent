@@ -16,7 +16,7 @@ import (
 const maxWalkEntries = 50000
 
 // skippedWalkDirs are never descended into during @ completion.
-var skippedWalkDirs = map[string]bool{".git": true, "node_modules": true, ".foxxycode": true}
+var skippedWalkDirs = map[string]bool{".git": true, ".svn": true, "node_modules": true, ".foxxycode": true}
 
 // completionProvider serves slash-command and @path suggestions to the editor.
 type completionProvider struct {

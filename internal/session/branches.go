@@ -143,7 +143,7 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	}
 	// A child transcript is read-only on every surface; forking it would hand
 	// the model's task history to a writable session and reopen it that way.
-	if snap.Meta.IsSubagentRun(srcID) {
+	if snap.Meta.IsSubagentRun() {
 		return nil, fmt.Errorf("%w: %s cannot be branched", ErrSubagentReadOnly, srcID)
 	}
 
@@ -151,7 +151,7 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	prefix, preview := sliceMessagesBeforeUserN(snap.Messages, params.UserMessageIndex)
 
 	// Generate new session ID.
-	newID, err := newSessionID()
+	newID, err := NewSessionID()
 	if err != nil {
 		return nil, fmt.Errorf("branch session id: %w", err)
 	}

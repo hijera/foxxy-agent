@@ -54,6 +54,13 @@ var planToolNames = []string{
 	// A planner fans out investigation the same way Claude Code's Explore
 	// subagent does; the child of a plan-mode parent is forced into plan mode.
 	"spawn_agent",
+	// Folding the session's own replay window writes nothing outside it, and a
+	// long investigation is exactly the session that fills a context window.
+	// Registered only while compaction is enabled.
+	"compact_context",
+	// Filing the session writes nothing but the session's own title and tags,
+	// and a planning session is one that earns a name as it goes.
+	"session_describe",
 	// Read-only Subversion inspection, mirroring the read-only git commands the
 	// planner can already run through run_command. Registered only when
 	// vcs.svn is enabled and a client is installed; an unregistered name simply
@@ -75,6 +82,9 @@ var docsToolNames = []string{
 	"question",
 	"docs_write",
 	"docs_edit",
+	// A documentation session is filed like any other: the tool touches the
+	// session's own title and tags and nothing in the workspace.
+	"session_describe",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
@@ -92,6 +102,10 @@ var askToolNames = []string{
 	// Read-only: lets the assistant pull a catalogued skill's instructions when
 	// skills.auto_discovery is on (the tool is only registered when enabled).
 	"load_skill",
+	// Not read-only in the strict sense, but it writes only the session's own
+	// title and tags - nothing a reader of the repository could see change - so
+	// a long question-and-answer session can file itself too.
+	"session_describe",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

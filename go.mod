@@ -16,7 +16,6 @@ require (
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/jedib0t/go-pretty/v6 v6.5.9
-	github.com/kuhahalong/ddgsearch v0.0.0-20241205095054-d297f4189b6e
 	github.com/mattn/go-runewidth v0.0.15
 	github.com/ncruces/zenity v0.10.14
 	github.com/openai/openai-go v1.12.0
@@ -25,6 +24,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/yuin/goldmark v1.8.5
 	golang.org/x/crypto v0.52.0
+	golang.org/x/image v0.20.0
 	golang.org/x/net v0.54.0
 	golang.org/x/sys v0.45.0
 	golang.org/x/term v0.43.0
@@ -58,6 +58,5 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/image v0.20.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 )

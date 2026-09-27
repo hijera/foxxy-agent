@@ -51,13 +51,14 @@ When adding or changing behavior (including words like feature, add, implement, 
       or the **`Dockerfile`**; **`make docs-check`** fails on one that is not, so a screenshot leaves
       together with the feature it showed. Screenshots that only prove a pull request go to the pull
       request (the orphan **`screenshots`** branch, linked by raw URL), never under **`docs/assets/`**.
-    - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**, **`docs/llms.txt`**,
-      **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of
+    - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**,
+      the field tables of **`docs/reference/config.md`**, the help screens of
       **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`**; commit the result.
       **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for documentation
       commits) fails on drift, on a page missing from the map, on a broken relative link or anchor and
       on an unused asset. **`make docs-fast`** refreshes everything but the CLI reference, which follows
       the `--help` screens of a full-tag binary and is regenerated on Linux or WSL, where CI checks it.
+      `llms.txt` and `llms-full.txt` are **not kept in this repository**: a concatenation of every page conflicted in every branch that touched one. The website build renders them (`go run ./cmd/docsgen -publish -skip-cli`, run by `make site` / `make site-check` and by the **Website** workflow) into the checkout it publishes, where they are served at **`https://hijera.github.io/foxxy-agent/llms.txt`** and **`https://hijera.github.io/foxxy-agent/llms-full.txt`**; `.gitignore` covers the paths, so a local copy never reaches a commit.
     - **Design records** - **`docs/plans/**`** keep decisions as they were taken and are not rewritten
       to match a later rename; only their link targets are repaired when a page moves. A page that
       moves takes its address with it: there are no redirect stubs, and an old link breaks.
@@ -89,7 +90,7 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`make lint`** clean.
 - **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate the **edit** to `.cursor/rules/`: the same `.mdc` file, with `paths:` replaced by Cursor-compatible `globs:`/`alwaysApply:` (files without `paths:` get `alwaysApply: true`). Refresh the index in **`.codex/rules.md`** when a rule file is added, renamed, or removed.
   - **Port the edit, not the whole body.** Copying the `.md` body over the `.mdc` looks equivalent and is not, in two ways that are easy to miss. Sibling references are spelled for their own dialect — `@architecture.mdc` in a `.mdc` file — so a body copy leaves Cursor pointing at files it cannot resolve. And the two copies have **drifted in both directions**: `core-modules` carries a paragraph in the `.md` that is absent from the `.mdc` and another in the `.mdc` that is absent from the `.md`, so a copy in either direction deletes text nobody meant to delete. Diff the pair before assuming they are the same file.
-- **Changelog** — if the change is something a plugin user can observe, add a Russian `## Unreleased — <date>` entry before opening the PR: to **`editors/intellij/CHANGELOG.md`** for what IntelliJ users see, to **`editors/vscode/CHANGELOG.md`** for what VS Code users see, to **both** for SPA / agent behaviour changes (both plugins host the same UI). Merging releases immediately and the build stamps the heading with the tag, so the notes are part of the PR, not a later step. See **`.claude/rules/release-changelog.md`**.
+- **Changelog** — if the change is something a plugin user can observe, add a Russian `## Unreleased — <date>` entry before opening the PR: to **`editors/intellij/CHANGELOG.md`** for what IntelliJ users see, to **`editors/vscode/CHANGELOG.md`** for what VS Code users see, to **both** for SPA / agent behaviour changes (both plugins host the same UI). Write the same section in English in the **`CHANGELOG.en.md`** next to each file you touched: the project website reads the twins, and the changelog tests fail when their headings or entries drift from the Russian file. Merging releases immediately and the build stamps the heading with the tag, so the notes are part of the PR, not a later step. See **`.claude/rules/release-changelog.md`**.
 
 ## BDD specs (Gherkin)
 

@@ -56,7 +56,8 @@ class WelcomeWizardDialog(
     }
 
     override fun createCenterPanel(): JComponent {
-        if (!JBCefApp.isSupported()) {
+        // JcefSupport first: without the JCEF plugin (IDE 2026.2+) JBCefApp itself does not resolve.
+        if (!JcefSupport.isAvailable() || !JBCefApp.isSupported()) {
             val label = JBLabel(FoxxyCodeBundle.message("welcome.fallback.body"))
             label.setAllowAutoWrapping(true)
             return JBScrollPane(label)

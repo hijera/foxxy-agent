@@ -3,6 +3,7 @@ import { t, spaLanguageCode } from "../i18n/bundle";
 import { currentFoxxyCodeTheme } from "./themeBridge";
 import { readSettings } from "../settings";
 import { info } from "../notifications";
+import { OPEN_EXTERNAL_MESSAGE_TYPE, externalUrlFromMessage } from "./externalLink";
 
 /** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`,
  *  structurally modelled on the working `coddy-vscode/src/coddyView.ts`.
@@ -67,7 +68,7 @@ export class FoxxyCodePanelController {
 
     // Receive Retry / Open Settings clicks from the error HTML, plus locale
     // changes forwarded from the embedded SPA by the wrapper script.
-    webview.onDidReceiveMessage((msg: { type?: string; locale?: string }) => {
+    webview.onDidReceiveMessage((msg: { type?: string; locale?: string; url?: string }) => {
       switch (msg?.type) {
         case "foxxycode:retry":
           this.opts.onRetry?.();
@@ -83,6 +84,13 @@ export class FoxxyCodePanelController {
             this.opts.onSpaLocale?.(msg.locale);
           }
           break;
+        case OPEN_EXTERNAL_MESSAGE_TYPE: {
+          // A new-tab link in the SPA (API docs, the website): the sandboxed iframe cannot open
+          // it, so the system browser does. Only http(s) gets through.
+          const url = externalUrlFromMessage(msg);
+          if (url) void vscode.env.openExternal(vscode.Uri.parse(url));
+          break;
+        }
       }
     }, undefined, this.disposables);
 
@@ -238,7 +246,8 @@ export class FoxxyCodePanelController {
     // Two relays over the cross-origin iframe boundary:
     //  - SPA → host: locale changes (embedLocaleBridge postMessage) go to the
     //    extension host so command titles follow the single app-wide language
-    //    switcher without reloading the iframe.
+    //    switcher without reloading the iframe; new-tab links
+    //    (embedExternalLinks) go there too, to open in the system browser.
     //  - host → SPA: "insert file mention" requests from the extension are
     //    forwarded into the frame (embedHostBridge listens there). They are
     //    queued until the frame has loaded, so a request racing the first
@@ -264,6 +273,9 @@ export class FoxxyCodePanelController {
         if (frame && ev.source === frame.contentWindow) {
           if (d.type === "foxxycode:locale" && (d.locale === "en" || d.locale === "ru")) {
             vscodeApi.postMessage({ type: "foxxycode:locale", locale: d.locale });
+          }
+          if (d.type === "${OPEN_EXTERNAL_MESSAGE_TYPE}" && typeof d.url === "string") {
+            vscodeApi.postMessage({ type: d.type, url: d.url });
           }
           return;
         }

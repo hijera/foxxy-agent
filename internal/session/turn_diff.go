@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/gitws"
 )
 
 // toolStateDirs are the folders a tool keeps its own bookkeeping in: the
@@ -97,7 +99,9 @@ func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
-			if ignoredDirs[d.Name()] || toolStateDirs[d.Name()] {
+			// The worktrees folder holds whole checkouts of other branches: a
+			// turn here neither reads them nor rolls them back.
+			if ignoredDirs[d.Name()] || toolStateDirs[d.Name()] || gitws.IsWorktreesRoot(path) {
 				return filepath.SkipDir
 			}
 			rel, _ := filepath.Rel(cwd, path)

@@ -70,7 +70,7 @@ requires **`http`**).
 Run **`python scripts/build.py --help`** for the full flag list (Russian descriptions).
 
 
-Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../../external/memory/README.md)).
+Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enable`** in config (see [`external/memory/README.md`](../../external/memory/README.md)).
 
 The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
@@ -166,7 +166,7 @@ Order does not matter for these tags.
 
 | Tag | Enables | Documentation |
 |-----|---------|----------------|
-| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../../external/memory/README.md) |
+| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enable`** | [`external/memory/README.md`](../../external/memory/README.md) |
 | **`http`** | **`foxxycode http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](../reference/http-api.md) · [`external/httpserver/`](../../external/httpserver) |
 | **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/surfaces/web-ui.md`](../surfaces/web-ui.md) · [`DESIGN.md`](../../DESIGN.md) |
 | **`scheduler`** | Scheduler daemon hooks, **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/operate/scheduler.md`](../operate/scheduler.md) · [`external/scheduler/README.md`](../../external/scheduler/README.md) |
@@ -183,7 +183,9 @@ contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](
 **`make test-matrix`** walks them in sequence, and CI runs one job per combination —
 **`.github/workflows/tests-on-pr.yaml`** reads the list through **`make print-test-tag-sets`**, so
 it cannot drift from the Makefile. Locally, reach for a single combination instead:
-**`go test -tags=<set> ./...`**.
+**`go test -tags=<set> ./...`**. Two of those jobs also start the built binary: `cli` drives the
+console through a real pty (`examples/cli/cli_e2e_startup.py`), `gateway` runs the Telegram bot
+against the offline stand of `cmd/tgfake` (`examples/gateway/tg_e2e_offline.sh`).
 
 ## Desktop (Windows WebView2)
 

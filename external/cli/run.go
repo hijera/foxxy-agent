@@ -25,6 +25,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
@@ -129,6 +130,10 @@ func Run(args []string, deps CommandDeps) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// Hand over the standard skill delivery before the session catalogue is
+	// built. Best effort: a home that cannot be written still gets the copies
+	// the binary carries (skills.Bundled).
+	_, _ = skills.SeedDelivery(cfg)
 	if *schedulerEnabled {
 		cfg.Scheduler.Enabled = true
 	}
@@ -316,11 +321,14 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 	if err != nil {
 		return nil, err
 	}
-	lateSender := &lateBoundSender{}
-	h.SetServer(lateSender)
 	app := newApp(cfg, h, log, term, themeName, plain)
 	app.remoteURL = h.BaseURL()
-	lateSender.inner = app.Sender()
+	h.SetServer(app.Sender())
+	// A session on the server is shared: this is how the console hears that
+	// someone queued a follow-up onto the turn it is watching from a browser.
+	// The subscription holds a request open, and the run loop's Close hook
+	// (below) is what ends it.
+	h.StartEvents()
 	return app, nil
 }
 
@@ -442,11 +450,11 @@ func isolatedLogger(cfg *config.Config, home, level, file string) (*slog.Logger,
 		return nil, nil, fmt.Errorf("log: %w", err)
 	}
 	// The console honours the diagnostics master switch the same way the other entry
-	// points do: debug.enabled (or --debug) forces debug verbosity and turns on raw
+	// points do: debug.enable (or --debug) forces debug verbosity and turns on raw
 	// LLM HTTP capture, which lands in this same log file.
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
 	return log, closer, nil
 }
 

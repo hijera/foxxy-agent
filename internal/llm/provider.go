@@ -63,6 +63,11 @@ type Message struct {
 	// CompactionSummary marks the synthetic message holding a concise summary of earlier turns
 	// produced by auto-compaction. Unlike Compacted messages, it IS sent to the model.
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// Queued marks a user message the operator wrote while a turn was running, which that
+	// turn read later (the message queue). It is sent to the model like any user message; a
+	// client re-attaching to the turn uses it to tell the prompt the turn started from apart
+	// from the follow-ups the turn's own stream will replay.
+	Queued bool `json:"queued,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -105,6 +110,12 @@ type Response struct {
 	// InputTokens and OutputTokens are for usage tracking.
 	InputTokens  int
 	OutputTokens int
+	// CachedInputTokens is the part of InputTokens the provider served from its
+	// prompt cache instead of processing again (OpenAI
+	// usage.prompt_tokens_details.cached_tokens, Anthropic
+	// cache_read_input_tokens). Zero when the provider reports nothing, which
+	// is not the same as a miss - most OpenAI-compatible servers omit it.
+	CachedInputTokens int
 }
 
 // StreamChunk is a single chunk streamed from the LLM.
@@ -112,9 +123,15 @@ type StreamChunk struct {
 	TextDelta      string
 	ReasoningDelta string
 	ToolCall       *ToolCall
-	StopReason     string
-	InputTokens    int
-	OutputTokens   int
+	// ToolCallNamed carries a call the model has only begun to write: the name
+	// is known, the arguments are still streaming. It exists so a surface can
+	// say what is happening while that takes seconds, and it is never the call
+	// itself - anything that executes a call, forwards it to a client or
+	// persists it waits for ToolCall.
+	ToolCallNamed *ToolCall
+	StopReason    string
+	InputTokens   int
+	OutputTokens  int
 	// Progress marks a frame that advanced generation without delivering anything
 	// to the caller: a tool call's argument fragment, a thinking-block signature,
 	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the
@@ -150,6 +167,11 @@ type ProviderInput struct {
 	AuthPath    string
 	MaxTokens   int
 	Temperature float64
+	// TemperatureSet marks Temperature as asked for on the request rather than
+	// read from the model's configuration, where zero means "not configured":
+	// a set temperature is sent as is, zero included, and next to a reasoning
+	// level too, where a configured one is left out.
+	TemperatureSet bool
 	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
@@ -249,11 +271,17 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op.tempSet = p.TemperatureSet
+		inner = op
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		ap.tempSet = p.TemperatureSet
+		inner = ap
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op.tempSet = p.TemperatureSet
+		inner = op
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

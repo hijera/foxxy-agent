@@ -48,6 +48,14 @@ type modeSyncStubBackend struct {
 }
 
 func (b *modeSyncStubBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Only completions are scripted. The session manager also reads the
+	// provider's model listing (GET /models) for a model with no
+	// max_context_tokens; answered like a completion it would be recorded as a
+	// request with no model and would use up a step of the script.
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
 	raw, _ := io.ReadAll(r.Body)
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))

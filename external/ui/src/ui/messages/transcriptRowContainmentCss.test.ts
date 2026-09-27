@@ -25,53 +25,16 @@ function containmentBlocks(
   return out;
 }
 
-test("off-screen row containment opts in per row type", () => {
-  const blocks = containmentBlocks(cssText()).filter((b) =>
-    b.selector.includes(".messages-inner"),
-  );
-  expect(blocks.length).toBe(1);
-  const selectors = blocks[0]!.selector.split(",").map((s) => s.trim());
-  expect(selectors).toEqual(
-    expect.arrayContaining([
-      ".messages-inner > .msg-assistant-stack",
-      ".messages-inner > .thinking-row",
-      ".messages-inner > .msg-system-stack",
-    ]),
-  );
-  // `contain-intrinsic-size: auto` keeps the last rendered height, so the
-  // scroll position does not jump when rows re-enter the viewport.
-  expect(blocks[0]!.body).toMatch(/contain-intrinsic-size:\s*auto\s+\d+px/);
-});
-
-test("contained rows keep room for focus rings without moving content", () => {
-  // Paint containment clips at the padding edge, so edge controls need
-  // padding for their focus rings; the negative margin and the widened
-  // border-box keep content position and line wrapping unchanged.
-  const block = containmentBlocks(cssText()).find((b) =>
-    b.selector.includes(".messages-inner"),
-  );
-  expect(block?.body).toMatch(/padding:\s*4px/);
-  expect(block?.body).toMatch(/margin:\s*-4px/);
-  expect(block?.body).toMatch(/width:\s*calc\(100% \+ 8px\)/);
-});
-
-test("rows that paint outside their own box are never contained", () => {
-  // Paint containment clips the user-row hover edit button (left: -32px) and
-  // the permission / question / plan card shadows, so the rule must not match
-  // every child of the transcript or any of those wrappers.
-  const selectorText = containmentBlocks(cssText())
-    .map((b) => b.selector)
-    .join(",");
-  expect(selectorText).not.toMatch(/\.messages-inner\s*>\s*\*/);
-  for (const forbidden of [
-    ".msg-user-stack",
-    ".message-row-permission",
-    ".message-row-question",
-    ".message-row-plan",
-    ".branch-nav",
-  ]) {
-    expect(selectorText).not.toContain(forbidden);
-  }
+test("transcript rows never skip their own layout", () => {
+  // `content-visibility: auto` sizes a row that has not been rendered yet from
+  // `contain-intrinsic-size`, and the last remembered size only exists for rows
+  // that were rendered at least once. A session opens scrolled to its end, so
+  // every row above it is a guess: measured on a 360-row transcript, the
+  // scrollport reported 42114px against a real 50342px. Scrolling up then
+  // materialises those rows one screen at a time, the height grows under the
+  // reader, and scroll anchoring pushes the position down by the difference on
+  // every wheel notch - which is the flicker the transcript used to show.
+  expect(containmentBlocks(cssText())).toEqual([]);
 });
 
 test("the user-row edit button still hangs outside the bubble", () => {
@@ -81,20 +44,14 @@ test("the user-row edit button still hangs outside the bubble", () => {
   expect(rule?.[0]).toMatch(/left:\s*-\d+px/);
 });
 
-// JCEF (IntelliJ, Chromium 104) cannot run content-visibility: auto rows without
-// raising "ResizeObserver loop limit exceeded" on every transcript open; the IDE
-// embed opts out of the optimization for exactly the rows that opt in.
-test("the IntelliJ embed switches row containment off", () => {
+// JCEF (IntelliJ, Chromium 104) could not run content-visibility: auto rows
+// without raising "ResizeObserver loop limit exceeded" on every transcript open,
+// which the panel painted as an error overlay, so the IDE embed used to opt out
+// of the optimization row by row. The optimization is gone for everybody now,
+// and the opt-out went with it: there is nothing left to switch off, and a rule
+// that still tried would be a selector nobody could explain.
+test("nothing opts out of a containment that no longer exists", () => {
   const noComments = cssText().replace(/\/\*[\s\S]*?\*\//g, "");
-  const re = /([^{}]+)\{([^{}]*content-visibility:\s*visible[^{}]*)\}/g;
-  const blocks = [...noComments.matchAll(re)]
-    .map((m) => ({ selector: m[1]!.trim(), body: m[2]! }))
-    .filter((b) => b.selector.includes('html[data-embed="intellij"]'));
-  expect(blocks.length).toBe(1);
-  for (const row of [".msg-assistant-stack", ".thinking-row", ".msg-system-stack"]) {
-    expect(blocks[0]!.selector).toContain(
-      `html[data-embed="intellij"] .messages-inner > ${row}`,
-    );
-  }
-  expect(blocks[0]!.body).toMatch(/contain-intrinsic-size:\s*none/);
+  expect(noComments).not.toMatch(/content-visibility\s*:/);
+  expect(noComments).not.toMatch(/contain-intrinsic-size\s*:/);
 });

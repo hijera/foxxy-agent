@@ -244,10 +244,10 @@ func runACP(args []string) error {
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	remoteFlag := fs.String("remote", "", "serve ACP against a remote foxxycode http server (configured remote name, host:port, or http(s) URL)")
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enable=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
-	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)
 	dryRun := dryrun.AddFlag(fs)
@@ -287,7 +287,7 @@ func runACP(args []string) error {
 		return err
 	}
 
-	cfg, err := config.LoadFromCLI(cli)
+	cfg, err := loadRunConfig(cli)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -316,7 +316,7 @@ func runACP(args []string) error {
 	}
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
 	defer func() { _ = logCloser.Close() }()
 
 	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)
@@ -348,6 +348,7 @@ func runACP(args []string) error {
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
@@ -461,6 +462,37 @@ func bootstrapExampleConfig(home string) error {
 	return nil
 }
 
+// loadRunConfig loads the config a surface is about to run under and hands the
+// standard skill delivery to the home before anything reads skills. A delivery
+// that cannot be written is not a reason to refuse to start: the copies inside
+// the binary still answer, so the error is reported only where the operator is
+// looking at skills (see runSkills and runPlugin). `-t` and `--dry-run` never
+// reach here - they read the config through config.LoadReadOnly and write
+// nothing.
+func loadRunConfig(cli config.CLIPaths) (*config.Config, error) {
+	cfg, err := config.LoadFromCLI(cli)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = skills.SeedDelivery(cfg)
+	return cfg, nil
+}
+
+// loadSkillsConfig is loadRunConfig for the skill-management commands, which do
+// say when the delivery could not be handed over: that is the answer to why a
+// skill the release carries is not in the listing.
+func loadSkillsConfig() (*config.Config, error) {
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: the bundled skills could not be written to %s: %v\n",
+			cfg.Skills.ManagedDir(cfg.Paths.Home), err)
+	}
+	return cfg, nil
+}
+
 func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore, error) {
 	raw := strings.TrimSpace(flagValue)
 	if raw != "" {
@@ -542,9 +574,9 @@ func runSkills(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: %s skills list|enable|disable|add|sync|remove", os.Args[0])
 	}
-	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	cfg, err := loadSkillsConfig()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
 	switch args[0] {
 	case "list":
@@ -606,9 +638,9 @@ func runSkills(args []string) error {
 // marketplace surface, sharing skills.RunPluginCommand with the chat /plugin
 // command so both stay in lockstep.
 func runPlugin(args []string) error {
-	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	cfg, err := loadSkillsConfig()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
 	cwd, _ := os.Getwd()
 	out, err := skills.RunPluginCommand(context.Background(), cfg, cwd, args)

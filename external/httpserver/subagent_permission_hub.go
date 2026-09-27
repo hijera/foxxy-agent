@@ -14,7 +14,7 @@ package httpserver
 // Two properties make that work without a new route: the permission hub is
 // process-wide and keyed by (session id, tool call id) rather than by a live
 // turn, and the permission handler consults it before the read-only guard that
-// rejects sub_ sessions. Nothing is persisted: the waiter is a goroutine, so a
+// rejects child sessions. Nothing is persisted: the waiter is a goroutine, so a
 // prompt cannot outlive the process that raised it, and a record left on disk
 // would only invite a resume that a read-only child transcript cannot have.
 

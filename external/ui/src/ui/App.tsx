@@ -5,11 +5,13 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
+import type { QueuedMessage } from "./chat/Composer";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setLlmRetrying } from "./chat/llmRetryState";
@@ -18,7 +20,10 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
-import { subscribeServerEvents } from "./chat/serverEvents";
+import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
+import type { QueuedMessageEvent } from "./chat/serverEvents";
+import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -102,12 +107,29 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
-import { connectSwarmNode, getEnv, returnToSwarm } from "./env/remoteEnv";
+import {
+  connectLocal,
+  connectRemote,
+  connectSwarmNode,
+  getEnv,
+  getRemoteToken,
+  localFetch,
+  notifyLocalApiUnauthorized,
+  returnToSwarm,
+  snapshotEnv,
+  subscribeEnv,
+} from "./env/remoteEnv";
+import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
+import {
+  newChatWorkspaceIsReady,
+  type PendingNewChatWorkspace,
+} from "./sessions/newChatWorkspace";
 import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
 import { SwarmView } from "./swarm/SwarmView";
 import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
+import { setHostShell } from "./chat/hostShell";
 import {
   injectBranchNavItems,
   deduplicateBranchNavs,
@@ -151,6 +173,28 @@ import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
 import type { SessionRow } from "./sessions/types";
+import {
+  DEFAULT_SESSION_GROUP_MODE,
+  readSessionGroupCookie,
+  writeSessionGroupCookie,
+  type SessionGroupMode,
+} from "./sessions/sessionGroups";
+import {
+  defaultSortOrder,
+  DEFAULT_ARCHIVE_FILTER,
+  DEFAULT_SESSION_SORT_KEY,
+  isHistorySortKey,
+  isSessionArchiveFilter,
+  isSessionOriginFilter,
+  type SessionArchiveFilter,
+  type SessionOriginFilter,
+  type SessionSortKey,
+} from "./sessions/sessionQuery";
+import {
+  readSessionPref,
+  SESSION_PREF_COOKIES,
+  writeSessionPref,
+} from "./sessions/sessionPrefs";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -360,6 +404,14 @@ type ModelInfo = {
 };
 
 const PROFILE_MODES = ["agent", "plan", "docs", "ask", "debug"] as const;
+
+// SessionContextWindow is the window GET .../stats reports for a session,
+// named with the model it belongs to.
+type SessionContextWindow = {
+  model: string;
+  tokens: number;
+  source?: string;
+};
 
 type SessionStats = {
   tokenUsageTotal?: {
@@ -798,6 +850,30 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
+  // A provider listing can arrive after /v1/models returned its fallback.
+  // Keep the live window per session, scoped to its model and config version;
+  // stats refreshes must not replace it with the earlier model-list value.
+  const [sessionContextWindows, setSessionContextWindows] = useState<
+    Record<string, { model: string; epoch: number; size: number }>
+  >({});
+  // The live config version, readable from handlers declared above the state
+  // that holds it.
+  const configEpochRef = useRef(0);
+  // The window GET .../stats reports, which names its own model instead of
+  // borrowing the composer's. It is the authority when the two disagree: a
+  // live frame is labelled with what the tab was showing when it arrived.
+  const recordSessionContextWindow = useStableHandler(
+    (sid: string, w: SessionContextWindow | null | undefined) => {
+      const key = sid.trim();
+      if (!key || !w || !(w.tokens > 0) || !w.model) {
+        return;
+      }
+      setSessionContextWindows((prev) => ({
+        ...prev,
+        [key]: { model: w.model, epoch: configEpochRef.current, size: w.tokens },
+      }));
+    },
+  );
 
   const applySessionStatsPayload = useCallback(
     (
@@ -836,20 +912,27 @@ export function App() {
       if (!key) {
         return;
       }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
+      const statsRes = await fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(key)}/stats`, {
+        headers: { [HDR]: key },
+      });
       if (!statsRes.ok) {
         return;
       }
+      // The session's own window, named with the model it belongs to. Recorded
+      // whether or not this session is the one on screen: a window learnt while
+      // the tab was showing another chat is exactly what would otherwise be
+      // missed, leaving the ring on the model-list fallback until the next turn.
+      recordSessionContextWindow(key, statsRes.data?.contextWindow);
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
         key,
       );
     },
-    [applySessionStatsPayload],
+    [applySessionStatsPayload, recordSessionContextWindow],
   );
 
   const debouncedRefreshSessionStats = useMemo(
@@ -882,6 +965,13 @@ export function App() {
   );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const pendingPostBySidRef = useRef(new Map<string, AbortController>());
+  const streamGenerationBySidRef = useRef(new Map<string, number>());
+  const relayAttachPendingRef = useRef(new Set<string>());
+  const stopPendingBySidRef = useRef(
+    new Map<string, { superseded: boolean }>(),
+  );
+  const stoppedTurnBySidRef = useRef(new Map<string, number>());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
   const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
@@ -889,6 +979,16 @@ export function App() {
   const activeComposerSidRef = useRef<Set<string>>(new Set());
   /** Session ids the user explicitly stopped, so a dropped stream is not auto-rejoined. */
   const userStoppedSidRef = useRef<Set<string>>(new Set());
+  // The re-attach paths below run on timers and awaited probes that outlive the
+  // component. After unmount they must not open a relay: nothing would read it,
+  // and the turn it watches would look attended to the server.
+  const appMountedRef = useRef(true);
+  useEffect(() => {
+    appMountedRef.current = true;
+    return () => {
+      appMountedRef.current = false;
+    };
+  }, []);
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
   // Consecutive failed /activity probes per session. Reconnects and the disk
@@ -920,11 +1020,15 @@ export function App() {
     turnEnded: (sid: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
+    messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
+    ready: () => void;
   }>({
     turnStarted: () => {},
     turnEnded: () => {},
     providerUsage: () => {},
     configReloaded: () => {},
+    messageQueue: () => {},
+    ready: () => {},
   });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
@@ -1020,11 +1124,139 @@ export function App() {
     }
   }
 
-  const generating = useMemo(() => {
-    const sid = sessionId.trim();
-    if (!sid) return false;
-    return activeComposerSidRef.current.has(sid);
-  }, [sessionId, composerActivityEpoch]);
+  /**
+   * The message queue per session: follow-ups the operator wrote while a turn
+   * was running, waiting for it to read them at its next step.
+   *
+   * The server owns the list. Every entry here came back from the queue routes
+   * or from a `message_queue` frame on the turn's own stream, so a second tab
+   * watching the same session shows the same queue, and a message the agent has
+   * just read disappears from it without the client guessing.
+   */
+  const [queueBySid, setQueueBySid] = useState<Record<string, QueuedMessage[]>>(
+    {},
+  );
+  /**
+   * Highest queue version applied per session.
+   *
+   * The same change reaches this client twice - once on the turn's own stream,
+   * once on `GET /foxxycode/events` - and those are separate connections, so the
+   * frames can arrive in either order. The version decides; without it a stale
+   * frame would put a cancelled message back on screen.
+   */
+  const queueOrderRef = useRef(new QueueDeliveryOrder());
+  const applyQueue = useCallback(
+    (sid: string, rows: QueuedMessage[], version: number, epoch?: number) => {
+      const key = sid.trim();
+      if (!queueOrderRef.current.accept(key, version, epoch)) {
+        return;
+      }
+      setQueueBySid((prev) => ({ ...prev, [key]: rows }));
+    },
+    [],
+  );
+  const turnActivity = useSessionTurnActivity({
+    sessionId,
+    connected: serverEventsConnected,
+    postPending: (sid) => pendingPostBySidRef.current.has(sid),
+    onQueueRead: (sid) => {
+      const fence = queueOrderRef.current.capture(sid);
+      return (queue) => {
+        if (queueOrderRef.current.acceptSnapshot(sid, queue.version, fence)) {
+          setQueueBySid((prev) => ({ ...prev, [sid]: queue.messages }));
+        }
+      };
+    },
+    onReconcile: (sid, active, wasActive) => {
+      noteViewedTurnActive(sid, active);
+      if (active) void attachViewedComposer(sid);
+      else if (wasActive) reconcileEndedTurn(sid);
+    },
+  });
+  const generating =
+    sessionId.trim() !== "" &&
+    (turnActivity.get(sessionId) ??
+      activeComposerSidRef.current.has(sessionId.trim()));
+  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
+
+  function reconcileEndedTurn(sid: string) {
+    removeActiveComposer(sid);
+    if (
+      sid !== viewedSessionIdRef.current.trim() &&
+      !streamShadowBySidRef.current.has(sid)
+    )
+      return;
+    noteUsageTurnEnded(sid);
+    void loadMessages(sid, {
+      preserveOnError: true,
+      skipSetItems: viewedSessionIdRef.current.trim() !== sid,
+    });
+    void refreshSessionStats(sid);
+  }
+
+  /** Reads the queue as it stands, for a tab that attaches to a turn already running. */
+  const refreshQueue = useCallback(
+    async (sid: string) => {
+      const key = sid.trim();
+      if (!key) return;
+      // A snapshot read over REST can cross a newer frame on a stream; the fence
+      // taken before the request is what lets the delivery order refuse it.
+      const fence = queueOrderRef.current.capture(key);
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/queue`,
+          { headers: { [HDR]: key } },
+        );
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        const messages = data?.messages;
+        if (
+          Array.isArray(messages) &&
+          queueOrderRef.current.acceptSnapshot(key, data?.version ?? 0, fence)
+        ) {
+          setQueueBySid((prev) => ({ ...prev, [key]: messages }));
+        }
+      } catch {
+        // The next message_queue frame brings the list.
+      }
+    },
+    [],
+  );
+
+  async function attachViewedComposer(sid: string) {
+    const canAttach = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      turnActivity.get(sid) === true &&
+      !postAbortBySidRef.current.has(sid) &&
+      !relayAbortBySidRef.current.has(sid) &&
+      // A Stop in flight has released the stream on purpose; its outcome
+      // decides whether this turn is watched again.
+      !stopPendingBySidRef.current.has(sid) &&
+      stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
+    if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
+    relayAttachPendingRef.current.add(sid);
+    try {
+      const generation = turnActivity.generation(sid);
+      const loaded = await loadMessages(sid, {
+        preserveOnError: true,
+        freshLoad: !streamShadowBySidRef.current.has(sid),
+      });
+      if (
+        loaded &&
+        canAttach() &&
+        turnActivity.generation(sid) === generation
+      ) {
+        void rejoinComposerLiveStream(sid, loaded);
+      }
+    } catch {
+      // An attach read failed; the activity reconciler retries without declaring idle.
+    } finally {
+      relayAttachPendingRef.current.delete(sid);
+    }
+  }
 
   // Poll while the session is working, not merely while this client streams it: a turn
   // recovered from disk, or an autonomous turn woken by a background task, burns context
@@ -1109,10 +1341,19 @@ export function App() {
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
-  const sessionsForSidebar = useMemo(
-    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
-  );
+  const sessionsForSidebar = useMemo(() => {
+    const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
+    // The open conversation's row follows this tab's own view of its turn, not the
+    // last listing: the listing is refreshed on a poll, and the activity dot must
+    // not trail a turn the reader is watching start or end.
+    const open = sessionId.trim();
+    if (!open) return rows;
+    return rows.map((row) =>
+      row.id === open && !!row.turnActive !== generating
+        ? { ...row, turnActive: generating }
+        : row,
+    );
+  }, [sessions, clientDraftSessions, sessionId, generating, t]);
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
@@ -1126,6 +1367,9 @@ export function App() {
    * picker without a page reload.
    */
   const [configEpoch, setConfigEpoch] = useState(0);
+  useEffect(() => {
+    configEpochRef.current = configEpoch;
+  }, [configEpoch]);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -1189,6 +1433,48 @@ export function App() {
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
+  // How History divides the list, remembered across visits; the archive stays
+  // hidden until it is asked for, so a conversation put aside is out of the way
+  // on the next open too.
+  const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>(
+    () => readSessionGroupCookie() ?? DEFAULT_SESSION_GROUP_MODE,
+  );
+  // Every one of these survives a reload: a filter forgotten by the next page
+  // load is not a setting, it is a gesture.
+  const [sessionsArchiveFilter, setSessionsArchiveFilter] =
+    useState<SessionArchiveFilter>(
+      () =>
+        readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
+        DEFAULT_ARCHIVE_FILTER,
+    );
+  const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
+      DEFAULT_SESSION_SORT_KEY,
+  );
+  // Which surface's conversations History shows: every one, the ones opened on
+  // this host, or the chats a messenger gateway is holding.
+  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.origin, isSessionOriginFilter) ?? "",
+  );
+  // The remotes this server offers as environments, read from the local config
+  // rather than the active one - the list of places to go must not travel with
+  // the place you are.
+  const [configuredRemotes, setConfiguredRemotes] = useState<
+    { name: string; url: string }[]
+  >([]);
+  // A folder picked from a History heading, waiting for the conversation on
+  // screen to be gone before it is applied (see newChatWorkspace.ts). The value
+  // is a ref and the trigger a counter, so the one effect that owns "the
+  // session changed" applies it - two effects racing to set the workspace
+  // context would be decided by whichever fetch answered last.
+  const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
+  // Sessions with an archive change in flight; see archiveSession.
+  const archivingRef = useRef<Set<string>>(new Set());
+  // The same, for pinning.
+  const pinningRef = useRef<Set<string>>(new Set());
+  const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
@@ -1199,6 +1485,14 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
+    setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+    setSessionContextWindows((prev) => ({
+      ...prev,
+      [sid]: { model: llmModel, epoch: configEpoch, size: u.size },
+    }));
+    debouncedRefreshSessionStats(sid);
+  });
   // Provider account usage for the composer's usage section and banner: read
   // over REST at session open, model change and after each viewed turn, pushed
   // by the events stream in between (chat/useProviderUsage.ts).
@@ -1287,14 +1581,25 @@ export function App() {
           (x) =>
             !(x.type === "question_prompt" && x.payload.requestId === ridInner),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `qp_${ridInner}`,
-            type: "question_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: `qp_${ridInner}`,
+          type: "question_prompt" as const,
+          payload: p,
+        };
+        // Insert right after the tool call that raised it, like the permission
+        // gate below: the card belongs under its own row, not above it.
+        const tcid = (p.toolCallId || "").trim();
+        const tcIdx = tcid
+          ? withoutDup.findIndex(
+              (x) => x.type === "tool_call" && x.toolCallId === tcid,
+            )
+          : -1;
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],
@@ -1511,6 +1816,10 @@ export function App() {
   );
 
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  // Whether the conversation on screen is archived, and whether the request to
+  // take it out of the archive is in flight.
+  const [viewedArchived, setViewedArchived] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
 
@@ -1547,6 +1856,18 @@ export function App() {
     return (sessions.find((s) => s.id === sid)?.cwd || "").trim();
   }, [sessionId, sessions]);
 
+  // What a transcript row spells a path against: the session's own directory,
+  // then the worktrees of its workspace. Work inside a worktree reads against
+  // that worktree, so the deepest match wins (relativeToolTarget).
+  const transcriptPathRoots = useMemo(() => {
+    const roots = [currentSessionCwd];
+    for (const worktree of workspaceCtx?.worktrees || []) {
+      const path = (worktree.path || "").trim();
+      if (path) roots.push(path);
+    }
+    return roots.filter((root) => root !== "");
+  }, [currentSessionCwd, workspaceCtx]);
+
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
     if (!t) {
@@ -1560,6 +1881,56 @@ export function App() {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, title: t } : s)),
     );
+  }
+
+  /**
+   * Writes the labels of one conversation.
+   *
+   * The list takes the new set **before** the request: the editor builds each
+   * gesture on the row it is shown, so a second gesture made while the first is
+   * still in flight would otherwise start from the set before both and undo
+   * one of them. The server folds what it stores and answers with the set it
+   * kept, which then replaces the optimistic one - a chip drawn here never
+   * changes spelling one refresh later - and a refused write puts back what the
+   * row carried, so the list never claims something the server does not hold.
+   */
+  async function saveSessionTags(id: string, tags: string[]): Promise<boolean> {
+    let previous: string[] | undefined;
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) {
+          return s;
+        }
+        previous = s.tags ?? [];
+        return { ...s, tags };
+      }),
+    );
+    const restore = () =>
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, tags: previous ?? [] } : s)),
+      );
+    let stored: string[];
+    try {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const data = (await res.json()) as { tags?: string[] };
+      stored = data.tags ?? [];
+    } catch {
+      // A dropped connection and a refused write end the same way: the row goes
+      // back to what the server still holds, and the caller says so.
+      restore();
+      return false;
+    }
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, tags: stored } : s)),
+    );
+    return true;
   }
 
   /**
@@ -1652,7 +2023,10 @@ export function App() {
         headers: sid ? { [HDR]: sid } : {},
       });
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const ctx = (await res.json()) as WorkspaceContext;
+        setWorkspaceCtx(ctx);
+        // Host fact, not a workspace one: the tool cards name the interpreter.
+        setHostShell(ctx.shell);
       }
     } catch {
       // ignore: chips keep the previous context
@@ -1661,10 +2035,22 @@ export function App() {
 
   // Load the workspace context whenever the viewed session changes; a fresh
   // home/draft view also drops stale pre-session workspace choices.
+  //
+  // A folder picked from a History heading is applied here rather than where it
+  // was picked: leaving a conversation is asynchronous, and a workspace change
+  // issued before the session is gone lands on the conversation being left.
+  // It replaces the default probe rather than running beside it - two context
+  // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
     pendingWorkspaceRef.current = null;
+    const wanted = newChatWorkspaceRef.current;
+    if (newChatWorkspaceIsReady(wanted, sessionId)) {
+      newChatWorkspaceRef.current = null;
+      void switchWorkspace({ path: String(wanted?.path ?? "") });
+      return;
+    }
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
+  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
 
   // Host project root, once. Without a session header the endpoint reports the
   // server's own cwd, which is the project an editor plugin launched it for.
@@ -2376,22 +2762,35 @@ export function App() {
       return;
     }
     appliedSelectionSidRef.current = openSessionSelection.sid;
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
+    const nextModel = pickLlmModelForOpenSession({
+      backends: llmModelIds,
+      sessionModel: openSessionSelection.model,
+      cookie: readLlmModelCookie(),
+      defaultAgentModel: defaultAgentYamlModel,
+    });
+    setLlmModel(nextModel);
+    // A session carries a reasoning level only once something chose one for it,
+    // and a model that names no `reasoning_default` makes the server report the
+    // effective level as empty. Applied as it comes, that empties the composer
+    // while the turn still runs at the model's default - so it goes through the
+    // same chooser as every other path, with the session's value as the
+    // preference rather than as the answer.
+    const openRow = modelInfos.find((m) => m.id === nextModel);
+    setLlmReasoning(
+      pickReasoningLevel({
+        levels: openRow?.reasoningLevels ?? [],
+        cookie: readReasoningCookie(),
+        sessionLevel: openSessionSelection.reasoning,
+        modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-    setLlmReasoning(openSessionSelection.reasoning);
     // The session profile is stored server-side, so a reopened chat comes back
     // in the mode it was left in instead of dropping to agent.
     const storedMode = openSessionSelection.mode.trim();
     if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
       setMode(storedMode);
     }
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -2517,6 +2916,12 @@ export function App() {
       if (scopeCwd) {
         ps.set("cwd", scopeCwd);
       }
+      ps.set("archived", sessionsArchiveFilter);
+      if (sessionsOrigin) {
+        ps.set("origin", sessionsOrigin);
+      }
+      ps.set("sort", sessionsSortKey);
+      ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
@@ -2556,7 +2961,15 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers, sessionsProjectOnly, hostProjectRoot],
+    [
+      sessionFilterQ,
+      sessionsArchiveFilter,
+      sessionsOrigin,
+      sessionsSortKey,
+      headers,
+      sessionsProjectOnly,
+      hostProjectRoot,
+    ],
   );
 
   useEffect(() => {
@@ -2583,6 +2996,8 @@ export function App() {
         const { setSessionChangesEnabled, readSessionChangesFromConfigDoc } =
           await import("./chat/sessionChangesConfig");
         setSessionChangesEnabled(readSessionChangesFromConfigDoc(res.data));
+        const { applyUiEffectsFromConfigDoc } = await import("./theme/uiEffects");
+        applyUiEffectsFromConfigDoc(res.data);
       }
     })();
   }, [headers]);
@@ -2664,6 +3079,17 @@ export function App() {
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
+  /**
+   * The messages revision each transcript returned by loadMessages was read at, for
+   * a transcript that is the server's own snapshot and nothing more. Attaching to a
+   * running turn with it asks the relay only for the frames that snapshot lacks;
+   * a transcript that kept local rows past the snapshot has none, and attaches the
+   * way it always did.
+   */
+  const snapshotRevByTranscript = useRef(
+    new WeakMap<readonly TranscriptItem[], number>(),
+  );
+
   async function loadMessages(
     idOverride?: string,
     opts?: {
@@ -2683,6 +3109,11 @@ export function App() {
       setItems([]);
       return null;
     }
+    // Two guards, two questions. The stream generation (upstream) asks whether a
+    // new POST or relay took the session over while this read was in flight; the
+    // transcript epoch below (fork) asks whether the snapshot may be painted.
+    const streamGeneration = streamGenerationBySidRef.current.get(sid);
+    const sameStream = () => streamGenerationBySidRef.current.get(sid) === streamGeneration;
     const requestEpoch =
       opts?.expectedEpoch !== undefined
         ? opts.expectedEpoch
@@ -2709,6 +3140,8 @@ export function App() {
         taskId?: string;
       } | null;
       readOnly?: boolean;
+      archived?: boolean;
+      messagesRev?: number;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2723,6 +3156,7 @@ export function App() {
     // on while the request was in flight, and a stale response must neither
     // clear the new session's rows nor merge them into this session's shadow.
     const viewingNow = viewedSessionIdRef.current.trim();
+    if (!sameStream()) return null;
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
         if (viewingNow === sid && canApplySnapshot()) {
@@ -2764,6 +3198,10 @@ export function App() {
       }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
+      // The composer learns from the transcript, not from the session list: the
+      // list skips the archive, so the conversation on screen may be in no page
+      // the client holds.
+      setViewedArchived(!!res.data.archived);
     }
     type UILogRow = {
       id: string;
@@ -2883,6 +3321,9 @@ export function App() {
           type: "user_message",
           content: rawContent,
           ...(cat ? { createdAtUtc: cat } : {}),
+          ...((m as Record<string, unknown>).queued === true
+            ? { queued: true }
+            : {}),
           ...(parsedAssets.length > 0 ? { files: parsedAssets } : {}),
         });
         const mt = memByTurn.get(userTurnIdx);
@@ -2948,7 +3389,7 @@ export function App() {
           });
         }
         const content = m.content || "";
-        if (content) {
+        if (content.trim()) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           pendingAssistant = appendDeferredAssistant(
             pendingAssistant,
@@ -3053,6 +3494,7 @@ export function App() {
         next[idx] = merged;
       }
     }
+    if (!sameStream()) return null;
     const prevShadow = streamShadowBySidRef.current.get(sid);
     // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a branch).
     const localForMerge = opts?.freshLoad
@@ -3061,7 +3503,7 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingNow === sid
+        : viewedSessionIdRef.current.trim() === sid
           ? itemsRef.current
           : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
@@ -3096,6 +3538,8 @@ export function App() {
       localForMerge ?? prevShadow ?? itemsRef.current,
     );
     const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const snapshotRev = res.data.messagesRev;
+    const serverOnly = mergedTranscript === next && appliedRaw === merged;
     const hasPendingPermission = applied.some(
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
@@ -3110,10 +3554,16 @@ export function App() {
         return next;
       });
     }
+    const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
+      if (serverOnly && typeof snapshotRev === "number") {
+        snapshotRevByTranscript.current.set(items, snapshotRev);
+      }
+    };
     if (opts?.skipSetItems) {
       if (canApplySnapshot()) {
         streamShadowBySidRef.current.set(sid, applied);
         evictStaleSessionCaches(viewedSessionIdRef.current);
+        noteSnapshotRev(applied);
       }
       return applied;
     }
@@ -3140,9 +3590,17 @@ export function App() {
       // ignore — branch nav is optional
     }
 
+    if (!sameStream()) return null;
     if (!canApplySnapshot()) {
       return withBranches;
     }
+    // Frames may have arrived while the optional branches request was in flight.
+    const beforeShadowMerge = withBranches;
+    withBranches = mergeTranscriptPreferLocalSuffix(
+      withBranches,
+      streamShadowBySidRef.current.get(sid),
+    );
+    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
@@ -3301,6 +3759,9 @@ export function App() {
       message: t("app.confirmDeleteChatBody"),
       confirmLabel: t("app.delete"),
       variant: "danger",
+      // The row's trash does one thing, and this dialog asks about that one
+      // thing: focus the answer so Enter finishes what the click started.
+      initialFocus: "confirm",
     });
     if (!ok) {
       return;
@@ -3318,6 +3779,147 @@ export function App() {
       return;
     }
     await loadSessionsList(true);
+  }
+
+  /**
+   * Puts a conversation in the archive, or takes it back out.
+   *
+   * The row moves only once the server has agreed. Moving it first reads better
+   * for the half second it saves, but it is a lie the UI then has to take back:
+   * a refused PATCH would leave the drawer showing a state that is not on disk,
+   * and a listing already in flight could put the row back anyway. The request
+   * is quick, and what the drawer shows stays what the server said.
+   */
+  async function archiveSession(id: string, archived: boolean) {
+    // One conversation, one request at a time. Two PATCHes for the same session
+    // in flight together settle in whatever order the network gives them, so a
+    // quick archive-then-unarchive could leave the archive flag opposite to the
+    // last thing the operator pressed.
+    if (archivingRef.current.has(id)) {
+      return;
+    }
+    archivingRef.current.add(id);
+    try {
+      await runArchiveSession(id, archived);
+    } finally {
+      archivingRef.current.delete(id);
+    }
+  }
+
+  async function runArchiveSession(id: string, archived: boolean) {
+    let res: Response;
+    try {
+      res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      return;
+    }
+    if (!res.ok) {
+      setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      return;
+    }
+    const rowStays =
+      sessionsArchiveFilter === "all" ||
+      (sessionsArchiveFilter === "only") === archived;
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Keeps a conversation at the top of every listing, or lets it back into the
+   * order. Like archiving, the row moves only once the server has agreed, and
+   * one request per session is in flight at a time.
+   */
+  async function pinSession(id: string, pinned: boolean) {
+    if (pinningRef.current.has(id)) {
+      return;
+    }
+    pinningRef.current.add(id);
+    try {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      // The row does not move here: a pin changes the order, and the order is
+      // the server's answer, not something to guess at from one row.
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      pinningRef.current.delete(id);
+    }
+  }
+
+  /**
+   * Writes the order the operator dragged the pinned conversations into. The
+   * whole order travels, not the one that moved: a list rewritten from what was
+   * on screen cannot interleave with a concurrent change into an order nobody
+   * asked for. The rows are re-read afterwards, because the order is the
+   * server's answer.
+   */
+  async function reorderPinnedSessions(ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+    try {
+      const res = await fetch("/foxxycode/sessions/pins/reorder", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      }
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    }
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Takes the conversation on screen out of the archive, from the notice that
+   * stands where its composer would be. The flag is cleared as soon as the
+   * server agrees, so the composer comes back without waiting for the listing.
+   */
+  async function unarchiveViewedSession() {
+    const sid = sessionId.trim();
+    if (!sid || unarchiving) {
+      return;
+    }
+    setUnarchiving(true);
+    try {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      setViewedArchived(false);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
+      );
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      setUnarchiving(false);
+    }
   }
 
   // The session table in Settings removes bundles behind the open panel. Drop
@@ -3407,6 +4009,7 @@ export function App() {
     setEditingAssetNote("");
     setEditingFiles([]);
     setSubagentTranscript(null);
+    setViewedArchived(false);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -3490,10 +4093,12 @@ export function App() {
       // and one more round trip, and blocking on it is what leaves the panel on a
       // spinner after a reload. Start it here, read it only where it is needed.
       const listPromise = loadSessionsList(true);
-      const statsPromise = fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
-        { headers },
-      );
+      const statsPromise = fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`, {
+        headers,
+      });
 
       const shadowSnap = streamShadowBySidRef.current.get(sessionId);
       let loaded: TranscriptItem[] | null = null;
@@ -3547,6 +4152,9 @@ export function App() {
       const statsRes = await statsPromise;
       if (lifecycle.signal.aborted) {
         return;
+      }
+      if (statsRes.ok) {
+        recordSessionContextWindow(sessionId, statsRes.data?.contextWindow);
       }
       if (statsRes.ok && statsRes.data?.stats) {
         applySessionStatsPayload(
@@ -3663,7 +4271,7 @@ export function App() {
     opts?: { reconcileIfDone?: boolean },
   ): Promise<void> {
     const key = rawSid.trim();
-    if (!key) return;
+    if (!key || !appMountedRef.current) return;
     if (userStoppedSidRef.current.has(key)) {
       userStoppedSidRef.current.delete(key);
       markConnected(key);
@@ -3904,33 +4512,58 @@ export function App() {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
-      if (!key || key !== viewedSessionIdRef.current.trim()) return;
-      if (activeComposerSidRef.current.has(key)) return;
-      // Reuse the fork's re-attach path rather than opening a relay here: it keeps the
-      // user-stopped guard, the activity probe and the reconnect bookkeeping in one place.
-      reconnectLiveStreamRef.current(key);
+      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      // A new admission: a Stop of the previous turn no longer fences this one,
+      // neither by generation (upstream) nor by the fork's user-stopped flag.
+      stoppedTurnBySidRef.current.delete(key);
+      userStoppedSidRef.current.delete(key);
+      const pendingStop = stopPendingBySidRef.current.get(key);
+      if (pendingStop) pendingStop.superseded = true;
+      turnActivity.observe(key, true);
+      noteViewedTurnActive(key, true);
+      void attachViewedComposer(key);
     },
     turnEnded: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
-      if (!key || key !== viewedSessionIdRef.current.trim()) return;
-      if (activeComposerSidRef.current.has(key)) return;
-      void loadMessages(key, { preserveOnError: true });
-      void refreshSessionStats(key);
+      if (!key) return;
+      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      // The event has no turn identity: an owned or observed successor may
+      // already be active. Keep polling until REST confirms admission is idle.
+      void turnActivity.refresh(key);
     },
     providerUsage: providerUsageState.applyPushed,
     configReloaded: () => setConfigEpoch((e) => e + 1),
+    // A session is shared: this is what someone else queued, in another
+    // browser or from a console attached over --remote.
+    messageQueue: (sid: string, queue: QueuedMessageEvent) =>
+      applyQueue(sid, queue.messages, queue.version),
+    ready: () => {
+      // Recovery can miss the idle edge. Retire pending acknowledgements too,
+      // so an old Stop cannot re-establish the fence after this reconnect.
+      stoppedTurnBySidRef.current.clear();
+      for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
+      turnActivity.ready();
+    },
   };
 
   useEffect(() => {
     const ctl = new AbortController();
-    void subscribeServerEvents({
+    const env = getEnv();
+    void subscribeSharedServerEvents({
+      env,
+      onRefused: (status) => {
+        if (status === 401 && env.mode === "local") notifyLocalApiUnauthorized();
+      },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
+      onMessageQueue: (sid, queue) =>
+        serverEventHandlersRef.current.messageQueue(sid, queue),
       onConnectedChange: setServerEventsConnected,
+      onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,
     });
     return () => ctl.abort();
@@ -4007,12 +4640,21 @@ export function App() {
     baseline: TranscriptItem[],
   ): Promise<void> {
     const key = sid.trim();
-    if (!key) return;
+    if (!key || !appMountedRef.current) return;
+    // One reader per session: a POST or a relay that already owns the stream is
+    // not replaced. Every caller checks first; this is the backstop for the race
+    // between the activity reconciler and the fork's own re-attach paths.
+    if (postAbortBySidRef.current.has(key) || relayAbortBySidRef.current.has(key)) return;
 
     bumpTranscriptEpoch(key);
-    relayAbortBySidRef.current.get(key)?.abort();
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
+    streamGenerationBySidRef.current.set(
+      key,
+      (streamGenerationBySidRef.current.get(key) ?? 0) + 1,
+    );
+    const ownsRelay = () => relayAbortBySidRef.current.get(key) === fetchCtl;
+    const queueEpoch = queueOrderRef.current.capture(key).epoch;
 
     addActiveComposer(key);
     // addActiveComposer clears the reconnecting flag, and until the relay actually says
@@ -4034,15 +4676,31 @@ export function App() {
       setItems([...baseline]);
     }
 
-    // The relay replays the in-flight turn's SSE from the start, so the partial turn
-    // output loaded from disk has to go — otherwise the turn's text renders twice.
-    // The gate trims on the FIRST relay byte, not up front: when no relay answers
-    // (turn already over, backend restarted) the transcript must stay as the user
-    // left it instead of being emptied by a replay that never arrives.
-    const trimOnFirstReplayByte = createTurnReplayTrimGate();
+    // Three ways to attach, and only one of them replays the turn from its start:
+    //  - a frame cursor (Last-Event-ID) resumes after the last frame this tab read;
+    //  - a snapshot revision (?since_rev=) asks only for what the transcript just
+    //    loaded lacks;
+    //  - neither - the rev is unknown: another process, the Windows registry with
+    //    no relay of its own, a remote - and the whole turn is replayed.
+    // A full replay re-sends the partial turn the baseline already shows, so that
+    // part has to go, or the turn's text renders twice. The other two send only
+    // what is missing, and trimming there would drop steps that are never sent
+    // again. The gate trims on the FIRST relay byte, not up front: when no relay
+    // answers (turn already over, backend restarted) the transcript must stay as
+    // the user left it instead of being emptied by a replay that never arrives.
+    const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+    const sinceRev = resumeFrom
+      ? undefined
+      : snapshotRevByTranscript.current.get(baseline);
+    const fullReplay = !resumeFrom && sinceRev === undefined;
+    const trimOnFirstReplayByte = fullReplay
+      ? createTurnReplayTrimGate()
+      : (prev: TranscriptItem[]) => prev;
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
+      // A relay that lost the session to a newer reader must not write into it.
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       applyStreamItemsForSession(key, (prev) =>
         fn(trimOnFirstReplayByte(prev)),
@@ -4060,7 +4718,7 @@ export function App() {
     // Usage events carry no transcript rows, so they clear the flag on their own:
     // a turn whose first sign of life is a token count is attached all the same.
     const branchTokenUsage = (u: TokenUsage | null) => {
-      if (u === null) return;
+      if (u === null || !ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
@@ -4068,26 +4726,37 @@ export function App() {
       }
     };
     const branchContextUsage = (u: ContextUsageUpdate) => {
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
-        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-        debouncedRefreshSessionStats(key);
+        applyContextUsage(key, u);
       }
     };
+
+    // The queue changes this tab missed while it was away arrive on no stream it
+    // will read now: frames on the turn's own stream are replayed only while the
+    // relay still holds them, and GET /foxxycode/events carries changes, not state.
+    // A server that restarted numbers its changes from the beginning; the delivery
+    // order notices the lower version on this snapshot and starts a new epoch.
+    void refreshQueue(key);
 
     let reconcileOnExit = true;
     try {
       // Resume after the last frame this tab consumed, so a dropped connection costs
       // a gap rather than a replay of the whole turn.
-      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
       const headers: Record<string, string> = { [HDR]: key };
       if (resumeFrom) {
         headers["Last-Event-ID"] = resumeFrom;
       }
+      // Without a frame cursor - a reloaded tab - the baseline is the transcript just
+      // loaded, and the relay is asked only for what that snapshot lacks: replaying
+      // the whole turn on top of it put every finished step on screen a second time.
       const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
+        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream` +
+          (sinceRev !== undefined ? `?since_rev=${sinceRev}` : ""),
         { headers, signal: fetchCtl.signal },
       );
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       if (!res.ok || !res.body) {
         // No relay to attach to (auth, restart, session gone). Keep the transcript
         // and let the poller reveal the turn's progress if it is still running.
@@ -4131,7 +4800,13 @@ export function App() {
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
         onModeChanged: (m: string) => onServerModeChanged(key, m),
+        onMessageQueue: (q) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyQueue(key, q.messages, q.version, queueEpoch);
+          }
+        },
       });
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
 
       const syncAssistantFromServer = async () => {
         try {
@@ -4139,7 +4814,13 @@ export function App() {
             `/foxxycode/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
-          if (!res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsRelay() ||
+            fetchCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -4242,11 +4923,16 @@ export function App() {
       });
 
       void loadSessionsList(true);
-      let ok = await syncAssistantFromServer();
+      let ok = transcriptHasFilledAssistant(
+        streamShadowBySidRef.current.get(key) ?? [], finalAssistantId,
+      );
+      if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
         await new Promise((r) => setTimeout(r, 500));
+        if (!ownsRelay() || fetchCtl.signal.aborted) return;
         ok = await syncAssistantFromServer();
       }
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       const viewing = viewedSessionIdRef.current.trim();
       const reconcileEpoch = bumpTranscriptEpoch(key);
       await loadMessages(key, {
@@ -4258,11 +4944,11 @@ export function App() {
     } catch {
       // AbortError when relay superseded or fetch aborted
     } finally {
-      if (relayAbortBySidRef.current.get(key) === fetchCtl) {
-        relayAbortBySidRef.current.delete(key);
-      }
+      if (!ownsRelay()) return;
+      relayAbortBySidRef.current.delete(key);
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      void turnActivity.refresh(key, false);
       // A relay this client cut short (its own POST or a newer relay took
       // over) did not end the turn; only a stream that ran to its end
       // spent quota.
@@ -4271,7 +4957,12 @@ export function App() {
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
-      if (reconcileOnExit) {
+      // A Stop releases this stream before the server answers (#283), and the
+      // server has not persisted what the turn wrote since its last message yet:
+      // a snapshot applied now would take that text off the screen. The turn's
+      // end reconciles the transcript once the cancel has persisted it, and a
+      // Stop that failed re-attaches through the relay.
+      if (reconcileOnExit && !userStoppedSidRef.current.has(key)) {
         const viewing = viewedSessionIdRef.current.trim();
         void loadMessages(key, { skipSetItems: viewing !== key });
       }
@@ -4282,7 +4973,19 @@ export function App() {
 
   async function streamResponses(
     text: string,
-    opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
+    opts?: {
+      modeOverride?: string;
+      runPlanSlug?: string;
+      files?: File[];
+      /**
+       * Put the text back in the composer if the server refuses this send as
+       * busy. Set by the message queue's fallback: the queue closes a moment
+       * before the turn releases its admission, so a follow-up written in that
+       * gap is told "no turn is running" and then refused as busy - and what
+       * the operator wrote must not vanish between the two answers.
+       */
+      restoreDraftOnBusy?: boolean;
+    },
   ) {
     const abortCtl = new AbortController();
     let postSessionKey = "";
@@ -4301,6 +5004,8 @@ export function App() {
       : null;
 
     let sidEffective = "";
+    const ownsPost = () =>
+      postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
     try {
       let sid = sessionId;
@@ -4327,25 +5032,37 @@ export function App() {
       // a concurrent GET /messages cannot erase the optimistic user row.
       addActiveComposer(postSessionKey);
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
+      pendingPostBySidRef.current.set(postSessionKey, abortCtl);
+      streamGenerationBySidRef.current.set(
+        postSessionKey,
+        (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+      );
+      stoppedTurnBySidRef.current.delete(postSessionKey);
+      turnActivity.observe(postSessionKey, true);
+      addActiveComposer(postSessionKey);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
       relayAbortBySidRef.current.delete(postSessionKey);
 
       let streamKey = postSessionKey;
+      let queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
       const applyStreamItems = (
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
-      ) => applyStreamItemsForSession(streamKey, fn);
+      ) => {
+        if (ownsPost() && !abortCtl.signal.aborted)
+          applyStreamItemsForSession(streamKey, fn);
+      };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
-        if (u === null) return;
+        if (u === null || !ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
           debouncedRefreshSessionStats(streamKey);
         }
       };
       const branchContextUsage = (u: ContextUsageUpdate) => {
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
-          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-          debouncedRefreshSessionStats(streamKey);
+          applyContextUsage(streamKey, u);
         }
       };
 
@@ -4462,6 +5179,8 @@ export function App() {
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      pendingPostBySidRef.current.delete(postSessionKey);
 
       if (res.status === 409) {
         let parsedBody: unknown = null;
@@ -4490,11 +5209,19 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        postAbortBySidRef.current.delete(postSessionKey);
-        streamingAssistantBySidRef.current.delete(postSessionKey);
+        if (
+          opts?.restoreDraftOnBusy &&
+          viewedSessionIdRef.current.trim() === postSessionKey
+        ) {
+          setDraft((current) => current || text);
+        }
         completedNormally = true;
         if (busy.busy) {
-          setDraft(text);
+          // Only into the chat the text was written in, and never over what the
+          // reader typed since: the refusal can land after a session switch.
+          if (viewedSessionIdRef.current.trim() === postSessionKey) {
+            setDraft((current) => current || text);
+          }
           if (busySid && viewedSessionIdRef.current.trim() !== busySid) {
             openSessionFromRoute(busySid);
           }
@@ -4517,6 +5244,12 @@ export function App() {
         bumpTranscriptEpoch(postSessionKey);
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
+        streamGenerationBySidRef.current.set(
+          postSessionKey,
+          (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+        );
+        turnActivity.observe(oldKey, false);
+        turnActivity.observe(postSessionKey, true);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
         streamShadowBySidRef.current.rename(oldKey, postSessionKey);
@@ -4527,7 +5260,8 @@ export function App() {
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
-        openSessionFromRoute(sidHdr);
+        if (viewedSessionIdRef.current.trim() === oldKey)
+          openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -4553,12 +5287,13 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        postAbortBySidRef.current.delete(postSessionKey);
-        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         return;
       }
 
+      // Admission is now settled. Reconcile events ignored while the POST was
+      // pending, including a real end whose response reader never finishes.
+      void turnActivity.refresh(streamKey);
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       const carry = { buf: "" };
@@ -4595,7 +5330,14 @@ export function App() {
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
         onModeChanged: (m: string) => onServerModeChanged(streamKey, m),
+        onMessageQueue: (q) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyQueue(streamKey, q.messages, q.version, queueEpoch);
+          }
+        },
       });
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      assistantStreamId = finalAssistantId;
 
       const syncAssistantFromServer = async () => {
         try {
@@ -4603,7 +5345,13 @@ export function App() {
             `/foxxycode/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsPost() ||
+            abortCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -4689,6 +5437,7 @@ export function App() {
       const kProbe = postSessionKey.trim();
       let mergedForSyncProbe: TranscriptItem[] = [];
       for (let attempt = 0; attempt < 40; attempt++) {
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         const sh = streamShadowBySidRef.current.get(kProbe);
         if (sh && sh.length > 0) {
           mergedForSyncProbe = sh;
@@ -4711,9 +5460,11 @@ export function App() {
         ok = await syncAssistantFromServer();
         for (let i = 0; i < 10 && !ok; i++) {
           await new Promise((r) => setTimeout(r, 500));
+          if (!ownsPost() || abortCtl.signal.aborted) return;
           ok = await syncAssistantFromServer();
         }
       }
+      if (!ownsPost() || abortCtl.signal.aborted) return;
       const viewingEnd = viewedSessionIdRef.current.trim();
       const reconcileEpoch = bumpTranscriptEpoch(sidEffective);
       await loadMessages(sidEffective, {
@@ -4730,6 +5481,11 @@ export function App() {
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
+      releaseSessionId?.(sidEffective);
+      if (pendingPostBySidRef.current.get(postSessionKey) === abortCtl) {
+        pendingPostBySidRef.current.delete(postSessionKey);
+      }
+      if (!ownsPost()) return;
       postAbortBySidRef.current.delete(postSessionKey);
       if (!completedNormally) {
         // Only patch the transcript when this turn actually produced a bubble; a
@@ -4778,37 +5534,99 @@ export function App() {
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
-      releaseSessionId?.(sidEffective);
+      void turnActivity.refresh(postSessionKey, false);
       // A background stream that just finished on a no-longer-recent session
       // should release its transcript without waiting for the next navigation.
       evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
-  function stopActiveGeneration(): void {
+  async function stopActiveGeneration(): Promise<void> {
     const sid = sessionId.trim();
-    if (!sid) return;
+    if (!sid || stopPendingBySidRef.current.has(sid)) return;
+    const request = { superseded: false };
+    stopPendingBySidRef.current.set(sid, request);
     // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
     userStoppedSidRef.current.add(sid);
     resetLiveRecoveryState(sid);
     stopDiskFallbackPoll(sid);
-    // Always send the server-side cancel so Stop works even after page reload.
-    // Fire-and-forget: if the connection is already gone the turn is unreachable
-    // anyway, and an escaping rejection would paint the IDE panel's error overlay.
-    void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
-      method: "POST",
-      headers: { [HDR]: sid },
-    }).catch(() => {
-      /* ignore */
-    });
-    // Also abort the in-progress fetch request if we have one from this page session.
-    postAbortBySidRef.current.get(sid)?.abort();
+    const post = postAbortBySidRef.current.get(sid);
+    const relay = relayAbortBySidRef.current.get(sid);
+    const generation = turnActivity.generation(sid);
+    const streamGeneration = streamGenerationBySidRef.current.get(sid);
+    const cancelCtl = new AbortController();
+    const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
+    const errorId = `stop_error_${sid}`;
+    applyStreamItemsForSession(sid, (prev) =>
+      prev.filter((it) => it.id !== errorId),
+    );
+    let fenced = false;
+    try {
+      // Always send the server-side cancel so Stop works even after page reload.
+      const cancelled = fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
+      // Release this tab's stream of the turn before the answer, not after it.
+      // Over HTTP/1.1 a browser keeps six connections to a host for all of its
+      // tabs, and a few open tabs of FoxxyCode hold every one of them with event and
+      // turn streams: the cancel request then waits for a connection that only
+      // this abort frees. The turn does not depend on the stream, and a failed
+      // Stop rejoins it through the relay.
+      post?.abort();
+      relay?.abort();
+      const res = await cancelled;
+      if (!res.ok) throw new Error(`cancel failed (${res.status})`);
+      // The acknowledgement neither proves idle nor gives an old Stop ownership
+      // of a newer turn in this session.
+      fenced =
+        !request.superseded &&
+        turnActivity.generation(sid) === generation &&
+        streamGenerationBySidRef.current.get(sid) === streamGeneration;
+      if (fenced) {
+        stoppedTurnBySidRef.current.set(sid, generation);
+        void turnActivity.refresh(sid, false);
+      }
+    } catch {
+      // The turn is still running and still ours to watch: a drop after a Stop
+      // that never reached the server must re-attach like any other. Caught
+      // here, so nothing escapes to paint the IDE panel's error overlay.
+      userStoppedSidRef.current.delete(sid);
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev.filter((it) => it.id !== errorId),
+        {
+          id: errorId,
+          type: "system_notice",
+          level: "error",
+          message: t("app.stopFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    } finally {
+      window.clearTimeout(timer);
+      if (stopPendingBySidRef.current.get(sid) === request) {
+        stopPendingBySidRef.current.delete(sid);
+        // The stream was released for a Stop that did not take this turn: the
+        // request failed, or a successor started meanwhile. Rejoin it without
+        // waiting for the next reconciliation tick, one task later, so the
+        // released stream has let go of the session before the attach looks.
+        if (!fenced) window.setTimeout(() => void turnActivity.refresh(sid), 0);
+      }
+    }
   }
 
   const maxContextTokens = useMemo(() => {
+    const live = sessionContextWindows[sessionId.trim()];
+    if (live?.model === llmModel && live.epoch === configEpoch) {
+      return live.size;
+    }
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
+  }, [modelInfos, llmModel, sessionId, sessionContextWindows, configEpoch]);
 
   const llmModelMultimodal = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
@@ -4824,13 +5642,21 @@ export function App() {
   // pick when the new model still offers it, else fall back (cookie -> model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
+    // Nothing is known about a model whose row has not arrived - the list is still
+    // in flight, or the id was just set. Clearing the level there loses the one the
+    // session asked for, and the run that follows cannot bring it back: it only
+    // sees the emptied value. Leave the selection alone until the row says what
+    // the model actually offers.
+    if (!row) {
+      return;
+    }
+    const levels = row.reasoningLevels ?? [];
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
         cookie: readReasoningCookie(),
         sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
+        modelDefault: row.reasoningDefault ?? null,
       }),
     );
   }, [llmModel, modelInfos]);
@@ -5203,6 +6029,102 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
+  // Read the environments this server offers once: the list lives in the local
+  // config, so it is fetched off the origin rather than through the shim.
+  useEffect(() => {
+    let alive = true;
+    localFetch("/foxxycode/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!alive || !cfg) {
+          return;
+        }
+        const list = (cfg as Record<string, unknown>)?.httpserver as
+          | Record<string, unknown>
+          | undefined;
+        const raw = list?.remotes;
+        if (!Array.isArray(raw)) {
+          return;
+        }
+        setConfiguredRemotes(
+          raw
+            .map((item) => {
+              const o = (item ?? {}) as Record<string, unknown>;
+              return { name: String(o.name ?? ""), url: String(o.url ?? "") };
+            })
+            .filter((r) => r.url.trim() !== ""),
+        );
+      })
+      .catch(() => {
+        /* configured remotes are optional */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const activeEnv = useSyncExternalStore(
+    subscribeEnv,
+    snapshotEnv,
+    snapshotEnv,
+  );
+
+  /**
+   * The environments the History filter offers. Two kinds share the list,
+   * because to an operator they are one question - where is this conversation:
+   * the origin rows narrow the listing of whichever server is being read, and a
+   * remote row points the whole app at another server, the way the composer's
+   * environment chip does.
+   */
+  const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
+    const onRemote = activeEnv.mode === "remote";
+    // Narrowing by origin is a filter on the server being read; it must not
+    // reach for connectLocal, which reloads the page and would throw the choice
+    // away before it was used. Only coming *back* from a remote is a switch,
+    // and that reload resets the filter along with everything else.
+    const narrowTo = (origin: SessionOriginFilter) => () => {
+      if (onRemote) {
+        connectLocal();
+        return;
+      }
+      setSessionsOrigin(origin);
+      writeSessionPref(SESSION_PREF_COOKIES.origin, origin);
+    };
+    const rows: SessionsEnvironmentOption[] = [
+      {
+        key: "all",
+        label: t("sessions.filter.env.all"),
+        active: !onRemote && sessionsOrigin === "",
+        onPick: narrowTo(""),
+      },
+      {
+        key: "local",
+        label: t("sessions.filter.env.local"),
+        active: !onRemote && sessionsOrigin === "local",
+        onPick: narrowTo("local"),
+      },
+      {
+        key: "gateway",
+        label: t("sessions.filter.env.gateway"),
+        active: !onRemote && sessionsOrigin === "gateway",
+        onPick: narrowTo("gateway"),
+      },
+    ];
+    for (const remote of configuredRemotes) {
+      rows.push({
+        key: remote.url,
+        label: remote.name.trim() || remote.url,
+        active:
+          onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
+        // connectRemote reloads the page, so nothing of this session's state
+        // reaches the other server - the origin filter included.
+        onPick: () =>
+          connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
+      });
+    }
+    return rows;
+  }, [activeEnv, configuredRemotes, sessionsOrigin, t]);
+
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
     permissionPendingSessionIds: permissionPendingSids,
@@ -5233,7 +6155,36 @@ export function App() {
     },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
+    onTagsSave: (id: string, tags: string[]) => saveSessionTags(id, tags),
     onDelete: deleteSession as (id: string) => void | Promise<void>,
+    onArchive: (id: string, archived: boolean) =>
+      void archiveSession(id, archived),
+    onPin: (id: string, pinned: boolean) => void pinSession(id, pinned),
+    onReorderPins: (ids: string[]) => void reorderPinnedSessions(ids),
+    groupMode: sessionGroupMode,
+    onGroupModeChange: (mode: SessionGroupMode) => {
+      setSessionGroupMode(mode);
+      writeSessionGroupCookie(mode);
+    },
+    archiveFilter: sessionsArchiveFilter,
+    onArchiveFilterChange: (value: SessionArchiveFilter) => {
+      setSessionsArchiveFilter(value);
+      writeSessionPref(SESSION_PREF_COOKIES.status, value);
+    },
+    environments: sessionEnvironments,
+    sortKey: sessionsSortKey,
+    onSortKeyChange: (key: SessionSortKey) => {
+      setSessionsSortKey(key);
+      writeSessionPref(SESSION_PREF_COOKIES.sort, key);
+    },
+    onNewChatInWorkspace: (cwd: string) => {
+      // Park the folder and leave; the effect below applies it on the first
+      // render with no session current. Doing it here would post the folder to
+      // the conversation being left and leave the new chat in the default one.
+      newChatWorkspaceRef.current = { path: cwd, nonce: Date.now() };
+      setNewChatWorkspaceEpoch((n) => n + 1);
+      goHome();
+    },
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
     onSearchClear: () => setSessionFilterDraft(""),
@@ -5266,6 +6217,123 @@ export function App() {
   );
   const handleStopBackgroundTask = useStableHandler((id: string) => {
     void stopBackgroundTaskById(id);
+  });
+
+  /**
+   * Queue the draft for the turn that is running instead of refusing it.
+   *
+   * The turn can end between the keystroke and the request; the server says so
+   * with `no_active_turn`, and what the operator wrote is sent as an ordinary
+   * prompt rather than dropped. Any other refusal puts the text back in the
+   * composer, because losing it is worse than a second attempt.
+   */
+  const handleQueueMessage = useStableHandler((text: string) => {
+    const sid = sessionId.trim();
+    const generation = turnActivity.generation(sid);
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
+    const body = text.trim();
+    if (!sid || !body) return;
+    setDraft("");
+    void (async () => {
+      type QueueAnswer = {
+        messages?: QueuedMessage[];
+        version?: number;
+        error?: { code?: string; message?: string };
+      };
+      let payload: QueueAnswer | null = null;
+      let status = 0;
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
+          {
+            method: "POST",
+            headers: { [HDR]: sid, "Content-Type": "application/json" },
+            body: JSON.stringify({ text: body }),
+          },
+        );
+        status = res.status;
+        payload = (await res.json().catch(() => null)) as QueueAnswer | null;
+      } catch {
+        // Network failure: treated as a refusal below.
+      }
+      if (status === 201 && Array.isArray(payload?.messages)) {
+        applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
+        return;
+      }
+      if (
+        payload?.error?.code === "no_active_turn" &&
+        queueOrderRef.current.capture(sid).epoch === queueEpoch &&
+        turnActivity.generation(sid) === generation &&
+        viewedSessionIdRef.current.trim() === sid
+      ) {
+        // The turn ended between the keystroke and the request. Send it as an
+        // ordinary prompt; if the admission has not been released yet and that
+        // is refused too, the text comes back to the composer rather than
+        // being lost between the two answers.
+        void streamResponses(body, { restoreDraftOnBusy: true });
+        return;
+      }
+      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      const code = payload?.error?.code;
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice",
+          level: "error" as const,
+          message:
+            code === "queue_full"
+              ? t("composer.queueFull")
+              : code === "session_busy"
+                ? t("composer.queueBusyElsewhere")
+                : t("composer.queueFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    })();
+  });
+
+  /**
+   * Take one queued follow-up back. The list is updated at once so the card
+   * disappears under the click; the server's answer (or the next
+   * `message_queue` frame) is what it settles on.
+   */
+  const handleCancelQueued = useStableHandler((id: string) => {
+    const sid = sessionId.trim();
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
+    const messageID = id.trim();
+    if (!sid || !messageID) return;
+    const taken = (queueBySid[sid] ?? []).find((q) => q.id === messageID);
+    setQueueBySid((prev) => ({
+      ...prev,
+      [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
+    }));
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(messageID)}`,
+          { method: "DELETE", headers: { [HDR]: sid } },
+        );
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (Array.isArray(data?.messages)) {
+          applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+        // Taken back before the agent read it: the text returns to the composer to be
+        // edited, ahead of anything typed since. A 404 means the agent read it first,
+        // and it is already in the conversation.
+        const text = taken?.text ?? "";
+        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+          setDraft((current) =>
+            current.trim() ? `${text}\n\n${current}` : text,
+          );
+        }
+      } catch {
+        // The next message_queue frame corrects the list.
+      }
+    })();
   });
   const handleFetchToolCallFull = useStableHandler(
     async (toolCallId: string) => {
@@ -5444,6 +6512,11 @@ export function App() {
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               sessionsScope={sessionsScopeForSettings}
+              onSessionTagsChanged={(id: string, tags: string[]) =>
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === id ? { ...s, tags } : s)),
+                )
+              }
             />
           </div>
         ) : null}
@@ -5502,7 +6575,11 @@ export function App() {
             onOpenBackgroundTask={openBackgroundTask}
             onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
+            sessionArchived={viewedArchived}
+            unarchiving={unarchiving}
+            onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
+            pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}
@@ -5559,6 +6636,13 @@ export function App() {
               }
             }}
             onStop={() => stopActiveGeneration()}
+            {...(subagentTranscript
+              ? {}
+              : {
+                  queuedMessages,
+                  onQueue: handleQueueMessage,
+                  onCancelQueued: handleCancelQueued,
+                })}
             onQuestionPromptResolved={resolveQuestionPrompt}
             onPermissionPromptResolved={resolvePermissionPrompt}
             onPlanDocumentExpanded={(itemId, expanded) => {
@@ -5579,7 +6663,8 @@ export function App() {
                   onPlanDocumentRun: (slug: string) => {
                     if (
                       sessionId.trim() &&
-                      activeComposerSidRef.current.has(sessionId.trim())
+                      (turnActivity.get(sessionId) ??
+                        activeComposerSidRef.current.has(sessionId.trim()))
                     ) {
                       return;
                     }
@@ -5634,7 +6719,8 @@ export function App() {
               }
               if (
                 sessionId.trim() &&
-                activeComposerSidRef.current.has(sessionId.trim())
+                (turnActivity.get(sessionId) ??
+                  activeComposerSidRef.current.has(sessionId.trim()))
               ) {
                 return;
               }

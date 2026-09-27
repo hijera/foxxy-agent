@@ -13,9 +13,9 @@ import (
 type HTTPServerConfig struct {
 	// Enabled runs the HTTP API (and the embedded SPA) in this process. A nil
 	// pointer means the default, true: the API is the surface `foxxycode serve`
-	// exists for. Set `httpserver.enabled: false` on a node that should only
+	// exists for. Set `httpserver.enable: false` on a node that should only
 	// poll a messenger or relay a swarm.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 	// Host is the default bind address when `foxxycode serve` does not override -H/--host. Empty falls back to 127.0.0.1, so a process that was started for some other subsystem never opens the API to the network by accident.
 	Host string `yaml:"host"`
 	// Port is the default listen port when `foxxycode serve` does not override -P/--port. Zero falls back to 12345.
@@ -67,7 +67,7 @@ type HTTPLoginConfig struct {
 	// Enabled turns the sign-in form on or off explicitly. Nil follows the
 	// credentials: a configured account enables the form, no account leaves the
 	// server exactly as it was before this option existed.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 	// Mode is how a browser authenticates. Empty means LoginModePassword, the
 	// only mode this version implements.
 	Mode string `yaml:"mode"`
@@ -149,7 +149,7 @@ func (l *HTTPLoginConfig) SessionTTL() time.Duration {
 // HTTPCORSConfig is the optional cross-origin policy for the HTTP gateway.
 type HTTPCORSConfig struct {
 	// Enabled turns on CORS handling (preflight + Access-Control-* headers).
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 	// AllowedOrigins are exact origins permitted to call the API (e.g. "http://localhost:5173").
 	// A single "*" allows any origin (bearer auth still applies).
 	AllowedOrigins []string `yaml:"allowed_origins"`

@@ -63,6 +63,24 @@ test("a completed transport with an SVN error is visibly failed", () => {
   expect(screen.queryByText("Completed")).toBeNull();
 });
 
+// The SVN pill already says the operation failed on the collapsed row; the generic
+// marker would say it a second time.
+test("a failed SVN call keeps its own pill and gets no second failure marker", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="update-failed"
+      title="svn_update"
+      status="failed"
+      argsText={'{"path":"trunk"}'}
+      resultText="error: svn: E155004: working copy locked"
+    />,
+  );
+  const head = container.querySelector(".thinking-head");
+  expect(head?.firstElementChild).toHaveClass("svn-tool-icon");
+  expect(head?.querySelector(".svn-summary-error")).not.toBeNull();
+  expect(screen.queryByTestId("tool-failed-marker")).toBeNull();
+});
+
 test("highlights a diff without dropping property changes or binary diagnostics", () => {
   const result =
     "Index: src/main.go\n--- src/main.go\n+++ src/main.go\n@@ -1 +1 @@\n-old\n+new\nProperty changes on: src/main.go\nCannot display: file marked as a binary type.";

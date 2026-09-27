@@ -3,7 +3,7 @@
 package config
 
 // BrowserToolCompiled is false in a build without the "browser" tag: the
-// interactive browser tools are not in this binary, so browser.enabled cannot
+// interactive browser tools are not in this binary, so browser.enable cannot
 // turn them on. See browser_build.go for the compiled-in counterpart.
 const BrowserToolCompiled = false
 

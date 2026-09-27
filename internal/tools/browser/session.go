@@ -5,7 +5,7 @@
 // Chrome/Chromium instance driven over the DevTools Protocol via chromedp.
 //
 // It is gated behind the "browser" build tag and disabled by default; enable it
-// with config browser.enabled: true in a build compiled with -tags browser.
+// with config browser.enable: true in a build compiled with -tags browser.
 package browser
 
 import (

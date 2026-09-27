@@ -8,7 +8,7 @@ A machine-readable [JSON Schema](../../internal/config/config.schema.json) accom
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
-VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enabled`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean.
+VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in coddy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
@@ -67,9 +67,9 @@ Named model entries the agent and UI can select.
 |-----|------|---------|-------------|
 | `models` | list of objects |  | Named model entries the agent and UI can select. |
 | `models[].model` | string |  | "provider_name/api_model_id": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes). |
-| `models[].max_tokens` | integer |  | Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens. |
+| `models[].max_tokens` | integer |  | Upper bound on completion tokens per assistant message. A codex model never sends it (the Codex backend rejects max_output_tokens), so there it bounds nothing, and foxxycode -t and --dry-run warn about such a value. |
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
-| `models[].max_context_tokens` | integer | 0 | Optional UI hint for the composer context bar; 0 derives it from provider metadata when available. |
+| `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model. |
 | `models[].reasoning_levels` | list of strings |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
@@ -107,7 +107,7 @@ LLM-backed inline completion in the editor plugins: the greyed suggestion drawn 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `autocomplete.enabled` | boolean | false | Turn on inline suggestions. Unset defaults to false, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke. |
+| `autocomplete.enable` | boolean | false | Turn on inline suggestions. Unset defaults to false, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke. |
 | `autocomplete.model` | string | "" | Exact models[].model id used for the suggestion pass; empty falls back to agent.model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it. |
 | `autocomplete.mode` | string, one of `auto`, `chat`, `fim` | auto | How the hole in the code reaches the model. "auto" uses native fill-in-the-middle tokens through a raw completion (POST /v1/completions) when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and the provider allow it, and a chat prompt otherwise; a raw call that fails switches that model to chat for the rest of the process. "chat" always sends a chat prompt. "fim" always sends FIM tokens and errors when that is not possible. |
 | `autocomplete.temperature` | number | 0 | Sampling temperature for suggestions. Unlike models[].temperature, 0 here is the value rather than "unset": suggestions are greedy by default so the same context yields the same suggestion. |
@@ -132,7 +132,7 @@ Override the built-in system prompt templates (Go text/template).
 | `prompts.docs_prompt` | string | docs.md | File name inside prompts.dir for docs mode. |
 | `prompts.ask_prompt` | string | ask.md | File name inside prompts.dir for ask mode. |
 | `prompts.per_provider` | object |  | Select a system prompt tuned to the active model family (agent.<family>.md), falling back to the shared prompt. |
-| `prompts.per_provider.enabled` | boolean | true | Use a per-family prompt file when one exists. Defaults to true. |
+| `prompts.per_provider.enable` | boolean | true | Use a per-family prompt file when one exists. Defaults to true. |
 
 ### `instructions`
 
@@ -149,7 +149,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills.dirs` | list of strings | ["~/.agents/skills","${FOXXYCODE_HOME}/skills","${CWD}/.foxxycode/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime. |
-| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. |
+| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/skills.md. |
 | `skills.auto_discovery` | boolean | true | Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true. |
 
 ### `rules`
@@ -213,11 +213,22 @@ Filesystem and shell policy for built-in tools.
 | `tools.output_limits.websearch` | integer | 200 |  |
 | `tools.output_limits.default` | integer | 1000 |  |
 | `tools.background` | object |  | Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the foxxycode process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned. |
-| `tools.background.enabled` | boolean | true | Offer the background option on run_command and expose the background task tools. |
+| `tools.background.enable` | boolean | true | Offer the background option on run_command and expose the background task tools. |
 | `tools.background.max_concurrent` | integer | 5 | How many background tasks one session may run at once. 0 uses the default. |
 | `tools.background.default_timeout_seconds` | integer | 900 | Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default. |
 | `tools.background.max_timeout_seconds` | integer | 3600 | Ceiling applied to any requested or estimate-derived timeout. 0 uses the default. |
 | `tools.background.output_buffer_bytes` | integer | 262144 | How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default. |
+| `tools.websearch` | object |  | Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a blocked backend is named rather than counted as "the web has nothing". |
+| `tools.websearch.engines` | list of strings | ["brave","bing"] | Search engines to ask, in merge order. Unset asks brave then bing. "ddg" and "google" are not asked by default: measured from a server, DuckDuckGo answers every query with an anti-bot interstitial and Google renders its results in the browser. "searxng" needs searxng_url. |
+| `tools.websearch.engine_timeout_seconds` | integer | 8 | Seconds one engine may take before it is reported as unavailable. 0 uses the default. |
+| `tools.websearch.total_timeout_seconds` | integer | 20 | Seconds the whole search may take, however many engines it asks. 0 uses the default. |
+| `tools.websearch.max_concurrent_engines` | integer | 4 | How many engines are asked at once. 0 uses the default. |
+| `tools.websearch.snippet_chars` | integer | 320 | Maximum characters of one result description. 0 uses the default. |
+| `tools.websearch.cache_ttl_seconds` | integer | 300 | Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off. |
+| `tools.websearch.searxng_url` | string | "" | Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose. |
+| `tools.websearch.brave_api_key` | string | "" | Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${FOXXYCODE_HOME}/.env), so the key need not be stored here. |
+| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://foxxycode.dev/docs/features/http-requests. |
+| `tools.http_request.allowlist` | list of strings | [] | Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). "*" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy. |
 
 ### `subagents`
 
@@ -225,7 +236,7 @@ User-defined child agents the model can delegate to with spawn_agent. Definition
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `subagents.enabled` | boolean | true | Register the spawn_agent tool and list the subagent catalog in the system prompt. |
+| `subagents.enable` | boolean | true | Register the spawn_agent tool and list the subagent catalog in the system prompt. |
 | `subagents.dirs` | list of strings | ["${FOXXYCODE_HOME}/agents","${CWD}/.claude/agents","${CWD}/.foxxycode/agents"] | Definition directories, lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow project_trust. |
 | `subagents.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for definitions found inside the workspace, which travel with the checkout: "ask" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust with the session workspace as cwd); "allow" treats them like the operator's own files; "deny" never reads them. |
 | `subagents.max_concurrent` | integer | 4 | How many subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued. 0 uses the default. |
@@ -239,7 +250,7 @@ Operator commands run at lifecycle points of a session: before and after a tool 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `hooks.enabled` | boolean | true | Load and run hooks at all. |
+| `hooks.enable` | boolean | true | Load and run hooks at all. |
 | `hooks.files` | list of strings | ["${FOXXYCODE_HOME}/hooks.json","${CWD}/.claude/settings.json","${CWD}/.claude/settings.local.json","${CWD}/.foxxycode/hooks.json"] | Definition files, lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand; a relative entry resolves against the session cwd. Files inside the workspace are project scope and follow project_trust; only the hooks key of a Claude Code settings file is read. |
 | `hooks.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for hook files found inside the workspace, which travel with the checkout: "ask" lists them but runs nothing until the operator approved that exact file for that workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust with the session workspace as cwd); "allow" treats them like the operator's own file; "deny" never reads them. |
 | `hooks.default_timeout_seconds` | integer | 60 | Hard limit for one hook process whose definition gives no timeout. 0 uses the default. |
@@ -277,16 +288,18 @@ Summarize older turns when the conversation approaches the model's context windo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `compaction.engine` | string, one of `coddy`, `opencode` | coddy | Compaction implementation: "coddy" (default) keeps a summary row and replays only the window after it (supports /compact); "opencode" flags older turns and filters them from the payload. |
-| `compaction.enabled` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
+| `compaction.engine` | string, one of `coddy`, `opencode` | coddy | Compaction implementation: "coddy" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
+| `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
-| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99. |
+| `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |
+| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99. |
 | `compaction.keep_recent_turns` | integer | 2 | Number of most recent user turns preserved verbatim (never summarized). Default 2. |
 | `compaction.max_tokens` | integer | 4096 | Completion token cap for the summary generation (opencode engine only). |
 | `compaction.result_eviction` | object |  | Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete. |
-| `compaction.result_eviction.enabled` | boolean | true | Master switch for result eviction. |
+| `compaction.result_eviction.enable` | boolean | true | Master switch for result eviction. |
 | `compaction.result_eviction.keep_recent` | integer | 2 | Most recent evictable results kept as a working window. |
 | `compaction.result_eviction.min_result_bytes` | integer | 2000 | Results at or below this size are never evicted. |
+| `compaction.result_eviction.start_percent` | integer | 50 | Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does. |
 
 ### `title`
 
@@ -294,18 +307,19 @@ Generate a short LLM thread title after the first exchange in a fresh, non-pinne
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `title.enabled` | boolean | true | Turn on auto-title generation. Unset defaults to true; set false to disable. |
+| `title.enable` | boolean | true | Turn on auto-title generation. Unset defaults to true; set false to disable. |
 | `title.model` | string | "" | Exact models[].model id used for the title pass; empty falls back to agent.model. A small, cheap model is a good choice. |
 | `title.max_tokens` | integer | 64 | Completion token cap for the title generation. |
 
 ### `memory`
 
-Optional memory copilot (implementation in external/memory; enable at runtime with memory.enabled).
+Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.enabled` | boolean | false | Turn on the memory copilot. |
+| `memory.enable` | boolean | false | Turn on the memory copilot. |
 | `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
+| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not silence the copilot. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~. |
 | `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
 | `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |
@@ -318,12 +332,12 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `httpserver.enabled` | boolean | true | Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm. |
+| `httpserver.enable` | boolean | true | Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm. |
 | `httpserver.host` | string | "" | Default bind address when foxxycode http does not pass -H/--host. Empty falls back to 0.0.0.0. |
 | `httpserver.port` | integer | 0 | Default listen port when foxxycode http does not pass -P/--port. 0 falls back to 12345. |
 | `httpserver.auth_token` | string | "" | Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md. |
 | `httpserver.login` | object |  | Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD. API clients keep using auth_token. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md. |
-| `httpserver.login.enabled` | boolean |  | Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set. |
+| `httpserver.login.enable` | boolean |  | Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set. |
 | `httpserver.login.mode` | string, one of `password` | password | How a browser authenticates. Only "password" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration. |
 | `httpserver.login.user` | string | "" | Account name for the sign-in form. Supports "${ENV}" references, e.g. "${FOXXYCODE_HTTP_USER}". |
 | `httpserver.login.password_hash` | string | "" | argon2id hash of the password in PHC form ("$argon2id$v=19$m=...$..."), written by `foxxycode serve set-password`. Never echoed back by GET /foxxycode/config, and a save from the settings screen preserves it. Put a plaintext password in FOXXYCODE_HTTP_PASSWORD instead of here. |
@@ -332,7 +346,7 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.stream_tickets_only` | boolean | false | Refuse the durable auth token in ?access_token= on the SSE routes, so an EventSource must first mint a single-use ticket via POST /foxxycode/stream-tickets. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
 | `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
 | `httpserver.cors` | object |  | Cross-origin policy so a browser UI on another origin can call this API. |
-| `httpserver.cors.enabled` | boolean | false | Turn on CORS handling (preflight + Access-Control-* headers). |
+| `httpserver.cors.enable` | boolean | false | Turn on CORS handling (preflight + Access-Control-* headers). |
 | `httpserver.cors.allowed_origins` | list of strings |  | Exact origins permitted to call the API. A single "*" allows any origin (bearer auth still applies). |
 | `httpserver.remotes` | list of objects |  | Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote. |
 | `httpserver.remotes[].name` | string |  | Display name in the environment selector. |
@@ -340,11 +354,11 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 
 ### `swarm`
 
-Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enabled; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/swarm.md.
+Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/swarm.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `swarm.enabled` | boolean | false | Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay. |
+| `swarm.enable` | boolean | false | Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay. |
 | `swarm.host` | string | "" | Bind address for the relay when the CLI does not pass --swarm-host. Empty falls back to 0.0.0.0. |
 | `swarm.port` | integer | 0 | Listen port for the relay. 0 falls back to 12346. |
 | `swarm.name` | string | "" | Label for this relay in topology views and in a child's node path. |
@@ -354,7 +368,7 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.insecure_open_registration` | boolean | false | Let any caller register a node without a pairing token. Development only. |
 | `swarm.allow_private_upstreams` | list of strings | [] | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
 | `swarm.cors` | object |  | Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay. |
-| `swarm.cors.enabled` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
+| `swarm.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
 | `swarm.cors.allowed_origins` | list of strings | [] | Exact origins permitted to call the API, e.g. "http://localhost:5173". A single "*" allows any origin. |
 | `swarm.tls` | object |  | Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. |
 | `swarm.tls.cert_file` | string | "" | PEM certificate chain. |
@@ -388,11 +402,12 @@ Embedded SPA preferences for desktop and HTTP UI.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ui.enabled` | boolean | true | Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available. Unset defaults to true. |
+| `ui.enable` | boolean | true | Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available. Unset defaults to true. |
 | `ui.locale` | string, one of `""`, `en`, `ru` | "" | UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale. |
 | `ui.send_mode` | string, one of `enter`, `ctrl_enter`, `off` | enter | How the main chat composer submits a message. "enter": Enter sends (Shift/Ctrl+Enter insert a newline). "ctrl_enter": Ctrl/Cmd+Enter sends (Enter inserts a newline). "off": disable keyboard send (Send button only). |
 | `ui.status_line` | boolean | true | Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Set false to show only the animated dots. Unset defaults to true. |
 | `ui.session_changes` | boolean | true | Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Set false to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available. Unset defaults to true. |
+| `ui.effects` | boolean |  | Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else. |
 
 ### `scheduler`
 
@@ -400,7 +415,7 @@ Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). J
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `scheduler.enabled` | boolean | false | Run the scheduler daemon and expose the foxxycode_scheduler_* tools. Can also be forced per process with foxxycode acp\|http -scheduler-enabled. |
+| `scheduler.enable` | boolean | false | Run the scheduler daemon and expose the foxxycode_scheduler_* tools. Can also be forced per process with foxxycode acp\|http -scheduler-enabled. |
 | `scheduler.dir` | string | "" | Directory with *.md job definitions. Empty resolves to ${FOXXYCODE_HOME}/scheduler. |
 | `scheduler.max_queue` | integer | 10 | Concurrent scheduled runs; when saturated, extra firings are skipped until a slot frees. |
 | `scheduler.timeout` | string | 30m | Wall-clock limit for one scheduled agent run, as a Go duration (e.g. "30m", "1h30m"). |
@@ -413,7 +428,7 @@ Messenger bot adapters (used only by binaries built with -tags gateway or -tags 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `gateways.telegram` | object |  | Telegram bot adapter. |
-| `gateways.telegram.enabled` | boolean | false | Activate the Telegram adapter when foxxycode gateway starts. |
+| `gateways.telegram.enable` | boolean | false | Activate the Telegram adapter when foxxycode gateway starts. |
 | `gateways.telegram.token` | string | "" | Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.foxxycode/.env). |
 | `gateways.telegram.proxy` | string | "" | Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL. |
 | `gateways.telegram.rich_messages` | boolean | false | Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported. |
@@ -434,7 +449,7 @@ Interactive browser automation tool (requires the browser build tag; drives a lo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `browser.enabled` | boolean | false | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds. |
+| `browser.enable` | boolean | false | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds. |
 | `browser.headless` | boolean | true | Run the browser without a visible window. Enabled by default; disable to watch the automated session. |
 | `browser.executable_path` | string | "" | Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser. |
 | `browser.timeout_seconds` | integer | 30 | Per-action timeout for navigation, clicks, and other browser operations. |
@@ -447,19 +462,19 @@ Version control integration. Git works out of the box; Subversion adds the SVN c
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `vcs.svn` | object |  | Subversion support for SVN working copies and branch folders. |
-| `vcs.svn.enabled` | boolean | true | Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model. |
+| `vcs.svn.enable` | boolean | true | Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model. |
 | `vcs.svn.binary` | string | "" | Optional path to the svn client. Empty resolves "svn" on PATH; set it when the client is installed outside PATH. |
 | `vcs.svn.timeout_seconds` | integer | 120 | Per-command timeout for svn invocations such as update, commit, and merge. |
 | `vcs.svn.branch_lookup` | boolean | true | Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links. |
 
 ### `debug`
 
-Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enabled=true at startup.
+Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enable=true at startup.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `debug.enabled` | boolean | false | Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config. |
-| `debug.capture_llm` | boolean | true | Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enabled; set to false to keep debug logs while suppressing large bodies. |
+| `debug.enable` | boolean | false | Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, traces every LLM connection (its route through a proxy, each network step, silences and how the request ended), and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config. |
+| `debug.capture_llm` | boolean | true | Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enable; set to false to keep debug logs while suppressing large bodies. |
 <!-- docsgen:config:end -->
 
 ## Notes
@@ -510,7 +525,7 @@ foxxycode providers logout codex   # removes the FoxxyCode-managed credential (l
 
 A successful login also publishes the subscription catalog into `config.yaml`, the way `foxxycode providers login neuraldeep` publishes its tier models (the Settings button stores the credential only): it adds the `codex` provider row when it is missing, one `models[]` entry per catalog model Codex lists (the ids Codex hides from its own picker, such as `gpt-reserve` and `codex-auto-review`, are left out), and `agent.model` when nothing is set yet - Codex's own top-ranked model. Nothing already in the file is rewritten: an existing provider row, an already listed model, and a chosen `agent.model` survive untouched, so a repeated login is a no-op. `--no-config` stores only the credential. Entries carry no `max_tokens`, because the Codex backend rejects `max_output_tokens`. A running `foxxycode serve` keeps its loaded config, so restart it to pick the new models up.
 
-Both paths use the same storage; the provider name is the argument, so `foxxycode providers login <name>` targets a specific codex row when `config.yaml` defines several (a row under a name other than `codex` has to exist in `config.yaml` first). FoxxyCode uses the official device authorization flow and stores refreshable credentials at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no FoxxyCode-managed credential exists, FoxxyCode remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `FOXXYCODE_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
+Both paths use the same storage; the provider name is the argument, so `foxxycode providers login <name>` targets a specific codex row when `config.yaml` defines several (a row under a name other than `codex` has to exist in `config.yaml` first). FoxxyCode uses the official device authorization flow and stores refreshable credentials at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. A Codex model has no output cap FoxxyCode can set: the backend answers `Unsupported parameter` to `max_output_tokens`, so `models[].max_tokens` on a codex model bounds nothing. It is still accepted - the settings form seeds it on every model row - but `foxxycode -t`, `--dry-run` and the startup log of `foxxycode serve` warn about it, and a `max_tokens` sent on `POST /v1/chat/completions` for a codex model is refused with `400`. `max_context_tokens` is a different thing: the window the context ring and automatic compaction measure against, not a limit the provider enforces. The model picker reads the catalog from the official Codex backend with the saved token. If no FoxxyCode-managed credential exists, FoxxyCode remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `FOXXYCODE_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
 
 Codex is only a model backend: the agent keeps FoxxyCode's own system prompt, tool catalog, permissions, and ReAct loop, and the ChatGPT credential is used solely to authenticate the Responses calls (`features/codex_auth.feature` pins this on both the HTTP and ACP surfaces).
 
@@ -662,7 +677,7 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 
 Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
 
-Two engines share the section, selected by `engine`: the default **coddy** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward (and enables the manual `/compact` command plus the HTTP compact endpoint); the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
+Two engines share the section, selected by `engine`: the default **coddy** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward; the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Both answer the manual `/compact` command, the HTTP compact endpoint and the model's `compact_context` tool, fold a history larger than the summarizer's window in passes and walk `fallback_models`. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
 
 #### `compaction.result_eviction`
 
@@ -714,7 +729,7 @@ Subversion support: working copy detection for the composer chips plus the `svn_
 
 The diagnostics switch (`config.Debug`, `internal/config/debug.go`), off by default and free when off; the guide is [Diagnostics](../operate/debugging.md). It is not related to the `debug` session mode: that one changes how the model works, this one changes what FoxxyCode records.
 
-The `--debug` flag on `foxxycode acp`, `foxxycode http` and `foxxycode gateway` forces `enabled: true` for that process. It only ever turns the layer on: the flag applies only when passed, so a default-false flag cannot silently override a config-enabled layer. `foxxycode desktop` and the console have no flag but honour `debug.enabled` from `config.yaml`. `PUT /foxxycode/config` applies a change to `debug.enabled` without a restart - the log level is re-set on a shared `slog.LevelVar` and the capture flag is atomic.
+The `--debug` flag on `foxxycode acp`, `foxxycode http` and `foxxycode gateway` forces `enable: true` for that process. It only ever turns the layer on: the flag applies only when passed, so a default-false flag cannot silently override a config-enabled layer. `foxxycode desktop` and the console have no flag but honour `debug.enable` from `config.yaml`. `PUT /foxxycode/config` applies a change to `debug.enable` without a restart - the log level is re-set on a shared `slog.LevelVar` and the capture flag is atomic.
 
 ## Related environment variables
 

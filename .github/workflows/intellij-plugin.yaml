@@ -8,9 +8,10 @@
 #   - push SemVer tag -> build + attach zip to the Release
 #
 # Release builds also republish the JetBrains plugin repository document (updatePlugins.xml),
-# which is what makes the plugin update itself inside the IDE: to docs/ on main (served by
-# GitHub Pages, the URL users paste into Manage Plugin Repositories) and as an asset on the
-# Release. See docs/contributing/release-setup.md.
+# which is what makes the plugin update itself inside the IDE: to docs/ on main (published on
+# GitHub Pages by site.yaml, which "Tag release on merge" calls after this job; the URL users
+# paste into Manage Plugin Repositories) and as an asset on the Release. See
+# docs/contributing/release-setup.md.
 
 name: IntelliJ plugin
 
@@ -153,7 +154,8 @@ jobs:
             --repo "${{ github.repository }}" \
             --clobber
 
-      # GitHub Pages serves docs/ from main, so publishing means committing there. A second,
+      # GitHub Pages publishes docs/ from main (site.yaml, run by the caller after this job), so
+      # publishing means committing there. A second,
       # shallow checkout keeps the tag checkout and its build tree untouched.
       - name: Check out main for the plugin repository
         if: steps.ver.outputs.release == 'true'

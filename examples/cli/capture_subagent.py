@@ -155,7 +155,7 @@ tools:
   permission_mode: bypass
 # The title pass would be one more request the script has no turn for.
 title:
-  enabled: false
+  enable: false
 """)
 # The skill the first turn loads has to exist in the catalog for the call to
 # succeed; ${{CWD}}/.foxxycode/skills is one of the default roots.

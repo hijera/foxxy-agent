@@ -18,11 +18,7 @@ import {
   snapshotMcpConnecting,
   subscribeMcpConnecting,
 } from "../chat/mcpConnectingState";
-import {
-  deriveLiveStatus,
-  truncateStatusTarget,
-  type LiveStatusKind,
-} from "../chat/liveStatus";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
 import {
   getStatusLineEnabled,
   onStatusLineChange,
@@ -58,27 +54,6 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
-/**
- * States where nothing is arriving: no model call is in flight, so a bubble the
- * provider cut mid-answer will sit there unchanged until one of them clears.
- *
- * They matter because `streaming` is only cleared when the turn ends. Through the
- * whole wait the bubble still counts as streaming, so the dots row - the one place
- * the live status is rendered - stayed hidden, and the operator watched a frozen
- * half-answer with no sign the turn was alive.
- */
-const PARKED_STATUS_KINDS: ReadonlySet<LiveStatusKind> = new Set<LiveStatusKind>([
-  "reconnecting",
-  "llmretry",
-  "mcp",
-]);
-
-function hasStreamingAssistant(items: TranscriptItem[]): boolean {
-  return items.some(
-    (it) => it.type === "assistant_message" && it.streaming === true,
-  );
-}
-
 export function MessageList(props: {
   items: TranscriptItem[];
   generating?: boolean;
@@ -109,6 +84,9 @@ export function MessageList(props: {
   workspacePath?: string | undefined;
   /** Opens the child transcript behind a spawn_agent row. */
   onOpenSubagentTranscript?: (sessionId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -161,6 +139,7 @@ export function MessageList(props: {
     () =>
       props.generating === true && statusLineOn
         ? deriveLiveStatus(props.items, {
+            pathRoots: props.pathRoots || [],
             reconnecting,
             mcpConnecting,
             llmRetrying,
@@ -170,16 +149,12 @@ export function MessageList(props: {
       props.generating,
       statusLineOn,
       props.items,
+      props.pathRoots,
       reconnecting,
       mcpConnecting,
       llmRetrying,
     ],
   );
-
-  // Only the parked kinds earn a row under a bubble that is already on screen:
-  // while text is actually arriving there is nothing to announce.
-  const parked =
-    liveStatus !== null && PARKED_STATUS_KINDS.has(liveStatus.kind);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -191,6 +166,33 @@ export function MessageList(props: {
     }
     return m;
   }, [props.items]);
+
+  // The answer that closes each turn is the only one with an action row: the answers a
+  // turn leaves behind between tool calls would otherwise stack the same copy button and
+  // the same minute down the transcript. Every finished turn keeps its own, so an older
+  // answer stays copyable; the turn still running does not, because its last answer is
+  // not yet the answer.
+  const turnClosingAssistantIds = useMemo(() => {
+    const ids = new Set<string>();
+    let seenInTurn = false;
+    // Walking back, everything after the last user message belongs to the turn in
+    // flight; its answers are not final yet, however many of them have arrived.
+    let inRunningTurn = props.generating === true;
+    for (let i = props.items.length - 1; i >= 0; i--) {
+      const item = props.items[i];
+      if (!item) continue;
+      if (item.type === "user_message") {
+        seenInTurn = false;
+        inRunningTurn = false;
+        continue;
+      }
+      if (item.type !== "assistant_message") continue;
+      if (seenInTurn) continue;
+      seenInTurn = true;
+      if (!inRunningTurn) ids.add(item.id);
+    }
+    return ids;
+  }, [props.generating, props.items]);
 
   return (
     <>
@@ -289,10 +291,16 @@ export function MessageList(props: {
           );
         }
         if (it.type === "assistant_message") {
+          // Whitespace alone is a zero-height row that still takes the column's
+          // gap, a hole between the rows around it; there is nothing in it to copy.
+          if (!it.content.trim()) {
+            return null;
+          }
           return (
             <AssistantMessage
               key={it.id}
               content={it.content}
+              showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}
@@ -392,6 +400,9 @@ export function MessageList(props: {
             {...(props.onOpenSubagentTranscript
               ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
               : {})}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}
@@ -433,8 +444,11 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true &&
-      (!hasStreamingAssistant(props.items) || parked) ? (
+      {/* The live line stands under the transcript for the whole turn and always
+          says what is happening, in general words at least. It used to vanish once
+          the turn had written any text and to fall silent under a reasoning row,
+          which read as a turn that had stopped. */}
+      {props.generating === true ? (
         <TypingDotsMessage
           {...(liveStatus
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }

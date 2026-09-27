@@ -85,7 +85,7 @@ The notice leads and the output follows, because the tool output ceiling truncat
 
 From there the task is an ordinary one — `background_list`, `background_output`, `background_wait`, `background_stop` all reach it, `notify_on_finish` is off (the model is being told right now), and its elapsed time counts from the original foreground start rather than from the handover.
 
-The command **is** terminated, process group and all, in the three cases where nothing can take ownership: the turn was cancelled, no pool is wired, or the pool refused (`tools.background.enabled: false`, session at `max_concurrent`, process draining). The answer then names the exact reason and points at `background: true`.
+The command **is** terminated, process group and all, in the three cases where nothing can take ownership: the turn was cancelled, no pool is wired, or the pool refused (`tools.background.enable: false`, session at `max_concurrent`, process draining). The answer then names the exact reason and points at `background: true`.
 
 Implementation: `Pool.Adopt` (`internal/bgtask/pool.go`) shares the single scheduling path with `Pool.Start`; the shell side is `startForeground` and `adoptedHandle` in `internal/tools/shell/foreground.go`, with `switchWriter` holding the output until the pool takes it over. Exactly one `cmd.Wait` exists per command — the pool observes the same result rather than calling it again.
 
@@ -170,14 +170,14 @@ The SPA **polls** these endpoints rather than listening on SSE: a background tas
 
 The panel is **docked inside the session**, to the right of the transcript, at `#/s/<sessionId>/tasks` (and `#/s/<sessionId>/tasks/<task_id>` for one task). The route carries the chat, so a reload restores both the conversation and the panel. That placement is the answer to "which session spawned this process": the panel is part of the conversation that started the tasks, so there is nothing to label.
 
-- **Running** is a section of cards: status dot, command, elapsed against the estimate, a progress bar drawn **only** when the model supplied one, and a Stop control.
+- **Running tasks** are cards at the top of the panel, under no heading: status dot, command, elapsed against the estimate, a progress bar drawn **only** when the model supplied one, and a Stop control. Anything above the **Finished N** counter is running, so there is nothing to label.
 - **Finished N** is a counter, not a list. Expanding it shows one scannable line per task (dot, command, outcome, clock); the rest stay on disk. That is how "keep every log" and "do not load the app" hold at once: the list is counted, the rows render on demand, and a task's output is fetched only when it is opened.
 - **Clear** drops the finished history for this session (`DELETE /foxxycode/sessions/{id}/background-tasks`). Running tasks are untouched.
-- Ordering is **purely by start time**, newest first, in both sections. Running tasks are not floated to the top: they already have their own section, and mixing two orderings makes a list that never sits still to read.
+- Ordering is **purely by start time**, newest first, among the live cards and inside the finished history alike. Running tasks are not floated to the top of the history: they stand above the counter already, and mixing two orderings makes a list that never sits still to read.
 - The **opener** is a chip at the end of the transcript, under the last message: `N running tasks` while work is in flight, `N background tasks` once everything has finished, and nothing in a chat that never ran one. It is deliberately not in the nav rail — background tasks belong to one chat.
-- A transcript tool row that started a task keeps a live chip in its collapsed summary, plus **Open in Tasks** and **Stop** when expanded.
+- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, plus **Open in Tasks** and **Stop** when expanded. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read in the panel's detail pane, which is what **Open in Tasks** opens.
 
-Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task ticker card**).
+Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task on a transcript row**).
 
 ## Configuration
 
@@ -186,14 +186,14 @@ See `tools.background` in `docs/reference/config.md`:
 ```yaml
 tools:
   background:
-    enabled: true
+    enable: true
     max_concurrent: 5
     default_timeout_seconds: 900
     max_timeout_seconds: 3600
     output_buffer_bytes: 262144
 ```
 
-Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/features/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
+Setting `enable: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/features/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
 
 ## Subagent runs
 
@@ -214,7 +214,7 @@ A **subagent run** (`docs/features/subagents.md`) is a task of kind `agent`, sta
 
 What that changes on the surface:
 
-- `Spec.Agent` and `Snapshot.Agent` carry the agent identity, serialised as `"agent": {"name": "…", "session_id": "sub_…"}` on the task row, in `GET .../background-tasks` and in the persisted `meta.json`. The child session id is generated before the pool is involved, so the first snapshot ever published already carries it. Without an explicit label the row reads `agent <name>`; the runtime sets `agent <name>: <description>`.
+- `Spec.Agent` and `Snapshot.Agent` carry the agent identity, serialised as `"agent": {"name": "…", "session_id": "sess_…"}` on the task row, in `GET .../background-tasks` and in the persisted `meta.json`. The child session id is generated before the pool is involved, so the first snapshot ever published already carries it. Without an explicit label the row reads `agent <name>`; the runtime sets `agent <name>: <description>`.
 - The output log is the child's progress: one `[assistant]` line per line of assistant text, `→ tool` on start, `✓` / `✗ tool` on finish, and a closing block starting with `=== subagent report ===` that carries the outcome, the turn count, the duration and the child's final message. `background_output` and `background_wait` return it like any other log.
 - **Stop cancels the child.** `background_stop`, the panel's Stop control, `POST .../stop`, session delete and server drain all go through the handle, which cancels the child's turn; the pool waits for the run to settle before it reports `stopped`.
 - The Tasks panel shows an `agent` badge with the agent name, and its detail pane offers **Open transcript**, which routes to the child session (`#/s/<child id>`), a read-only transcript that stays out of History.

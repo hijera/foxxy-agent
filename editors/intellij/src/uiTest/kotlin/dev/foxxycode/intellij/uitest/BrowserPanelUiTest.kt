@@ -31,6 +31,10 @@ class BrowserPanelUiTest {
     @Before
     fun openToolWindow() {
         IdeControl.bringIdeToFront(robot)
+        // Whatever a previous test or the IDE's own startup left up (a dialog, a balloon over
+        // the panel) is not what these tests are about. A dialog the plugin opens on activation
+        // appears only after this sweep, so it still fails the find below.
+        IdeControl.dismissPopups(robot).forEach { println("dismissed before the test: $it") }
         IdeControl.activateToolWindow(robot, TOOL_WINDOW_ID)
         // The first open builds the panel lazily; wait for it to exist.
         FoxxyCodeToolWindowFixture.find(robot)

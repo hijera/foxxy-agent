@@ -45,6 +45,9 @@ const (
 var askE2EReadOnlyTools = map[string]bool{
 	"read": true, "keep_result": true, "glob": true, "grep": true, "print_tree": true,
 	"websearch": true, "webfetch": true, "question": true, "load_skill": true,
+	// Filing writes the session's own title and tags, which is nothing a reader
+	// of the workspace could see change.
+	"session_describe": true,
 }
 
 // askModeStubBackend is an OpenAI-compatible chat completions server that
@@ -61,6 +64,12 @@ type askModeStubBackend struct {
 }
 
 func (b *askModeStubBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Only completions are turns. The session manager also reads the model
+	// listing for the context window; this server has none, like many.
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
 	raw, _ := io.ReadAll(r.Body)
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))

@@ -218,13 +218,16 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
 		id   string
 		name string
 		args string
+		// Set once the name has been announced, so the arguments streaming in
+		// after it do not repeat the announcement on every delta.
+		named bool
 	}
 	builders := make(map[int]*tcBuilder)
 
@@ -304,6 +307,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				tr.marker("usage", fmt.Sprintf("in=%d out=%d", chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens))
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
+				cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
 			}
 			progress()
 			continue
@@ -354,11 +358,27 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				b.name = tc.Function.Name
 			}
 			b.args += tc.Function.Arguments
+			// The name arrives in the first delta of the call and the arguments
+			// stream after it, which can take seconds on a long command. Naming
+			// the call here is what keeps the transcript from standing still with
+			// nothing but a Stop button; the call itself is still collected from
+			// the builders when the stream ends.
+			//
+			// It goes to onChunk directly, like progress: an announcement is a
+			// hint, not output. Routing it through emit would set the flag that
+			// disables the replay of a truncated stream, and a stream that dies
+			// while the arguments are still being written is exactly the one a
+			// retry recovers. The caller retracts a row whose call never arrived.
+			if !b.named && b.name != "" {
+				b.named = true
+				onChunk(StreamChunk{ToolCallNamed: &ToolCall{ID: b.id, Name: b.name}})
+			}
 		}
 
 		if chunk.Usage.TotalTokens > 0 {
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
+			cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
 		}
 
 		var newToolCall string
@@ -407,10 +427,11 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// replaying an invalid call is worse than losing it.
 			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
-					Content:      fullContent,
-					Reasoning:    reasoningBuf.String(),
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
+					Content:           fullContent,
+					Reasoning:         reasoningBuf.String(),
+					InputTokens:       inputTokens,
+					OutputTokens:      outputTokens,
+					CachedInputTokens: cachedInputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
 			return nil, fmt.Errorf("openai stream: %w", streamErr)
@@ -427,11 +448,12 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					}
 				}
 				return &Response{
-					Content:      fullContent,
-					ToolCalls:    toolCalls,
-					StopReason:   sr,
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
+					Content:           fullContent,
+					ToolCalls:         toolCalls,
+					StopReason:        sr,
+					InputTokens:       inputTokens,
+					OutputTokens:      outputTokens,
+					CachedInputTokens: cachedInputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
 		}
@@ -453,10 +475,11 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	return &Response{
-		Content:      fullContent,
-		ToolCalls:    toolCalls,
-		StopReason:   stopReason,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
+		Content:           fullContent,
+		ToolCalls:         toolCalls,
+		StopReason:        stopReason,
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		CachedInputTokens: cachedInputTokens,
 	}, nil
 }

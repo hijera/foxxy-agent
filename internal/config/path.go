@@ -112,6 +112,9 @@ func parseConfigDocument(raw []byte) (*yaml.Node, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config root must be a mapping")
 	}
+	// A path names the current key, and a write renders it; the legacy `enabled`
+	// becomes that key here rather than a second one beside it.
+	normalizeSwitchAliases(root)
 	return &doc, nil
 }
 
@@ -514,6 +517,11 @@ func configSecretPath(path []string) bool {
 		return false
 	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
+	// A key for a service of its own (tools.websearch.brave_api_key) is as much a
+	// credential as a provider's api_key.
+	if strings.HasSuffix(last, "_api_key") {
+		return true
+	}
 	switch last {
 	case "api_key", "api_key_command", "auth_token", "token", "proxy", "password", "secret",
 		"pairing_token", "pairing_tokens", "lease_secret":
