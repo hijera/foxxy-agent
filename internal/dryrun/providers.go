@@ -10,6 +10,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
 // unsentModelSettings warns about the models[] settings the serving provider
@@ -166,7 +167,7 @@ func classifyProviderError(prov *config.ProviderConfig, base string, err error) 
 	case "":
 		fix := "check api_base and that the server is running"
 		if strings.TrimSpace(prov.Proxy) != "" {
-			fix += "; the request went through proxy " + prov.Proxy
+			fix += "; the request went through proxy " + netx.RedactProxyURL(strings.TrimSpace(prov.Proxy))
 		}
 		return fmt.Sprintf("cannot reach %s: %s", base, shortErr(err)), fix
 	default:

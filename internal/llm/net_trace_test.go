@@ -1,11 +1,9 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -14,11 +12,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/netx/proxytest"
 )
 
 // lockedBuffer is a log sink the trace's watcher goroutine may write to while the
@@ -132,22 +131,8 @@ func TestNetTraceFollowsARequestThroughAnHTTPProxy(t *testing.T) {
 	defer target.Close()
 	port := targetPort(t, target)
 
-	// A forward proxy: the request arrives in absolute form and is passed on to the
-	// loopback target whatever host it names.
-	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		out, _ := http.NewRequest(r.Method, "http://127.0.0.1:"+port+r.URL.Path, r.Body)
-		resp, err := http.DefaultTransport.RoundTrip(out)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-	}))
-	defer proxy.Close()
-
-	proxyURL := strings.Replace(proxy.URL, "http://", "http://user:s3cret@", 1)
+	proxy := proxytest.HTTP(t, "user", "s3cret")
+	proxyURL := "http://user:s3cret@" + proxy.Addr
 	c, err := HTTPClientForOptionalProxy(proxyURL)
 	if err != nil {
 		t.Fatal(err)
@@ -214,30 +199,9 @@ func TestNetTraceLogsTheProxyTunnelAndTLS(t *testing.T) {
 	defer target.Close()
 	port := targetPort(t, target)
 
-	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodConnect {
-			http.Error(w, "CONNECT only", http.StatusMethodNotAllowed)
-			return
-		}
-		upstream, err := net.Dial("tcp", "127.0.0.1:"+port)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		conn, rw, err := w.(http.Hijacker).Hijack()
-		if err != nil {
-			_ = upstream.Close()
-			return
-		}
-		_, _ = rw.WriteString("HTTP/1.1 200 Connection established\r\n\r\n")
-		_ = rw.Flush()
-		go func() { _, _ = io.Copy(upstream, conn); _ = upstream.Close() }()
-		_, _ = io.Copy(conn, upstream)
-		_ = conn.Close()
-	}))
-	defer proxy.Close()
+	proxy := proxytest.HTTP(t, "", "")
 
-	c, err := HTTPClientForOptionalProxy(proxy.URL)
+	c, err := HTTPClientForOptionalProxy("http://" + proxy.Addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,64 +223,6 @@ func TestNetTraceLogsTheProxyTunnelAndTLS(t *testing.T) {
 	)
 }
 
-// serveSOCKS5 is the smallest SOCKS5 server the client accepts: no authentication,
-// CONNECT only, and every destination name resolved to loopback.
-func serveSOCKS5(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func(conn net.Conn) {
-				defer func() { _ = conn.Close() }()
-				r := bufio.NewReader(conn)
-				hdr := make([]byte, 2)
-				if _, err := io.ReadFull(r, hdr); err != nil {
-					return
-				}
-				if _, err := io.ReadFull(r, make([]byte, hdr[1])); err != nil {
-					return
-				}
-				_, _ = conn.Write([]byte{5, 0})
-				req := make([]byte, 4)
-				if _, err := io.ReadFull(r, req); err != nil {
-					return
-				}
-				switch req[3] {
-				case 1:
-					_, _ = io.ReadFull(r, make([]byte, 4))
-				case 3:
-					n, _ := r.ReadByte()
-					_, _ = io.ReadFull(r, make([]byte, n))
-				case 4:
-					_, _ = io.ReadFull(r, make([]byte, 16))
-				}
-				pb := make([]byte, 2)
-				if _, err := io.ReadFull(r, pb); err != nil {
-					return
-				}
-				upstream, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(int(binary.BigEndian.Uint16(pb))))
-				if err != nil {
-					_, _ = conn.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
-					return
-				}
-				defer func() { _ = upstream.Close() }()
-				_, _ = conn.Write([]byte{5, 0, 0, 1, 127, 0, 0, 1, 0, 0})
-				go func() { _, _ = io.Copy(upstream, r) }()
-				_, _ = io.Copy(conn, upstream)
-			}(conn)
-		}
-	}()
-	return ln.Addr().String()
-}
-
 func TestNetTraceLogsTheSOCKSDial(t *testing.T) {
 	buf := withNetTrace(t, time.Minute)
 
@@ -326,7 +232,7 @@ func TestNetTraceLogsTheSOCKSDial(t *testing.T) {
 	defer target.Close()
 	port := targetPort(t, target)
 
-	c, err := HTTPClientForOptionalProxy("socks5h://" + serveSOCKS5(t))
+	c, err := HTTPClientForOptionalProxy("socks5h://" + proxytest.SOCKS5(t, "", "").Addr)
 	if err != nil {
 		t.Fatal(err)
 	}

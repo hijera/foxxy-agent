@@ -12,6 +12,8 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 	xproxy "golang.org/x/net/proxy"
+
+	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
 const llmResponseHeaderTimeout = 30 * time.Second
@@ -36,12 +38,11 @@ func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 		}
 		return &http.Client{Transport: debugTransportFor(t, route)}, nil
 	}
-	u, err := url.Parse(proxyURL)
+	u, err := netx.ParseProxyURL(proxyURL)
 	if err != nil {
-		return nil, fmt.Errorf("proxy url: %w", err)
+		return nil, err
 	}
-	scheme := strings.ToLower(u.Scheme)
-	switch scheme {
+	switch u.Scheme {
 	case "http", "https":
 		t, route, err := transportHTTPProxy(u)
 		if err != nil {
@@ -132,11 +133,45 @@ func transportEnvironmentProxy() (*http.Transport, routeFunc, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	proxyFor := httpproxy.FromEnvironment().ProxyFunc()
+	// HTTP_PROXY / HTTPS_PROXY when set, otherwise the operating system's proxy
+	// (on Windows its manual proxy, PAC script or WPAD), which net/http never reads.
+	resolve := netx.EnvironmentProxyResolver()
 	t.Proxy = func(req *http.Request) (*url.URL, error) {
-		return proxyFor(req.URL)
+		r, err := resolve(req.URL)
+		return r.Proxy, err
 	}
-	return t, routeVia("env-proxy", "direct", proxyFor), nil
+	return t, environmentRoute(resolve), nil
+}
+
+// environmentRoute describes, for the connection trace, the route of a request no
+// provider proxy is set for: which proxy the environment or the system chose, and
+// why a request goes direct when a system proxy is configured.
+func environmentRoute(resolve func(*url.URL) (netx.ProxyRoute, error)) routeFunc {
+	return func(target *url.URL) netRoute {
+		r, err := resolve(target)
+		if err != nil {
+			return netRoute{desc: "unresolved: " + err.Error()}
+		}
+		if r.Proxy == nil {
+			if r.Note != "" {
+				return netRoute{desc: "direct (system proxy: " + r.Note + ")"}
+			}
+			return netRoute{desc: "direct"}
+		}
+		kind := "env-proxy"
+		switch r.Source {
+		case "system":
+			kind = "system-proxy"
+		case "system-pac":
+			kind = "system-pac"
+		}
+		desc := kind + " " + redactProxyURL(r.Proxy)
+		if r.Source == "system" && r.Note != "" && r.Note != "static" {
+			desc += " (" + r.Note + ")"
+		}
+		tunnel := target.Scheme == "https" && (r.Proxy.Scheme == "http" || r.Proxy.Scheme == "https")
+		return netRoute{desc: desc, tunnel: tunnel}
+	}
 }
 
 func cloneLLMTransport() (*http.Transport, error) {

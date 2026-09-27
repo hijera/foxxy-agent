@@ -65,3 +65,50 @@ test("string field description renders the Russian overlay under ru locale", () 
   ).toBeTruthy();
   expect(screen.queryByText(/You may set a literal key/)).toBeNull();
 });
+
+// Both proxy fields (providers[].proxy and gateways.telegram.proxy) carry
+// x-foxxycode-proxy-url in the Go UISchemaMap(): the form hides the password in
+// them and offers the proxy editor.
+test("a proxy URL field hides the password and offers the editor", () => {
+  const proxySchema = {
+    type: "object",
+    properties: {
+      proxy: {
+        type: "string",
+        title: "HTTP or SOCKS proxy",
+        "x-foxxycode-proxy-url": true,
+      },
+    },
+  } as unknown as JsonSchema;
+  let latest: Record<string, unknown> = {};
+  function Harness() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      proxy: "http://vlasov:p@ss@vm-squid3.corp:3128",
+    });
+    return (
+      <SchemaForm
+        schema={proxySchema}
+        value={doc}
+        onChange={(v) => {
+          latest = v as Record<string, unknown>;
+          setDoc(v as Record<string, unknown>);
+        }}
+      />
+    );
+  }
+  render(<Harness />);
+  const input = screen.getByLabelText("HTTP or SOCKS proxy") as HTMLInputElement;
+  expect(input.type).toBe("text");
+  expect(input.value).toBe("http://vlasov:••••@vm-squid3.corp:3128");
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Set up the proxy: protocol, host, port, login and password",
+    }),
+  );
+  fireEvent.change(screen.getByTestId("proxy-editor-password"), {
+    target: { value: "new@pw" },
+  });
+  fireEvent.submit(screen.getByTestId("proxy-editor"));
+  expect(latest.proxy).toBe("http://vlasov:new%40pw@vm-squid3.corp:3128");
+});

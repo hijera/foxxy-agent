@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Combobox } from "../settings/Combobox";
 import { CodexAuthField } from "../settings/CodexAuthField";
+import { ProxyUrlField } from "../settings/ProxyUrlField";
 import type { FetchedModel } from "../settings/useProviderModels";
 import { useProbeModels } from "./useProbeModels";
 
@@ -521,13 +522,15 @@ export function ProviderPickerDialog(props: {
 
           <label className="provider-picker-field">
             <span>{t("onboarding.proxy")}</span>
-            <input
-              className="provider-picker-input"
+            <ProxyUrlField
               value={proxy}
-              onChange={(ev) => setProxy(ev.target.value)}
+              onChange={setProxy}
+              ariaLabel={t("onboarding.proxy")}
               placeholder="socks5h://127.0.0.1:1080"
-              autoComplete="off"
-              data-testid="provider-proxy"
+              inputClassName="provider-picker-input"
+              rowClassName="provider-picker-key-row"
+              buttonClassName="provider-picker-ghost-btn"
+              dataTestId="provider-proxy"
             />
             <span className="provider-picker-hint">
               {t("onboarding.proxyHint")}

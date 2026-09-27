@@ -23,6 +23,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
@@ -455,6 +456,7 @@ func isolatedLogger(cfg *config.Config, home, level, file string) (*slog.Logger,
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
 	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	return log, closer, nil
 }
 

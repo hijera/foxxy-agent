@@ -39,7 +39,7 @@
           },
           "proxy": {
             "type": "string",
-            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). Overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g. forwarded by the IDE plugin); NO_PROXY is still honored and local addresses always connect directly. When empty, the environment proxy is used."
+            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). Overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g. forwarded by the IDE plugin); NO_PROXY is still honored and local addresses always connect directly. When empty, the environment proxy is used, else the operating system proxy settings (on Windows including a PAC script or automatic detection). Special characters in the login or password must be percent-encoded (@ as %40, / as %2F)."
           },
           "timeout_ms": {
             "type": "integer",

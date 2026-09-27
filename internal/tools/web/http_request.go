@@ -27,6 +27,7 @@ import (
 	"golang.org/x/net/http/httpguts"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
@@ -596,19 +597,10 @@ func (r *HTTPRequest) parseRoute(args httpRequestArgs) error {
 		r.Direct = true
 		return nil
 	}
-	p, err := url.Parse(raw)
+	p, err := netx.ParseProxyURL(raw)
 	if err != nil {
-		return fmt.Errorf("proxy: %w", err)
+		return err
 	}
-	switch strings.ToLower(p.Scheme) {
-	case "http", "https", "socks5", "socks5h":
-	default:
-		return fmt.Errorf("proxy %q: the scheme must be http, https, socks5 or socks5h", p.Redacted())
-	}
-	if p.Hostname() == "" {
-		return fmt.Errorf("proxy %q has no host", p.Redacted())
-	}
-	p.Scheme = strings.ToLower(p.Scheme)
 	r.Proxy = p
 	return nil
 }

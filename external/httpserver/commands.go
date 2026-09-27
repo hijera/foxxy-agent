@@ -22,6 +22,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
@@ -129,6 +130,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	logLevel.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
 	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	llm.LogCodexAuthNotices(log, cfg)
