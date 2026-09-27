@@ -128,7 +128,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 	logLevel.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	llm.LogCodexAuthNotices(log, cfg)

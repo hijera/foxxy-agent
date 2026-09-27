@@ -16,17 +16,22 @@ const debugBodyCap = 16 * 1024
 // debugTransport wraps an http.RoundTripper and, when DebugCaptureEnabled() is on,
 // logs a capped excerpt of each LLM HTTP request and response at debug level. The
 // response body is teed as it is read so streaming (SSE) responses stay streaming —
-// nothing is buffered in full.
-type debugTransport struct{ base http.RoundTripper }
+// nothing is buffered in full. When NetTraceEnabled() is on it also follows each
+// request at the connection level (net_trace.go); route tells that trace where the
+// request goes.
+type debugTransport struct {
+	base  http.RoundTripper
+	route routeFunc
+}
 
 // debugTransportFor wraps an existing transport with the debug layer. When debug
-// capture is off the wrapper is still cheap: RoundTrip reads the atomic once and
-// delegates directly.
-func debugTransportFor(base http.RoundTripper) http.RoundTripper {
+// capture and the trace are off the wrapper is still cheap: RoundTrip reads two
+// atomics and delegates directly.
+func debugTransportFor(base http.RoundTripper, route routeFunc) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return debugTransport{base: base}
+	return debugTransport{base: base, route: route}
 }
 
 // UnwrapTransport returns the underlying transport behind the debug wrapper (or the
@@ -40,8 +45,12 @@ func UnwrapTransport(rt http.RoundTripper) http.RoundTripper {
 }
 
 func (d debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var nt *netTracer
+	if NetTraceEnabled() {
+		nt, req = startNetTrace(req, d.route)
+	}
 	if !DebugCaptureEnabled() {
-		return d.base.RoundTrip(req)
+		return nt.observe(d.base.RoundTrip(req))
 	}
 
 	// Request bodies are built in memory by the providers, so reading them fully is
@@ -51,7 +60,7 @@ func (d debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body = io.NopCloser(bytes.NewReader(reqExcerpt.full))
 	}
 
-	resp, err := d.base.RoundTrip(req)
+	resp, err := nt.observe(d.base.RoundTrip(req))
 	if err != nil {
 		debugLogger().Debug("llm http request",
 			"method", req.Method,

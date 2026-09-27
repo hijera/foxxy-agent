@@ -604,6 +604,9 @@ func (a *Agent) runReActLoop(
 	var emptyReissues int
 	var firstTokenReissues int
 	var lastInputTokens int
+	// Numbers every model call of the turn, retries and continuations included,
+	// for the debug log and the network trace that carries it.
+	var llmCalls int
 
 	// Runaway-loop protection. The tool detector spans the whole user turn (a model
 	// can repeat the same call across ReAct rounds, not only inside one response);
@@ -786,7 +789,12 @@ func (a *Agent) runReActLoop(
 		// guard, did the cancelling, which the error paths below cannot otherwise tell
 		// apart.
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
-		streamCtx, streamCancel := context.WithCancel(ctx)
+		// Every guard cancels with its own cause, so the network trace of the request
+		// (debug.enable) names who cut it rather than reporting a bare cancel.
+		llmCalls++
+		streamCtx, cancelStream := context.WithCancelCause(llm.WithNetTraceAttrs(ctx,
+			"session", sessionID, "turn", turn, "call", llmCalls))
+		streamCancel := func() { cancelStream(nil) }
 		var firstTokenTimedOut atomic.Bool
 		// Whether any delta reached the client during this attempt. Atomic because a
 		// transport is free to deliver chunks from its own goroutine.
@@ -801,7 +809,7 @@ func (a *Agent) runReActLoop(
 		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
 				firstTokenTimedOut.Store(true)
-				streamCancel()
+				cancelStream(errFirstTokenCut)
 			})
 		}
 		stopFirstTokenTimer := func() {
@@ -833,7 +841,7 @@ func (a *Agent) runReActLoop(
 					return
 				}
 				stalled.Store(true)
-				streamCancel()
+				cancelStream(errStallCut)
 			})
 			if old := stallTimer.Swap(t); old != nil {
 				old.Stop()
@@ -849,8 +857,10 @@ func (a *Agent) runReActLoop(
 		// tool call delivers nothing the caller can see - tool-call arguments are
 		// accumulated inside the reader - and the silent-start timer would otherwise
 		// cut a perfectly healthy stream.
+		var firstProgress atomic.Int64
 		noteProgress := func(now time.Time) {
 			stopFirstTokenTimer()
+			firstProgress.CompareAndSwap(0, now.UnixNano())
 			lastProgress.Store(now.UnixNano())
 			// The provider is delivering again, so the "parked" label the client is
 			// showing over the frozen bubble has to go before the answer resumes under
@@ -940,6 +950,13 @@ func (a *Agent) runReActLoop(
 			"messages": len(sendMessages),
 			"tools":    len(callDefs),
 		})
+		callStart := time.Now()
+		a.log.Debug("llm call started",
+			"session", sessionID, "turn", turn, "call", llmCalls,
+			"model", a.state.EffectiveModelID(a.cfg),
+			"streaming", transport.streaming,
+			"messages", len(sendMessages), "tools", len(callDefs),
+			"first_token_timeout", firstTokenTimeout, "stall_timeout", stallTimeout)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -955,7 +972,7 @@ func (a *Agent) runReActLoop(
 				emitReason(chunk.ReasoningDelta, now)
 				if _, tripped := reasonLoop.Add(chunk.ReasoningDelta); tripped && loopAbort == loopAbortNone {
 					loopAbort = loopAbortReasoning
-					streamCancel()
+					cancelStream(errLoopGuardCut)
 					return
 				}
 			}
@@ -965,7 +982,7 @@ func (a *Agent) runReActLoop(
 					// Emit this last delta with the fork's own markReasonEnd rule so a
 					// whitespace-only chunk does not close the reasoning clock.
 					emitText(chunk.TextDelta, now, strings.TrimSpace(chunk.TextDelta) != "")
-					streamCancel()
+					cancelStream(errLoopGuardCut)
 					return
 				}
 			}
@@ -1026,6 +1043,8 @@ func (a *Agent) runReActLoop(
 		// replay those and show the same text twice.
 		hasAnyOutput := sawDelta.Load() || (response != nil && (strings.TrimSpace(response.Content) != "" ||
 			len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != ""))
+		a.logLLMCallFinished(sessionID, turn, llmCalls, callStart, firstProgress.Load(), hasAnyOutput,
+			context.Cause(streamCtx), streamErr)
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge

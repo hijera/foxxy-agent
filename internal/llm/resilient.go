@@ -66,9 +66,6 @@ func (o ResilientOptions) withDefaults() ResilientOptions {
 	if out.RetryMaxDelay <= 0 {
 		out.RetryMaxDelay = defaultLLMRetryMaxDelay
 	}
-	if out.Logger == nil {
-		out.Logger = slog.Default()
-	}
 	return out
 }
 
@@ -98,6 +95,18 @@ func wrapResilient(inner Provider, opts ResilientOptions) Provider {
 		return nil
 	}
 	return &resilientProvider{inner: inner, opts: opts.withDefaults()}
+}
+
+// log is where the wrapper's verdicts go: the logger the caller passed, else the
+// process logger the entry points installed with SetDebugLogger. Resolved per
+// call rather than at wrap time, and never slog.Default(): nothing installs the
+// process logger as the default, so those lines went to stderr, which the
+// editor plugins and the desktop app discard.
+func (p *resilientProvider) log() *slog.Logger {
+	if p.opts.Logger != nil {
+		return p.opts.Logger
+	}
+	return debugLogger()
 }
 
 // Unwrap exposes the wrapped provider so optional interfaces (RawCompleter) can
@@ -148,7 +157,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 // turn survives, but the model is answering without having seen the picture, and
 // that is worth a line in the log.
 func (p *resilientProvider) logVisionFallback(ctx context.Context, err error) {
-	p.opts.Logger.WarnContext(ctx, "endpoint rejected image input; retrying without images",
+	p.log().WarnContext(ctx, "endpoint rejected image input; retrying without images",
 		"error", err)
 }
 
@@ -169,6 +178,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		attemptStart := time.Now()
 		resp, err := fn(ctx)
 		p.markCallFinished()
 		if err == nil {
@@ -176,6 +186,22 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		}
 		lastErr = err
 		if ctx.Err() != nil || !isRetryableLLMError(err) {
+			// Every call that ends here was otherwise silent in the log: the
+			// reason tells a guard's or a user's cancel from an error the
+			// provider made final.
+			reason := "not retryable"
+			if ctx.Err() != nil {
+				reason = "context ended: " + ctx.Err().Error()
+				if cause := context.Cause(ctx); cause != nil && cause != ctx.Err() {
+					reason += " (" + cause.Error() + ")"
+				}
+			}
+			p.log().DebugContext(ctx, "LLM request failed; not retrying",
+				"attempt", attempt+1,
+				"took", time.Since(attemptStart).Round(time.Millisecond),
+				"reason", reason,
+				"error", err,
+			)
 			return resp, err
 		}
 		// After the retryable gate, so a 429 that arrived mid-stream (never
@@ -186,17 +212,24 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			return nil, reset
 		}
 		if attempt >= p.opts.RetryMax {
+			p.log().WarnContext(ctx, "LLM request failed; retries exhausted",
+				"attempts", attempt+1,
+				"took", time.Since(attemptStart).Round(time.Millisecond),
+				"total", time.Since(start).Round(time.Millisecond),
+				"error", err,
+			)
 			return resp, err
 		}
 		delay := retryDelayForError(err, attempt, p.opts.RetryBase, p.opts.RetryMaxDelay)
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
-		p.opts.Logger.WarnContext(ctx, "LLM request failed; retrying",
+		p.log().WarnContext(ctx, "LLM request failed; retrying",
 			"attempt", attempt+1,
 			"next_attempt", attempt+2,
 			"max_attempts", p.opts.RetryMax+1,
 			"delay", delay,
+			"took", time.Since(attemptStart).Round(time.Millisecond),
 			"error", err,
 		)
 		onLimit := httpStatusFromError(err) == 429

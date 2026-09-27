@@ -71,7 +71,7 @@ func runGateway(args []string) error {
 	}
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting gateway", "version", version.Get())

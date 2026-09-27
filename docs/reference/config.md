@@ -472,7 +472,7 @@ Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, a
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `debug.enable` | boolean | false | Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config. |
+| `debug.enable` | boolean | false | Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, traces every LLM connection (its route through a proxy, each network step, silences and how the request ended), and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config. |
 | `debug.capture_llm` | boolean | true | Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enable; set to false to keep debug logs while suppressing large bodies. |
 <!-- docsgen:config:end -->
 

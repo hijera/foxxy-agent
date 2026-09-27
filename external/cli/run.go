@@ -454,7 +454,7 @@ func isolatedLogger(cfg *config.Config, home, level, file string) (*slog.Logger,
 	// LLM HTTP capture, which lands in this same log file.
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
 	return log, closer, nil
 }
 

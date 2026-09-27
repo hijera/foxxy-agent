@@ -307,12 +307,13 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 
 ### Diagnostics (`debug`)
 
-An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enable` forces the process logger to debug level, turns on raw LLM HTTP capture, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/operate/debugging.md`**.
+An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enable` forces the process logger to debug level, turns on raw LLM HTTP capture and the LLM connection trace, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/operate/debugging.md`**.
 
 The three moving parts:
 
 - **Runtime log level.** The logger is built once over a shared **`slog.LevelVar`** (**`internal/logger`**), so **`PUT /foxxycode/config`** re-levels the live handler through **`Server.ReplaceConfig`** instead of rebuilding the logger. Toggling diagnostics needs no restart.
 - **Raw LLM capture.** A debug **`http.RoundTripper`** wraps every provider client in **`HTTPClientForOptionalProxy`** (**`internal/llm/debug_transport.go`**), so openai, anthropic, codex, and neuraldeep are covered uniformly. Bodies are capped at 16 KB for the log while the provider still receives them whole, and the response is **teed as it is read** so SSE streams are not buffered. Request **headers are never logged**, which keeps provider API keys out of the log; request **bodies are**, and they carry the whole conversation.
+- **Connection trace.** The same wrapper follows each request at the network level (**`internal/llm/net_trace.go`**): the route through a proxy, DNS, dial, SOCKS handshake, proxy `CONNECT`, TLS, connection reuse, first byte, a heartbeat while it is silent, and how it ended. It logs no bodies and no headers. The agent's guards cancel a call with a cause of their own (**`internal/agent/llm_call_log.go`**), so the trace names who cut a request.
 - **Trace.** The ReAct loop emits `turn_start` / `llm_request` / `llm_response` / `tool_start` / `tool_finish` through **`internal/agent/debug_emit.go`**. Each event is appended to **`<session>/debug_trace.jsonl`** (**`internal/session/debug_trace.go`**) and forwarded as an ACP **`DebugUpdate`**, which the HTTP bridge emits as SSE **`event: debug`**. **`GET /foxxycode/sessions/{id}/debug`** returns the persisted timeline. Tracing is best-effort: a write error is logged and never breaks a turn.
 
 This is unrelated to the **`debug`** session mode below; the mode changes the model's behaviour, this layer changes what FoxxyCode records.
