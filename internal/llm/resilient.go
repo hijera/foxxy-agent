@@ -562,6 +562,9 @@ func isTransientTransportError(err error) bool {
 	for _, needle := range []string{
 		"http2: stream error",
 		"http2: server sent GOAWAY",
+		// The HTTP/2 health check (proxy_http_client.go) closed a connection that
+		// stopped answering: the request died with it, a new connection will not.
+		"http2: client connection lost",
 		"connection reset by peer",
 		"unexpected EOF",
 		// The connection opened but the server never finished the handshake,
