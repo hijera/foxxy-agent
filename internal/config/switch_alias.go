@@ -10,6 +10,8 @@ package config
 //
 // A key that was renamed outright travels the same road (renamedKeys): the old
 // name is read as the new one, -t names it, and a save writes the new one.
+//
+// fork(switch-enable-alias): upstream reads `enable` only.
 
 import (
 	"bytes"

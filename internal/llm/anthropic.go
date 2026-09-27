@@ -150,6 +150,8 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	// progress reports an event that advanced generation without delivering
 	// anything, bypassing emit for the same reason as the openai path: the
 	// emitted flag gates retry classification and must track deliveries only.
+	// fork(progress-chunks): a frame with nothing to deliver still says the
+	// model is writing, and never through emit (see openai_stream.go).
 	progress := func() { onChunk(StreamChunk{Progress: true}) }
 
 	for stream.Next() {

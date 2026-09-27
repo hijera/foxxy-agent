@@ -251,8 +251,9 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		emitted = true
 		onChunk(c)
 	}
-	// progress reports a frame that advanced generation without delivering
-	// anything. It calls onChunk directly and deliberately bypasses emit: emit
+	// fork(progress-chunks): progress reports a frame that advanced generation
+	// without delivering anything. It calls onChunk directly and deliberately
+	// bypasses emit: emit
 	// sets the flag that streamServerError / streamTruncatedError /
 	// streamTransportError carry into resilient.go's retry classification, and a
 	// frame no caller ever saw must not cost the request its replay.
