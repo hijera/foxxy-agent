@@ -4,6 +4,7 @@ import { t } from "../i18n/i18n";
 import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
 import { Combobox } from "./Combobox";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
+import { ProxyUrlField } from "./ProxyUrlField";
 import { SwitchField } from "./SwitchField";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
@@ -65,6 +66,8 @@ export type JsonSchema = {
   "x-foxxycode-property-order"?: string[];
   "x-foxxycode-provider-api-key-env-placeholder"?: boolean;
   "x-foxxycode-secret"?: boolean;
+  /** A proxy URL: the password is hidden and an editor builds the URL (ProxyUrlField). */
+  "x-foxxycode-proxy-url"?: boolean;
   /** Build tag this section's feature needs, e.g. "browser". Present regardless of
    * how the serving binary was built — it describes the feature, not the build. */
   "x-foxxycode-requires-build-tag"?: string;
@@ -443,6 +446,26 @@ function SchemaField(props: {
         ? String(schema.default)
         : ""
       : String(value);
+  if (schema["x-foxxycode-proxy-url"] === true) {
+    return (
+      <div className="settings-row">
+        <span className="settings-label">{label}</span>
+        {desc ? <p className="settings-field-desc">{desc}</p> : null}
+        <ProxyUrlField
+          inputRef={focusRef}
+          value={s}
+          onChange={onChange}
+          ariaLabel={label}
+          placeholder={ph}
+          title={desc || undefined}
+          disabled={disabled}
+          inputClassName="settings-input"
+          rowClassName="settings-key-row"
+          buttonClassName="settings-key-toggle settings-proxy-edit"
+        />
+      </div>
+    );
+  }
   const secret = schema["x-foxxycode-secret"] === true;
   const input = (
     <input

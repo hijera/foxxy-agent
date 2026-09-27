@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"golang.org/x/net/proxy"
+
+	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
 // BuildHTTPClient returns an *http.Client configured to route traffic through proxyURL.
@@ -22,11 +23,11 @@ func BuildHTTPClient(proxyURL string) (*http.Client, error) {
 	if proxyURL == "" {
 		return http.DefaultClient, nil
 	}
-	u, err := url.Parse(proxyURL)
+	u, err := netx.ParseProxyURL(proxyURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		return nil, err
 	}
-	switch strings.ToLower(u.Scheme) {
+	switch u.Scheme {
 	case "http", "https":
 		return &http.Client{
 			Transport: &http.Transport{Proxy: http.ProxyURL(u)},

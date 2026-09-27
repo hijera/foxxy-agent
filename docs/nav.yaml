@@ -72,6 +72,9 @@ groups:
       - path: operate/security.md
         title: Security and trust
         summary: What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed.
+      - path: operate/proxy.md
+        title: Working behind a proxy
+        summary: Where FoxxyCode takes its proxy from - the provider field, the environment, the Windows system proxy with PAC and WPAD - and how to enter a password with special characters.
       - path: operate/debugging.md
         title: Diagnostics
         summary: The opt-in debug layer - raw LLM capture, the per-session trace and the loop events - and how to read them when a turn goes wrong.

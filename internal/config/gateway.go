@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
 // TelegramBotTokenEnvVar is the environment variable consulted for the bot token
@@ -126,15 +127,9 @@ func (t *TelegramGatewayConfig) Validate() error {
 	if !t.Enabled {
 		return nil
 	}
-	if t.Proxy != "" {
-		u, err := url.Parse(t.Proxy)
-		if err != nil {
-			return fmt.Errorf("gateways.telegram.proxy: invalid URL: %w", err)
-		}
-		switch strings.ToLower(u.Scheme) {
-		case "http", "https", "socks5", "socks5h":
-		default:
-			return fmt.Errorf("gateways.telegram.proxy: unsupported scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
+	if strings.TrimSpace(t.Proxy) != "" {
+		if _, err := netx.ParseProxyURL(t.Proxy); err != nil {
+			return fmt.Errorf("gateways.telegram.proxy: %w", err)
 		}
 	}
 	return nil

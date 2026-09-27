@@ -36,6 +36,7 @@ Running FoxxyCode as a service, reaching it from elsewhere and bounding what it 
 - [Swarm](operate/swarm.md) - Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
 - [Scheduler](operate/scheduler.md) - Cron job files, UTC firing rules, run sessions, the scheduler tools and REST.
 - [Security and trust](operate/security.md) - What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed.
+- [Working behind a proxy](operate/proxy.md) - Where FoxxyCode takes its proxy from - the provider field, the environment, the Windows system proxy with PAC and WPAD - and how to enter a password with special characters.
 - [Diagnostics](operate/debugging.md) - The opt-in debug layer - raw LLM capture, the per-session trace and the loop events - and how to read them when a turn goes wrong.
 
 ## Features

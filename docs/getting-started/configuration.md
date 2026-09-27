@@ -638,7 +638,7 @@ YAML split:
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.
 
-Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider row (HTTP, HTTPS, SOCKS5, or SOCKS5h). The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-4o`**. Also set **`max_tokens`**, **`temperature`**.
+Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider row (HTTP, HTTPS, SOCKS5, or SOCKS5h). Special characters in its login or password must be percent-encoded, and an empty value falls back to `HTTPS_PROXY` and then to the Windows system proxy: see [Working behind a proxy](../operate/proxy.md). The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-4o`**. Also set **`max_tokens`**, **`temperature`**.
 
 ### `anthropic`
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`

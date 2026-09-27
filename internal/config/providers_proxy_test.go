@@ -167,3 +167,49 @@ func TestProviderConfigValidateProxy(t *testing.T) {
 		})
 	}
 }
+
+// Reported from the field: a proxy whose password carries special characters. A
+// raw @ is accepted as is; a password that cuts the URL short (/ ? #) is refused at
+// save time, and neither the provider nor the Telegram error quotes the password,
+// because the error is shown in Settings and written to the log.
+func TestProxyPasswordSpecialCharacters(t *testing.T) {
+	t.Parallel()
+	const secret = "Pa55"
+	accepted := []string{
+		"http://vlasov:" + secret + "@x@vm-squid3.example.com:3128",
+		"http://vlasov:" + secret + "%2F%23@vm-squid3.example.com:3128",
+	}
+	for _, proxy := range accepted {
+		p := config.ProviderConfig{Name: "p", Type: "openai", Proxy: proxy}
+		p.Normalize()
+		if err := p.Validate(); err != nil {
+			t.Errorf("provider proxy %q refused: %v", proxy, err)
+		}
+		tg := config.TelegramGatewayConfig{Enabled: true, Proxy: proxy}
+		if err := tg.Validate(); err != nil {
+			t.Errorf("telegram proxy %q refused: %v", proxy, err)
+		}
+	}
+	refused := []string{
+		"http://vlasov:" + secret + "/x@vm-squid3.example.com:3128",
+		"http://vlasov:3128/" + secret + "@vm-squid3.example.com:3128",
+		"http://vlasov:" + secret + "#x@vm-squid3.example.com:3128",
+	}
+	for _, proxy := range refused {
+		p := config.ProviderConfig{Name: "p", Type: "openai", Proxy: proxy}
+		p.Normalize()
+		err := p.Validate()
+		if err == nil {
+			t.Errorf("provider proxy %q accepted", proxy)
+		} else if strings.Contains(err.Error(), secret) {
+			t.Errorf("provider error leaks the password: %v", err)
+		}
+		tg := config.TelegramGatewayConfig{Enabled: true, Proxy: proxy}
+		err = tg.Validate()
+		if err == nil {
+			t.Errorf("telegram proxy %q accepted", proxy)
+		} else if strings.Contains(err.Error(), secret) {
+			t.Errorf("telegram error leaks the password: %v", err)
+		}
+	}
+}
