@@ -751,9 +751,20 @@ not any single message.
   per-turn workspace diffs stored in the session bundle. Those diffs are captured
   by snapshotting the workspace around each turn, so an edit made by a shell
   command is listed exactly like one made by the `edit` tool.
-- It refreshes on the **generating true → false edge**, not on a timer: the change
-  set only moves when the agent stops working. A failed read keeps the previous
-  set on screen — a restarting server must not look like "nothing changed".
+- **While the agent works the card steps aside**; the set is still moving. When the
+  turn ends it waits for **`event: session_changes`** on `GET /foxxycode/events`,
+  which the server sends once the turn's diff is on disk, then reads and shows the
+  set. Reading on the end of the stream instead raced the capture and could show the
+  old set. With no event within 4 s (the stream is down, the turn came through
+  another door) it reads anyway. A failed read keeps the previous set on screen — a
+  restarting server must not look like "nothing changed".
+- **Ctrl+S / Cmd+S shows or hides the card** at any time; the browser's "Save
+  page" never opens. Opened mid-turn it lists the finished turns plus what the
+  running turn has written so far — the server compares the workspace with the
+  turn's pre-turn snapshot — and it re-reads after every finished tool call while
+  it stays open. Hidden, it reads nothing. Opened in a chat that changed nothing,
+  it says so in one line. In the IntelliJ panel the plugin takes the key from Save
+  All while the panel has focus (`window.foxxycodeUi.toggleSessionChanges`).
 - A session that changed nothing renders **no card at all**, and neither does one
   where every change cancelled out (a file created and removed again, or edited
   and edited back, is left out of the set).

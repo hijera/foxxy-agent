@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { isEditorEmbed } from "../embedShell";
 import {
@@ -9,10 +9,41 @@ import {
 import { openSessionChangesInIde, revertSessionChanges } from "./api";
 import { baseName, dirName, fileCountKey } from "./sessionChangesText";
 import { useSessionChanges } from "./useSessionChanges";
+import { requestChangesToggle } from "./sessionChangesBus";
 import type { ChangedFile } from "./types";
 
 /** How many rows the card lists before the rest are only reachable in the viewer. */
 const ROW_CAP = 8;
+
+/**
+ * Ctrl+S / Cmd+S. Matched on the physical key, because on the Russian layout
+ * the same key reports "ы"; Shift and Alt variants stay the browser's.
+ */
+export function isChangesHotkey(e: KeyboardEvent): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyS";
+}
+
+/**
+ * Takes Ctrl+S / Cmd+S for the changed-files card while a chat is open. The
+ * listener sits on the capture phase so the composer and the browser never see
+ * the key: the page has nothing to save, and a "Save page" dialog would only be
+ * in the way. A held key repeats; only the first press counts.
+ */
+function useChangesHotkey(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isChangesHotkey(e)) {
+        return;
+      }
+      e.preventDefault();
+      if (!e.repeat) {
+        requestChangesToggle();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+}
 
 function ChangedRow(props: { file: ChangedFile; onOpen: (path: string) => void }) {
   const { t } = useT();
@@ -55,6 +86,8 @@ function ChangedRow(props: { file: ChangedFile; onOpen: (path: string) => void }
 export function SessionChangesCard(props: {
   sessionId: string;
   generating: boolean;
+  /** Finished tool calls in the transcript; open mid-turn, the card re-reads after each. */
+  toolActivity?: number;
   /** Opens one file in the side drawer; also the fallback for a row click. */
   onOpenReview: (path?: string) => void;
   /** Opens the full review window, which shows every file at once. */
@@ -66,17 +99,27 @@ export function SessionChangesCard(props: {
     getSessionChangesEnabled,
     () => DEFAULT_SESSION_CHANGES,
   );
-  const { changes, reload } = useSessionChanges({
+  const { changes, reload, shown, manual } = useSessionChanges({
     sessionId: props.sessionId,
     enabled,
     generating: props.generating,
+    toolActivity: props.toolActivity ?? 0,
   });
+  useChangesHotkey();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Nothing changed in this chat, so there is nothing to review.
-  if (!enabled || changes.totals.files === 0) {
+  if (!enabled || !shown) {
     return null;
+  }
+  if (changes.totals.files === 0) {
+    // Nothing changed in this chat, so there is nothing to review - unless the
+    // user asked for the card, and then the key has to visibly answer.
+    return manual ? (
+      <section className="changes-card changes-card--empty" data-testid="changes-card-empty">
+        <p className="changes-card-empty">{t("changes.empty")}</p>
+      </section>
+    ) : null;
   }
 
   // A row asks about one file. Inside an editor that belongs in the IDE's own

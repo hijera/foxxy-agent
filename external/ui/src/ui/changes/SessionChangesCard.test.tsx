@@ -1,8 +1,13 @@
 import React from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SessionChangesCard } from "./SessionChangesCard";
 import { setSessionChangesEnabled } from "../chat/sessionChangesConfig";
+import {
+  emitChangesSettled,
+  resetChangesBusForTests,
+  setChangesBusClockForTests,
+} from "./sessionChangesBus";
 import type { SessionChanges } from "./types";
 
 const CHANGES: SessionChanges = {
@@ -49,13 +54,55 @@ beforeEach(() => {
   window.sessionStorage.clear();
   fetchMock = vi.fn(async () => jsonResponse(CHANGES));
   vi.stubGlobal("fetch", fetchMock);
+  // Every toggle request lands a second after the last, so the dedupe of
+  // near-simultaneous presses never swallows one of these tests' presses.
+  let clock = 0;
+  setChangesBusClockForTests(() => (clock += 1000));
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   setSessionChangesEnabled(true);
+  resetChangesBusForTests();
 });
+
+type CardProps = {
+  sessionId: string;
+  generating: boolean;
+  toolActivity: number;
+  onOpenReview: (path?: string) => void;
+  onOpenViewer: () => void;
+};
+
+function renderCard(overrides: Partial<CardProps> = {}) {
+  const props: CardProps = {
+    sessionId: "s1",
+    generating: false,
+    toolActivity: 0,
+    onOpenReview: () => {},
+    onOpenViewer: () => {},
+    ...overrides,
+  };
+  const view = render(<SessionChangesCard {...props} />);
+  return {
+    update(next: Partial<CardProps>) {
+      Object.assign(props, next);
+      view.rerender(<SessionChangesCard {...props} />);
+    },
+  };
+}
+
+function pressKey(init: KeyboardEventInit): KeyboardEvent {
+  const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+  act(() => {
+    window.dispatchEvent(ev);
+  });
+  return ev;
+}
+
+const pressCtrlS = (init: KeyboardEventInit = {}) =>
+  pressKey({ key: "s", code: "KeyS", ctrlKey: true, ...init });
 
 test("the card summarises the session and lists its files", async () => {
   render(
@@ -283,4 +330,121 @@ test("declining the confirmation leaves the workspace alone", async () => {
   expect(
     fetchMock.mock.calls.some((c) => String(c[0]).includes("/revert")),
   ).toBe(false);
+});
+
+// While the agent works the card would describe a change set the turn is still
+// moving; it steps aside until the turn's changes are recorded.
+test("the card stays hidden while the agent works", async () => {
+  const card = renderCard();
+  await screen.findByTestId("session-changes-card");
+  card.update({ generating: true });
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+});
+
+test("after the stop the card waits for the recorded changes, then shows them", async () => {
+  const card = renderCard({ generating: true });
+  expect(fetchMock).not.toHaveBeenCalled();
+  card.update({ generating: false });
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+
+  act(() => emitChangesSettled("another-session"));
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+
+  act(() => emitChangesSettled("s1"));
+  expect(await screen.findByTestId("session-changes-card")).toHaveTextContent(
+    "2 files changed",
+  );
+});
+
+// The server can store a short turn's diff before the client has seen the
+// stream end; the card must not then wait for an event that already came.
+test("recorded changes announced before the stop show the card at the stop", async () => {
+  const card = renderCard({ generating: true });
+  act(() => emitChangesSettled("s1"));
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  card.update({ generating: false });
+  expect(await screen.findByTestId("session-changes-card")).toBeTruthy();
+});
+
+test("without the announcement the card shows itself 4 s after the stop", async () => {
+  vi.useFakeTimers();
+  try {
+    const card = renderCard({ generating: true });
+    card.update({ generating: false });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3900);
+    });
+    expect(screen.queryByTestId("session-changes-card")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(screen.getByTestId("session-changes-card")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("Ctrl+S toggles the card, and the browser does not get it", async () => {
+  renderCard();
+  await screen.findByTestId("session-changes-card");
+  const hide = pressCtrlS();
+  expect(hide.defaultPrevented).toBe(true);
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  // The Russian layout reports "ы" for the same physical key.
+  const show = pressCtrlS({ key: "ы" });
+  expect(show.defaultPrevented).toBe(true);
+  expect(await screen.findByTestId("session-changes-card")).toBeTruthy();
+});
+
+test("Cmd+S does the same on macOS, and other keys are left alone", async () => {
+  renderCard();
+  await screen.findByTestId("session-changes-card");
+  const plain = pressKey({ key: "s", code: "KeyS" });
+  const shifted = pressCtrlS({ shiftKey: true });
+  expect(plain.defaultPrevented).toBe(false);
+  expect(shifted.defaultPrevented).toBe(false);
+  expect(screen.getByTestId("session-changes-card")).toBeTruthy();
+  const cmd = pressKey({ key: "s", code: "KeyS", metaKey: true });
+  expect(cmd.defaultPrevented).toBe(true);
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+});
+
+test("opened mid-turn the card shows the session so far and follows every tool call", async () => {
+  const card = renderCard({ generating: true, toolActivity: 0 });
+  pressCtrlS();
+  expect(await screen.findByTestId("session-changes-card")).toHaveTextContent(
+    "2 files changed",
+  );
+  const before = fetchMock.mock.calls.length;
+  card.update({ toolActivity: 1 });
+  await waitFor(() => expect(fetchMock.mock.calls.length).toBe(before + 1), {
+    timeout: 2000,
+  });
+});
+
+test("hidden mid-turn the card fetches nothing as tools finish", async () => {
+  const card = renderCard({ generating: true, toolActivity: 0 });
+  card.update({ toolActivity: 3 });
+  await new Promise((r) => setTimeout(r, 600));
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+// Pressed with nothing to show, the key still has to answer, or it looks broken.
+test("toggled open with nothing changed the card says so", async () => {
+  fetchMock.mockResolvedValue(jsonResponse(EMPTY));
+  renderCard({ generating: true });
+  pressCtrlS();
+  expect(await screen.findByTestId("changes-card-empty")).toHaveTextContent(
+    "This session changed no files.",
+  );
+});
+
+test("with the card switched off Ctrl+S shows nothing", async () => {
+  setSessionChangesEnabled(false);
+  renderCard();
+  const ev = pressCtrlS();
+  expect(ev.defaultPrevented).toBe(true);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
 });

@@ -256,6 +256,7 @@ import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
 import { SessionChangesPanel } from "./changes/SessionChangesPanel";
 import { DiffViewerModal } from "./changes/DiffViewerModal";
+import { emitChangesSettled } from "./changes/sessionChangesBus";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -4562,6 +4563,7 @@ export function App() {
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
+      onSessionChanges: (sid) => emitChangesSettled(sid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,

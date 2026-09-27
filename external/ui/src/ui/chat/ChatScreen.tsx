@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
+import { finishedToolCalls } from "../changes/toolActivity";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
@@ -657,6 +658,7 @@ export function ChatScreen(props: {
                 <SessionChangesCard
                   sessionId={props.sessionId}
                   generating={props.generating === true}
+                  toolActivity={finishedToolCalls(props.items)}
                   onOpenReview={props.onOpenSessionChanges}
                   onOpenViewer={props.onOpenChangesViewer}
                 />

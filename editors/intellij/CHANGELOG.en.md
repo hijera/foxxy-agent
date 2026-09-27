@@ -24,6 +24,11 @@ folders (`.git`, `.svn`). The editor rewrites its settings on its own schedule, 
 three-line edit under a hundred `.svn-base` blobs. This holds for sessions recorded by earlier
 versions of the plugin too, and for "Undo": rolling back no longer touches those files, which
 would have broken the very working copy it was asked to clean up.
+While the agent works the card is hidden, and it appears by itself as soon as the turn's
+changes are recorded. Ctrl+S shows or hides it at any time: mid-turn it lists the earlier
+turns plus what the current one has already changed, and it updates after every tool call. In
+IntelliJ, while focus is in the FoxxyCode panel, Ctrl+S toggles the card instead of Save All.
+Edits made by a turn that failed with an error now reach the card and the rollback too.
 
 **Syntax highlighting in diffs.**
 Code is coloured by the file's language, with the same engine as the code blocks in the

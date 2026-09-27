@@ -18,6 +18,11 @@ export type ServerEventHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
+  /** A session's recorded change set settled or moved: a finished turn's workspace
+   *  diff is on disk, or the session was rolled back. The changed-files card reads
+   *  the set when this arrives rather than when the stream ends, which the capture
+   *  can still be racing. */
+  onSessionChanges?: (sessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -42,6 +47,7 @@ export type ServerEvent =
   | { type: "turn_ended"; sessionId: string }
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
+  | { type: "session_changes"; sessionId: string }
   | { type: "config_reloaded" }
   | { type: "ready" };
 
@@ -134,7 +140,8 @@ export function parseServerEvent(ev: {
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
     case "turn_started":
-    case "turn_ended": {
+    case "turn_ended":
+    case "session_changes": {
       const sid = sessionIdOf(ev.data);
       return sid ? { type: ev.event, sessionId: sid } : null;
     }
@@ -157,6 +164,9 @@ export function dispatchServerEvent(
       return;
     case "message_queue":
       h.onMessageQueue?.(event.sessionId, event.queue);
+      return;
+    case "session_changes":
+      h.onSessionChanges?.(event.sessionId);
       return;
     case "config_reloaded":
       h.onConfigReloaded?.();

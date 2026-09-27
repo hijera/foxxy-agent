@@ -15,13 +15,16 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CustomShortcutSet
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.docking.DockableContent
@@ -52,12 +55,15 @@ import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.awt.datatransfer.DataFlavor
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
 import java.io.File
 import java.util.Vector
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.KeyStroke
 import javax.swing.SwingConstants
 
 /**
@@ -105,6 +111,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         toolbarComponent = tb
         add(tb, BorderLayout.NORTH)
         add(center, BorderLayout.CENTER)
+        installChangesShortcut()
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(LafManagerListener.TOPIC, LafManagerListener { syncTheme() })
         ApplicationManager.getApplication().messageBus.connect(this)
@@ -455,6 +462,32 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         pendingMentions.clear()
         LOG.info("FoxxyCode mention: flushing ${queued.size} queued path(s)")
         queued.forEach { insertFileMention(it) }
+    }
+
+    /**
+     * Ctrl+S (Cmd+S on macOS) shows or hides the changed-files card while focus is in this
+     * panel. Registered on the panel itself, the shortcut is found before the keymap's Save All
+     * when the key is pressed inside it - which matters because the off-screen JCEF browser (the
+     * default since 2022.3) hands every key to the IDE before Chromium sees it. The page takes the
+     * same key itself wherever it does get it first, and folds a press that arrives both ways into
+     * one.
+     */
+    private fun installChangesShortcut() {
+        val mask = if (SystemInfo.isMac) InputEvent.META_DOWN_MASK else InputEvent.CTRL_DOWN_MASK
+        DumbAwareAction.create { toggleSessionChanges() }.registerCustomShortcutSet(
+            CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_S, mask)),
+            this,
+            this,
+        )
+    }
+
+    /** Asks the SPA to show or hide the changed-files card. */
+    private fun toggleSessionChanges() {
+        val b = browser ?: return
+        if (!browserReady) return
+        val js =
+            "(function(){ try { if (window.foxxycodeUi && window.foxxycodeUi.toggleSessionChanges) window.foxxycodeUi.toggleSessionChanges(); } catch (e) {} })();"
+        b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
     /** Pushes a workspace-relative path into the SPA composer as an `@`-mention. */

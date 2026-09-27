@@ -71,5 +71,6 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter | question prompt | send the answer, once every question has one; typed in the composer it still belongs to the composer |
 | Escape | question prompt | skip the questions |
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
+| Ctrl+S / Cmd+S | an open chat, composer included | show or hide the changed-files card; the browser's "Save page" never opens. In the IntelliJ panel the plugin takes the key from Save All while the panel has focus |
 
 Stopping a turn has no key: it is the Stop button in the composer bar. The `@` menu opens as you type an `@` followed by a path, and a `:` after the path turns it into the line-range picker; neither is a binding.
