@@ -442,12 +442,19 @@ func TestNetTraceNamesWhoCancelled(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
-	logs := waitForLog(t, buf,
-		`msg="llm net: request context ended"`,
-		`cause="guard fired"`,
-		`msg="llm net: done"`,
-		"session=sess_trace",
-	)
+	// The final line names the cause whichever notices the cancel first: the
+	// watcher ("request context ended") or the body read that fails on it (on
+	// Linux the read usually wins, and the watcher then stays quiet).
+	logs := waitForLog(t, buf, `msg="llm net: done"`, "session=sess_trace")
+	var done string
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, `msg="llm net: done"`) {
+			done = line
+		}
+	}
+	if !strings.Contains(done, `cause="guard fired"`) || !strings.Contains(done, "ctx_err=") {
+		t.Fatalf("final line does not name the cancel and its cause: %s", done)
+	}
 	for _, line := range strings.Split(strings.TrimSpace(logs), "\n") {
 		if strings.Contains(line, "llm net") && !strings.Contains(line, "session=sess_trace") {
 			t.Fatalf("line without the caller's labels: %s", line)

@@ -110,6 +110,7 @@ type netTracer struct {
 	start  time.Time
 	tunnel bool
 	stop   chan struct{}
+	ctx    context.Context
 
 	mu            sync.Mutex
 	phase         string
@@ -154,6 +155,7 @@ func startNetTrace(req *http.Request, route routeFunc) (*netTracer, *http.Reques
 	ctx := context.WithValue(req.Context(), netTracerKey{}, nt)
 	ctx = httptrace.WithClientTrace(ctx, nt.clientTrace())
 	req = req.WithContext(ctx)
+	nt.ctx = ctx
 	go nt.watch(ctx)
 	return nt, req
 }
@@ -474,6 +476,14 @@ func (nt *netTracer) finish(outcome string, err error) {
 	close(nt.stop)
 	if err != nil {
 		kv = append(kv, netErrAttrs(err)...)
+	}
+	// The watcher logs a cancel as it happens, but a body read that fails on the
+	// cancel can finish the request first; the final line names it either way.
+	if ctx := nt.ctx; ctx != nil && ctx.Err() != nil {
+		kv = append(kv, "ctx_err", ctx.Err().Error())
+		if cause := context.Cause(ctx); cause != nil && cause != ctx.Err() {
+			kv = append(kv, "cause", cause.Error())
+		}
 	}
 	msg := "llm net: done"
 	if outcome == "request_failed" {
