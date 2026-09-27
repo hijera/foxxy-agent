@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { Chevron } from "../components/Chevron";
 import { parseDiffPatch } from "../messages/parseDiff";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import { toSplitRows, toUnifiedRows } from "./diffRows";
@@ -195,9 +196,7 @@ export function DiffFileSection(props: {
           onClick={props.onToggle}
           title={file.path}
         >
-          <span className="dv-file-chevron" aria-hidden="true">
-            {props.collapsed ? "▸" : "▾"}
-          </span>
+          <Chevron open={!props.collapsed} />
           <span
             className={"dv-file-badge dv-file-badge--" + file.status}
             aria-label={t(statusKey(file.status))}

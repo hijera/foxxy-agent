@@ -14238,13 +14238,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   color: var(--text);
 }
 
-.dv-file-chevron {
-  flex: 0 0 auto;
-  width: 12px;
-  font-size: 10px;
-  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
-}
-
 .dv-file-badge {
   flex: 0 0 auto;
   width: 7px;

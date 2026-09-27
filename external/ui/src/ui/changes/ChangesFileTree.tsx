@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { Chevron } from "../components/Chevron";
 import { buildFileTree } from "./fileTree";
 import type { FileTreeNode } from "./fileTree";
 import type { ChangedFile } from "./types";
@@ -103,9 +104,7 @@ function TreeRow(props: {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="dv-file-chevron" aria-hidden="true">
-          {open ? "\u25BE" : "\u25B8"}
-        </span>
+        <Chevron open={open} />
         <span className="dv-tree-label">{node.label}</span>
       </button>
       {open
