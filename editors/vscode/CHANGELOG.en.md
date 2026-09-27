@@ -10,6 +10,15 @@
 
 ## Unreleased — 2026-09-27
 
+**A turn behind a proxy no longer hangs on "Provider is not responding".**
+Requests to a provider share one HTTP/2 connection. When a proxy lost a tunnel without closing
+it, every later request, retries included, went out on that same dead connection, and a turn could
+wait for hours. Now a connection that has received nothing for 15 seconds is pinged and closed
+when the ping goes unanswered for another 15; the request cut with it is repeated on a new
+connection, and the turn carries on within about half a minute.
+
+## 0.3.21 — 2026-09-27
+
 **Proxy with a password: the password is hidden and the address is built in a dialog.**
 The proxy field (on a provider, on the Telegram gateway and in the first-run dialog) now shows
 the password as dots, both while it is typed and in a saved value; the character just typed stays

@@ -190,6 +190,14 @@ providers:
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
 
+## A turn behind a proxy waits on "Provider is not responding" and never recovers
+
+**Symptom.** Behind a proxy, a turn sits on **Provider is not responding, retrying** for as long as the retry schedule runs (with the defaults about an hour and a half), and every retry fails the same way. With `debug.enable` on, the connection trace shows the retries on one connection: `llm net: conn reused=true` with the same `local` port each time, then `no activity phase=awaiting_response`.
+
+**Cause.** Requests to a provider share one pooled HTTP/2 connection. When a proxy loses the state of a tunnel without closing it, the connection to the proxy stays up but nothing arrives on it any more, and every new request, every retry included, was sent on that same dead connection.
+
+**Fix.** Since this release FoxxyCode pings a connection that has received nothing for 15 seconds and closes it when the ping goes unanswered for another 15. The request that was waiting on it is repeated on a new connection, so such a turn recovers within about half a minute. If it still hangs, the trace shows which step the new connection is stuck in; see [Diagnostics](../operate/debugging.md).
+
 ## `foxxycode update` refuses to overwrite a packaged binary
 
 **Symptom.** `foxxycode update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.

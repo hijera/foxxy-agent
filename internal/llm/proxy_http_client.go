@@ -18,6 +18,21 @@ import (
 
 const llmResponseHeaderTimeout = 30 * time.Second
 
+// HTTP/2 health check of LLM connections. A pooled HTTP/2 connection is shared by
+// every request to the provider, and behind a proxy it can die without a FIN: the
+// proxy drops the tunnel's state, TCP to the proxy stays up, and nothing ever
+// arrives again. Without a health check every later request - every retry of a
+// silent model call included - is sent on that same connection and waits out the
+// caller's whole timeout. With it, a connection that has received nothing for
+// llmHTTP2SendPingTimeout is pinged, and closed when the ping is not answered
+// within llmHTTP2PingTimeout, so the next request opens a new one. The server
+// answers pings itself, so a model that is slow to write its answer does not
+// trip it. Variables so tests can shorten them.
+var (
+	llmHTTP2SendPingTimeout = 15 * time.Second
+	llmHTTP2PingTimeout     = 15 * time.Second
+)
+
 // HTTPClientForOptionalProxy returns an HTTP client that sends traffic through the given proxy URL.
 // Supported schemes are http, https (HTTP proxy), socks5, and socks5h (SOCKS5 with remote DNS on socks5h).
 //
@@ -184,6 +199,10 @@ func cloneLLMTransport() (*http.Transport, error) {
 	// Only logs, and only while the trace is on: the proxy's answer to CONNECT is
 	// the one step of a tunnelled request httptrace does not report.
 	t.OnProxyConnectResponse = logProxyConnect
+	t.HTTP2 = &http.HTTP2Config{
+		SendPingTimeout: llmHTTP2SendPingTimeout,
+		PingTimeout:     llmHTTP2PingTimeout,
+	}
 	return t, nil
 }
 
