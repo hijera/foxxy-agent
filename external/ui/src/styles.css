@@ -8405,6 +8405,110 @@ html:not([data-theme="light"]) .context-usage-note--error {
   opacity: 1;
 }
 
+/* Proxy URL field (ProxyUrlField.tsx): the "…" button opening the proxy editor. */
+.settings-proxy-edit {
+  flex: none;
+  font-size: 14px;
+  line-height: 1;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 8px;
+}
+
+.settings-proxy-edit:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.settings-proxy-edit:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Proxy editor (ProxyEditorDialog.tsx): the ConfirmDialog shell holding a form.
+   Above the onboarding dialog (z-index 120) it can be opened from. */
+.proxy-editor-backdrop {
+  z-index: 130;
+}
+
+/* Opaque, like the folder picker: a form over the settings text must not let that
+   text show through its fields. */
+.confirm-dialog.proxy-editor {
+  width: min(460px, calc(100vw - 32px));
+  gap: 12px;
+  background: var(--bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.proxy-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.proxy-editor-field .settings-input,
+.proxy-editor-field .settings-key-row {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.proxy-editor-hostport {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.proxy-editor-hostport--port {
+  grid-template-columns: minmax(0, 1fr) 110px;
+}
+
+.proxy-editor-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.proxy-editor-error {
+  margin: 0;
+  font-size: 12px;
+  color: #f87171;
+}
+
+[data-theme="light"] .proxy-editor-error {
+  color: #b91c1c;
+}
+
+.proxy-editor-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.proxy-editor-result code {
+  font-size: 12px;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--foxxycode-surface-muted);
+  overflow-wrap: anywhere;
+}
+
+.proxy-editor-clear {
+  margin-right: auto;
+}
+
+@media (max-width: 480px) {
+  .proxy-editor-hostport {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
 .settings-input[readonly] {
   background: var(--foxxycode-surface-muted);

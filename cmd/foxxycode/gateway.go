@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
@@ -72,6 +73,7 @@ func runGateway(args []string) error {
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
 	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting gateway", "version", version.Get())

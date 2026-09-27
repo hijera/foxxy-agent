@@ -9,6 +9,22 @@
 
 ## Unreleased — 2026-09-24
 
+**Proxy with a password: the password is hidden and the address is built in a dialog.**
+The proxy field (on a provider, on the Telegram gateway and in the first-run dialog) now shows
+the password as dots, both while it is typed and in a saved value; the character just typed stays
+readable for three seconds. The **…** button at the end of the field opens a dialog where the
+protocol, host, port, login and password are entered separately: the password may contain
+`@ : / # %`, spaces and Cyrillic, and the address is encoded for you. An address such a password
+would cut short is no longer accepted in silence (`user:3128/password@host` used to go to the
+"host" `user:3128` with no credentials), and proxy errors no longer show the password.
+
+**The Windows system proxy, PAC included.**
+With no proxy set on the provider or in the environment, FoxxyCode takes it from the Windows
+settings: a manual proxy with its exceptions, a setup script (PAC) or automatic detection (WPAD)
+- Windows runs the script itself. This covers the FoxxyCode window for Windows and VS Code with an
+empty `http.proxy`; IntelliJ still passes the IDE's proxy. `FOXXYCODE_SYSTEM_PROXY=off` turns it
+off.
+
 **A detailed network log in debug mode.**
 With `debug.enable` on, the FoxxyCode log now spells out every request to the model step by
 step: whether it goes through a proxy or direct, how the connection to the proxy went, the

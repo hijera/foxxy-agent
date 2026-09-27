@@ -348,6 +348,44 @@ describe("ProviderPickerDialog", () => {
     expect(body.providers[0].proxy).toBe("socks5h://127.0.0.1:1080");
   });
 
+  // The reported case: a proxy password with an @ in it. Built in the proxy
+  // editor, it is saved percent-encoded and shown with the password hidden.
+  it("builds a proxy with a password in the editor and saves it encoded", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-proxy-edit"));
+    fireEvent.change(screen.getByTestId("proxy-editor-host"), {
+      target: { value: "vm-squid3.corp" },
+    });
+    fireEvent.change(screen.getByTestId("proxy-editor-port"), { target: { value: "3128" } });
+    fireEvent.change(screen.getByTestId("proxy-editor-user"), { target: { value: "vlasov" } });
+    fireEvent.change(screen.getByTestId("proxy-editor-password"), {
+      target: { value: "p@ss" },
+    });
+    fireEvent.submit(screen.getByTestId("proxy-editor"));
+
+    expect((screen.getByTestId("provider-proxy") as HTMLInputElement).value).toBe(
+      "http://vlasov:••••••@vm-squid3.corp:3128",
+    );
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.find((c) => c[0] === "/foxxycode/providers/models-probe"),
+      ).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].proxy).toBe("http://vlasov:p%40ss@vm-squid3.corp:3128");
+  });
+
   it("omits proxy from the saved provider when left empty", async () => {
     const onSaved = vi.fn();
     renderPicker({ onSaved });

@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -80,6 +81,9 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 }
 
 func main() {
+	// Before any request: net/http reads the proxy environment once, and on
+	// Windows the system proxy (manual, PAC or WPAD) reaches Go only this way.
+	netx.InstallSystemProxy()
 	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -317,6 +321,7 @@ func runACP(args []string) error {
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
 	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	defer func() { _ = logCloser.Close() }()
 
 	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)

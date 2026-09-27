@@ -505,7 +505,8 @@
             "proxy": {
               "description": "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
               "title": "Proxy",
-              "type": "string"
+              "type": "string",
+              "x-foxxycode-proxy-url": true
             },
             "rich_messages": {
               "default": true,
@@ -1100,9 +1101,10 @@
             "type": "string"
           },
           "proxy": {
-            "description": "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none.",
+            "description": "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or the operating system proxy settings when there is none (on Windows including a PAC script or automatic detection); with neither the connection is direct. Special characters in the login or password must be percent-encoded - the … button next to the field builds the URL for you.",
             "title": "HTTP or SOCKS proxy",
-            "type": "string"
+            "type": "string",
+            "x-foxxycode-proxy-url": true
           },
           "timeout_ms": {
             "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
