@@ -30,13 +30,19 @@ type changesEnv struct {
 
 func newChangesEnv(t *testing.T) *changesEnv {
 	t.Helper()
+	return newChangesEnvWithRunner(t, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	})
+}
+
+// newChangesEnvWithRunner is newChangesEnv with the turn a test needs the agent
+// to run when a prompt is posted.
+func newChangesEnvWithRunner(t *testing.T, runner func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error)) *changesEnv {
+	t.Helper()
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "p1", Type: "openai", APIKey: "k"}},
 		Models:    []config.ModelEntry{{Model: "p1/gpt-4o"}},
 		Agent:     config.Agent{Model: "p1/gpt-4o"},
-	}
-	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
-		return string(acp.StopReasonEndTurn), nil
 	}
 	root := t.TempDir()
 	store := &session.FileStore{Root: filepath.Join(root, "sessions")}

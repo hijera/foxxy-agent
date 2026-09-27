@@ -149,6 +149,39 @@ func configReloadedFrame(at time.Time) []byte {
 	return frame
 }
 
+// sessionChangesFrame says that the recorded change set of one session settled
+// or moved: a finished turn's workspace diff is on disk (or there was nothing
+// to store), or the session was rolled back.
+//
+// Thin like configReloadedFrame: the change set itself stays behind
+// GET /foxxycode/sessions/{id}/changes, and the event only tells the changed-files
+// card that reading it now gives the answer the turn left.
+func sessionChangesFrame(sessionID string, at time.Time) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "foxxycode.session_changes",
+		"sessionId": sessionID,
+		"at":        at.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+40)
+	frame = append(frame, "event: session_changes\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishSessionChanges announces a settled change set to every events subscriber.
+func (s *Server) publishSessionChanges(sessionID string) {
+	if s.events == nil || sessionID == "" {
+		return
+	}
+	if frame := sessionChangesFrame(sessionID, time.Now()); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
 // publishConfigReloaded announces a reload to every events subscriber. ReplaceConfig is
 // its only caller, so every path that installs a new configuration - the settings form,
 // the agent's config_commit and config_rollback, a skill install - announces it without

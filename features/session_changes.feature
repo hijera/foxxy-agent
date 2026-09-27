@@ -41,6 +41,21 @@ Feature: Reviewing what a session changed
     And I open the diff for "notes.txt"
     Then the diff removes "two" and adds "TWO"
 
+  Scenario: The card is told when a finished turn's changes are recorded
+    Given a client listening for server events
+    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
+    Then the client hears that the session's changes are recorded
+    When I ask what the session changed
+    Then "notes.txt" is reported as "modified"
+
+  Scenario: The card opened mid-turn shows what the running turn has written
+    When the agent writes "extra.txt" as "fresh\n" and keeps working
+    And I ask what the session changed
+    Then "extra.txt" is reported as "added"
+    When the running turn finishes
+    And I ask what the session changed
+    Then 1 file is reported as changed with 1 addition and 0 deletions
+
   Scenario: Rolling the session back restores the workspace
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And the agent runs a turn that writes "extra.txt" as "fresh\n"

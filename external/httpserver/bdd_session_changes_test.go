@@ -54,6 +54,17 @@ type sessionChangesState struct {
 	}
 	files []changedFileRow
 	one   changedFileRow
+
+	// A held turn writes its file, then waits on holdTurn until the scenario
+	// lets it finish; turnWrote says the write is done, turnDone carries the
+	// POST's outcome.
+	holdTurn  chan struct{}
+	turnWrote chan struct{}
+	turnDone  chan error
+
+	// events is a subscription to the server-wide event stream.
+	events            <-chan []byte
+	unsubscribeEvents func()
 }
 
 // gherkinText turns the literal backslash-n of a feature file into newlines so
@@ -76,10 +87,22 @@ func (s *sessionChangesState) reset() error {
 	s.files = nil
 	s.one = changedFileRow{}
 	s.pendingWrite.path = ""
+	s.holdTurn, s.turnWrote, s.turnDone = nil, nil, nil
+	s.events, s.unsubscribeEvents = nil, nil
 	return nil
 }
 
 func (s *sessionChangesState) close() {
+	// A scenario that failed while a turn was held must not leave the runner
+	// blocked for the server shutdown to wait on.
+	if s.holdTurn != nil {
+		close(s.holdTurn)
+		s.holdTurn = nil
+	}
+	if s.unsubscribeEvents != nil {
+		s.unsubscribeEvents()
+		s.unsubscribeEvents = nil
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -109,6 +132,12 @@ func (s *sessionChangesState) startServer() error {
 				return "", err
 			}
 			s.pendingWrite.path = ""
+		}
+		// A held turn stays running after its edit, the way a real turn keeps
+		// working after one tool call, until the scenario releases it.
+		if hold := s.holdTurn; hold != nil {
+			close(s.turnWrote)
+			<-hold
 		}
 		// Record the exchange the way the real ReAct loop does: turn diffs are
 		// filed under the user-turn count, so a stub that never grows the
@@ -153,7 +182,14 @@ func (s *sessionChangesState) runTurn(name, content string) error {
 	if err != nil {
 		return err
 	}
+	if err := s.postPrompt(); err != nil {
+		return err
+	}
+	return s.awaitStoredTurn(len(before), name)
+}
 
+// postPrompt sends one turn and waits for its answer.
+func (s *sessionChangesState) postPrompt() error {
 	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/v1/responses",
 		strings.NewReader(`{"model":"agent","input":"edit it","stream":false}`))
 	if err != nil {
@@ -170,19 +206,85 @@ func (s *sessionChangesState) runTurn(name, content string) error {
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses returned %d", res.StatusCode)
 	}
+	return nil
+}
 
+// awaitStoredTurn waits until more than had turn diffs are on disk.
+func (s *sessionChangesState) awaitStoredTurn(had int, name string) error {
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		now, err := session.ListStoredTurnDiffs(filepath.Join(s.sessRoot, s.sessionID))
 		if err != nil {
 			return err
 		}
-		if len(now) > len(before) {
+		if len(now) > had {
 			return nil
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	return fmt.Errorf("turn diff for %q was never stored", name)
+}
+
+// startHeldTurn starts a turn that writes one file and then keeps working,
+// and returns once the write is done.
+func (s *sessionChangesState) startHeldTurn(name, content string) error {
+	s.pendingWrite.path = name
+	s.pendingWrite.content = gherkinText(content)
+	s.holdTurn = make(chan struct{})
+	s.turnWrote = make(chan struct{})
+	s.turnDone = make(chan error, 1)
+	go func() { s.turnDone <- s.postPrompt() }()
+	select {
+	case <-s.turnWrote:
+		return nil
+	case err := <-s.turnDone:
+		return fmt.Errorf("the turn ended before it wrote: %v", err)
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("the turn never wrote %q", name)
+	}
+}
+
+// finishHeldTurn lets the held turn end and waits for its diff to be stored.
+func (s *sessionChangesState) finishHeldTurn() error {
+	before, err := session.ListStoredTurnDiffs(filepath.Join(s.sessRoot, s.sessionID))
+	if err != nil {
+		return err
+	}
+	close(s.holdTurn)
+	s.holdTurn = nil
+	select {
+	case err := <-s.turnDone:
+		if err != nil {
+			return err
+		}
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("the released turn never answered")
+	}
+	return s.awaitStoredTurn(len(before), "the running turn")
+}
+
+// listenForServerEvents subscribes to the stream GET /foxxycode/events serves.
+func (s *sessionChangesState) listenForServerEvents() error {
+	s.events, s.unsubscribeEvents = s.srv.events.subscribe()
+	return nil
+}
+
+// hearChangesRecorded waits for the event that tells the card this session's
+// change set can be read.
+func (s *sessionChangesState) hearChangesRecorded() error {
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case f := <-s.events:
+			frame := string(f)
+			if strings.HasPrefix(frame, "event: session_changes\n") &&
+				strings.Contains(frame, `"sessionId":"`+s.sessionID+`"`) {
+				return nil
+			}
+		case <-deadline:
+			return fmt.Errorf("no session_changes event for %s", s.sessionID)
+		}
+	}
 }
 
 func (s *sessionChangesState) askWhatChanged() error {
@@ -334,6 +436,10 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running foxxycode HTTP server with a workspace$`, s.startServer)
 	sc.Step(`^the workspace contains "([^"]+)" with "([^"]*)"$`, s.workspaceContains)
 	sc.Step(`^the agent runs a turn that writes "([^"]+)" as "([^"]*)"$`, s.runTurn)
+	sc.Step(`^the agent writes "([^"]+)" as "([^"]*)" and keeps working$`, s.startHeldTurn)
+	sc.Step(`^the running turn finishes$`, s.finishHeldTurn)
+	sc.Step(`^a client listening for server events$`, s.listenForServerEvents)
+	sc.Step(`^the client hears that the session's changes are recorded$`, s.hearChangesRecorded)
 	sc.Step(`^I ask what the session changed$`, s.askWhatChanged)
 	sc.Step(`^I ask what the last turn changed$`, func() error {
 		return s.askWhatChangedInScope("turn")

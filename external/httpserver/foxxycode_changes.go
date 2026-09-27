@@ -187,8 +187,15 @@ func (s *Server) workingCopyVCS(ctx context.Context, cwd string) string {
 
 // loadChangeSet resolves one scope into the shape every viewer renders.
 func (s *Server) loadChangeSet(ctx context.Context, st *session.State, sessionDir string, scope changeScope) (changeSetResult, error) {
+	// A running turn has no stored diff yet; the card opened mid-turn still has
+	// to show what it wrote, so it counts as the newest turn.
+	live, running := s.liveTurnDiff(st.GetID())
+
 	switch scope {
 	case scopeTurn:
+		if running {
+			return changeSetResult{changes: visibleChanges(session.AggregateWorkspaceDiff(live))}, nil
+		}
 		turn, err := session.LatestTurnNumber(sessionDir)
 		if err != nil {
 			return changeSetResult{}, err
@@ -235,6 +242,10 @@ func (s *Server) loadChangeSet(ctx context.Context, st *session.State, sessionDi
 		return changeSetResult{changes: visibleChanges(changes), untracked: untracked, vcs: vcs}, nil
 
 	default:
+		if running {
+			changes, err := session.AggregateSessionChangesWithLive(sessionDir, live)
+			return changeSetResult{changes: visibleChanges(changes)}, err
+		}
 		changes, err := session.AggregateSessionChanges(sessionDir)
 		return changeSetResult{changes: visibleChanges(changes)}, err
 	}
@@ -477,6 +488,8 @@ func (s *Server) foxxycodeSessionChangesRevert(w http.ResponseWriter, r *http.Re
 	if err := session.ClearStoredTurnDiffs(sd); err != nil {
 		s.log.Warn("clear turn diffs after revert", "session", id, "error", err)
 	}
+	// Another window showing this session reads the empty set as well.
+	s.publishSessionChanges(id)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "foxxycode.session_changes_reverted",
