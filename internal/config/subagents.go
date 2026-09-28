@@ -44,8 +44,8 @@ type Subagents struct {
 	Enabled *bool `yaml:"enable"`
 
 	// Dirs lists definition directories, lowest priority first; later entries
-	// override earlier ones by name. ${FOXXYCODE_HOME} expands at load time, ${CWD}
-	// per session.
+	// override earlier ones by name. ${FOXXYCODE_HOME}, ${CWD} and ~ stay in the
+	// entries and expand per session, when the loader reads them.
 	Dirs []string `yaml:"dirs"`
 
 	// ProjectTrust decides what a definition found inside the workspace may
@@ -77,17 +77,16 @@ func DefaultSubagentDirs() []string {
 	}
 }
 
-// ApplyDefaults fills Dirs the way skills.dirs is filled: the defaults keep
-// their ${FOXXYCODE_HOME} and ${CWD} placeholders for the loader to expand per
-// session, while operator-supplied entries get ${FOXXYCODE_HOME} expanded at load
-// time.
-func (s *Subagents) ApplyDefaults(p Paths) {
+// ApplyDefaults fills Dirs the way skills.dirs is filled: defaults and
+// operator-supplied entries alike keep their ${FOXXYCODE_HOME}, ${CWD} and ~ for
+// the loader to expand per session, so a save writes them back as written.
+func (s *Subagents) ApplyDefaults() {
 	if len(s.Dirs) == 0 {
 		s.Dirs = DefaultSubagentDirs()
 		return
 	}
 	for i := range s.Dirs {
-		s.Dirs[i] = ExpandFOXXYCODEHomeOnly(strings.TrimSpace(s.Dirs[i]), p)
+		s.Dirs[i] = strings.TrimSpace(s.Dirs[i])
 	}
 }
 

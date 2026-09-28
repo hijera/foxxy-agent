@@ -746,7 +746,7 @@ func LoadReadOnly(cli CLIPaths) (*Config, []byte, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 	}
-	cfg, err := parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+	cfg, err := parseConfigSource(data, paths)
 	if err != nil {
 		return nil, nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}

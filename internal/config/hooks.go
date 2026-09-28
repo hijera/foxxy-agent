@@ -26,9 +26,9 @@ type Hooks struct {
 	Enabled *bool `yaml:"enable"`
 
 	// Files lists definition files, lowest priority first (priority orders
-	// the catalog and the run order; every matching hook runs). ${FOXXYCODE_HOME}
-	// expands at load time, ${CWD} per session; a relative entry resolves
-	// against the session cwd.
+	// the catalog and the run order; every matching hook runs). ${FOXXYCODE_HOME},
+	// ${CWD} and ~ stay in the entries and expand per session, when the loader
+	// reads them; a relative entry resolves against the session cwd.
 	Files []string `yaml:"files"`
 
 	// ProjectTrust decides what a file found inside the workspace may do: ask
@@ -63,17 +63,16 @@ func DefaultHookFiles() []string {
 	}
 }
 
-// ApplyDefaults fills Files the way subagents.dirs is filled: the defaults
-// keep their ${FOXXYCODE_HOME} and ${CWD} placeholders for the loader to expand
-// per session, while operator-supplied entries get ${FOXXYCODE_HOME} expanded at
-// load time.
-func (h *Hooks) ApplyDefaults(p Paths) {
+// ApplyDefaults fills Files the way subagents.dirs is filled: defaults and
+// operator-supplied entries alike keep their ${FOXXYCODE_HOME}, ${CWD} and ~ for
+// the loader to expand per session, so a save writes them back as written.
+func (h *Hooks) ApplyDefaults() {
 	if len(h.Files) == 0 {
 		h.Files = DefaultHookFiles()
 		return
 	}
 	for i := range h.Files {
-		h.Files[i] = ExpandFOXXYCODEHomeOnly(strings.TrimSpace(h.Files[i]), p)
+		h.Files[i] = strings.TrimSpace(h.Files[i])
 	}
 }
 

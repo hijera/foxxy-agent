@@ -105,6 +105,19 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 	return os.Rename(tmpPath, path)
 }
 
+// parseConfigSource reads the bytes of a config file the way the loader does: the
+// body is expanded (expandConfigBody), parsed and validated, and the per-session
+// path lists keep the ${FOXXYCODE_HOME} their entries were written with
+// (keepHomePlaceholders).
+func parseConfigSource(raw []byte, paths Paths) (*Config, error) {
+	cfg, err := parseValidateYAMLBytes(expandConfigBody(string(raw), paths), paths)
+	if err != nil {
+		return nil, err
+	}
+	keepHomePlaceholders(cfg, raw)
+	return cfg, nil
+}
+
 // parseValidateYAMLBytes parses expanded YAML and validates (includes applyDefaults).
 func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	var doc yaml.Node
@@ -130,8 +143,7 @@ func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	expanded := expandConfigBody(string(raw), paths)
-	cfg, err := parseValidateYAMLBytes(expanded, paths)
+	cfg, err := parseConfigSource(raw, paths)
 	if err != nil {
 		return nil, err
 	}

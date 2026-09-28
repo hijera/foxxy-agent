@@ -7,7 +7,7 @@ import (
 
 func TestSubagentsDefaultsFillEveryUnsetKnob(t *testing.T) {
 	var s Subagents
-	s.ApplyDefaults(Paths{Home: "/home/dev/.foxxycode", CWD: "/work"})
+	s.ApplyDefaults()
 
 	if !s.ResolvedEnabled() {
 		t.Fatal("subagents are enabled unless the operator turns them off")
@@ -31,14 +31,12 @@ func TestSubagentsDefaultsFillEveryUnsetKnob(t *testing.T) {
 }
 
 func TestSubagentsDefaultsKeepOperatorDirs(t *testing.T) {
-	s := Subagents{Dirs: []string{"/srv/team-agents", "${FOXXYCODE_HOME}/agents"}}
-	s.ApplyDefaults(Paths{Home: "/home/dev/.foxxycode", CWD: "/work"})
-	if len(s.Dirs) != 2 || s.Dirs[0] != "/srv/team-agents" {
-		t.Fatalf("operator dirs must be kept verbatim, got %v", s.Dirs)
-	}
-	// ${FOXXYCODE_HOME} expands at load time like skills.dirs; ${CWD} stays for the session.
-	if s.Dirs[1] != "/home/dev/.foxxycode/agents" {
-		t.Fatalf("FOXXYCODE_HOME must expand at load time, got %q", s.Dirs[1])
+	s := Subagents{Dirs: []string{" /srv/team-agents ", "${FOXXYCODE_HOME}/agents", "~/agents"}}
+	s.ApplyDefaults()
+	// Placeholders stay for the loader, so a save writes them back as written.
+	want := []string{"/srv/team-agents", "${FOXXYCODE_HOME}/agents", "~/agents"}
+	if strings.Join(s.Dirs, "|") != strings.Join(want, "|") {
+		t.Fatalf("operator dirs must be kept as written, got %v want %v", s.Dirs, want)
 	}
 }
 

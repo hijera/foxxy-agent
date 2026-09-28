@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // expandEnvEscaped expands ${VAR} and $VAR references from the process environment,
@@ -53,6 +56,69 @@ func expandConfigBody(s string, p Paths) string {
 	s = strings.ReplaceAll(s, "$$", escapedDollarSentinel)
 	s = strings.ReplaceAll(s, "${FOXXYCODE_HOME}", yamlSafePath(p.Home))
 	return expandEnvEscaped(s)
+}
+
+// homeMarker stands in for the agent home in the second expansion of a config file
+// that keepHomePlaceholders reads. Letters, digits and underscores only, so every YAML
+// scalar style carries it through unchanged.
+const homeMarker = "FOXXYCODE_HOME_MARKER_5b0e9d2c"
+
+// keepHomePlaceholders puts ${FOXXYCODE_HOME} back into the entries of the per-session
+// path lists (skills.dirs, subagents.dirs, hooks.files) that expandConfigBody
+// substituted with this machine's home.
+//
+// Those lists are resolved where they are read: every loader expands
+// ${FOXXYCODE_HOME}, ${CWD} and a leading ~ itself, the defaults keep their
+// placeholders, and a save writes back whatever the struct holds. An entry that
+// reached the struct as an absolute path was therefore written to the file as one,
+// and the file stopped following FOXXYCODE_HOME (--home) and could not be copied to
+// another machine or user.
+//
+// The file is expanded a second time with homeMarker in place of the home, which
+// tells an entry that wrote the placeholder from one that spelled the same
+// directory out. Environment references and $$ escapes resolve the same way in both
+// passes, and an entry is rewritten only when the marker accounts for every
+// difference between them, so anything the second pass reads differently keeps
+// what the loader parsed.
+func keepHomePlaceholders(cfg *Config, raw []byte) {
+	home := yamlSafePath(cfg.Paths.Home)
+	if home == "" || !bytes.Contains(raw, []byte("${FOXXYCODE_HOME}")) {
+		return
+	}
+	var marked struct {
+		Skills struct {
+			Dirs []string `yaml:"dirs"`
+		} `yaml:"skills"`
+		Subagents struct {
+			Dirs []string `yaml:"dirs"`
+		} `yaml:"subagents"`
+		Hooks struct {
+			Files []string `yaml:"files"`
+		} `yaml:"hooks"`
+	}
+	if err := yaml.Unmarshal([]byte(expandConfigBody(string(raw), Paths{Home: homeMarker})), &marked); err != nil {
+		return
+	}
+	restoreHomePlaceholder(cfg.Skills.Dirs, marked.Skills.Dirs, home)
+	restoreHomePlaceholder(cfg.Subagents.Dirs, marked.Subagents.Dirs, home)
+	restoreHomePlaceholder(cfg.Hooks.Files, marked.Hooks.Files, home)
+}
+
+// restoreHomePlaceholder rewrites the loaded entries whose marked twin carries the
+// home marker and differs from them by nothing else. Lists of different lengths do
+// not pair up: the file listed nothing and the loaded list is the defaults, which
+// keep their placeholders anyway.
+func restoreHomePlaceholder(loaded, marked []string, home string) {
+	if len(loaded) != len(marked) {
+		return
+	}
+	for i, entry := range marked {
+		entry = strings.TrimSpace(entry)
+		if !strings.Contains(entry, homeMarker) || strings.ReplaceAll(entry, homeMarker, home) != loaded[i] {
+			continue
+		}
+		loaded[i] = strings.ReplaceAll(entry, homeMarker, "${FOXXYCODE_HOME}")
+	}
 }
 
 // escapeYAMLDollar doubles every "$" so that expandEnvEscaped restores the exact literal

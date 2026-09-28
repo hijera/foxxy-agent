@@ -267,16 +267,17 @@ func parseFrontmatter(data []byte) (string, *frontmatter) {
 	return body, &fm
 }
 
-// expandPath resolves ${FOXXYCODE_HOME}, ${CWD}, and ~ in a path.
+// expandPath resolves ${FOXXYCODE_HOME}, ${CWD}, and ~ in a path. A leading ~ may
+// be followed by either separator on Windows (~/skills, ~\skills).
 func expandPath(path, cwd, agentHome string) string {
 	if agentHome != "" {
 		path = strings.ReplaceAll(path, "${FOXXYCODE_HOME}", agentHome)
 	}
 	path = strings.ReplaceAll(path, "${CWD}", cwd)
-	if strings.HasPrefix(path, "~/") {
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+string(filepath.Separator)) {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			path = filepath.Join(home, path[2:])
+			path = filepath.Join(home, path[1:])
 		}
 	}
 	return path

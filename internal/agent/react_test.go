@@ -1651,7 +1651,7 @@ func resumeRewriteFixture(t *testing.T, hookCommand string) (*Agent, *session.St
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     config.Agent{Model: "fake/model"},
 	}
-	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults()
 	provider := &resumePermissionProvider{t: t}
 	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }

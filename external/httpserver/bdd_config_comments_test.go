@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -58,11 +59,21 @@ agent:
   model: valera/qwen3.8-27b
 `
 
+// operatorPathsConfigYAML lists skill directories of its own, one under the agent home
+// and one under the user's home, spelled with the placeholders.
+const operatorPathsConfigYAML = bareConfigYAML + `skills:
+  dirs:
+    - "~/team-skills"
+    - "${FOXXYCODE_HOME}/skills"
+`
+
 type configCommentsWorld struct {
 	ts      *httptest.Server
 	cfgPath string
 	initial string
 	saved   string
+	// previous is the file the save before the last one wrote.
+	previous string
 }
 
 func (w *configCommentsWorld) startGateway(t *testing.T, yml string) error {
@@ -72,7 +83,9 @@ func (w *configCommentsWorld) startGateway(t *testing.T, yml string) error {
 	if err := os.WriteFile(w.cfgPath, []byte(yml), 0o644); err != nil {
 		return err
 	}
-	cfg, err := config.Load(w.cfgPath)
+	// The temp dir is the agent home, so nothing is read from the real one and a
+	// path under the home is recognisable in the saved file.
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: home, ConfigPath: w.cfgPath})
 	if err != nil {
 		return err
 	}
@@ -137,7 +150,7 @@ func (w *configCommentsWorld) saveWithAgentField(field string, value int) error 
 	if err != nil {
 		return err
 	}
-	w.saved = string(raw)
+	w.previous, w.saved = w.saved, string(raw)
 	return nil
 }
 
@@ -200,6 +213,39 @@ func (w *configCommentsWorld) wantWindowsLineEndings() error {
 	return nil
 }
 
+// wantList compares a list in the saved file with a comma-separated expectation.
+func (w *configCommentsWorld) wantList(field, list string) error {
+	section, key, ok := strings.Cut(field, ".")
+	if !ok {
+		return fmt.Errorf("field %q must be section.key", field)
+	}
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal([]byte(strings.ReplaceAll(w.saved, "\r\n", "\n")), &doc); err != nil {
+		return fmt.Errorf("saved config does not parse: %w", err)
+	}
+	obj, _ := doc[section].(map[string]interface{})
+	items, _ := obj[key].([]interface{})
+	got := make([]string, 0, len(items))
+	for _, item := range items {
+		got = append(got, fmt.Sprint(item))
+	}
+	want := strings.Split(list, ", ")
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		return fmt.Errorf("saved config lists %s as %q, want %q:\n%s", field, got, want, w.saved)
+	}
+	return nil
+}
+
+func (w *configCommentsWorld) wantSameSaves() error {
+	if w.previous == "" {
+		return fmt.Errorf("the settings screen saved only once")
+	}
+	if w.previous != w.saved {
+		return fmt.Errorf("two saves of an unchanged config wrote different files\nfirst:\n%s\nsecond:\n%s", w.previous, w.saved)
+	}
+	return nil
+}
+
 func (w *configCommentsWorld) wantSchemaHeader(url string) error {
 	want := "# yaml-language-server: $schema=" + url
 	first, _, _ := strings.Cut(w.saved, "\n")
@@ -240,6 +286,12 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 			sc.Step(`^a foxxycode server whose config\.yaml points its editor at "([^"]*)"$`, func(ref string) error {
 				return w.startGateway(t, "# yaml-language-server: $schema="+ref+"\n"+bareConfigYAML)
 			})
+			sc.Step(`^a foxxycode server whose config\.yaml leaves skills, subagents and hooks to their default locations$`, func() error {
+				return w.startGateway(t, bareConfigYAML)
+			})
+			sc.Step(`^a foxxycode server whose config\.yaml lists skill directories under the agent home and the user's home$`, func() error {
+				return w.startGateway(t, operatorPathsConfigYAML)
+			})
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithAgentField)
 			sc.Step(`^the saved config\.yaml still carries the operator comments$`, w.wantOperatorComments)
 			sc.Step(`^the saved config\.yaml sets "([^"]*)" to (\d+)$`, w.wantAgentField)
@@ -248,6 +300,8 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 			sc.Step(`^the saved config\.yaml starts with the schema header for "([^"]*)"$`, w.wantSchemaHeader)
 			sc.Step(`^the saved config\.yaml still points its editor at "([^"]*)"$`, w.wantSchemaReference)
 			sc.Step(`^the saved config\.yaml carries exactly one schema header$`, w.wantSingleSchemaHeader)
+			sc.Step(`^the saved config\.yaml lists "([^"]*)" as "([^"]*)"$`, w.wantList)
+			sc.Step(`^both saves wrote the same config\.yaml$`, w.wantSameSaves)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

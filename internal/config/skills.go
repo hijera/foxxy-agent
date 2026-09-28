@@ -60,24 +60,34 @@ func (c *Skills) ManagedDir(foxxycodeHome string) string {
 	return expandSkillsHome("~/.foxxycode/skills")
 }
 
-// ApplyDefaults fills empty Dirs during config load. Sources stays exactly as
-// the file has it: the marketplace of the standard delivery is a system source
-// (SystemSkillsSource), listed beside this key rather than inside it.
-func (c *Skills) ApplyDefaults(foxxycodeHome string, expandFOXXYCODEHome func(string) string) {
+// DefaultSkillDirs are the search paths used when the operator lists none,
+// lowest priority first: the skills shared with other agents, the foxxycode
+// home, then the workspace.
+func DefaultSkillDirs() []string {
+	return []string{
+		"~/.agents/skills",
+		"${FOXXYCODE_HOME}/skills",
+		"${CWD}/.foxxycode/skills",
+	}
+}
+
+// ApplyDefaults fills empty Dirs during config load. Entries keep the
+// ${FOXXYCODE_HOME}, ${CWD} and ~ they were written with: the skill loader
+// resolves all three per session, and a save writes them back as written, so
+// the file keeps following FOXXYCODE_HOME and stays portable. Sources stays
+// exactly as the file has it: the marketplace of the standard delivery is a
+// system source (SystemSkillsSource), listed beside this key rather than inside it.
+func (c *Skills) ApplyDefaults() {
 	if c.AutoDiscovery == nil {
 		v := true
 		c.AutoDiscovery = &v
 	}
 	if len(c.Dirs) == 0 {
-		c.Dirs = []string{
-			"~/.agents/skills",
-			"${FOXXYCODE_HOME}/skills",
-			"${CWD}/.foxxycode/skills",
-		}
+		c.Dirs = DefaultSkillDirs()
 		return
 	}
 	for i := range c.Dirs {
-		c.Dirs[i] = expandFOXXYCODEHome(c.Dirs[i])
+		c.Dirs[i] = strings.TrimSpace(c.Dirs[i])
 	}
 }
 

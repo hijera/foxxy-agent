@@ -68,9 +68,8 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	}
 
 	originalData := append([]byte(nil), data...)
-	expanded := expandConfigBody(string(data), paths)
 
-	cfg, err := parseValidateYAMLBytes(expanded, paths)
+	cfg, err := parseConfigSource(data, paths)
 	if err != nil {
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
@@ -188,12 +187,10 @@ func applyDefaults(cfg *Config) {
 		cfg.Sessions.Dir = ""
 	}
 
-	cfg.Skills.ApplyDefaults(p.Home, func(s string) string {
-		return ExpandFOXXYCODEHomeOnly(s, p)
-	})
+	cfg.Skills.ApplyDefaults()
 	cfg.Rules.ApplyDefaults()
-	cfg.Subagents.ApplyDefaults(p)
-	cfg.Hooks.ApplyDefaults(p)
+	cfg.Subagents.ApplyDefaults()
+	cfg.Hooks.ApplyDefaults()
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()

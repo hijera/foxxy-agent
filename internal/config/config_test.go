@@ -43,13 +43,6 @@ func TestExpandPathHelpers(t *testing.T) {
 			t.Fatalf("got %q want %q", got, want)
 		}
 	})
-	t.Run("ExpandFOXXYCODEHomeOnlyLeavesCWD", func(t *testing.T) {
-		p := config.Paths{Home: "/h", CWD: "/launch"}
-		s := config.ExpandFOXXYCODEHomeOnly("${FOXXYCODE_HOME}/x ${CWD}/y", p)
-		if s != "/h/x ${CWD}/y" {
-			t.Fatalf("got %q", s)
-		}
-	})
 	t.Run("ExpandPathVarsUsesForwardSlashes", func(t *testing.T) {
 		p := config.Paths{Home: `C:\Users\dev\.foxxycode`, CWD: `C:\work\proj`}
 		got := config.ExpandPathVars(`dirs: ["${FOXXYCODE_HOME}/skills", "${CWD}/x"]`, p)
@@ -99,8 +92,12 @@ sessions:
 	if len(cfg.Skills.Dirs) != 1 {
 		t.Fatalf("skills.dirs len: got %d", len(cfg.Skills.Dirs))
 	}
-	if got, want := filepath.ToSlash(cfg.Skills.Dirs[0]), "C:/Users/dev/.foxxycode/extra"; got != want {
+	// skills.dirs keeps the placeholder; the loaders resolve it against the same home.
+	if got, want := cfg.Skills.Dirs[0], "${FOXXYCODE_HOME}/extra"; got != want {
 		t.Errorf("skills.dirs[0]: got %q want %q", got, want)
+	}
+	if got, want := filepath.ToSlash(config.ExpandPathVars(cfg.Skills.Dirs[0], cfg.Paths)), "C:/Users/dev/.foxxycode/extra"; got != want {
+		t.Errorf("skills.dirs[0] resolves to %q want %q", got, want)
 	}
 	if got, want := filepath.ToSlash(cfg.Sessions.Dir), "C:/Users/dev/.foxxycode/mysess"; got != want {
 		t.Errorf("sessions.dir: got %q want %q", got, want)
@@ -182,8 +179,8 @@ logger:
 	if len(cfg.Skills.Dirs) != 1 {
 		t.Fatalf("skills.dirs len: got %d", len(cfg.Skills.Dirs))
 	}
-	if filepath.Clean(cfg.Skills.Dirs[0]) != filepath.Clean(wantSkills0) {
-		t.Errorf("skills.dirs[0]: got %q want %q", cfg.Skills.Dirs[0], wantSkills0)
+	if got := filepath.Clean(config.ExpandPathVars(cfg.Skills.Dirs[0], cfg.Paths)); got != filepath.Clean(wantSkills0) {
+		t.Errorf("skills.dirs[0]: %q resolves to %q want %q", cfg.Skills.Dirs[0], got, wantSkills0)
 	}
 
 	wantSess := filepath.Join(home, "mysess")
@@ -1050,9 +1047,9 @@ func TestCodexRejectsStreamFalse(t *testing.T) {
 }
 
 // The Settings UI reads the configuration as JSON and writes it back as YAML.
-// A skills.dirs entry with ${CWD} must survive that round trip verbatim on
-// both legs: GET reports the placeholder, PUT stores it, and the next load
-// still leaves it to the session (hijera/foxxy-agent#146).
+// A skills.dirs entry with ${CWD} or ${FOXXYCODE_HOME} must survive that round
+// trip verbatim on both legs: GET reports the placeholder, PUT stores it, and
+// the next load still leaves it to the loaders (hijera/foxxy-agent#146).
 func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home")
@@ -1087,8 +1084,8 @@ func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
 	if got := reloaded.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
 		t.Fatalf("reload after PUT baked the placeholder: %q", got)
 	}
-	if got, want := filepath.ToSlash(reloaded.Skills.Dirs[1]), filepath.ToSlash(filepath.Join(home, "skills")); got != want {
-		t.Fatalf("reload after PUT: skills.dirs[1] got %q want %q", got, want)
+	if got := reloaded.Skills.Dirs[1]; got != "${FOXXYCODE_HOME}/skills" {
+		t.Fatalf("reload after PUT baked the home placeholder: %q", got)
 	}
 }
 
@@ -1342,7 +1339,7 @@ logger:
 		want string
 	}{
 		{"skills.dirs[0]", cfg.Skills.Dirs[0], "${CWD}/.agents/skills"},
-		{"skills.dirs[1]", cfg.Skills.Dirs[1], filepath.Join(home, "skills")},
+		{"skills.dirs[1]", cfg.Skills.Dirs[1], "${FOXXYCODE_HOME}/skills"},
 		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.foxxycode/agents"},
 		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.foxxycode/hooks.json"},
 		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},

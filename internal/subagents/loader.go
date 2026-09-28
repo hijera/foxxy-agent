@@ -126,9 +126,10 @@ func expandDir(path, cwd, home string) string {
 		path = strings.ReplaceAll(path, "${FOXXYCODE_HOME}", home)
 	}
 	path = strings.ReplaceAll(path, "${CWD}", cwd)
-	if strings.HasPrefix(path, "~/") || path == "~" {
+	// Either separator may follow the ~ on Windows (~/agents, ~\agents).
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+string(filepath.Separator)) {
 		if userHome, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(userHome, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
+			path = filepath.Join(userHome, path[1:])
 		}
 	}
 	if !filepath.IsAbs(path) && cwd != "" {
