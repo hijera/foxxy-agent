@@ -89,6 +89,7 @@ func (s *State) appendUILog(level string, userTurnIndex int, msg string) {
 		UserTurnIndex: userTurnIndex,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
 	})
+	s.sidecarRev.uiLog++
 	s.mu.Unlock()
 	s.touchPersist()
 }

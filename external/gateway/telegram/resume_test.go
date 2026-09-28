@@ -3,6 +3,7 @@
 package telegram
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,9 +14,11 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/tgfake"
 )
 
 func sessionRow(id, title, updated string) acp.SessionListInfo {
@@ -457,5 +460,38 @@ func TestGroupChatAnswersResumeWithoutAMention(t *testing.T) {
 	msg := commandMessage("/resume login")
 	if !b.shouldRespond(msg, msg.Text) {
 		t.Fatal("/resume in a group is not answered")
+	}
+}
+
+// An admin-only group may still have default_access: all. A group member can
+// see the admin's inline keyboard, but must not use its callback to switch the
+// session shared by the admins.
+func TestNonAdminCannotResumeFromAdminOnlyGroupKeyboard(t *testing.T) {
+	fake := newFakeAPI(t, tgfake.Options{})
+	base, _, _, err := logger.New(config.Logger{Level: config.LogLevelError, Format: config.LogFormatText, Outputs: []string{config.LogOutputStderr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newResumeRunner()
+	id := "sess_aaaaaaaaaaaaaaaaaaaaaaaa"
+	runner.keep(id, "Private notes", "")
+	cfg := &config.TelegramGatewayConfig{
+		Enabled: true, DefaultAccess: config.AccessAll,
+		DefaultIsolation: config.IsolationAdmin, Admins: []int64{1},
+	}
+	bot := New(cfg, runner, "/work", logger.Component(base, logger.ComponentGatewayTelegram), filepath.Join(t.TempDir(), "gateway_sessions.json"), nil)
+	const chatID int64 = -7007
+	key := sessionstore.SessionKey(adapterName, chatID, 1, config.IsolationAdmin, true)
+	bot.processMessage(t.Context(), fake.api, fake.userMessage(chatID, 1, "/resume"), key)
+	tap, err := fake.tap(chatID, 2, "Private notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.handleCallback(context.Background(), fake.api, tap)
+	if got := bot.store.Peek(key); got != "" {
+		t.Fatalf("non-admin rebound the admin session to %q", got)
+	}
+	if len(runner.ensured) != 0 {
+		t.Fatalf("non-admin loaded sessions %v", runner.ensured)
 	}
 }

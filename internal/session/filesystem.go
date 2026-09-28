@@ -891,6 +891,16 @@ func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q st
 	return out, nil
 }
 
+// sameSessionMetaContents ignores timestamps and activity counters, which can
+// advance in another process without this State changing its metadata.
+func sameSessionMetaContents(a, b SessionMeta) bool {
+	a.UpdatedAt, b.UpdatedAt = "", ""
+	a.CreatedAt, b.CreatedAt = "", ""
+	a.ActivitySeq, b.ActivitySeq = 0, 0
+	a.ReadActivitySeq, b.ReadActivitySeq = 0, 0
+	return reflect.DeepEqual(a, b)
+}
+
 // Save persists session state into the directory named by state.ID.
 func (f *FileStore) Save(state *State) error {
 	if f == nil || f.Root == "" || state == nil {
@@ -1038,6 +1048,16 @@ func (f *FileStore) Save(state *State) error {
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
 	meta.PermissionMode = state.GetPermissionMode()
+	// A sidecar-only save must leave newer session.json changes from another
+	// process intact, even if neither process added a message. A local mode or
+	// model switch still writes its change.
+	skipMeta := false
+	if messagesUnchanged && metaExisted {
+		if saved, ok := state.lastPersistedMeta(); ok {
+			skipMeta = sameSessionMetaContents(meta, saved) &&
+				newActivitySeq == prevMeta.ActivitySeq && newReadSeq == prevMeta.ReadActivitySeq
+		}
+	}
 
 	// The stamp stands only when this save puts nothing new anywhere - not the
 	// history, and not a field of the meta either.
@@ -1074,8 +1094,11 @@ func (f *FileStore) Save(state *State) error {
 	}
 	meta.UpdatedAt, meta.CreatedAt = updatedAt, createdAt
 
-	if err := writeJSONAtomic(metaPath, meta); err != nil {
-		return err
+	if !skipMeta {
+		if err := writeJSONAtomic(metaPath, meta); err != nil {
+			return err
+		}
+		state.recordPersistedMeta(meta)
 	}
 	switch {
 	case pending != nil:
@@ -1095,28 +1118,54 @@ func (f *FileStore) Save(state *State) error {
 		moved.rev, moved.editRev, moved.count = msgRev, msgEditRev, len(msgs)
 		f.rememberMessages(msgPath, &moved)
 	}
+	// A stale State may still have changed a sidecar in this process: the HTTP
+	// plan endpoint, a UI notice or an approval saves outside the turn lock.
+	// Write only those local changes. Rewriting an untouched sidecar from the
+	// stale State would replace what the newer process saved there.
+	revs, savedRevs := state.sidecarVersions()
+	writeUILog := !stale || revs.uiLog != savedRevs.uiLog
+	writeGrants := !stale || revs.grants != savedRevs.grants
+	writePlan := !stale || revs.plan != savedRevs.plan
+	if writeUILog {
+		uiWrap := uiLogFileData{Version: uiLogLayout, Entries: state.GetUILog()}
+		if err := writeJSONAtomic(filepath.Join(dir, uiLogFile), uiWrap); err != nil {
+			return err
+		}
+	}
+	if writeGrants {
+		pg := permissionGrantsFileData{
+			Version:  permissionGrantsVer,
+			Commands: state.GetPermissionCommandGrants(),
+			Writes:   state.GetPermissionWriteGrants(),
+			HTTP:     state.GetPermissionHTTPGrants(),
+		}
+		if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
+			return err
+		}
+	}
+	if writePlan {
+		if err := SyncActiveTodoFile(dir, state.GetPlan()); err != nil {
+			return err
+		}
+	}
+	state.markSidecarsSaved(revs, writePlan, writeUILog, writeGrants)
 	if stale {
+		// The transcript still belongs to the other process. Its next turn
+		// here must refresh; only metadata written above can be stamped as seen.
+		if !skipMeta {
+			state.stampCurrentMeta(statMeta(dir))
+		}
 		return nil
 	}
-	// The file now holds this history, written or confirmed above.
-	state.setDiskStamp(statMessages(dir), msgRev, msgEditRev)
-	uiWrap := uiLogFileData{
-		Version: uiLogLayout,
-		Entries: state.GetUILog(),
+	if skipMeta {
+		// Keep the old meta stamp: a turn must still see a mode or model
+		// changed by another process since this State last read it.
+		state.stampCurrentMessages(statMessages(dir), msgRev, msgEditRev)
+		return nil
 	}
-	if err := writeJSONAtomic(filepath.Join(dir, uiLogFile), uiWrap); err != nil {
-		return err
-	}
-	pg := permissionGrantsFileData{
-		Version:  permissionGrantsVer,
-		Commands: state.GetPermissionCommandGrants(),
-		Writes:   state.GetPermissionWriteGrants(),
-		HTTP:     state.GetPermissionHTTPGrants(),
-	}
-	if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
-		return err
-	}
-	return SyncActiveTodoFile(dir, state.GetPlan())
+	// Both persisted files now describe this State.
+	state.setDiskStamp(statMessages(dir), statMeta(dir), msgRev, msgEditRev)
+	return nil
 }
 
 // PatchSessionMetaActivitySync writes only activitySeq and readActivitySeq into session.json,

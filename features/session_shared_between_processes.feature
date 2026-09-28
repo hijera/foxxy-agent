@@ -20,3 +20,25 @@ Feature: A session shared by two processes over one home
     And the gateway switches the session to "plan" mode
     Then the transcript on disk is "one | panel: one | two | panel: two"
     And the session on disk is in "plan" mode
+
+  Scenario: A turn sees a mode changed by the other process without a new message
+    When the panel switches the session to "plan" mode
+    And the gateway runs a turn "two"
+    Then the gateway's turn began in "plan" mode
+    And the session on disk is in "plan" mode
+
+  Scenario: A stale process can save its plan without replacing the newer transcript
+    When the panel runs a turn "two"
+    And the panel switches the session to "plan" mode
+    And the gateway replaces the plan with "review cross-process history"
+    Then the active plan on disk is "review cross-process history"
+    And the transcript on disk is "one | panel: one | two | panel: two"
+    And the session on disk is in "plan" mode
+
+  Scenario: A plan save keeps a mode changed without a new message
+    When the panel switches the session to "plan" mode
+    And the gateway replaces the plan with "review cross-process history"
+    Then the active plan on disk is "review cross-process history"
+    And the session on disk is in "plan" mode
+    When the gateway runs a turn "two"
+    Then the gateway's turn began in "plan" mode

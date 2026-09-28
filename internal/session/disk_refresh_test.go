@@ -159,6 +159,38 @@ func TestStaleSaveLeavesTheNewerHistoryOnDisk(t *testing.T) {
 	}
 }
 
+func TestStaleSaveWritesChangedSidecarsWithoutReplacingUntouchedOnes(t *testing.T) {
+	p := newTwoProcesses(t)
+	id := p.startShared(t)
+	a, err := p.a.EnsureHTTPSession(context.Background(), id, p.cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := p.b.EnsureHTTPSession(context.Background(), id, p.cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.prompt(t, p.a, id, "two")
+	a.SetPlan([]acp.PlanEntry{{Content: "newer plan", Status: "pending"}})
+	b.AppendUILogNotice(1, "gateway notice")
+	b.AddCommandGrantIfNew("go test")
+
+	snap, err := (&session.FileStore{Root: p.root}).ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Plan) != 1 || snap.Plan[0].Content != "newer plan" {
+		t.Fatalf("stale save replaced the other process's plan: %v", snap.Plan)
+	}
+	if len(snap.UILog) != 1 || snap.UILog[0].Message != "gateway notice" {
+		t.Fatalf("stale save lost its UI notice: %v", snap.UILog)
+	}
+	if len(snap.PermissionCommands) != 1 || snap.PermissionCommands[0] != "go test" {
+		t.Fatalf("stale save lost its command grant: %v", snap.PermissionCommands)
+	}
+}
+
 // A history the caller replaced in memory before the turn - the direct
 // /v1/chat/completions path hands the client's conversation over that way - is
 // the one the turn must run on, even when the file moved underneath it.

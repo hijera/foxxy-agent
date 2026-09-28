@@ -31,7 +31,8 @@ type sharedSessionWorld struct {
 	mu sync.Mutex
 	// began is how many messages the last turn of each process found in the
 	// session when it started.
-	began map[string]int
+	began     map[string]int
+	beganMode map[string]string
 }
 
 func (w *sharedSessionWorld) reset() error {
@@ -46,6 +47,7 @@ func (w *sharedSessionWorld) reset() error {
 	}
 	w.root, w.cwd, w.id = root, cwd, ""
 	w.began = map[string]int{}
+	w.beganMode = map[string]string{}
 	w.procs = map[string]*session.Manager{}
 	for _, name := range []string{"panel", "gateway"} {
 		w.procs[name] = session.NewManager(testConfig(), noopSender{}, w.runner(name), slog.Default(), cwd, &session.FileStore{Root: root})
@@ -69,6 +71,7 @@ func (w *sharedSessionWorld) runner(name string) session.AgentRunner {
 		text := prompt[0].Text
 		w.mu.Lock()
 		w.began[name] = len(st.GetMessages())
+		w.beganMode[name] = st.GetMode()
 		w.mu.Unlock()
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: name + ": " + text})
@@ -106,6 +109,39 @@ func (w *sharedSessionWorld) panelRanFirstTurn(text string) error {
 
 func (w *sharedSessionWorld) switchesMode(proc, mode string) error {
 	return w.procs[proc].HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: w.id, ModeID: mode})
+}
+
+func (w *sharedSessionWorld) replacesPlan(proc, content string) error {
+	st, err := w.procs[proc].EnsureHTTPSession(context.Background(), w.id, w.cwd)
+	if err != nil {
+		return err
+	}
+	st.SetPlan([]acp.PlanEntry{{Content: content, Status: "pending"}})
+	return nil
+}
+
+func (w *sharedSessionWorld) turnBeganInMode(proc, want string) error {
+	w.mu.Lock()
+	got, ok := w.beganMode[proc]
+	w.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("the %s ran no turn", proc)
+	}
+	if got != want {
+		return fmt.Errorf("the %s's turn began in %q mode, want %q", proc, got, want)
+	}
+	return nil
+}
+
+func (w *sharedSessionWorld) planOnDisk(want string) error {
+	snap, err := (&session.FileStore{Root: w.root}).ReadSnapshot(w.id)
+	if err != nil {
+		return err
+	}
+	if len(snap.Plan) != 1 || snap.Plan[0].Content != want {
+		return fmt.Errorf("active plan on disk = %v, want %q", snap.Plan, want)
+	}
+	return nil
 }
 
 func (w *sharedSessionWorld) turnBeganOn(proc string, want int) error {
@@ -174,9 +210,12 @@ func initializeSharedSessionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the panel ran a turn "([^"]*)"$`, w.panelRanFirstTurn)
 	sc.Step(`^the (panel|gateway) runs a turn "([^"]*)"$`, w.runsATurn)
 	sc.Step(`^the (panel|gateway) switches the session to "([^"]*)" mode$`, w.switchesMode)
+	sc.Step(`^the (panel|gateway) replaces the plan with "([^"]*)"$`, w.replacesPlan)
 	sc.Step(`^the (panel|gateway)'s turn began on (\d+) messages$`, w.turnBeganOn)
+	sc.Step(`^the (panel|gateway)'s turn began in "([^"]*)" mode$`, w.turnBeganInMode)
 	sc.Step(`^the transcript on disk is "([^"]*)"$`, w.transcriptIs)
 	sc.Step(`^the session on disk is in "([^"]*)" mode$`, w.modeOnDisk)
+	sc.Step(`^the active plan on disk is "([^"]*)"$`, w.planOnDisk)
 }
 
 func TestSessionSharedBetweenProcessesFeature(t *testing.T) {

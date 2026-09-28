@@ -27,8 +27,9 @@ to go on - as it already did for the model's token limit.
 
 **One session in the panel and in Telegram.**
 The Telegram bot learned `/resume`: it brings a chat back to any session the server keeps,
-including one open in the IDE panel. When two processes work on one session, a turn in each
-first re-reads what the other one wrote and no longer overwrites its turn.
+including one open in the IDE panel. When two processes work on one session, each turn re-reads
+the other's messages and settings, and saving a plan no longer overwrites the other's turn.
+In admin-isolated groups, other members cannot use `/resume` buttons.
 
 ## 0.3.22 — 2026-09-27
 

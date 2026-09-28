@@ -243,6 +243,10 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	}
 
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
+	if isGroup && isolation == config.IsolationAdmin && !b.cfg.IsAdmin(userID) {
+		b.log.Debug("telegram: callback ignored", "reason", "admin-only chat", "user", userID, "chat", chatID)
+		return
+	}
 	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
 
 	// A resume tap names the session the chat moves to, so the chat's current

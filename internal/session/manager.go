@@ -470,7 +470,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	// Stat before the read (disk_refresh.go): a write racing it then reads as
 	// a change at the next turn instead of being stamped as already seen.
-	diskFile := statMessages(m.store.SessionPath(params.SessionID))
+	diskDir := m.store.SessionPath(params.SessionID)
+	diskFile, metaFile := statMessages(diskDir), statMeta(diskDir)
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -512,7 +513,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}
 	restorePersistedFields(st, snap)
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
-	st.stampCurrentDisk(diskFile)
+	st.stampCurrentDisk(diskFile, metaFile)
 	restoreContextBreakdown(st)
 
 	active := m.activeCfg()

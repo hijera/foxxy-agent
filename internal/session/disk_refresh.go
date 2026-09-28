@@ -50,11 +50,49 @@ type diskStamp struct {
 	editRev uint64
 }
 
+type sidecarRevisions struct {
+	plan, uiLog, grants uint64
+}
+
+func (s *State) sidecarVersions() (sidecarRevisions, sidecarRevisions) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sidecarRev, s.savedSidecarRev
+}
+
+func (s *State) markSidecarsSaved(revs sidecarRevisions, plan, uiLog, grants bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if plan {
+		s.savedSidecarRev.plan = revs.plan
+	}
+	if uiLog {
+		s.savedSidecarRev.uiLog = revs.uiLog
+	}
+	if grants {
+		s.savedSidecarRev.grants = revs.grants
+	}
+}
+
+func (s *State) markRestoredSidecarsSaved() {
+	s.mu.Lock()
+	s.savedSidecarRev = s.sidecarRev
+	s.mu.Unlock()
+}
+
 // statMessages describes the bundle's messages.json as a stamp without
 // revisions. A missing file is a state of its own, so a history written later
 // by another process still reads as a change.
 func statMessages(dir string) diskStamp {
-	st, err := os.Stat(filepath.Join(dir, messagesFile))
+	return statDiskFile(filepath.Join(dir, messagesFile))
+}
+
+func statMeta(dir string) diskStamp {
+	return statDiskFile(filepath.Join(dir, sessionMetaFile))
+}
+
+func statDiskFile(path string) diskStamp {
+	st, err := os.Stat(path)
 	if err != nil {
 		return diskStamp{set: true}
 	}
@@ -71,19 +109,49 @@ func (d diskStamp) sameFile(o diskStamp) bool {
 
 // setDiskStamp records the file as seen, together with the revisions the
 // history had when it was.
-func (s *State) setDiskStamp(file diskStamp, rev, editRev uint64) {
+func (s *State) setDiskStamp(messages, meta diskStamp, rev, editRev uint64) {
+	messages.rev, messages.editRev = rev, editRev
+	s.mu.Lock()
+	s.diskMsgs = messages
+	s.diskMeta = meta
+	s.mu.Unlock()
+}
+
+// stampCurrentDisk records the file as seen together with the history's
+// current revisions: the two describe the same conversation right now.
+func (s *State) stampCurrentDisk(messages, meta diskStamp) {
+	s.mu.Lock()
+	messages.rev, messages.editRev = s.msgRev, s.msgEditRev
+	s.diskMsgs = messages
+	s.diskMeta = meta
+	s.mu.Unlock()
+}
+
+func (s *State) stampCurrentMeta(meta diskStamp) {
+	s.mu.Lock()
+	s.diskMeta = meta
+	s.mu.Unlock()
+}
+
+func (s *State) stampCurrentMessages(file diskStamp, rev, editRev uint64) {
 	file.rev, file.editRev = rev, editRev
 	s.mu.Lock()
 	s.diskMsgs = file
 	s.mu.Unlock()
 }
 
-// stampCurrentDisk records the file as seen together with the history's
-// current revisions: the two describe the same conversation right now.
-func (s *State) stampCurrentDisk(file diskStamp) {
+func (s *State) lastPersistedMeta() (SessionMeta, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.persistedMeta == nil {
+		return SessionMeta{}, false
+	}
+	return *s.persistedMeta, true
+}
+
+func (s *State) recordPersistedMeta(meta SessionMeta) {
 	s.mu.Lock()
-	file.rev, file.editRev = s.msgRev, s.msgEditRev
-	s.diskMsgs = file
+	s.persistedMeta = &meta
 	s.mu.Unlock()
 }
 
@@ -139,7 +207,7 @@ func diskHistoryIsNewer(disk, ours []llm.Message) bool {
 // persisting anything: the history, the plan, the grants, the UI log and the
 // meta fields a client can change. Loading a bundle and refreshing a live
 // session from it share it, so the two cannot drift apart.
-func restorePersistedFields(st *State, snap *LoadedSnapshot) {
+func restorePersistedNonMessageFields(st *State, snap *LoadedSnapshot) {
 	mode := Mode(snap.Meta.Mode)
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
@@ -152,10 +220,16 @@ func restorePersistedFields(st *State, snap *LoadedSnapshot) {
 	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.SetTitleAutoWithoutPersist(snap.Meta.TitleAuto)
-	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys, snap.PermissionHTTPKeys)
 	st.RestoreUILogWithoutPersist(snap.UILog)
+	st.markRestoredSidecarsSaved()
+	st.recordPersistedMeta(snap.Meta)
+}
+
+func restorePersistedFields(st *State, snap *LoadedSnapshot) {
+	restorePersistedNonMessageFields(st, snap)
+	st.ReplaceMessagesWithoutPersist(snap.Messages)
 }
 
 // refreshFromDiskIfChanged re-reads a live session whose messages.json another
@@ -170,15 +244,16 @@ func (m *Manager) refreshFromDiskIfChanged(st *State) {
 		return
 	}
 	st.mu.RLock()
-	stamp, rev, editRev := st.diskMsgs, st.msgRev, st.msgEditRev
+	stamp, metaStamp, rev, editRev := st.diskMsgs, st.diskMeta, st.msgRev, st.msgEditRev
 	st.mu.RUnlock()
 	if !stamp.set || stamp.rev != rev || stamp.editRev != editRev {
 		return
 	}
 	// Stat before the read: a write racing the read then still reads as a
 	// change the next time, instead of being stamped as already seen.
-	file := statMessages(st.SessionDir)
-	if stamp.sameFile(file) {
+	file, metaFile := statMessages(st.SessionDir), statMeta(st.SessionDir)
+	msgsChanged, metaChanged := !stamp.sameFile(file), !metaStamp.sameFile(metaFile)
+	if !msgsChanged && !metaChanged {
 		return
 	}
 	snap, err := m.store.readSnapshotAt(st.SessionDir, st.ID)
@@ -187,17 +262,21 @@ func (m *Manager) refreshFromDiskIfChanged(st *State) {
 		return
 	}
 	ours := st.GetMessages()
-	if !diskHistoryIsNewer(snap.Messages, ours) {
+	if msgsChanged && !diskHistoryIsNewer(snap.Messages, ours) {
 		// The file is older than this State: its next save writes it back.
 		return
 	}
 	before := len(ours)
-	restorePersistedFields(st, snap)
+	if msgsChanged {
+		restorePersistedFields(st, snap)
+	} else {
+		restorePersistedNonMessageFields(st, snap)
+	}
 	st.mu.Lock()
 	st.activitySeq = max(st.activitySeq, snap.Meta.ActivitySeq)
 	st.readActivitySeq = max(st.readActivitySeq, snap.Meta.ReadActivitySeq)
 	st.mu.Unlock()
-	st.stampCurrentDisk(file)
+	st.stampCurrentDisk(file, metaFile)
 	restoreContextBreakdown(st)
 	m.sendContextUsageUpdate(st.ID, st)
 	m.log.Info("session changed on disk by another process; re-read it before the turn",

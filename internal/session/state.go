@@ -86,6 +86,16 @@ type State struct {
 	// diskMsgs is what messages.json looked like when this State last read it
 	// or a save wrote or confirmed it (disk_refresh.go).
 	diskMsgs diskStamp
+	// diskMeta is the corresponding stamp for session.json. A mode or model
+	// switch can change it without changing the transcript.
+	diskMeta diskStamp
+	// persistedMeta is the metadata this process last read or wrote. A stale
+	// sidecar-only save must not replace newer metadata from another process.
+	persistedMeta *SessionMeta
+	// Sidecar revisions let a stale save write only the plan, UI log or grants
+	// changed in this process, leaving the other process's files alone.
+	sidecarRev      sidecarRevisions
+	savedSidecarRev sidecarRevisions
 
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
@@ -1404,6 +1414,7 @@ func (s *State) GetPlan() []acp.PlanEntry {
 func (s *State) SetPlan(entries []acp.PlanEntry) {
 	s.mu.Lock()
 	s.Plan = entries
+	s.sidecarRev.plan++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1686,6 +1697,7 @@ func (s *State) AddHTTPGrantIfNew(key string) {
 		}
 	}
 	s.PermissionHTTPGrants = append(s.PermissionHTTPGrants, key)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1704,6 +1716,7 @@ func (s *State) AddCommandGrantIfNew(cmd string) {
 		}
 	}
 	s.PermissionCommandGrants = append(s.PermissionCommandGrants, cmd)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1722,6 +1735,7 @@ func (s *State) AddWriteGrantIfNew(key string) {
 		}
 	}
 	s.PermissionWriteGrants = append(s.PermissionWriteGrants, key)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
