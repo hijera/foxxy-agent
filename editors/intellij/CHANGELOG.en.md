@@ -10,9 +10,10 @@
 ## Unreleased — 2026-09-28
 
 **A cut answer is carried on instead of lost.**
-When the provider goes silent in the middle of an answer or cuts it with a 5xx error, the text
-already shown is kept, the turn waits a pause and asks the model to continue from where it
-stopped, instead of ending. The switch, the number of continuations per turn and the pauses are
+When the provider goes silent in the middle of an answer, cuts it with a 5xx error or the
+connection drops, the text already shown is kept, the turn waits a pause and asks the model to
+continue from where it stopped, instead of ending. A line cut halfway does not appear twice: the
+model writes it again once. The switch, the number of continuations per turn and the pauses are
 in **Settings → ReAct agent** (`llm_continue`, `llm_continue_max`,
 `llm_continue_stall_delays_ms`, `llm_continue_error_delays_ms`,
 `llm_continue_retry_after_max_ms`); turn the switch off to have the turn end at the cut as
