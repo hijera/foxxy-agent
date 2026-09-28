@@ -1041,6 +1041,9 @@ func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config)
 	cfg := JSONDTOToConfig(&j, paths)
 	preserveRedactedSecrets(cfg, current)
 	applyDefaults(cfg)
+	// The document carries the resolved locations GET reported; the file keeps
+	// the spelling current read them from (process_paths.go).
+	cfg.adoptPathSpellings(current)
 	if err := validateSubconfigs(cfg); err != nil {
 		return nil, err
 	}

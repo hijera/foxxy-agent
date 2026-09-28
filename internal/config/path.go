@@ -233,6 +233,10 @@ func configSchemaType(tokens []configPathToken) (reflect.Type, error) {
 func yamlStructField(typ reflect.Type, name string) (reflect.StructField, bool) {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		// yaml.v3 skips unexported fields, so they are no key of the file.
+		if !field.IsExported() {
+			continue
+		}
 		tag := strings.Split(field.Tag.Get("yaml"), ",")[0]
 		if tag == "" {
 			tag = strings.ToLower(field.Name)

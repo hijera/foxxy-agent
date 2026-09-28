@@ -31,4 +31,8 @@ type Config struct {
 	Browser      BrowserConfig      `yaml:"browser"`
 	VCS          VCSConfig          `yaml:"vcs"`
 	Debug        Debug              `yaml:"debug"`
+
+	// pathSpellings is how the process-scoped locations (processPaths) were
+	// written, so a save can write them back that way (process_paths.go).
+	pathSpellings [numProcessPaths]pathSpelling
 }

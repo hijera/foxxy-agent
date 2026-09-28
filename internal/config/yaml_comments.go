@@ -72,7 +72,9 @@ func MarshalConfigYAMLPreservingComments(cfg *Config, existing []byte) ([]byte, 
 	// and be written out again as a line of its own (see source.go).
 	existing = normalizeConfigSource(existing)
 	var next yaml.Node
-	if err := next.Encode(escapeYAMLSecrets(cfg)); err != nil {
+	// The process-scoped locations go back as the file wrote them, not as the
+	// absolute paths of this machine (process_paths.go).
+	if err := next.Encode(writeBackPathSpellings(escapeYAMLSecrets(cfg))); err != nil {
 		return nil, fmt.Errorf("encode config: %w", err)
 	}
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{&next}}
