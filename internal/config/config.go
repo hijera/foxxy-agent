@@ -68,9 +68,8 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	}
 
 	originalData := append([]byte(nil), data...)
-	expanded := expandConfigBody(string(data), paths)
 
-	cfg, err := parseValidateYAMLBytes(expanded, paths)
+	cfg, err := parseConfigSource(data, paths)
 	if err != nil {
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
@@ -165,6 +164,9 @@ func validateSubconfigs(cfg *Config) error {
 
 func applyDefaults(cfg *Config) {
 	p := cfg.Paths
+	// Taken before anything below expands a location or fills in a default,
+	// so a save can write the process-scoped locations back as they came.
+	writtenPaths := cfg.processPathValues()
 
 	cfg.Agent.ApplyDefaults()
 	cfg.Instructions.ApplyDefaults()
@@ -209,6 +211,8 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)
+
+	cfg.recordPathSpellings(writtenPaths)
 
 	cfg.Gateways.Telegram.Normalize()
 	cfg.Gateways.Telegram.ApplyDefaults()

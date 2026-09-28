@@ -49,7 +49,11 @@ func TestPublishedSchemaMatchesTheEmbeddedOne(t *testing.T) {
 }
 
 // yamlFieldName returns the effective YAML key for a struct field, or "" when skipped.
+// yaml.v3 never reads or writes an unexported field.
 func yamlFieldName(f reflect.StructField) string {
+	if !f.IsExported() {
+		return ""
+	}
 	tag := f.Tag.Get("yaml")
 	name := tag
 	if c := strings.IndexByte(tag, ','); c >= 0 {

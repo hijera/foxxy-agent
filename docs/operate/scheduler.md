@@ -31,7 +31,7 @@ REST routes under **`/foxxycode/scheduler`** require **`-tags=http,scheduler`**;
 
 Jobs are **`*.md`** files **directly** under **`scheduler.dir`**. Nested subdirectories are not used for discovery.
 
-When **`scheduler.dir`** is empty, it defaults to **`${FOXXYCODE_HOME}/scheduler`**.
+When **`scheduler.dir`** is empty, it defaults to **`${FOXXYCODE_HOME}/scheduler`**. A save from the Settings screen leaves it empty, and writes a directory you spelled with **`${FOXXYCODE_HOME}`**, **`${CWD}`** or **`~`** back that way, so the jobs follow **`FOXXYCODE_HOME`** (**`--home`**) wherever the file is read (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
 Sidecars next to **`basename.md`**:
 

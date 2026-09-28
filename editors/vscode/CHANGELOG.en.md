@@ -8,7 +8,18 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-27
+## Unreleased — 2026-09-28
+
+**Saving settings no longer writes absolute paths of the process directories into the config.**
+The very first save from the Settings screen wrote this machine's paths into `config.yaml`:
+an unset `scheduler.dir` became `<home>/scheduler`, and `sessions.dir`, `memory.dir`,
+`logger.file` and `scheduler.dir` spelled with `${FOXXYCODE_HOME}`, `${CWD}` or `~` were
+saved expanded. The file stopped following `FOXXYCODE_HOME` (`--home`), and a copy on another
+machine, for another user or on a Docker volume pointed at the old home. These fields are now
+saved the way the file spells them for as long as their value is unchanged, an unset
+`scheduler.dir` stays empty, and saving an unchanged config twice writes the same file.
+
+## 0.3.22 — 2026-09-27
 
 **A turn behind a proxy no longer hangs on "Provider is not responding".**
 Requests to a provider share one HTTP/2 connection. When a proxy lost a tunnel without closing
