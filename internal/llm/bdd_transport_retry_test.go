@@ -272,6 +272,9 @@ func (s *transportRetryState) aProviderWhoseUpstreamResetsFirstH2Stream() error 
 func (s *transportRetryState) aProviderWhoseUpstreamGoesSilentOnFirstConnection() error {
 	s.hole = make(chan struct{})
 	s.release = make(chan struct{})
+	// The handler keeps its own copies: the scenario's cleanup clears the
+	// fields while a handler may still be parked on the first request.
+	hole, release := s.hole, s.release
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor != 2 {
 			http.Error(w, "the scenario needs HTTP/2, got "+r.Proto, http.StatusHTTPVersionNotSupported)
@@ -279,8 +282,8 @@ func (s *transportRetryState) aProviderWhoseUpstreamGoesSilentOnFirstConnection(
 		}
 		if s.requests.Add(1) == 1 {
 			// The request is in: from here on the client hears nothing.
-			close(s.hole)
-			<-s.release
+			close(hole)
+			<-release
 			return
 		}
 		s.streamCompletion(w)
@@ -295,7 +298,6 @@ func (s *transportRetryState) aProviderWhoseUpstreamGoesSilentOnFirstConnection(
 		return fmt.Errorf("test server client transport is %T, want *http.Transport", client.Transport)
 	}
 	dialer := &net.Dialer{}
-	hole := s.hole
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		c, err := dialer.DialContext(ctx, network, addr)
 		if err != nil {

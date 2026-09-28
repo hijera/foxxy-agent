@@ -36,6 +36,15 @@ func scriptedHub(t *testing.T, steps ...hubStep) (*httptest.Server, *atomic.Int3
 	t.Helper()
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"stream":true`) {
+			// A side request - the session title, generated in the background -
+			// is answered but neither scripted nor counted: it reaches the hub
+			// before or after the turn's own requests depending on timing.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"t","object":"chat.completion","model":"stub/model","choices":[{"index":0,"message":{"role":"assistant","content":"Title"},"finish_reason":"stop"}]}`)
+			return
+		}
 		n := int(hits.Add(1))
 		step := steps[len(steps)-1]
 		if n <= len(steps) {
