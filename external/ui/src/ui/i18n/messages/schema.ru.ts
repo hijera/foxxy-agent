@@ -166,9 +166,9 @@ export const schemaTextRu: Record<string, string> = {
   "LLM first token timeout ms": "Таймаут первого токена LLM (мс)",
   "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).":
     "Сколько потоковый вызов LLM может молчать, прежде чем ход его отменит (явный 0 отключает защиту).",
-  "LLM stall timeout ms": "Таймаут обрыва потока LLM (мс)",
-  "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).":
-    "Сколько потоковый вызов LLM, уже выдавший часть ответа, может не подавать признаков жизни, прежде чем ход оборвёт его и сохранит начатый ответ (явный 0 отключает защиту).",
+  "LLM stream idle timeout ms": "Таймаут простоя потока LLM (мс)",
+  "How long a streamed LLM call that has already delivered something may deliver nothing more before the stream is cut as stalled; the partial answer is kept. Keep-alive comments do not count as delivery (an explicit 0 disables the guard).":
+    "Сколько потоковый вызов LLM, уже выдавший часть ответа, может больше ничего не присылать, прежде чем поток будет оборван как зависший; начатый ответ сохраняется. Keep-alive-комментарии не считаются (явный 0 отключает защиту).",
   "Retry a failed provider call": "Повторять неудавшийся запрос к провайдеру",
   "When a model call fails without producing any output - silence, a dropped connection, a provider timeout, a 5xx - wait and send the same request again instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so nothing can be duplicated. Off restores the immediate error.":
     "Если вызов модели упал, не выдав ничего — молчание, обрыв соединения, таймаут провайдера, 5xx — подождать и отправить тот же запрос снова, вместо того чтобы завалить ход. Запрос, отвергнутый сервером (4xx), не повторяется, равно как и вызов, успевший что-то выдать, — так что текст не задваивается. Выключено — сразу ошибка, как раньше.",
@@ -178,6 +178,21 @@ export const schemaTextRu: Record<string, string> = {
   "Retry budget ms": "Бюджет повторов (мс)",
   "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.":
     "Сколько всего времени можно потратить на паузы между повторами одного вызова, прежде чем ход сдастся и покажет ошибку. Явный 0 — повторять, пока модель не ответит или пока вы не нажмёте «Стоп».",
+  "Continue a cut answer": "Продолжать оборванный ответ",
+  "When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.":
+    "Если провайдер оборвал ответ, в котором уже есть текст (поток завис, прервался или вернул 5xx), текст сохраняется, и модель просят продолжить с места обрыва. Выключено — ход завершается на обрыве, сохраняет текст и объясняет причину.",
+  "Continuation limit": "Лимит продолжений",
+  "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).":
+    "Сколько раз за один ход можно продолжить оборванный ответ, прежде чем ход завершится с уведомлением (0 — завершать ход при первом обрыве).",
+  "Continuation delays after an error ms": "Паузы перед продолжением после ошибки (мс)",
+  "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.":
+    "Пауза перед каждым продолжением после того, как сбой провайдера оборвал ответ (5xx, обрыв потока), в миллисекундах. Последнее значение повторяется.",
+  "Longest Retry-After ms": "Предел Retry-After (мс)",
+  "Longest pause a provider may ask for (Retry-After) before a cut answer is carried on (an explicit 0 ignores Retry-After).":
+    "Самая длинная пауза, которую провайдер может запросить (Retry-After) перед продолжением оборванного ответа (явный 0 — не учитывать Retry-After).",
+  "Continuation delays ms": "Паузы перед продолжением (мс)",
+  "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.":
+    "Пауза перед каждым продолжением после зависания, в миллисекундах. Последнее значение повторяется; по умолчанию 0 — продолжать сразу, потому что защита уже выждала тишину.",
   "Loop guard": "Защита от зацикливания",
   "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.":
     "Останавливать ответ, выродившийся в повтор самого себя, блокировать инструмент, который вызывают снова и снова с теми же аргументами, и блокировать последовательность вызовов, которую модель крутит по кругу.",

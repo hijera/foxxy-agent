@@ -112,6 +112,10 @@ Codex code review reads this section and applies it to changed files. Keep entri
 
 - Do not treat a UI change as complete when only `external/ui/src/` moved. The binary serves `go:embed` assets, so unrebuilt sources ship the previous SPA. Safe path: run `make build TAGS="http ui"` and include the regenerated assets in the change.
 
+### Upstream ports
+
+- Do not take the upstream side of a site marked `// fork(<id>)`, and do not take an upstream hunk that undoes one without a conflict. Each marker names an entry of **`.claude/rules/upstream-divergences.md`**: a decision the owner made to keep FoxxyCode's behaviour, with the guard tests that pin it and what to do when upstream changes that place again. **`internal/forkguard`** fails when a marker, a guard test or a registry row goes missing. Safe path: follow the entry, and ask the owner before retiring it.
+
 ### Text encoding
 
 - Do not add a second decoder for workspace file bytes. `internal/textenc` is the one place an encoding is decided, and the file tools reach it through `decodeText` in `internal/tools/fs`. A local `utf8.Valid` check or a hardcoded charmap makes Windows-1251 sources unreadable in one tool while another reads them fine. Safe path: call `textenc.Decode` and carry the returned `Encoding` back into `Encode` when rewriting the file.

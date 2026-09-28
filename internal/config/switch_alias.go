@@ -7,6 +7,11 @@ package config
 // check, config_get / config_set, the comments a settings save carries over, and
 // the locator diagnostics use. The same alias is accepted in the JSON config API
 // (jsondto.go); the canonical spelling is what every write renders.
+//
+// A key that was renamed outright travels the same road (renamedKeys): the old
+// name is read as the new one, -t names it, and a save writes the new one.
+//
+// fork(switch-enable-alias): upstream reads `enable` only.
 
 import (
 	"bytes"
@@ -25,15 +30,29 @@ const (
 	legacySwitchKey = "enabled"
 )
 
-// switchAlias is one legacy `enabled` key found in a config document.
+// renamedKeys maps, per config section, a key FoxxyCode used to spell
+// differently to the key it is now. The keys are the YAML and the JSON names
+// alike.
+var renamedKeys = map[reflect.Type]map[string]string{
+	// fork(stall-timeout-alias): upstream 1.1.47 named the stall guard
+	// llm_stream_idle_timeout_ms; FoxxyCode had it as llm_stall_timeout_ms
+	// since PR #64. One guard, upstream's name, the old one still read.
+	reflect.TypeOf(Agent{}):     {"llm_stall_timeout_ms": "llm_stream_idle_timeout_ms"},
+	reflect.TypeOf(AgentJSON{}): {"llm_stall_timeout_ms": "llm_stream_idle_timeout_ms"},
+}
+
+// switchAlias is one legacy key found in a config document: an `enabled`
+// switch, or a key listed in renamedKeys.
 type switchAlias struct {
 	// Path is the dotted path of the key as the file spells it ("httpserver.login.enabled").
 	Path string
 	// Line and Column locate the key in the file.
 	Line, Column int
-	// Dropped is set when the same section also sets `enable`: that key wins and
-	// the alias was removed from the document.
+	// Dropped is set when the same section also sets the canonical key: that key
+	// wins and the alias was removed from the document.
 	Dropped bool
+	// Legacy and Canonical are the old and the new name of the key.
+	Legacy, Canonical string
 }
 
 // normalizeSwitchAliases renames `enabled` to `enable` in every mapping whose
@@ -120,13 +139,24 @@ func (w *switchAliasWalker) mapping(path string, m *yaml.Node, typ reflect.Type)
 		}
 		name := k.Value
 		if aliased && name == legacySwitchKey {
-			alias := switchAlias{Path: join(path, legacySwitchKey), Line: k.Line, Column: k.Column, Dropped: switchSet}
+			alias := switchAlias{Path: join(path, legacySwitchKey), Line: k.Line, Column: k.Column, Dropped: switchSet,
+				Legacy: legacySwitchKey, Canonical: switchKey}
 			w.found = append(w.found, alias)
 			if alias.Dropped {
 				continue
 			}
 			k.Value = switchKey
 			name = switchKey
+		} else if canonical, ok := renamedKeys[typ][name]; ok {
+			_, _, canonicalSet := mappingValue(m, canonical)
+			alias := switchAlias{Path: join(path, name), Line: k.Line, Column: k.Column, Dropped: canonicalSet,
+				Legacy: name, Canonical: canonical}
+			w.found = append(w.found, alias)
+			if alias.Dropped {
+				continue
+			}
+			k.Value = canonical
+			name = canonical
 		}
 		kept = append(kept, k, v)
 		if field, ok := yamlStructField(typ, name); ok {
@@ -150,10 +180,17 @@ func switchAliasFindings(aliases []switchAlias) []Finding {
 	out := make([]Finding, 0, len(aliases))
 	for _, a := range aliases {
 		f := Finding{Severity: SeverityWarning, Line: a.Line, Column: a.Column, Path: a.Path}
-		if a.Dropped {
+		switch {
+		case a.Legacy != legacySwitchKey && a.Dropped:
+			f.Message = fmt.Sprintf("%q is the old name of %q, which this section also sets; %q wins and this line has no effect", a.Legacy, a.Canonical, a.Canonical)
+			f.Fix = "delete this line"
+		case a.Legacy != legacySwitchKey:
+			f.Message = fmt.Sprintf("%q is the old name of this key; it is read as %q", a.Legacy, a.Canonical)
+			f.Fix = fmt.Sprintf("rename the key to %q (a save from the settings screen or config_commit does it for you)", a.Canonical)
+		case a.Dropped:
 			f.Message = `"enabled" is the old spelling of "enable", which this section also sets; "enable" wins and this line has no effect`
 			f.Fix = "delete this line"
-		} else {
+		default:
 			f.Message = `"enabled" is the old spelling of this switch; it is read as "enable"`
 			f.Fix = `rename the key to "enable" (a save from the settings screen or config_commit does it for you)`
 		}
@@ -213,6 +250,14 @@ func walkJSONSwitchAliases(v interface{}, typ reflect.Type) {
 					obj[switchKey] = legacy
 				}
 				delete(obj, legacySwitchKey)
+			}
+		}
+		for old, canonical := range renamedKeys[typ] {
+			if legacy, ok := obj[old]; ok {
+				if _, set := obj[canonical]; !set {
+					obj[canonical] = legacy
+				}
+				delete(obj, old)
 			}
 		}
 		for key, child := range obj {

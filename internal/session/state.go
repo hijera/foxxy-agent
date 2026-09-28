@@ -83,6 +83,20 @@ type State struct {
 	persistOnce sync.Once
 	persistID   uint64
 
+	// diskMsgs is what messages.json looked like when this State last read it
+	// or a save wrote or confirmed it (disk_refresh.go).
+	diskMsgs diskStamp
+	// diskMeta is the corresponding stamp for session.json. A mode or model
+	// switch can change it without changing the transcript.
+	diskMeta diskStamp
+	// persistedMeta is the metadata this process last read or wrote. A stale
+	// sidecar-only save must not replace newer metadata from another process.
+	persistedMeta *SessionMeta
+	// Sidecar revisions let a stale save write only the plan, UI log or grants
+	// changed in this process, leaving the other process's files alone.
+	sidecarRev      sidecarRevisions
+	savedSidecarRev sidecarRevisions
+
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
@@ -231,6 +245,11 @@ type State struct {
 	// userCancelledTurn is set when the user explicitly requested cancellation (via Stop or cross-process signal).
 	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
 	userCancelledTurn bool
+
+	// turnStopNotice is why the running turn stopped before its answer (its
+	// step limit, the model's output limit), set by the agent and taken by
+	// the manager once the turn is over (TakeTurnStopNotice).
+	turnStopNotice string
 
 	// queue holds the follow-ups written while the current turn runs, read by
 	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
@@ -1395,6 +1414,7 @@ func (s *State) GetPlan() []acp.PlanEntry {
 func (s *State) SetPlan(entries []acp.PlanEntry) {
 	s.mu.Lock()
 	s.Plan = entries
+	s.sidecarRev.plan++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1534,6 +1554,24 @@ func (s *State) SetUserCancelledTurn() {
 	s.mu.Unlock()
 }
 
+// SetTurnStopNotice records why the running turn stopped before its answer,
+// in words for the user.
+func (s *State) SetTurnStopNotice(msg string) {
+	s.mu.Lock()
+	s.turnStopNotice = msg
+	s.mu.Unlock()
+}
+
+// TakeTurnStopNotice returns the notice SetTurnStopNotice recorded and clears
+// it, so it belongs to one turn.
+func (s *State) TakeTurnStopNotice() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msg := s.turnStopNotice
+	s.turnStopNotice = ""
+	return msg
+}
+
 // IsUserCancelledTurn reports whether the current turn was explicitly cancelled by the user.
 func (s *State) IsUserCancelledTurn() bool {
 	s.mu.RLock()
@@ -1659,6 +1697,7 @@ func (s *State) AddHTTPGrantIfNew(key string) {
 		}
 	}
 	s.PermissionHTTPGrants = append(s.PermissionHTTPGrants, key)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1677,6 +1716,7 @@ func (s *State) AddCommandGrantIfNew(cmd string) {
 		}
 	}
 	s.PermissionCommandGrants = append(s.PermissionCommandGrants, cmd)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1695,6 +1735,7 @@ func (s *State) AddWriteGrantIfNew(key string) {
 		}
 	}
 	s.PermissionWriteGrants = append(s.PermissionWriteGrants, key)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }

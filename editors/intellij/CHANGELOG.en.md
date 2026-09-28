@@ -7,7 +7,32 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-27
+## Unreleased — 2026-09-28
+
+**A cut answer is carried on instead of lost.**
+When the provider goes silent in the middle of an answer, cuts it with a 5xx error or the
+connection drops, the text already shown is kept, the turn waits a pause and asks the model to
+continue from where it stopped, instead of ending. A line cut halfway does not appear twice: the
+model writes it again once. The switch, the number of continuations per turn and the pauses are
+in **Settings → ReAct agent** (`llm_continue`, `llm_continue_max`,
+`llm_continue_stall_delays_ms`, `llm_continue_error_delays_ms`,
+`llm_continue_retry_after_max_ms`); turn the switch off to have the turn end at the cut as
+before. The stalled-stream guard is now named `llm_stream_idle_timeout_ms`, as in coddy-agent
+(the old name `llm_stall_timeout_ms` is still read and is replaced when the settings are
+saved), no longer takes a gateway's keep-alive comments for a sign of life, and also guards
+context compaction, the session title, memory and direct model calls.
+
+**A turn stopped by its step limit says so.**
+When a turn stops at `agent.max_turns`, the answer ends with a notice naming the limit and how
+to go on - as it already did for the model's token limit.
+
+**One session in the panel and in Telegram.**
+The Telegram bot learned `/resume`: it brings a chat back to any session the server keeps,
+including one open in the IDE panel. When two processes work on one session, each turn re-reads
+the other's messages and settings, and saving a plan no longer overwrites the other's turn.
+In admin-isolated groups, other members cannot use `/resume` buttons.
+
+## 0.3.22 — 2026-09-27
 
 **A turn behind a proxy no longer hangs on "Provider is not responding".**
 Requests to a provider share one HTTP/2 connection. When a proxy lost a tunnel without closing

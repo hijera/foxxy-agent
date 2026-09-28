@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
@@ -72,7 +73,8 @@ func TestGuardCancelsCarryTheirCause(t *testing.T) {
 	if !errors.Is(causes[0], errFirstTokenCut) {
 		t.Errorf("silent call cancelled with %v, want the first-token cause", causes[0])
 	}
-	if !errors.Is(causes[1], errStallCut) {
+	// The stall guard is the provider's: it cancels the call with its own error.
+	if !llm.IsStreamStalled(causes[1]) {
 		t.Errorf("stalled call cancelled with %v, want the stall cause", causes[1])
 	}
 
@@ -101,22 +103,37 @@ func TestGuardCancelsCarryTheirCause(t *testing.T) {
 }
 
 func TestLLMCallCutBy(t *testing.T) {
+	stall := stalledError(t)
 	cases := []struct {
-		cause error
-		user  bool
-		want  string
+		cause, err error
+		user       bool
+		want       string
 	}{
-		{nil, false, ""},
-		{context.Canceled, false, ""},
-		{errFirstTokenCut, false, "first_token_timeout"},
-		{errStallCut, true, "stall_timeout"},
-		{errLoopGuardCut, false, "loop_guard"},
-		{context.Canceled, true, "user"},
-		{context.DeadlineExceeded, false, "context deadline exceeded"},
+		{nil, nil, false, ""},
+		{context.Canceled, nil, false, ""},
+		{errFirstTokenCut, nil, false, "first_token_timeout"},
+		{context.Canceled, stall, true, "stall_timeout"},
+		{errLoopGuardCut, nil, false, "loop_guard"},
+		{context.Canceled, nil, true, "user"},
+		{context.DeadlineExceeded, nil, false, "context deadline exceeded"},
 	}
 	for _, c := range cases {
-		if got := llmCallCutBy(c.cause, c.user); got != c.want {
-			t.Errorf("llmCallCutBy(%v, %v) = %q, want %q", c.cause, c.user, got, c.want)
+		if got := llmCallCutBy(c.cause, c.err, c.user); got != c.want {
+			t.Errorf("llmCallCutBy(%v, %v, %v) = %q, want %q", c.cause, c.err, c.user, got, c.want)
 		}
 	}
+}
+
+// stalledError returns the error the provider's stall guard reports, made by
+// the guard itself so the test does not reach into the llm package.
+func stalledError(t *testing.T) error {
+	t.Helper()
+	p := &stallProvider{script: []stallBehaviour{{partial: "x"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := llm.WithStreamIdleGuard(p, 10*time.Millisecond).Stream(ctx, nil, nil, func(llm.StreamChunk) {})
+	if !llm.IsStreamStalled(err) {
+		t.Fatalf("guard returned %v, want a stall", err)
+	}
+	return err
 }

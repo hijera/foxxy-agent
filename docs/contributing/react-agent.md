@@ -355,9 +355,32 @@ turn says something:
   thinking is billed against the same budget as the visible answer, so the text can run
   out well before the number suggests. Measured on `kimi-k2.6` at `max_tokens: 8192`,
   roughly half the budget went to reasoning the user never saw.
-- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stall_timeout_ms`** and the
-  **`agent.llm_stall_retry`** family, which keep the partial answer and ask the model to
-  carry on rather than ending the turn. See `docs/reference/config.md` for the keys.
+- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stream_idle_timeout_ms`**, the
+  stall guard every streamed call carries (**`llm.WithStreamIdleGuard`**,
+  `internal/llm/stream_idle_guard.go`). It watches the chunks the stream readers hand on -
+  text, reasoning, and the **`Progress`** frames a tool call's argument fragments become -
+  so a gateway that keeps sending keep-alive comments for a dead model is still cut, which
+  a byte counter would never do. It sits outside the retry wrapper, so its clock spans a
+  replayed attempt. The ReAct loop keeps the partial answer and, while
+  **`agent.llm_continue`** is on, asks the model to carry on from it, up to
+  **`agent.llm_continue_max`** times per turn (**`llm_continue_stall_delays_ms`** between
+  them); off, the turn ends at the cut and says why. A stall before anything visible goes
+  to the **`agent.llm_stall_retry`** family instead. The same guard bounds compaction, the
+  title pass, the memory copilot and the direct model routes. See
+  `docs/reference/config.md` for the keys.
+- **A provider that fails mid-answer.** A 5xx the retry wrapper could not ride out, or a
+  stream that dropped after text was shown, is carried on the same way
+  (**`llm.IsTransientProviderError`**, `internal/agent/provider_recovery.go`, from upstream
+  1.2.9): the text the user watched arrive is kept, the turn parks for
+  **`agent.llm_continue_error_delays_ms`** (a longer **`Retry-After`** is honoured up to
+  **`llm_continue_retry_after_max_ms`**) and asks the model to go on. It spends the same
+  per-turn budget as a stall and the same repeat detector watches it. A refusal (4xx) and a
+  limit (429) are not recovered; a failure before any text is the stall ladder's.
+- **The step limit.** A turn that reaches **`agent.max_turns`** (30 when unset; upstream
+  reads an unset limit as none) ends with a notice naming the limit, streamed and stored the
+  way the output-cap notice is (`internal/agent/stop_notice.go`). The session manager also
+  hands the text back as **`SessionPromptResult.StopNotice`**, which the HTTP API passes on
+  as **`meta.stop_notice`**; the surfaces that show the stream do not print it again.
 - **A lane, not a model, that failed.** One model name at a proxy is usually a group of
   interchangeable deployments, and a sick member fails per attempt rather than per
   conversation. Two failures are therefore answered by re-issuing the identical request

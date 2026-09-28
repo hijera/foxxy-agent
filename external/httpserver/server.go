@@ -258,6 +258,16 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 // configured with a smaller max_tokens keeps its own limit.
 const describeMaxTokens = 1024
 
+// streamIdleTimeout is the stall guard for a direct-model call: the agent's
+// llm_stream_idle_timeout_ms on a streaming row, nothing on a blocking one,
+// whose answer arrives in one piece.
+func streamIdleTimeout(cfg *config.Config, rm *config.ResolvedLLM) time.Duration {
+	if cfg == nil || rm == nil || !rm.Stream {
+		return 0
+	}
+	return cfg.Agent.EffectiveLLMStreamIdleTimeout()
+}
+
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config unavailable")
@@ -285,6 +295,10 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		MaxTokens:     maxTok,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
+		// providers[].timeout_ms was never applied to the direct routes here;
+		// upstream's builders always carried it.
+		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
+		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
@@ -301,16 +315,18 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		return nil, err
 	}
 	in := llm.ProviderInput{
-		Name:          rm.ProviderName,
-		Type:          rm.ProviderType,
-		Model:         rm.Model,
-		APIKey:        rm.APIKey,
-		BaseURL:       rm.BaseURL,
-		ProxyURL:      rm.ProxyURL,
-		AuthPath:      rm.AuthPath,
-		MaxTokens:     resolveDirectYAMLMaxTokens(rm),
-		Temperature:   rm.Temperature,
-		DisableStream: !rm.Stream,
+		Name:              rm.ProviderName,
+		Type:              rm.ProviderType,
+		Model:             rm.Model,
+		APIKey:            rm.APIKey,
+		BaseURL:           rm.BaseURL,
+		ProxyURL:          rm.ProxyURL,
+		AuthPath:          rm.AuthPath,
+		MaxTokens:         resolveDirectYAMLMaxTokens(rm),
+		Temperature:       rm.Temperature,
+		DisableStream:     !rm.Stream,
+		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
+		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
 	}
 	opts.Apply(&in)
 	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -693,6 +709,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// Remote clients (internal/remote) recover the ACP stop reason
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		if promptRes != nil && promptRes.StopNotice != "" {
+			// Why the turn stopped before its answer, for a caller that reads
+			// the metadata rather than the streamed text.
+			meta["stop_notice"] = promptRes.StopNotice
 		}
 		// Unconditional: for a relay sender this terminates the watched stream and writes
 		// nothing to w, so the JSON body below is unchanged.
@@ -1304,6 +1325,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			// Remote clients (internal/remote) recover the ACP stop reason
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		if promptRes != nil && promptRes.StopNotice != "" {
+			meta["stop_notice"] = promptRes.StopNotice
 		}
 		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {

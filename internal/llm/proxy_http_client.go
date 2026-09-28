@@ -45,33 +45,32 @@ var (
 // process environment, but bounds the wait for response headers. No whole-request timeout is set,
 // because streamed response bodies may legitimately remain open for a long time.
 func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
-	proxyURL = strings.TrimSpace(proxyURL)
-	if proxyURL == "" {
-		t, route, err := transportEnvironmentProxy()
-		if err != nil {
-			return nil, err
-		}
-		return &http.Client{Transport: debugTransportFor(t, route)}, nil
-	}
-	u, err := netx.ParseProxyURL(proxyURL)
+	t, route, err := buildLLMTransport(proxyURL)
 	if err != nil {
 		return nil, err
 	}
+	return &http.Client{Transport: debugTransportFor(t, route)}, nil
+}
+
+// buildLLMTransport builds a fresh LLM transport for the proxy setting, with the
+// route the connection trace describes it by. The providers share one per
+// setting (transport.go); the other callers get their own.
+func buildLLMTransport(proxyURL string) (*http.Transport, routeFunc, error) {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		return transportEnvironmentProxy()
+	}
+	u, err := netx.ParseProxyURL(proxyURL)
+	if err != nil {
+		return nil, nil, err
+	}
 	switch u.Scheme {
 	case "http", "https":
-		t, route, err := transportHTTPProxy(u)
-		if err != nil {
-			return nil, err
-		}
-		return &http.Client{Transport: debugTransportFor(t, route)}, nil
+		return transportHTTPProxy(u)
 	case "socks5", "socks5h":
-		t, route, err := transportSOCKSProxy(u)
-		if err != nil {
-			return nil, err
-		}
-		return &http.Client{Transport: debugTransportFor(t, route)}, nil
+		return transportSOCKSProxy(u)
 	default:
-		return nil, fmt.Errorf("unsupported proxy scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
+		return nil, nil, fmt.Errorf("unsupported proxy scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
 	}
 }
 

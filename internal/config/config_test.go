@@ -1207,8 +1207,8 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 	if !unset.LLMStallRetryEnabled() {
 		t.Error("stall retry must default to on")
 	}
-	if got := unset.EffectiveLLMStallTimeout(); got != 5*time.Minute {
-		t.Errorf("unset llm_stall_timeout_ms = %v, want 5m", got)
+	if got := unset.EffectiveLLMStreamIdleTimeout(); got != 5*time.Minute {
+		t.Errorf("unset llm_stream_idle_timeout_ms = %v, want 5m", got)
 	}
 	if got := unset.EffectiveLLMStallRetryMaxWait(); got != config.AgentDefaultLLMStallRetryMaxWaitMS*time.Millisecond {
 		t.Errorf("unset llm_stall_retry_max_wait_ms = %v, want 1h", got)
@@ -1227,7 +1227,7 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 	if got := (&config.Agent{LLMStallRetryMaxWaitMS: &zero}).EffectiveLLMStallRetryMaxWait(); got != 0 {
 		t.Errorf("explicit 0 max wait = %v, want 0 (unbounded)", got)
 	}
-	if got := (&config.Agent{LLMStallTimeoutMS: &zero}).EffectiveLLMStallTimeout(); got != 0 {
+	if got := (&config.Agent{LLMStreamIdleTimeoutMS: &zero}).EffectiveLLMStreamIdleTimeout(); got != 0 {
 		t.Errorf("explicit 0 stall timeout = %v, want 0 (guard disabled)", got)
 	}
 
@@ -1243,8 +1243,8 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 // against the provider with no gap at all.
 func TestAgentStallRetryValidation(t *testing.T) {
 	neg := -1
-	if err := (&config.Agent{LLMStallTimeoutMS: &neg}).Validate(); err == nil {
-		t.Error("negative llm_stall_timeout_ms must fail validation")
+	if err := (&config.Agent{LLMStreamIdleTimeoutMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stream_idle_timeout_ms must fail validation")
 	}
 	if err := (&config.Agent{LLMStallRetryMaxWaitMS: &neg}).Validate(); err == nil {
 		t.Error("negative llm_stall_retry_max_wait_ms must fail validation")

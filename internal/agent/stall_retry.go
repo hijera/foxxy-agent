@@ -119,13 +119,64 @@ func stallRetryableError(err error) bool {
 	return true
 }
 
-// maxStallContinuations bounds how many times one turn may be asked to carry on
-// after the provider stopped sending data mid-answer. Deliberately not shared
-// with the loop guard's nudge budget: a saturated hub is an infrastructure
-// fault, not model misbehaviour, and letting it spend that budget would disarm
-// the runaway-loop protection. Measured stall rates on the reported hub reach
-// roughly half of long generations, so one answer can plausibly stall twice.
-const maxStallContinuations = 3
+// How many times one turn may be asked to carry on after the provider stopped
+// sending data mid-answer is agent.llm_continue_max (default 3). Deliberately
+// not shared with the loop guard's nudge budget: a saturated hub is an
+// infrastructure fault, not model misbehaviour, and letting it spend that
+// budget would disarm the runaway-loop protection.
+
+// continueDelay is the pause before the nth continuation of a turn (0-based
+// count of those already made), from a list whose last entry repeats.
+func continueDelay(delays []time.Duration, n int) time.Duration {
+	if len(delays) == 0 {
+		return 0
+	}
+	if n >= len(delays) {
+		n = len(delays) - 1
+	}
+	if n < 0 {
+		n = 0
+	}
+	if delays[n] < 0 {
+		return 0
+	}
+	return delays[n]
+}
+
+// sleepCtx waits d or until ctx ends, whichever comes first. A non-positive d
+// returns at once.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// continueOffError ends a turn the stall guard cut when carrying on is off
+// (agent.llm_continue: false, or llm_continue_max: 0): the partial answer is
+// kept, and the notice names the setting that would have carried it on.
+func continueOffError(idle time.Duration) error {
+	return fmt.Errorf("stopped: the provider stopped sending data mid-answer (no progress for %v); carrying on a cut answer is off (agent.llm_continue)", idle)
+}
+
+// humanDuration rounds a duration for a message a person reads: whole
+// seconds once it is a second or more, milliseconds below that.
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d >= time.Second {
+		return d.Round(time.Second).String()
+	}
+	return d.Round(time.Millisecond).String()
+}
 
 // streamStallNudge asks the model to resume a response the transport cut short.
 // LLM-facing only; never persisted to the transcript, the same contract as

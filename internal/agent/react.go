@@ -72,6 +72,9 @@ type SessionState interface {
 	ReplaceTags(tags []string) (stored []string, changed bool)
 	UpdateTags(add, remove []string) (stored []string, changed bool)
 	IsUserCancelledTurn() bool
+	// SetTurnStopNotice records why the running turn stopped before its
+	// answer, for the session manager to hand to its caller (stop_notice.go).
+	SetTurnStopNotice(msg string)
 	GetTitlePinned() string
 	GetTitleAuto() string
 	SetTitleAuto(text string)
@@ -330,6 +333,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
+		// fork(max-turns-default): upstream 1.2.9 reads an unset max_turns as
+		// no step limit at all; FoxxyCode keeps 30.
 		maxTurns = 30
 	}
 	if a.subagent != nil {
@@ -649,10 +654,15 @@ func (a *Agent) runReActLoop(
 	// the model's plan - a replayed call that produced nothing, and a continuation
 	// after the connection died mid-answer. Neither is a step the model chose, so
 	// neither shrinks max_turns; both stay bounded by something else
-	// (llm_stall_retry_max_wait_ms and maxStallContinuations).
+	// (llm_stall_retry_max_wait_ms and agent.llm_continue_max).
 	stalls := newStallRetry(&a.cfg.Agent)
 	recoveryTurns := 0
+	// stallContinues counts every continuation of a cut answer this turn, after
+	// a stall and after a provider failure alike: one budget,
+	// agent.llm_continue_max (fork(continue-budget)).
 	stallContinues := 0
+	// A notice belongs to the turn that set it.
+	a.state.SetTurnStopNotice("")
 	// Set when the client has been told the turn is parked behind a partial answer,
 	// so the same goroutine that sees the provider come back can take it away again.
 	// Atomic: it is set on the loop and cleared from the stream callback.
@@ -768,6 +778,10 @@ func (a *Agent) runReActLoop(
 		// from this call: a limit reported after that is never waited for
 		// and re-issued, whatever the provider's own error carries.
 		streamedAny := false
+		// answerBuf is the answer text that reached the client from this call:
+		// what a provider failure mid-answer keeps (keepInterruptedAnswer),
+		// since the reader may hand back no response once the stream broke.
+		var answerBuf strings.Builder
 		maybeMarkReasonEnd := func(now time.Time) {
 			if reasonClockStart.IsZero() || !reasonClockEnd.IsZero() {
 				return
@@ -818,50 +832,24 @@ func (a *Agent) runReActLoop(
 			}
 		}
 
-		// The mid-stream stall guard (agent.llm_stall_timeout_ms). A saturated hub
-		// can deliver thousands of frames and then stop mid-answer with no
-		// finish_reason, no [DONE] and the connection held open. The first-token
-		// timer was stopped by the first delta and never re-arms, so nothing else
-		// bounds that. Armed on the first sign of progress, so it takes over from
-		// the first-token guard rather than racing it.
-		//
-		// It re-arms by rescheduling itself against an atomic stamp rather than
-		// calling Reset per frame: one atomic store per frame instead of the
-		// runtime timer lock, and no Reset-after-fire race.
-		stallTimeout := a.cfg.Agent.EffectiveLLMStallTimeout()
-		var stalled atomic.Bool
-		var stallArmed atomic.Bool
-		var lastProgress atomic.Int64
-		var stallTimer atomic.Pointer[time.Timer]
-		var armStall func(time.Duration)
-		armStall = func(d time.Duration) {
-			t := time.AfterFunc(d, func() {
-				if idle := time.Since(time.Unix(0, lastProgress.Load())); idle < stallTimeout {
-					armStall(stallTimeout - idle)
-					return
-				}
-				stalled.Store(true)
-				cancelStream(errStallCut)
-			})
-			if old := stallTimer.Swap(t); old != nil {
-				old.Stop()
-			}
+		// The mid-stream stall guard (agent.llm_stream_idle_timeout_ms) is the
+		// provider's own (llm.WithStreamIdleGuard, applied in getProvider): a
+		// saturated hub can deliver thousands of frames and then stop mid-answer
+		// with no finish_reason, no [DONE] and the connection held open, and the
+		// guard cuts that stream with an error llm.IsStreamStalled recognises.
+		streamIdle := time.Duration(0)
+		if transport.streaming {
+			streamIdle = a.cfg.Agent.EffectiveLLMStreamIdleTimeout()
 		}
-		stopStallTimer := func() {
-			if t := stallTimer.Load(); t != nil {
-				t.Stop()
-			}
-		}
-		// noteProgress is the single re-arm point for every sign of life, delivered
-		// or not. It also retires the first-token guard: a model streaming one large
-		// tool call delivers nothing the caller can see - tool-call arguments are
+		// noteProgress is the single point for every sign of life, delivered or
+		// not. It retires the first-token guard: a model streaming one large tool
+		// call delivers nothing the caller can see - tool-call arguments are
 		// accumulated inside the reader - and the silent-start timer would otherwise
 		// cut a perfectly healthy stream.
 		var firstProgress atomic.Int64
 		noteProgress := func(now time.Time) {
 			stopFirstTokenTimer()
 			firstProgress.CompareAndSwap(0, now.UnixNano())
-			lastProgress.Store(now.UnixNano())
 			// The provider is delivering again, so the "parked" label the client is
 			// showing over the frozen bubble has to go before the answer resumes under
 			// it. Every live channel routes through here - text, reasoning, tool calls
@@ -872,9 +860,6 @@ func (a *Agent) runReActLoop(
 					Phase:         acp.LLMRetryPhaseResumed,
 					Attempt:       stallContinues,
 				})
-			}
-			if transport.streaming && stallTimeout > 0 && stallArmed.CompareAndSwap(false, true) {
-				armStall(stallTimeout)
 			}
 		}
 
@@ -908,6 +893,7 @@ func (a *Agent) runReActLoop(
 			noteProgress(now)
 			sawDelta.Store(true)
 			streamedAny = true
+			answerBuf.WriteString(delta)
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -956,7 +942,7 @@ func (a *Agent) runReActLoop(
 			"model", a.state.EffectiveModelID(a.cfg),
 			"streaming", transport.streaming,
 			"messages", len(sendMessages), "tools", len(callDefs),
-			"first_token_timeout", firstTokenTimeout, "stall_timeout", stallTimeout)
+			"first_token_timeout", firstTokenTimeout, "stream_idle_timeout", streamIdle)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -1027,7 +1013,6 @@ func (a *Agent) runReActLoop(
 			}
 		})
 		stopFirstTokenTimer()
-		stopStallTimer()
 		streamCancel()
 		namedMu.Lock()
 		a.retractUnarrivedToolCalls(sessionID, namedOnly, response)
@@ -1044,7 +1029,10 @@ func (a *Agent) runReActLoop(
 		hasAnyOutput := sawDelta.Load() || (response != nil && (strings.TrimSpace(response.Content) != "" ||
 			len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != ""))
 		a.logLLMCallFinished(sessionID, turn, llmCalls, callStart, firstProgress.Load(), hasAnyOutput,
-			context.Cause(streamCtx), streamErr)
+			context.Cause(streamCtx), streamErr, response)
+		// The provider's stall guard cut this stream (agent.llm_stream_idle_timeout_ms).
+		stalled := llm.IsStreamStalled(streamErr)
+		stallIdle := llm.StreamStalledIdle(streamErr)
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -1080,8 +1068,15 @@ func (a *Agent) runReActLoop(
 		// A stall that produced nothing visible falls through instead: there is
 		// nothing to continue from, so it is handled as a silent call below and the
 		// identical request is replayed.
-		if stalled.Load() && loopAbort == loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+		if stalled && loopAbort == loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
 			if a.persistStalledMessage(response, &reasoningBuf, reasonClockStart, reasonClockEnd) {
+				// fork(continue-path): the partial answer is kept either way; with
+				// agent.llm_continue off, or its budget at 0, the turn ends here and
+				// says why, which is what upstream 1.1.47 always does.
+				continueMax := a.cfg.Agent.EffectiveLLMContinueMax()
+				if !a.cfg.Agent.LLMContinueEnabled() || continueMax == 0 {
+					return string(acp.StopReasonRefused), continueOffError(stallIdle)
+				}
 				// Has this attempt been here before? A hub that keeps dropping the same
 				// answer otherwise gets the same polite "carry on" every time, and the
 				// model answers it by starting over - which is the loop the operator
@@ -1098,12 +1093,13 @@ func (a *Agent) runReActLoop(
 					attemptRestarts++
 				}
 				a.emitDebug(turn, "stream_stall", "", "", map[string]interface{}{
-					"idle":         stallTimeout.String(),
+					"idle":         stallIdle.String(),
 					"continuation": stallContinues + 1,
 					"restarts":     attemptRestarts,
 				})
-				if stallContinues >= maxStallContinuations {
-					return string(acp.StopReasonRefused), stallAbortError(stallTimeout, stallContinues, attemptRestarts)
+				// fork(continue-budget): one budget per turn, agent.llm_continue_max.
+				if stallContinues >= continueMax {
+					return string(acp.StopReasonRefused), stallAbortError(stallIdle, stallContinues, attemptRestarts)
 				}
 				stallContinues++
 				recoveryTurns++
@@ -1119,8 +1115,9 @@ func (a *Agent) runReActLoop(
 				case strings.TrimSpace(partialContent) == "":
 					nudge = stallNoTextNudge
 				}
+				pause := continueDelay(a.cfg.Agent.EffectiveLLMContinueStallDelays(), stallContinues)
 				a.log.Warn("provider stopped sending data mid-answer; continuing",
-					"idle", stallTimeout, "continuation", stallContinues, "restarts", attemptRestarts)
+					"idle", stallIdle, "continuation", stallContinues, "restarts", attemptRestarts, "pause", pause)
 				// Tell the client the turn is parked. It is still showing the half-written
 				// answer as if it were arriving, and the row it renders the live status in
 				// is hidden for as long as a bubble streams - so without this the wait
@@ -1130,7 +1127,14 @@ func (a *Agent) runReActLoop(
 					SessionUpdate: acp.UpdateTypeLLMRetry,
 					Phase:         acp.LLMRetryPhaseContinuing,
 					Attempt:       stallContinues,
+					DelayMS:       pause.Milliseconds(),
 				})
+				if err := sleepCtx(ctx, pause); err != nil {
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					return string(acp.StopReasonRefused), fmt.Errorf("%w (the pause before carrying on the answer was interrupted: %v)", stallAbortError(stallIdle, stallContinues-1, attemptRestarts), err)
+				}
 				messages = a.buildMessages(sys.Content)
 				// LLM-facing only; never persisted to the transcript.
 				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
@@ -1142,8 +1146,8 @@ func (a *Agent) runReActLoop(
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
 		// surface a timeout error instead of a silent failure. The timer itself reports
 		// that it fired, so a cancellation from anywhere else is never mislabelled.
-		if (firstTokenTimedOut.Load() || stalled.Load()) && streamErr != nil &&
-			errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
+		if ((firstTokenTimedOut.Load() && errors.Is(streamErr, context.Canceled)) || stalled) &&
+			!a.state.IsUserCancelledTurn() {
 			if !hasAnyOutput {
 				// Nothing reached the caller, so re-issuing the identical request
 				// cannot duplicate anything.
@@ -1200,10 +1204,66 @@ func (a *Agent) runReActLoop(
 				replaying = true
 				continue
 			}
+			// A failure of the provider's lane after text was shown - a 5xx the
+			// resilient wrapper could not ride out, a stream cut mid-answer -
+			// carries the answer on (upstream 1.2.9, issue #246; see
+			// provider_recovery.go for where the fork's version differs). A
+			// stall with text shown took the branch above; a failure before any
+			// text is the stall ladder's below; a limit (429) is the wrapper's
+			// and the limit wait's.
+			if hasAnyOutput && !stalled && ctx.Err() == nil && !a.state.IsUserCancelledTurn() &&
+				a.cfg.Agent.LLMContinueEnabled() && llm.IsTransientProviderError(streamErr) {
+				kept := a.keepInterruptedAnswer(answerBuf.String(), reasoningBuf.String(), reasonClockStart, reasonClockEnd)
+				if stallContinues >= a.cfg.Agent.EffectiveLLMContinueMax() {
+					return string(acp.StopReasonRefused), providerGaveUpError(streamErr, stallContinues)
+				}
+				seen, repeated := attemptRepeats.Observe(attemptFingerprint(reasoningBuf.String(), answerBuf.String(), nil))
+				if repeated {
+					attemptRestarts++
+				}
+				stallContinues++
+				recoveryTurns++
+				pause := errorContinueDelay(&a.cfg.Agent, stallContinues-1, streamErr)
+				a.log.Warn("provider failed mid-answer; carrying the answer on after a pause",
+					"error", streamErr, "pause", pause, "continuation", stallContinues,
+					"kept_partial_answer", kept, "restarts", attemptRestarts)
+				// The same park the stall continuation announces: the client is
+				// still showing the half-written answer as if it were arriving.
+				announcedPark.Store(true)
+				_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{
+					SessionUpdate: acp.UpdateTypeLLMRetry,
+					Phase:         acp.LLMRetryPhaseContinuing,
+					Attempt:       stallContinues,
+					DelayMS:       pause.Milliseconds(),
+				})
+				if err := sleepCtx(ctx, pause); err != nil {
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					// A deadline or a shutdown, not the user: the turn ends
+					// with the failure it was recovering from.
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before carrying on the answer was interrupted: %v)", streamErr, err)
+				}
+				messages = a.buildMessages(sys.Content)
+				nudge := providerRecoveryNudge
+				switch {
+				case repeated:
+					nudge = repeatedAttemptNudge(alreadyRanSteps(a.state.GetMessages(), alreadyRanStepsMax), seen)
+					if attemptRestarts >= attemptRestartsBeforeAnswer {
+						restartForceAnswer = true
+					}
+				case !kept:
+					nudge = stallNoTextNudge
+				}
+				// LLM-facing only; never persisted to the transcript.
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+				replaying = true
+				continue
+			}
 			// A mid-generation truncation keeps its partial answer like a user
 			// stop: the user already watched the text stream in, so it must
 			// survive in the transcript next to the honest error below.
-			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				// Tool calls are deliberately absent from what follows. A cancelled
@@ -1253,9 +1313,12 @@ func (a *Agent) runReActLoop(
 				if hasAnyOutput || a.state.IsUserCancelledTurn() {
 					return string(acp.StopReasonCancelled), nil
 				}
-				// Stream was interrupted before producing any output and the user did not stop it —
-				// surface an error so the UI can show feedback instead of silently completing.
-				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response")
+				// Stream was interrupted before producing any output and the user did not stop it
+				// (a signal, a shutdown): surface an error so the UI can show feedback instead of
+				// silently completing, and say how long the model had been silent, because a
+				// process killed after a long empty wait is a different story from one interrupted
+				// at once.
+				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response (the model had been silent for %s)", humanDuration(time.Since(callStart)))
 			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
@@ -1407,7 +1470,7 @@ func (a *Agent) runReActLoop(
 			if response.StopReason == "max_tokens" {
 				// Nothing on screen separates this from a finished turn, so say it:
 				// the cap is a setting the user can raise, but only once told it was hit.
-				a.persistTruncationNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
+				a.noteStopNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
 				return string(acp.StopReasonMaxTokens), nil
 			}
 			// A Stop hook may send the agent back to work with a follow-up that
@@ -1626,6 +1689,9 @@ func (a *Agent) runReActLoop(
 		}
 	}
 
+	// The step limit ends the turn like a finished answer would, so say it
+	// (upstream 1.2.9, issue #255).
+	a.noteStopNotice(a.maxTurnsNotice(maxTurns))
 	return string(acp.StopReasonMaxTurns), nil
 }
 
@@ -2323,11 +2389,16 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	}
 	in := a.turnProviderInput(rm)
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
+	// The stall guard goes on here rather than inside NewProvider, so it wraps
+	// whatever the factory built - a test double as much as a real provider -
+	// and still sits outside the retry wrapper (llm.WithStreamIdleGuard).
+	idle := in.StreamIdleTimeout
+	in.StreamIdleTimeout = 0
 	provider, err := mk(in)
 	if err != nil {
 		return llmTransport{}, err
 	}
-	return llmTransport{provider: provider, streaming: rm.Stream}, nil
+	return llmTransport{provider: llm.WithStreamIdleGuard(provider, idle), streaming: rm.Stream}, nil
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
@@ -2337,7 +2408,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 // llmProviderInputForConfig builds provider settings from an immutable configuration snapshot.
 // It is used by detached work such as title generation, which must not race a config reload.
 func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.ResolvedLLM) llm.ProviderInput {
-	return llm.WithAgentResilience(llm.ProviderInput{
+	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -2349,7 +2420,14 @@ func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.Resolve
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
+	}
+	// The stall guard (agent.llm_stream_idle_timeout_ms) watches the gaps
+	// between the chunks of a streamed answer; a blocking answer arrives in
+	// one piece and has no gaps to watch.
+	if rm.Stream {
+		in.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()
+	}
+	return llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
 }
 
 // turnProviderInput is llmProviderInput plus the bounds of a user turn: the

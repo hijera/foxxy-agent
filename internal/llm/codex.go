@@ -123,9 +123,9 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		emitted = true
 		onChunk(c)
 	}
-	// progress tells the caller the server is still working without counting
-	// as content: it bypasses emit, so a retry of a stream that only ever
-	// reported progress stays safe.
+	// fork(progress-chunks): progress tells the caller the server is still
+	// working without counting as content: it bypasses emit, so a retry of a
+	// stream that only ever reported progress stays safe.
 	progress := func() {
 		if onChunk != nil {
 			onChunk(StreamChunk{Progress: true})

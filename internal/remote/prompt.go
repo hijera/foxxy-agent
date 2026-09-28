@@ -51,6 +51,7 @@ type metaFrame struct {
 		Model      string `json:"model"`
 		APIModel   string `json:"api_model"`
 		StopReason string `json:"stop_reason"`
+		StopNotice string `json:"stop_notice"`
 	} `json:"metadata"`
 }
 
@@ -162,7 +163,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if turn.stopReason != "" {
 			stop = acp.StopReason(turn.stopReason)
 		}
-		return &acp.SessionPromptResult{StopReason: stop}, nil
+		return &acp.SessionPromptResult{StopReason: stop, StopNotice: turn.stopNotice}, nil
 	case cancelled:
 		// HandleSessionCancel already asked the server to stop the turn.
 		return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
@@ -201,6 +202,8 @@ type turnStream struct {
 	done       bool
 	turnErr    string
 	stopReason string
+	// stopNotice is why the turn stopped before its answer (foxxycode_meta stop_notice).
+	stopNotice string
 }
 
 // onFrame translates one SSE frame into ACP updates or answer round-trips.
@@ -265,6 +268,9 @@ func (t *turnStream) onFrame(f sseFrame) error {
 			}
 			if meta.Metadata.StopReason != "" {
 				t.stopReason = meta.Metadata.StopReason
+			}
+			if meta.Metadata.StopNotice != "" {
+				t.stopNotice = meta.Metadata.StopNotice
 			}
 		}
 	case "error":

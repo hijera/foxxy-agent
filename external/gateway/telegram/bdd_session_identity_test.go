@@ -38,11 +38,14 @@ var ordinarySessionIDPattern = regexp.MustCompile(`^sess_[0-9a-f]{24}$`)
 // scriptedRunner answers every prompt with the same text, pushed through the
 // sender the gateway supplies, and records the prompt it was given.
 type scriptedRunner struct {
-	mu      sync.Mutex
-	cfg     *config.Config
-	live    map[string]*session.State
-	answer  string
-	prompts []string
+	mu     sync.Mutex
+	cfg    *config.Config
+	live   map[string]*session.State
+	answer string
+	// stopNotice is handed back on the prompt result, as the session manager
+	// does for a turn that stopped short.
+	stopNotice string
+	prompts    []string
 	// surfaces records the system prompt block each turn was given, so the
 	// spec can assert the gateway spoke for itself without a real model.
 	surfaces []string
@@ -82,7 +85,7 @@ func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params
 		surface = opts.SurfaceSystemPrompt
 	}
 	r.surfaces = append(r.surfaces, surface)
-	answer := r.answer
+	answer, notice := r.answer, r.stopNotice
 	r.mu.Unlock()
 
 	if sender != nil {
@@ -91,7 +94,7 @@ func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: answer},
 		})
 	}
-	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn, StopNotice: notice}, nil
 }
 
 func (r *scriptedRunner) ForgetLiveSession(id string) {
@@ -106,6 +109,16 @@ func (r *scriptedRunner) HandleSessionSetMode(context.Context, acp.SessionSetMod
 
 func (r *scriptedRunner) HandleSessionSetConfigOption(context.Context, acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
 	return &acp.SessionSetConfigOptionResult{}, nil
+}
+
+func (r *scriptedRunner) HandleSessionList(context.Context, acp.SessionListParams) (*acp.SessionListResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]acp.SessionListInfo, 0, len(r.live))
+	for id, st := range r.live {
+		out = append(out, acp.SessionListInfo{SessionID: id, CWD: st.CWD})
+	}
+	return &acp.SessionListResult{Sessions: out}, nil
 }
 
 func (r *scriptedRunner) Cfg() *config.Config {

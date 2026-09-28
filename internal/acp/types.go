@@ -253,6 +253,13 @@ type ImagePartRef struct {
 // SessionPromptResult is the response to session/prompt.
 type SessionPromptResult struct {
 	StopReason StopReason `json:"stopReason"`
+
+	// StopNotice says, in words for the user, why a turn that ended with
+	// max_turns or max_tokens stopped before its answer (in-process callers
+	// only, never serialised). The same text was already streamed into the
+	// answer and stored in the transcript, so a surface that shows the stream
+	// does not print it again; the HTTP API hands it on as meta.stop_notice.
+	StopNotice string `json:"-"`
 }
 
 // StopReason describes why a prompt turn ended.
