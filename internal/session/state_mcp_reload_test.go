@@ -224,7 +224,7 @@ func TestSessionStartHooksReplaceStaleContext(t *testing.T) {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     config.Agent{Model: "fake/model"},
 	}
-	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults()
 	m := NewManager(cfg, nil, nil, slog.Default(), cfg.Paths.CWD, nil)
 
 	st := &State{ID: "sess_stale_hook_context", CWD: cfg.Paths.CWD, Mode: ModeAgent}

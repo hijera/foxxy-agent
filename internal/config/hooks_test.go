@@ -7,7 +7,7 @@ import (
 
 func TestHooksDefaultsFillEveryUnsetKnob(t *testing.T) {
 	var h Hooks
-	h.ApplyDefaults(Paths{Home: "/home/dev/.foxxycode", CWD: "/work"})
+	h.ApplyDefaults()
 
 	if !h.ResolvedEnabled() {
 		t.Fatal("hooks are enabled unless the operator turns them off")
@@ -36,17 +36,12 @@ func TestHooksDefaultsFillEveryUnsetKnob(t *testing.T) {
 }
 
 func TestHooksDefaultsKeepOperatorFiles(t *testing.T) {
-	h := Hooks{Files: []string{"/srv/team/hooks.json", "${FOXXYCODE_HOME}/hooks.json", "${CWD}/.foxxycode/hooks.json"}}
-	h.ApplyDefaults(Paths{Home: "/home/dev/.foxxycode", CWD: "/work"})
-	if len(h.Files) != 3 || h.Files[0] != "/srv/team/hooks.json" {
-		t.Fatalf("operator files must be kept verbatim, got %v", h.Files)
-	}
-	// ${FOXXYCODE_HOME} expands at load time like skills.dirs; ${CWD} stays for the session.
-	if h.Files[1] != "/home/dev/.foxxycode/hooks.json" {
-		t.Fatalf("FOXXYCODE_HOME must expand at load time, got %q", h.Files[1])
-	}
-	if h.Files[2] != "${CWD}/.foxxycode/hooks.json" {
-		t.Fatalf("CWD must stay for per-session expansion, got %q", h.Files[2])
+	h := Hooks{Files: []string{" /srv/team/hooks.json ", "${FOXXYCODE_HOME}/hooks.json", "${CWD}/.foxxycode/hooks.json", "~/hooks.json"}}
+	h.ApplyDefaults()
+	// Placeholders stay for the loader, so a save writes them back as written.
+	want := []string{"/srv/team/hooks.json", "${FOXXYCODE_HOME}/hooks.json", "${CWD}/.foxxycode/hooks.json", "~/hooks.json"}
+	if strings.Join(h.Files, "|") != strings.Join(want, "|") {
+		t.Fatalf("operator files must be kept as written, got %v want %v", h.Files, want)
 	}
 }
 

@@ -117,8 +117,8 @@ func (s *queueFeatureState) buildSession(steps []scriptStep) error {
 	// The fork's detached title pass calls the same scripted provider, which
 	// would take a scripted step and shift the requests the scenarios read.
 	disableTitlePass(s.cfg)
-	s.cfg.Hooks.ApplyDefaults(s.cfg.Paths)
-	s.cfg.Subagents.ApplyDefaults(s.cfg.Paths)
+	s.cfg.Hooks.ApplyDefaults()
+	s.cfg.Subagents.ApplyDefaults()
 	s.cfg.Prompts.ApplyDefaults()
 
 	s.store = &session.FileStore{Root: s.cfg.Sessions.Dir}

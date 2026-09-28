@@ -7,7 +7,17 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-27
+## Unreleased — 2026-09-28
+
+**Saving settings no longer writes this machine's paths into the config.**
+Skill and subagent directories and hook files (`skills.dirs`, `subagents.dirs`,
+`hooks.files`) stay in `config.yaml` as written, with `${FOXXYCODE_HOME}` and `~`. The
+second save from the Settings screen used to replace them with absolute paths, so the file
+stopped following `FOXXYCODE_HOME`, and a copy on another machine or for another user
+pointed at the old home. Saving an unchanged config twice now writes the same file, and
+the Settings screen shows these lists as the file spells them.
+
+## 0.3.22 — 2026-09-27
 
 **A turn behind a proxy no longer hangs on "Provider is not responding".**
 Requests to a provider share one HTTP/2 connection. When a proxy lost a tunnel without closing

@@ -660,7 +660,7 @@ func UISchemaMap() map[string]interface{} {
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Skill directories",
-					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
+					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ~, ${FOXXYCODE_HOME} and ${CWD} stay in the entry as written and expand when skills are read: ${FOXXYCODE_HOME} to the agent home, ${CWD} to each session's workspace, so a saved file is not tied to this machine's paths.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"sources": map[string]interface{}{

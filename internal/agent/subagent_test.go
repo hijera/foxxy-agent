@@ -919,7 +919,7 @@ func newSubagentRig(t *testing.T, tweak func(cfg *config.Config)) *subagentRig {
 	if tweak != nil {
 		tweak(cfg)
 	}
-	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Subagents.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	r.cfg = cfg
 	r.store = &session.FileStore{Root: cfg.Sessions.Dir}

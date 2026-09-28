@@ -95,6 +95,39 @@ func TestFileWatcherIgnoresAnEditThatChangesNoSetting(t *testing.T) {
 	}
 }
 
+// TestFileWatcherComparesPathListsAsWritten covers the per-session path lists, which
+// keep ${FOXXYCODE_HOME} and ~ as written: the file a save renders from the live
+// configuration reads back as that same configuration, while editing one of the
+// entries is still a change.
+func TestFileWatcherComparesPathListsAsWritten(t *testing.T) {
+	body := watchBaseYAML + `
+skills:
+  dirs:
+    - "~/team-skills"
+    - "${FOXXYCODE_HOME}/skills"
+hooks:
+  files:
+    - "${FOXXYCODE_HOME}/hooks.json"
+`
+	w, _, live := watchFixture(t, body)
+	w.Poll()
+	saved, err := MarshalConfigYAMLForFile(live(), w.Paths.ConfigPath)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	rewriteWatched(t, w, string(saved))
+	if w.Poll() {
+		t.Fatal("the file a save wrote came back as a configuration change")
+	}
+	rewriteWatched(t, w, strings.ReplaceAll(string(saved), "${FOXXYCODE_HOME}/skills", "${FOXXYCODE_HOME}/team"))
+	if !w.Poll() {
+		t.Fatal("an edited skills.dirs entry was not installed")
+	}
+	if got := live().Skills.Dirs[1]; got != "${FOXXYCODE_HOME}/team" {
+		t.Fatalf("installed skills.dirs[1] = %q, want ${FOXXYCODE_HOME}/team", got)
+	}
+}
+
 // TestFileWatcherKeepsTheLiveConfigWhenTheFileIsBroken is the whole point of
 // reloading defensively: an operator halfway through an edit, or an editor that
 // truncates before it writes, must not blank the model list of a running daemon.

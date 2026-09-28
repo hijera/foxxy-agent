@@ -145,8 +145,8 @@ func (s *hooksFeatureState) buildConfig() *config.Config {
 	cfg.Tools.PermissionMode = s.permMode
 	cfg.Hooks.ProjectTrust = s.trustPolicy
 	cfg.Hooks.StopLoopLimit = s.stopLoopLimit
-	cfg.Hooks.ApplyDefaults(cfg.Paths)
-	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults()
+	cfg.Subagents.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	return cfg
 }

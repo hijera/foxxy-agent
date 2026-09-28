@@ -164,12 +164,6 @@ func yamlSafePath(path string) string {
 	return strings.ReplaceAll(path, `\`, "/")
 }
 
-// ExpandFOXXYCODEHomeOnly substitutes ${FOXXYCODE_HOME} and expands ~. Leaves ${CWD} for per-session expansion.
-func ExpandFOXXYCODEHomeOnly(s string, p Paths) string {
-	s = strings.ReplaceAll(s, "${FOXXYCODE_HOME}", p.Home)
-	return expandHome(s)
-}
-
 func absoluteIfPossible(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
