@@ -3019,6 +3019,42 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	}
 }
 
+// ---- HTTP bearer auth (Phase 1a of the Remote Control roadmap) ----
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
+	}
+}
+
 func TestHTTPAuthProtectsAPIAndAllowsSPA(t *testing.T) {
 	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
 	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
@@ -3257,39 +3293,6 @@ func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 	}
 }
 
-func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
-	t.Helper()
-	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
-		return "", nil
-	}
-	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
-	srv := New(cfg, mgr, slog.Default(), "/tmp")
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	return srv, ts
-}
-
-func authGET(t *testing.T, rawURL, token string) int {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = res.Body.Close() }()
-	return res.StatusCode
-}
-
-func cfgWithAuth(token string) *config.Config {
-	return &config.Config{
-		Agent:      config.Agent{Model: "openai/gpt-4o"},
-		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
-		HTTPServer: config.HTTPServerConfig{AuthToken: token},
-	}
-}
 func cfgWithCORS(origins ...string) *config.Config {
 	c := cfgWithAuth("")
 	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowedOrigins: origins}

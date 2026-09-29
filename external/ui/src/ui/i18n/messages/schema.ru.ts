@@ -411,22 +411,22 @@ export const schemaTextRu: Record<string, string> = {
 
   // Scheduler
   Scheduler: "Планировщик",
-  "Cron-style scheduled jobs (requires scheduler build tag).":
-    "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler).",
+  "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.":
+    "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler). Каждый запуск — фоновая агентная задача в постоянной сессии задания, где хранится история запусков.",
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
     "Каталог с markdown-описаниями задач.",
   "Max queue": "Макс. очередь",
-  "Maximum concurrent scheduled agent runs.":
-    "Максимальное число одновременных запусков агента по расписанию.",
-  "Job timeout": "Таймаут задачи",
-  "Per-job wall-clock limit, e.g. 30m or 1h30m.":
-    "Ограничение реального времени на задачу, например 30m или 1h30m.",
-  "Retain sessions": "Хранить сессии",
-  "How many completed scheduler session folders to keep per job id.":
-    "Сколько папок завершённых сессий планировщика хранить на каждый id задачи.",
+  "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.":
+    "Максимум одновременных запусков всех заданий. Превышающий лимит запуск по расписанию пропускается, а ручной отклоняется.",
+  "Run timeout": "Таймаут запуска",
+  "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds).":
+    "Ограничение времени одного запуска, например 30m или 1h30m (с учётом предела tools.background.max_timeout_seconds).",
+  "Retain runs": "Хранить запуски",
+  "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes.":
+    "Число завершённых запусков на каждое задание (записи задач и транскрипты). Более старые удаляются при завершении нового запуска.",
 
   // Prompts
   Prompts: "Промпты",

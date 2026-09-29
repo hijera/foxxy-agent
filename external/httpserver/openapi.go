@@ -202,7 +202,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
-						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
+						"Scheduler job sessions carry **schedulerRun** metadata, and historical top-level **sched_** run bundles remain readable; both are **hidden** from this list unless **include_scheduler=true**. Child run sessions stay under their job session. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
 						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
 						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
@@ -211,7 +211,7 @@ func openAPISpec() map[string]interface{} {
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
-						"description": "When true, include scheduler-run session directories in the list.",
+						"description": "When true, include scheduler job sessions and historical top-level sched_ run bundles in the list.",
 					}, map[string]interface{}{
 						"name":        "include_subagents",
 						"in":          "query",
@@ -1997,7 +1997,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"500": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},

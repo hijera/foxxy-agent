@@ -14,6 +14,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -356,10 +357,6 @@ func runACP(args []string) error {
 	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
-	if cfg.SchedulerEffectiveEnabled() {
-		scheduler.Start(context.Background(), cfg, log, paths.CWD)
-	}
-
 	store, err := openSessionStore(*sessionsRoot, cfg)
 	if err != nil {
 		return err
@@ -394,6 +391,13 @@ func runACP(args []string) error {
 	mgr.SetServer(srv)
 
 	ctx := context.Background()
+	// The scheduler runs its jobs as children of their job sessions through
+	// the manager, so it starts once the manager exists.
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(ctx, scheduler.Options{
+			Cfg: live, Log: log, ProcessCWD: paths.CWD, Mgr: mgr, Pool: bgtask.Default(),
+		})
+	}
 	return srv.Run(ctx, os.Stdin)
 }
 

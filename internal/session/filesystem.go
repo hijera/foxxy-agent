@@ -410,9 +410,18 @@ type SessionMeta struct {
 	// moment it was started is not recoverable, so it stays empty rather than
 	// being invented from a later write.
 	CreatedAt string `json:"createdAt,omitempty"`
-	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
-	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
-	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
+	// SchedulerRun marks the session of a scheduler job: the parent every run
+	// of that job is a child of, hidden from the working list and never
+	// prompted. SchedulerJobID names the job; on a run bundle (a child, see
+	// below) it names the job the run belongs to, with SchedulerTrigger
+	// ("cron" or "manual") and SchedulerFireSlot (the committed UTC minute of
+	// a cron fire, RFC3339) saying how the run started.
+	SchedulerRun      bool   `json:"schedulerRun,omitempty"`
+	SchedulerJobID    string `json:"schedulerJobId,omitempty"`
+	SchedulerTrigger  string `json:"schedulerTrigger,omitempty"`
+	SchedulerFireSlot string `json:"schedulerFireSlot,omitempty"`
+	// Legacy top-level sched_ run fields remain readable after the job-session
+	// migration. New runs use background task records instead.
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
@@ -481,6 +490,35 @@ type LoadedSnapshot struct {
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	return f.readSnapshotAt(f.SessionPath(sessionID), sessionID)
+}
+
+// ReadMeta reads a bundle's session.json alone, for a caller that wants what
+// the session is - a child's parent and origin, a job's marker - without
+// paying for its transcript. The layout rule ReadSnapshot applies to a nested
+// bundle applies here too.
+func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
+	if f == nil || f.Root == "" {
+		return SessionMeta{}, fmt.Errorf("session store unavailable")
+	}
+	dir := f.SessionPath(sessionID)
+	metaBytes, err := readFileWithRetry(filepath.Join(dir, sessionMetaFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return SessionMeta{}, fmt.Errorf("session not found on disk: %s", sessionID)
+		}
+		return SessionMeta{}, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
+	}
+	if parent, ok := f.childBundleParent(dir); ok {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = parent
+		}
+	}
+	return meta, nil
 }
 
 // readSnapshotAt reads a bundle from an explicit directory, which is how a
@@ -559,15 +597,6 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 	}, nil
 }
 
-// ReadMeta reads session.json only, skipping messages and the rest of the
-// snapshot. Use it when a caller just needs metadata such as cwd or title.
-func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
-	if f == nil || f.Root == "" {
-		return SessionMeta{}, fmt.Errorf("session store unavailable")
-	}
-	return f.readMetaAt(f.SessionPath(sessionID))
-}
-
 // readMetaAt reads session.json from an explicit bundle directory and applies
 // the rule readSnapshotAt applies: a bundle inside another session's
 // ChildSessionsDirName is a spawned run even before its session.json says so.
@@ -637,7 +666,8 @@ type SessionListEntry struct {
 type ListOptions struct {
 	// CWD keeps only sessions saved with this working directory when non-empty.
 	CWD string
-	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
+	// IncludeSchedulerRuns adds the sessions of scheduler jobs (schedulerRun in
+	// session.json), and the bundles the old scheduler wrote under sched_ ids.
 	IncludeSchedulerRuns bool
 	// IncludeSubagents descends into the sessions spawned by spawn_agent,
 	// which are stored inside the bundle of the session that spawned them.
@@ -1031,12 +1061,18 @@ func (f *FileStore) Save(state *State) error {
 		PinnedAt:          strings.TrimSpace(pinnedAt),
 		PinnedRank:        pinnedRank,
 	}
-	if state.GetSchedulerRun() {
+	if state.IsSchedulerJob() {
 		meta.SchedulerRun = true
 		meta.SchedulerJobID = strings.TrimSpace(state.GetSchedulerJobID())
-		meta.SchedulerStartedAt = strings.TrimSpace(state.GetSchedulerStartedAt())
-		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
-		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
+		if strings.HasPrefix(state.ID, "sched_") {
+			// Keep the old run timestamps and outcome when its transcript or
+			// session metadata is saved by a newer binary.
+			if prior, err := f.readMetaAt(dir); err == nil {
+				meta.SchedulerStartedAt = prior.SchedulerStartedAt
+				meta.SchedulerEndedAt = prior.SchedulerEndedAt
+				meta.SchedulerStopStatus = prior.SchedulerStopStatus
+			}
+		}
 	}
 	if sub := state.Subagent(); sub != nil {
 		meta.SubagentRun = true
@@ -1044,6 +1080,13 @@ func (f *FileStore) Save(state *State) error {
 		meta.SubagentName = strings.TrimSpace(sub.Name)
 		meta.SubagentTaskID = strings.TrimSpace(sub.TaskID)
 		meta.SubagentDepth = sub.Depth
+		if sub.Scheduler != nil {
+			meta.SchedulerJobID = strings.TrimSpace(sub.Scheduler.JobID)
+			meta.SchedulerTrigger = strings.TrimSpace(sub.Scheduler.Trigger)
+			if !sub.Scheduler.FireSlot.IsZero() {
+				meta.SchedulerFireSlot = sub.Scheduler.FireSlot.UTC().Format(time.RFC3339)
+			}
+		}
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq

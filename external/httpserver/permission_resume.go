@@ -25,8 +25,8 @@ func (s *Server) tryResumePendingPermission(ctx context.Context, sessionID, tool
 	}
 	// A child session's prompts are relayed to its parent, so it never has a
 	// pending gate of its own; and a resume would run an agent on a read-only
-	// transcript.
-	if st.IsSubagentRun() {
+	// transcript. The session of a scheduler job has no gate either.
+	if st.IsReadOnlyTranscript() {
 		return false
 	}
 	sd := strings.TrimSpace(st.GetPersistedSessionDir())
@@ -125,7 +125,7 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	// like the turn it continues - including detached ones, whose later
 	// prompts outlive this turn too.
 	ag.SetSubagentRuntime(s.mgr)
-	ag.SetDetachedPermissionBroker(s)
+	ag.SetDetachedPermissionBroker(s.detachedPromptBroker())
 	// The resumed turn calls the model like any other: its release refreshes
 	// the provider usage.
 	session.MarkTurnRan(ctx)

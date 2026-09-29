@@ -5,13 +5,14 @@ import {
   buildPermissionToolPreview,
   type PermissionToolCallContext,
 } from "./permissionToolPreview";
-import { submitPermissionChoice } from "./permissionSubmit";
-import { permissionOptionLabel } from "./permissionOptionLabel";
 import type {
   FoxxyCodePermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
+import { permissionOptionLabel } from "./permissionOptionLabel";
+import { submitPermissionChoice } from "./permissionSubmit";
+import { useT } from "../i18n/I18nProvider";
 
 export type PermissionPromptSectionProps = {
   itemId: string;
@@ -33,12 +34,14 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
 
   const choose = useCallback(
     async (optionId: string, label: string) => {
-      const sid = payload.sessionId.trim();
-      const tcid = payload.toolCall.toolCallId.trim();
       setSubmitting(true);
       try {
         try {
-          await submitPermissionChoice(sid, tcid, optionId);
+          await submitPermissionChoice(
+            payload.sessionId,
+            payload.toolCall.toolCallId,
+            optionId,
+          );
         } catch {
           // still unblock transcript on transient network errors
         }

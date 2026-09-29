@@ -600,6 +600,15 @@ func TestCatalogCarriesTheDeclaredBounds(t *testing.T) {
 			t.Fatalf("a definition declaring no %s must not serialise one: %s", absent, encoded)
 		}
 	}
+
+	// The entry owns its slices: a caller editing what it was handed must not
+	// reach back into the immutable definition.
+	reviewer.Tools[0] = "run_command"
+	for _, d := range defs {
+		if d.Name == "reviewer" && d.Tools[0] != "read" {
+			t.Fatalf("editing a catalog entry changed the definition: %v", d.Tools)
+		}
+	}
 }
 
 func mustJSON(t *testing.T, v interface{}) []byte {

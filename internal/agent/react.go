@@ -309,7 +309,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// permission prompt, and to nothing after that.
 	defer a.releasePlanContext()
 
-	// Coddy engine: buildSystemPromptParts refreshed the context breakdown, so
+	// FoxxyCode engine: buildSystemPromptParts refreshed the context breakdown, so
 	// compact before the first LLM call when the estimate crossed the
 	// auto-compaction threshold, then rebuild the payload from the windowed
 	// history. A compaction is a legitimate reason to render the system message

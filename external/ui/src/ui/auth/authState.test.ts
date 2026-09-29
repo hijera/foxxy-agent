@@ -254,17 +254,16 @@ describe("installAuthUnauthorizedWatch", () => {
 
     const stop = installAuthUnauthorizedWatch();
     seen.length = 0;
-    // Typed through a cast: assigned inside the executor, it would otherwise
-    // narrow to null at the call below.
-    let release = null as ((r: Response) => void) | null;
+    // The executor assigns this after the current control-flow scope.
+    const gate: { release: ((r: Response) => void) | null } = { release: null };
     hang = new Promise<Response>((resolve) => {
-      release = resolve;
+      gate.release = resolve;
     });
     unauthorizedCb?.();
     unauthorizedCb?.();
     unauthorizedCb?.();
     expect(seen.filter((s) => s.url === "/foxxycode/auth/me")).toHaveLength(1);
-    release?.(
+    gate.release?.(
       jsonResponse(200, { login_required: true, authenticated: false }),
     );
     hang = null;
