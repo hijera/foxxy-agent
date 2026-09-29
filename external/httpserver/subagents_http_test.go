@@ -4,8 +4,9 @@ package httpserver
 
 // Edge cases of the subagent HTTP surface that are not part of the happy path
 // in features/subagents_http.feature: a child transcript cannot be branched,
-// and a child bundle is stored inside the session that spawned it rather than
-// beside it in the sessions root.
+// a child bundle is stored inside the session that spawned it rather than
+// beside it in the sessions root, the catalog reports every bound a definition
+// declares, and the catalog routes answer errors as JSON.
 
 import (
 	"bytes"

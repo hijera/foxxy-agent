@@ -8,7 +8,20 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-28
+## Unreleased — 2026-09-29
+
+**Background subagent permissions remain available after the turn ends.**
+If a subagent asks for access after the main agent has answered, the request appears in the chat
+and Tasks, where it can be approved or denied without starting another turn. Subagent settings
+show the definitions for the current project and their limits; project definitions can be
+approved or revoked there.
+
+**Scheduled jobs have a separate run history.**
+Each run is saved as a child session of its job. The scheduler panel shows its status, lets you
+stop it, and opens a read-only transcript. Existing `sched_` runs remain in the history, and
+existing jobs continue to work.
+
+## 0.3.23 — 2026-09-28
 
 **A cut answer is carried on instead of lost.**
 When the provider goes silent in the middle of an answer, cuts it with a 5xx error or the

@@ -137,6 +137,10 @@ type Env struct {
 	// the tools can say which of the two it is.
 	BackgroundEnabled bool
 
+	// WakeableSession is false for child and scheduled-run transcripts, which
+	// cannot accept another turn once their run finishes.
+	WakeableSession bool
+
 	// WebSearch is the resolved tools.websearch section the websearch tool
 	// reads its engine list and bounds from. It travels on the environment
 	// rather than being captured when the registry is built, so a config

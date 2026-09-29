@@ -17,10 +17,12 @@ import { ChatHeader } from "./ChatHeader";
 import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
+import { isAwaitingPermission } from "../tasks/taskStatus";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { useT } from "../i18n/I18nProvider";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
@@ -114,6 +116,8 @@ export function ChatScreen(props: {
   /** Every background task of this chat, for the opener under the transcript. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** Re-read the task rows: a background subagent's prompt was answered here. */
+  onBackgroundTasksChanged?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -150,6 +154,7 @@ export function ChatScreen(props: {
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
+  const prevPermissionsForScrollRef = useRef(new Set<string>());
   // The scroll-tail reserve is written straight to this element, never held as
   // state: see the effect below for why React must stay out of this loop.
   const chatStackRef = useRef<HTMLDivElement | null>(null);
@@ -335,7 +340,24 @@ export function ChatScreen(props: {
     if (isEmpty) return;
     const prev = prevItemsForScrollRef.current;
     prevItemsForScrollRef.current = props.items;
-    if (!transcriptItemsAffectAutoScroll(prev, props.items)) {
+    // Polling replaces task rows even when nothing changed. Only a newly
+    // waiting call should follow the reader, never an elapsed-time update.
+    const permissions = new Set(
+      (props.backgroundTasks ?? [])
+        .filter(isAwaitingPermission)
+        .map((task) =>
+          JSON.stringify([
+            task.id,
+            task.pending_permission?.sessionId,
+            task.pending_permission?.toolCall.toolCallId,
+          ]),
+        ),
+    );
+    const newPermission = [...permissions].some(
+      (key) => !prevPermissionsForScrollRef.current.has(key),
+    );
+    prevPermissionsForScrollRef.current = permissions;
+    if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
       return;
     }
     // A jump already chases the end of a growing transcript; a hard scroll here
@@ -359,6 +381,7 @@ export function ChatScreen(props: {
     follow();
   }, [
     props.items,
+    props.backgroundTasks,
     isEmpty,
     mobileDocScroll,
     syncTranscriptPosition,
@@ -640,6 +663,12 @@ export function ChatScreen(props: {
                   ? { onStopBackgroundTask: props.onStopBackgroundTask }
                   : {})}
               />
+              {props.backgroundTasks ? (
+                <SubagentPermissionCards
+                  tasks={props.backgroundTasks}
+                  onAnswered={() => props.onBackgroundTasksChanged?.()}
+                />
+              ) : null}
               {props.backgroundTasks && props.onOpenBackgroundTasks ? (
                 <BackgroundTasksChip
                   tasks={props.backgroundTasks}

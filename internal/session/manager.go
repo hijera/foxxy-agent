@@ -501,6 +501,12 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		contextWindows: m,
 	}
 
+	mode := Mode(snap.Meta.Mode)
+	if !IsValidMode(string(mode)) {
+		mode = ModeAgent
+	}
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
+	jobSession := false
 	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
 		// and the parent link, the role and tool set are not needed any more.
@@ -509,32 +515,41 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			ParentSessionID: snap.Meta.ParentSessionID,
 			TaskID:          snap.Meta.SubagentTaskID,
 			Depth:           snap.Meta.SubagentDepth,
+			Scheduler:       schedulerRunMetaFromSnapshot(snap.Meta),
 		})
+	} else if snap.Meta.SchedulerRun {
+		// The session of a scheduler job: the guard and the job name are all
+		// it carries, and nothing below (skills, hooks, MCP) is for it, since
+		// no turn ever runs on it.
+		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
+		jobSession = true
 	}
 	restorePersistedFields(st, snap)
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
 	st.stampCurrentDisk(diskFile, metaFile)
 	restoreContextBreakdown(st)
 
-	active := m.activeCfg()
-	loadedSkills, err := m.loadSkills(cwd, active)
-	if err != nil {
-		m.log.Warn("failed to load skills on session load", "error", err)
-	}
-	st.ReplaceSkills(loadedSkills)
-	st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
-
 	st.SetPersistHook(m.makePersist(st))
-	m.runSessionStartHooks(ctx, st, hookSourceResume)
-
-	m.connectConfiguredMCPServers(ctx, st)
-
-	for _, srv := range params.MCPServers {
-		cfgSrv := acpMCPServerToConfig(srv)
-		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
-			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
+	if !jobSession {
+		active := m.activeCfg()
+		loadedSkills, err := m.loadSkills(cwd, active)
+		if err != nil {
+			m.log.Warn("failed to load skills on session load", "error", err)
 		}
-		st.RememberSessionMCPDeclaration(cfgSrv)
+		st.ReplaceSkills(loadedSkills)
+		st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
+
+		m.runSessionStartHooks(ctx, st, hookSourceResume)
+
+		m.connectConfiguredMCPServers(ctx, st)
+
+		for _, srv := range params.MCPServers {
+			cfgSrv := acpMCPServerToConfig(srv)
+			if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
+				m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
+			}
+			st.RememberSessionMCPDeclaration(cfgSrv)
+		}
 	}
 
 	m.mu.Lock()
@@ -882,8 +897,8 @@ func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptR
 	if state == nil {
 		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	if state.IsSubagentRun() {
-		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	if err := readOnlyRefusal(state, sessionID); err != nil {
+		return nil, nil, err
 	}
 	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
 }
@@ -901,8 +916,8 @@ func (m *Manager) BeginSessionWork(ctx context.Context, sessionID string) (conte
 	if state == nil {
 		return nil, nil, fmt.Errorf("%w: %s", ErrSessionGone, sessionID)
 	}
-	if state.IsSubagentRun() {
-		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	if err := readOnlyRefusal(state, sessionID); err != nil {
+		return nil, nil, err
 	}
 	return m.beginTurn(ctx, sessionID, state, turnAdmission{publishUsage: true, noQueue: true})
 }
@@ -916,8 +931,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
-	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
-		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
+	if opts == nil || !opts.subagentTurn {
+		if err := readOnlyRefusal(state, params.SessionID); err != nil {
+			return nil, err
+		}
 	}
 
 	// Stage timings for the turn. A panel that sits on "waiting for the model" cannot tell a
@@ -1112,9 +1129,9 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 		return fmt.Errorf("session not found: %s", params.SessionID)
 	}
 	// A child transcript is read-only: its mode was fixed at spawn time and
-	// nothing may rewrite it afterwards.
-	if state.IsSubagentRun() {
-		return fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
+	// nothing may rewrite it afterwards. A job session has no mode to change.
+	if err := readOnlyRefusal(state, params.SessionID); err != nil {
+		return err
 	}
 
 	if !IsValidMode(params.ModeID) {
@@ -1143,9 +1160,9 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 	// A child transcript is read-only: mode, model and permission mode were
-	// fixed at spawn time.
-	if state.IsSubagentRun() {
-		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
+	// fixed at spawn time. A job session has nothing to set.
+	if err := readOnlyRefusal(state, params.SessionID); err != nil {
+		return nil, err
 	}
 
 	switch params.ConfigID {

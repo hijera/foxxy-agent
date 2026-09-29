@@ -249,6 +249,8 @@ type stubBroker struct {
 	requests []DetachedPermissionRequest
 	asked    chan struct{}
 	release  chan *acp.PermissionResult
+	// err is answered instead of waiting when set.
+	err error
 }
 
 func newStubBroker() *stubBroker {
@@ -260,6 +262,9 @@ func (b *stubBroker) RequestDetachedPermission(ctx context.Context, req Detached
 	b.requests = append(b.requests, req)
 	b.mu.Unlock()
 	b.asked <- struct{}{}
+	if b.err != nil {
+		return nil, b.err
+	}
 	select {
 	case res := <-b.release:
 		return res, nil
@@ -315,6 +320,12 @@ func TestPermissionRelayRoutesToTheBrokerOnceTheTurnEnded(t *testing.T) {
 	// and a sibling's live prompt would be stuck behind it.
 	if n := arbiterWaiters(parentID); n != 0 {
 		t.Fatalf("detached wait queued %d relays on the arbiter slot", n)
+	}
+	select {
+	case relay.arbiter.slot <- struct{}{}:
+		<-relay.arbiter.slot
+	default:
+		t.Fatal("the detached wait holds the parent's arbiter slot")
 	}
 	if parent.calls() != 0 {
 		t.Fatalf("the finished turn's transport was touched %d times", parent.calls())
@@ -1105,6 +1116,25 @@ func (r *subagentRig) childBundles() []string {
 
 // assertRetired checks the child left the live map (later reads come from the
 // bundle) while its bundle stayed on disk with the link to parentID.
+// childTasks lists a child's tasks the way the HTTP surface does: what the
+// pool still holds plus the records the child's bundle kept. A retired child
+// is released from the pool's memory, so after its run the records are what
+// says what it left behind and how that ended.
+func (r *subagentRig) childTasks(childID string) []bgtask.Snapshot {
+	live := bgtask.Default().List(childID)
+	seen := make(map[string]bool, len(live))
+	out := append([]bgtask.Snapshot(nil), live...)
+	for _, s := range live {
+		seen[s.ID] = true
+	}
+	for _, s := range bgtask.LoadPersisted(r.store.SessionPath(childID)) {
+		if !seen[s.ID] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (r *subagentRig) assertRetired(childID, parentID string) {
 	r.t.Helper()
 	if r.mgr.SessionByID(childID) != nil {
@@ -1306,7 +1336,7 @@ func TestSpawnSubagentDepthGateRemovesSpawnAgentAtTheLimit(t *testing.T) {
 	}
 	// The grandchild's task lives under the middle child's session and settled.
 	var nested []bgtask.Snapshot
-	for _, s := range bgtask.Default().List(middle.ID) {
+	for _, s := range rig.childTasks(middle.ID) {
 		if s.Kind == bgtask.KindAgent {
 			nested = append(nested, s)
 		}
@@ -1559,7 +1589,7 @@ func TestSpawnSubagentChildBackgroundWorkSettlesBeforeRetirement(t *testing.T) {
 		t.Fatalf("envelope = %+v", env)
 	}
 	child := rig.childByDepth(1)
-	left := bgtask.Default().List(child.ID)
+	left := rig.childTasks(child.ID)
 	if len(left) != 1 || left[0].Kind != bgtask.KindCommand || left[0].Command != "sleep 30" {
 		t.Fatalf("child tasks = %+v, want the one sleep", left)
 	}
@@ -1589,7 +1619,7 @@ func TestSpawnSubagentChildBackgroundCommandNeverNotifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := rig.childByDepth(1)
-	left := bgtask.Default().List(child.ID)
+	left := rig.childTasks(child.ID)
 	if len(left) != 1 {
 		t.Fatalf("child tasks = %+v, want one", left)
 	}
@@ -1655,7 +1685,7 @@ func TestSpawnSubagentChildSpawnNeverNotifies(t *testing.T) {
 	}
 	middle := rig.childByDepth(1)
 	var nested []bgtask.Snapshot
-	for _, s := range bgtask.Default().List(middle.ID) {
+	for _, s := range rig.childTasks(middle.ID) {
 		if s.Kind == bgtask.KindAgent {
 			nested = append(nested, s)
 		}

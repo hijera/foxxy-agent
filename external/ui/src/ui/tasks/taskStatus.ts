@@ -158,6 +158,7 @@ export function tasksPollIntervalMs(runningCount: number): number {
 export function isAwaitingPermission(task: BackgroundTask): boolean {
   const pending = task.pending_permission;
   return (
+    task.running &&
     !!pending &&
     !!(pending.sessionId || "").trim() &&
     !!(pending.toolCall?.toolCallId || "").trim()

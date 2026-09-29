@@ -136,10 +136,6 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	llm.LogCodexAuthNotices(log, cfg)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
-	if cfg.SchedulerEffectiveEnabled() {
-		scheduler.Start(context.Background(), cfg, log, paths.CWD)
-	}
-
 	store, err := deps.OpenStore(params.SessionsRoot, cfg)
 	if err != nil {
 		_ = logCloser.Close()
@@ -176,7 +172,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		// them on the background task row. The nil check keeps a typed-nil
 		// from posing as an installed broker before New assigns s.
 		if s != nil {
-			loop.SetDetachedPermissionBroker(s)
+			loop.SetDetachedPermissionBroker(s.detachedPromptBroker())
 		}
 		return loop.Run(ctx, prompt)
 	}
@@ -248,6 +244,11 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 	s.SetFolderPicker(params.FolderPicker)
 	httpSrv := &http.Server{Addr: listenAddr, Handler: s.Handler()}
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(context.Background(), scheduler.Options{
+			Cfg: live, Log: log, ProcessCWD: paths.CWD, Mgr: mgr,
+		})
+	}
 
 	return &StartedHTTP{
 		Server:     s,

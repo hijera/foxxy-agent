@@ -166,7 +166,7 @@ export function deriveSettingsSections(
     if (key === "mcp_servers") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: tSchemaText(sub.title) || key,
         description: descFor(key, sub),
         kind: "mcp",
         schemaKey: key,

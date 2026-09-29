@@ -1196,7 +1196,7 @@
     },
     "scheduler": {
       "additionalProperties": false,
-      "description": "Cron-style scheduled jobs (requires scheduler build tag).",
+      "description": "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
       "properties": {
         "dir": {
           "default": "${FOXXYCODE_HOME}/scheduler",
@@ -1211,20 +1211,20 @@
         },
         "max_queue": {
           "default": 10,
-          "description": "Maximum concurrent scheduled agent runs.",
+          "description": "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.",
           "title": "Max queue",
           "type": "integer"
         },
         "retain_sessions": {
           "default": 5,
-          "description": "How many completed scheduler session folders to keep per job id.",
-          "title": "Retain sessions",
+          "description": "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes.",
+          "title": "Retain runs",
           "type": "integer"
         },
         "timeout": {
           "default": "30m",
-          "description": "Per-job wall-clock limit, e.g. 30m or 1h30m.",
-          "title": "Job timeout",
+          "description": "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds).",
+          "title": "Run timeout",
           "type": "string"
         }
       },

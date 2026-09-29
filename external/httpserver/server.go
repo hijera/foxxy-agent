@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -94,6 +95,10 @@ type Server struct {
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	// detachedPrompts is the broker turns this server builds itself hand their
+	// detached subagents; nil means this server alone (SetDetachedPrompts).
+	detachedPrompts agent.DetachedPermissionBroker
 
 	// events fans server-wide turn lifecycle events out to GET /foxxycode/events subscribers.
 	events             *serverEventsHub

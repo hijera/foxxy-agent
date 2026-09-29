@@ -5,7 +5,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 ## Development environment
 
 - **Go** - the version `go.mod` declares (1.25 today); CI reads it from the same file.
-- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up, and for `make test`, which builds those assets and runs the OpenCode rules plugin test with `node --test`.
+- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test`, which builds those assets, runs the SPA's vitest suite and the OpenCode rules plugin test with `node --test`; and for `make lint`, whose shipped-tag pass embeds those assets and whose last step type-checks the SPA with `tsc`.
 - **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.25 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.
 - **Python 3** - only for the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.

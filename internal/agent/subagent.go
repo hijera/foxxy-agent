@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -23,9 +24,10 @@ import (
 
 // SubagentRuntime is what the agent needs from the session manager to run a
 // child: create and register its session, run its one turn through the normal
-// prompt path, and retire it afterwards. session.Manager implements it; a
-// surface that has no manager (a scheduler run) leaves it unset and the
-// spawn_agent tool answers that subagents are unavailable.
+// prompt path, and retire it afterwards. session.Manager implements it, and
+// every surface that runs turns wires it - the scheduler's runs are children
+// of their job session and go through it too. A surface that leaves it unset
+// has the spawn_agent tool answer that subagents are unavailable.
 type SubagentRuntime interface {
 	CreateSubagentSession(ctx context.Context, spec session.SubagentSpec) (*session.State, error)
 	RunSubagentTurn(ctx context.Context, sessionID string, prompt []acp.ContentBlock, sender acp.UpdateSender) (*acp.SessionPromptResult, error)
@@ -65,6 +67,12 @@ type DetachedPermissionRequest struct {
 type DetachedPermissionBroker interface {
 	RequestDetachedPermission(ctx context.Context, req DetachedPermissionRequest) (*acp.PermissionResult, error)
 }
+
+// ErrNoDetachedApprover is what a broker answers when nothing that could show
+// the prompt is attached right now - in foxxycode serve, no surface is up, or none
+// of them owns the parent conversation. The relay reads it exactly like a
+// missing broker.
+var ErrNoDetachedApprover = errors.New("no surface can show a detached subagent's permission prompt")
 
 // SetDetachedPermissionBroker wires the surface that can answer a detached
 // child's prompt.
@@ -158,9 +166,10 @@ func releaseArbiter(parentID string) {
 }
 
 // permissionRelay forwards a child's permission requests to the parent's
-// sender while the parent turn that spawned the child is still alive, and
-// fails closed afterwards. It is created per spawn, so a child spawned by a
-// later turn carries that turn's context.
+// sender while the parent turn that spawned the child is still alive, and to
+// the surface's detached-permission broker once that turn has ended (failing
+// closed, with a reason, when there is none). It is created per spawn, so a
+// child spawned by a later turn carries that turn's context.
 type permissionRelay struct {
 	parent          acp.UpdateSender
 	parentSessionID string
@@ -187,10 +196,20 @@ func deniedPermission(reason string) *acp.PermissionResult {
 // Reasons a child's prompt is refused without anyone answering it. The child
 // is told which, so it reports honestly instead of claiming the user refused.
 const (
+	permissionReasonNoClient   = "no interactive client is attached to the session that spawned this subagent, so nobody could be asked. Do not retry the same call; finish and report what you could not do"
 	permissionReasonNoApprover = "this subagent is running detached: the turn that spawned it has ended and no interactive client is attached, so nobody could be asked. Do not retry the same call; finish and report what you could not do"
 	permissionReasonUnanswered = "the approval request was raised but nobody answered it before the run ended"
 	permissionReasonStopped    = "the run was stopped while waiting for approval"
 )
+
+// relayedPermissionTitle identifies whose tool call is awaiting approval.
+func relayedPermissionTitle(agentName, title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Run a tool"
+	}
+	return fmt.Sprintf("[subagent %s] %s", agentName, title)
+}
 
 // Request forwards one permission prompt. The parent context ending, the child
 // being stopped, or the caller's own context ending all resolve as a denial
@@ -219,11 +238,26 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		r.arbiter.waiting.Add(-1)
 		return deniedPermission(permissionReasonStopped), nil
 	}
-	defer func() { <-r.arbiter.slot }()
+	// The slot is handed back on every exit, and before any detached wait: that
+	// wait can last minutes, and a sibling's live prompt must not queue behind
+	// it.
+	slotHeld := true
+	releaseSlot := func() {
+		if slotHeld {
+			slotHeld = false
+			<-r.arbiter.slot
+		}
+	}
+	defer releaseSlot()
 	if r.turnCtx.Err() != nil {
+		releaseSlot()
 		return r.requestDetached(ctx, params)
 	}
 
+	// The prompt as it arrived, kept for the broker: the parent-facing copy
+	// below is addressed, titled and narrowed for the parent's client, and
+	// requestDetached does the same for the child-addressed one.
+	asked := params
 	params.SessionID = r.parentSessionID
 	// The stamp is the stricter of what arrived and this child's own mode: a
 	// grandchild's prompt crosses two relays, and the intermediate child must
@@ -233,11 +267,7 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	// ever cover that one run; the parent-facing modal offers the honest
 	// choices, allow once or reject.
 	params.Options = relayedPermissionOptions(params.Options)
-	title := strings.TrimSpace(params.ToolCall.Title)
-	if title == "" {
-		title = "Run a tool"
-	}
-	params.ToolCall.Title = fmt.Sprintf("[subagent %s] %s", r.agentName, title)
+	params.ToolCall.Title = relayedPermissionTitle(r.agentName, params.ToolCall.Title)
 
 	reqCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
@@ -264,9 +294,17 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		}
 		return out.res, nil
 	case <-r.turnCtx.Done():
-		// The modal is still on the parent's screen; re-raising it through the
-		// broker would ask the same question twice.
-		return abandon(permissionReasonUnanswered), nil
+		// An answer delivered as the turn ends must not be asked again.
+		select {
+		case out := <-done:
+			if out.err == nil && out.res != nil {
+				return out.res, nil
+			}
+		default:
+		}
+		cancel()
+		releaseSlot()
+		return r.requestDetached(ctx, asked)
 	case <-r.childCtx.Done():
 		return abandon(permissionReasonStopped), nil
 	case <-ctx.Done():
@@ -289,23 +327,30 @@ func (r *permissionRelay) requestDetached(ctx context.Context, params acp.Permis
 	params.SessionID = r.childSessionID
 	params.EffectivePermissionMode = subagents.NarrowPermissionMode(r.childPermissionMode, params.EffectivePermissionMode)
 	params.Options = relayedPermissionOptions(params.Options)
-	title := strings.TrimSpace(params.ToolCall.Title)
-	if title == "" {
-		title = "Run a tool"
-	}
-	params.ToolCall.Title = fmt.Sprintf("[subagent %s] %s", r.agentName, title)
+	params.ToolCall.Title = relayedPermissionTitle(r.agentName, params.ToolCall.Title)
 
-	res, err := r.broker.RequestDetachedPermission(ctx, DetachedPermissionRequest{
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopWatching := context.AfterFunc(r.childCtx, cancel)
+	defer stopWatching()
+
+	res, err := r.broker.RequestDetachedPermission(waitCtx, DetachedPermissionRequest{
 		ParentSessionID: r.parentSessionID,
 		ChildSessionID:  r.childSessionID,
 		TaskID:          r.taskID,
 		AgentName:       r.agentName,
 		Params:          params,
 	})
-	if err != nil || res == nil {
+	switch {
+	case errors.Is(err, ErrNoDetachedApprover):
+		return deniedPermission(permissionReasonNoApprover), nil
+	case err == nil && res != nil:
+		return res, nil
+	case r.childCtx.Err() != nil || ctx.Err() != nil:
+		return deniedPermission(permissionReasonStopped), nil
+	default:
 		return deniedPermission(permissionReasonUnanswered), nil
 	}
-	return res, nil
 }
 
 // subagentSender is the child's acp.UpdateSender: progress goes to the task's
@@ -418,8 +463,14 @@ func (h *subagentHandle) Stop(time.Duration) error {
 func (h *subagentHandle) PID() int                    { return 0 }
 func (h *subagentHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
-// subagentRun is the bookkeeping of one spawn from the parent's side.
+// subagentRun is the bookkeeping of one child run: a spawn from the parent's
+// side, or a scheduled run from the daemon's.
 type subagentRun struct {
+	// name is what the run is called in logs and reports: the definition
+	// name of a spawn, the job id (or its definition) of a scheduled run.
+	name string
+	// def is the definition the run is made under; nil for a scheduled run
+	// without one.
 	def     *subagents.Definition
 	childID string
 	taskID  string
@@ -435,6 +486,18 @@ type subagentRun struct {
 	status     string // end_turn | cancelled | failed | ...
 	err        error
 	mu         sync.Mutex
+}
+
+// displayName is what logs and reports call the run: the name it was given,
+// or its definition's when a caller built the run from a definition alone.
+func (r *subagentRun) displayName() string {
+	if r.name != "" {
+		return r.name
+	}
+	if r.def != nil {
+		return r.def.Name
+	}
+	return ""
 }
 
 // subagentDepth is how deep this agent's session sits in a spawn tree.
@@ -467,6 +530,7 @@ func (a *Agent) canSpawnInMode(mode string) bool {
 // which a concurrent session/set_mode can flip while the turn runs.
 func (a *Agent) applySubagentEnv(env *tools.Env, mode string) {
 	env.SubagentDepth = a.subagentDepth()
+	env.WakeableSession = a.subagent == nil
 	if a.canSpawnInMode(mode) {
 		env.SpawnAgent = func(ctx context.Context, req tooling.SpawnRequest) (string, error) {
 			return a.spawnSubagentInMode(ctx, req, mode)
@@ -495,16 +559,33 @@ func (a *Agent) subagentCatalogBlock() string {
 	return subagents.PromptBlock(entries)
 }
 
-// subagentRoleBlock renders the child's role section.
+// subagentRoleBlock renders the child's role section: a delegate's preamble
+// for a spawned child, a scheduled job's for a run the scheduler started.
 func (a *Agent) subagentRoleBlock() string {
 	if a.subagent == nil {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are running as the subagent **%s**, spawned by a parent agent to complete one self-contained task. ", a.subagent.Name)
-	b.WriteString("You see nothing of the parent's conversation: work from the task below and from the workspace. ")
-	b.WriteString("You cannot ask the user questions; if something blocks you, say so in your report. ")
-	b.WriteString("Only your final message reaches the parent, so finish with a concise report of what you did, what you found (with file paths), and what remains.")
+	if sched := a.subagent.Scheduler; sched != nil {
+		fmt.Fprintf(&b, "You are running the scheduled job **%s**", sched.JobID)
+		switch sched.Trigger {
+		case "cron":
+			if !sched.FireSlot.IsZero() {
+				fmt.Fprintf(&b, ", started by the scheduler on its cron schedule at %s", sched.FireSlot.UTC().Format("2006-01-02 15:04 UTC"))
+			} else {
+				b.WriteString(", started by the scheduler on its cron schedule")
+			}
+		case "manual":
+			b.WriteString(", started by hand through the scheduler")
+		}
+		b.WriteString(". The run is unattended: nobody watches it and nobody answers questions, so work from the instruction below and from the workspace, and when something blocks you, say so and stop. ")
+		b.WriteString("Your final message is kept as the run's record together with the transcript, so finish with a concise report of what you did, what you found (with file paths), and what remains.")
+	} else {
+		fmt.Fprintf(&b, "You are running as the subagent **%s**, spawned by a parent agent to complete one self-contained task. ", a.subagent.Name)
+		b.WriteString("You see nothing of the parent's conversation: work from the task below and from the workspace. ")
+		b.WriteString("You cannot ask the user questions; if something blocks you, say so in your report. ")
+		b.WriteString("Only your final message reaches the parent, so finish with a concise report of what you did, what you found (with file paths), and what remains.")
+	}
 	if role := strings.TrimSpace(a.subagent.Role); role != "" {
 		b.WriteString("\n\n")
 		b.WriteString(role)
@@ -659,7 +740,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			def.Name, cfg.Subagents.EffectiveMaxConcurrent())
 	}
 
-	notify := req.NotifyOnFinish && background && a.subagentDepth() == 0
+	// Only a session somebody can wake registers a wake: a child and a
+	// scheduled run are sealed when their turn returns.
+	notify := req.NotifyOnFinish && background && a.subagent == nil
 	label := firstLine(req.Description)
 	if label == "" {
 		label = firstLine(req.Prompt)
@@ -682,19 +765,22 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		parentSessionID:     parentID,
 		childSessionID:      childID,
 		agentName:           def.Name,
+		broker:              a.detachedPermissions,
 		childPermissionMode: childPerm,
 		turnCtx:             ctx,
 		childCtx:            runCtx,
 		arbiter:             arbiter,
-		broker:              a.detachedPermissions,
 	}
-	run := &subagentRun{def: def, childID: childID, prompt: prompt, parentMode: mode, handle: handle, startedAt: time.Now()}
+	run := &subagentRun{name: def.Name, def: def, childID: childID, prompt: prompt, parentMode: mode, handle: handle, startedAt: time.Now()}
 
 	var finishOnce sync.Once
 	finish := func() {
 		finishOnce.Do(func() {
-			// Work the child launched settles before its transcript is sealed.
+			// Work the child launched settles before its transcript is sealed,
+			// and its records leave the pool's memory with it: the bundle keeps
+			// them, and a retired session is not coming back for them.
 			pool.StopSession(childID)
+			pool.ReleaseSession(childID)
 			rt.RetireSubagentSession(childID)
 			releaseArbiter(parentID)
 			release()
@@ -783,11 +869,23 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	return b.String(), nil
 }
 
-// executeSubagentRun creates the child session, drives its one turn and
-// records the outcome. It runs on its own goroutine; the pool supervises
-// through the handle, and a Stop or timeout that lands while the session is
-// still being created cancels the creation through the run context.
+// executeSubagentRun is executeChildRun for a spawn: the parent's logger, and
+// the parent's SubagentStop hooks see the outcome before the report is sealed.
 func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, spec session.SubagentSpec, out io.Writer, finish func()) {
+	executeChildRun(ctx, rt, run, spec, out, finish, a.log, func(status, report string, turns int) {
+		a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.displayName(), run.childID, run.taskID, status, report, turns)
+	})
+}
+
+// executeChildRun creates the child session, drives its one turn and records
+// the outcome. It runs on its own goroutine; the pool supervises through the
+// handle, and a Stop or timeout that lands while the session is still being
+// created cancels the creation through the run context. onStop, when set,
+// sees the outcome before the report is written to the sink.
+func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, spec session.SubagentSpec, out io.Writer, finish func(), log *slog.Logger, onStop func(status, report string, turns int)) {
+	if log == nil {
+		log = slog.Default()
+	}
 	exit := 1
 	var st *session.State
 	defer func() {
@@ -796,7 +894,7 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 			run.status = "failed"
 			run.err = fmt.Errorf("subagent panicked: %v", r)
 			run.mu.Unlock()
-			a.log.Error("subagent run panicked", "agent", run.def.Name, "session", run.childID, "panic", r)
+			log.Error("subagent run panicked", "agent", run.displayName(), "session", run.childID, "panic", r)
 		}
 		run.sender.Flush()
 		_, _ = io.WriteString(out, formatSubagentReport(run, st))
@@ -848,7 +946,9 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 	}
 	// SubagentStop hooks in the parent see the outcome before the report is
 	// sealed, so a foreground parent reads a report the hook already saw.
-	a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.def.Name, run.childID, run.taskID, run.status, run.report, run.turns)
+	if onStop != nil {
+		onStop(run.status, run.report, run.turns)
+	}
 }
 
 // parentSessionMCPDeclarations returns the ACP client-supplied MCP declarations
@@ -867,7 +967,7 @@ func formatSubagentReport(run *subagentRun, st *session.State) string {
 	var b strings.Builder
 	b.WriteString("\n=== subagent report ===\n")
 	fmt.Fprintf(&b, "agent: %s | task: %s | session: %s | outcome: %s | turns: %d | duration: %s\n",
-		run.def.Name, run.taskID, run.childID, run.status, run.turns, humanSecondsAgent(int(time.Since(run.startedAt).Round(time.Second)/time.Second)))
+		run.displayName(), run.taskID, run.childID, run.status, run.turns, humanSecondsAgent(int(time.Since(run.startedAt).Round(time.Second)/time.Second)))
 	if run.err != nil {
 		fmt.Fprintf(&b, "error: %v\n", run.err)
 	}
@@ -901,7 +1001,7 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 		status = run.status
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.def.Name, status, turns)
+	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.displayName(), status, turns)
 	b.WriteString(wrapXMLCDATA(report))
 	b.WriteString("\n</subagent>\n")
 	if runErr != nil {
