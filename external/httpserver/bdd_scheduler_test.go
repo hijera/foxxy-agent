@@ -67,6 +67,12 @@ func (p *schedHTTPProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm
 	return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
 }
 
+func (p *schedHTTPProvider) called() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls > 0
+}
+
 type schedulerHTTPState struct {
 	root, home, sessRoot, schedDir string
 	cfg                            *config.Config
@@ -268,9 +274,9 @@ func (s *schedulerHTTPState) postRunHeld() error {
 	}
 	return waitUntil("the run to reach its model", func() bool {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		p, ok := s.providers[s.runSession]
-		return ok && p.calls > 0
+		p := s.providers[s.runSession]
+		s.mu.Unlock()
+		return p != nil && p.called()
 	})
 }
 

@@ -94,6 +94,12 @@ func (p *scriptedRunProvider) everOffered(name string) bool {
 	return false
 }
 
+func (p *scriptedRunProvider) called() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls > 0
+}
+
 // ---- feature state ----
 
 type schedulerRunsState struct {
@@ -383,9 +389,9 @@ func (s *schedulerRunsState) runInFlight(jobID string) error {
 	// The task exists at once; the model is held by the release channel.
 	return waitFor("the run to reach its model", func() bool {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		p, ok := s.providers[ref.RunSessionID]
-		return ok && p.calls > 0
+		p := s.providers[ref.RunSessionID]
+		s.mu.Unlock()
+		return p != nil && p.called()
 	})
 }
 
