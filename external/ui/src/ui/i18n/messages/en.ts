@@ -598,6 +598,13 @@ export const messagesEn: Record<string, string> = {
   "settings.proxy.hostRequired": "Enter the proxy host.",
   "settings.proxy.apply": "Apply",
   "settings.proxy.clear": "No proxy",
+  "settings.providerProxy.ignoreSystem": "Ignore system proxy",
+  "settings.providerProxy.ignoreSystemDesc":
+    "Connect directly: this provider ignores the environment and operating system proxy. Saved as proxy: none.",
+  "settings.providerProxy.placeholderSystem": "Follows the system proxy",
+  "settings.providerProxy.placeholderDirect": "Direct connection",
+  "settings.gatewayProxy.ignoreSystemDesc":
+    "Connect directly: the Telegram bot ignores the environment and operating system proxy. Saved as proxy: none.",
   "settings.removeItem": "Remove {name}",
   "settings.unnamedItem": "(unnamed #{index})",
   "settings.modelIdLabel": "Model id",

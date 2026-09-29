@@ -39,7 +39,8 @@
           },
           "proxy": {
             "type": "string",
-            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). Overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g. forwarded by the IDE plugin); NO_PROXY is still honored and local addresses always connect directly. When empty, the environment proxy is used, else the operating system proxy settings (on Windows including a PAC script or automatic detection). Special characters in the login or password must be percent-encoded (@ as %40, / as %2F)."
+            "description": "inherit (the default, also empty) follows HTTP_PROXY/HTTPS_PROXY and NO_PROXY, or the operating system proxy when no environment proxy is set. none connects directly. An http, https, socks5 or socks5h URL overrides the inherited proxy while preserving NO_PROXY and loopback bypass. The setting covers completions, model lists, account usage and sign-in. Percent-encode special characters in proxy credentials.",
+            "default": "inherit"
           },
           "timeout_ms": {
             "type": "integer",
@@ -1552,7 +1553,7 @@
             },
             "proxy": {
               "type": "string",
-              "description": "Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL.",
+              "description": "inherit (the default, also empty) follows environment or system proxy settings; none connects directly; or set an http, https, socks5 or socks5h URL for Telegram API requests.",
               "default": ""
             },
             "rich_messages": {

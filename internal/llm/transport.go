@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
@@ -38,10 +39,14 @@ var (
 // environment and system proxy resolver reads. A change to any of them builds
 // a new transport instead of reusing one that routes the old way.
 func providerTransportKey(proxyURL string) string {
-	if proxyURL = strings.TrimSpace(proxyURL); proxyURL != "" {
-		return "proxy\x00" + proxyURL + "\x00" + noProxyEnv()
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" || strings.EqualFold(proxyURL, config.ProxyInherit) {
+		return "env\x00" + netx.EnvironmentProxyKey()
 	}
-	return "env\x00" + netx.EnvironmentProxyKey()
+	if strings.EqualFold(proxyURL, config.ProxyNone) {
+		return "none"
+	}
+	return "proxy\x00" + proxyURL + "\x00" + noProxyEnv()
 }
 
 // providerTransport returns the shared transport for proxyURL (empty means the

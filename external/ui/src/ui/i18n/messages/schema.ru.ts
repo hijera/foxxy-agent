@@ -698,6 +698,11 @@ export const schemaTextRu: Record<string, string> = {
   "Allowlist": "Список разрешённых",
   "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.":
     "Назначения, к которым обращаются без вопроса: хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/); «*» разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат; для прокси нужна своя запись, а сохранение ответа в файл подчиняется политике записи.",
+  "Proxy URL": "URL прокси",
+  "Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.":
+    "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для провайдера. URL заменяет унаследованный прокси; NO_PROXY и локальные адреса обходят его. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую. Редактор URL защищает учётные данные.",
+  "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.":
+    "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для Telegram. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую.",
 };
 
 /**

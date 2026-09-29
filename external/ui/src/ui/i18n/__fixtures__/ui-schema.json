@@ -549,8 +549,8 @@
               "type": "boolean"
             },
             "proxy": {
-              "description": "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
-              "title": "Proxy",
+              "description": "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.",
+              "title": "Proxy URL",
               "type": "string",
               "x-foxxycode-proxy-url": true
             },
@@ -1180,8 +1180,8 @@
             "type": "string"
           },
           "proxy": {
-            "description": "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or the operating system proxy settings when there is none (on Windows including a PAC script or automatic detection); with neither the connection is direct. Special characters in the login or password must be percent-encoded - the … button next to the field builds the URL for you.",
-            "title": "HTTP or SOCKS proxy",
+            "description": "Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.",
+            "title": "Proxy URL",
             "type": "string",
             "x-foxxycode-proxy-url": true
           },

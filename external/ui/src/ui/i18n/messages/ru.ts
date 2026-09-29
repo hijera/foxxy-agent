@@ -621,6 +621,13 @@ export const messagesRu: Record<string, string> = {
   "settings.proxy.hostRequired": "Укажите хост прокси.",
   "settings.proxy.apply": "Применить",
   "settings.proxy.clear": "Без прокси",
+  "settings.providerProxy.ignoreSystem": "Игнорировать системный прокси",
+  "settings.providerProxy.ignoreSystemDesc":
+    "Подключаться напрямую: провайдер игнорирует прокси из окружения и системы. Сохраняется proxy: none.",
+  "settings.providerProxy.placeholderSystem": "Через системный прокси",
+  "settings.providerProxy.placeholderDirect": "Прямое подключение",
+  "settings.gatewayProxy.ignoreSystemDesc":
+    "Подключаться напрямую: бот Telegram игнорирует прокси из окружения и системы. Сохраняется proxy: none.",
   "settings.removeItem": "Удалить {name}",
   "settings.unnamedItem": "(без имени #{index})",
   "settings.modelIdLabel": "Идентификатор модели",

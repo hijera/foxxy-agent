@@ -163,7 +163,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"
     # api_base: ""                    # optional override for OpenAI-compatible base URL
     # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
-    # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
+    # proxy: none                     # inherit (default), none, or a proxy URL
     # timeout_ms: 300000               # optional bound on each LLM request incl. streamed read (0 = no client timeout)
 
   - name: "anthropic"
@@ -562,7 +562,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enable: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enable: true`. `proxy` is optional (empty follows the environment or system proxy; `none` connects directly). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/surfaces/gateway.md](../surfaces/gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
@@ -646,6 +646,16 @@ YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (for `neuraldeep` it selects one of the two official deployments; ignored for the fixed-endpoint `codex` provider), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
 - **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (the context window the web UI context ring, the console context percentage and automatic compaction measure against; **`0`** reads it from the provider's model listing when the provider reports one, else 128000 - see [Context compaction](../features/compaction.md#the-context-window)), optional **`multimodal`**, optional **`reasoning_levels`** (omitted: auto-detected from the API model id — **`gpt-5*`** → **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, ...) and Claude extended-thinking models → **`low,medium,high`**), and optional **`reasoning_default`**. For **`qwen3*`** models on OpenAI-compatible providers a selected level also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`**, because Qwen thinking is a chat-template switch rather than an effort tier. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
+
+### Provider proxy
+
+`providers[].proxy` selects the route for every request made by a provider row: completions, model lists, account usage and sign-in.
+
+- Empty or `inherit` follows `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, or the operating system proxy when no environment proxy is configured. Loopback stays direct.
+- `none` connects directly, ignoring environment and system proxy settings.
+- An `http://`, `https://`, `socks5://` or `socks5h://` URL selects that proxy. FoxxyCode still applies `NO_PROXY` and the loopback bypass to this route. The URL editor masks credentials and percent-encodes special characters.
+
+The setting belongs to its provider row, so one provider can use a proxy while another connects directly. `gateways.telegram.proxy` accepts the same values. The **Ignore system proxy** switch in Settings writes `none`; turning it off restores the URL previously entered while the form is open. Changes to environment proxy variables require a process restart. See [Working behind a proxy](../operate/proxy.md) and [Web UI](../surfaces/web-ui.md#settings-provider-proxy).
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

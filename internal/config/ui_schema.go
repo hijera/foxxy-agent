@@ -229,8 +229,8 @@ func UISchemaMap() map[string]interface{} {
 		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
 	providerAPIKey["x-foxxycode-provider-api-key-env-placeholder"] = true
 	providerAPIKey["x-foxxycode-secret"] = true
-	providerProxy := proxyProp("HTTP or SOCKS proxy",
-		"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or the operating system proxy settings when there is none (on Windows including a PAC script or automatic detection); with neither the connection is direct. Special characters in the login or password must be percent-encoded - the … button next to the field builds the URL for you.")
+	providerProxy := proxyProp("Proxy URL",
+		"Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.")
 	providerProps := map[string]interface{}{
 		"name": providerName,
 		"type": map[string]interface{}{
@@ -355,8 +355,8 @@ func UISchemaMap() map[string]interface{} {
 			"BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"rich_messages": boolProp("Rich messages",
 			"Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported."),
-		"proxy": proxyProp("Proxy",
-			"Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h."),
+		"proxy": proxyProp("Proxy URL",
+			"Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly."),
 		"admins": map[string]interface{}{
 			"type":        "array",
 			"title":       "Admins",

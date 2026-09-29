@@ -165,6 +165,18 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - The **`…`** button opens **`ProxyEditorDialog`**: protocol, host, port, login and password as separate fields, the resulting address with its password hidden, **No proxy** / **Cancel** / **Apply**. **`buildProxyUrl`** percent-encodes the login and password. The dialog is opaque and sits above the first-run dialog (z-index 130); Escape and Tab are caught on `window` in the capture phase.
 - Automated checks: **`proxyUrl.test.ts`**, **`ProxyUrlField.test.tsx`**, **`SchemaForm.secret.test.tsx`**, **`ProviderPickerDialog.test.tsx`**. User guide: [Working behind a proxy](../operate/proxy.md).
 
+## Settings: provider proxy
+
+![A provider row set to connect directly, its proxy URL field disabled](../assets/settings-provider-proxy-dark-1280.png)
+
+*A provider row set to connect directly, its proxy URL field disabled*
+
+- Every row in **Settings → LLM Providers**, codex included, carries an **Ignore system proxy** switch above the **Proxy URL** field (**`ProxySettingField`**). Both edit **`providers[].proxy`**, the route of every request of the row: its completions, its model list, its account usage and its sign-in ([Provider proxy](../getting-started/configuration.md#provider-proxy)). The Telegram bot's **`gateways.telegram.proxy`** reads the same way and has the same pair in **Settings → System**, under the gateways block ([Telegram gateway](gateway.md#proxy)).
+- The switch writes **`none`**: the row connects directly and ignores **`HTTPS_PROXY`**, **`HTTP_PROXY`** and **`NO_PROXY`** of the FoxxyCode process. While it is on, the URL field is disabled and reads **Direct connection**.
+- With the switch off, a URL in the field sends every request of the row through that proxy, and an empty field (or a stored **`inherit`**) reads **Follows the system proxy**, the default route.
+- Turning the switch off brings back what the row held before it went on, for as long as the form is open. The document keeps one value, so after **Save** a row set to **`none`** no longer remembers the URL it replaced.
+- The value travels through **`GET`** / **`PUT /foxxycode/config`** as written. A value that is neither a keyword nor a proxy URL is refused on **Save**, and the error names the accepted ones.
+
 ## Settings: boolean switch fields
 
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control, its label, and the optional description on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, **System** gateway flags) and the **Skills → Skill auto-discovery** row.
@@ -458,7 +470,7 @@ SSE payloads
   - `mode` (`currentModeId`; the backend switched the session profile itself — a plan run, or `plan_exit`)
   - `token_usage`
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
-  - `memory_run`, `compaction`, `mcp_phase`, `debug`, `available_commands`
+  - `memory_phase`, `memory_chunk`, `compaction`, `mcp_phase`, `debug`, `available_commands`
   - `permission`, `question`, and the terminal `foxxycode_meta` before `data: [DONE]`
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
@@ -1114,11 +1126,11 @@ both processes with headroom under a 45-second outer timeout.
   - When the user reloads the page
   - Then the token usage HUD shows the persisted totals
 
-- Memory subagent task (Playwright MCP)
+- Memory copilot row (Playwright MCP)
   - Given **`memory.enable: true`** on the **`foxxycode http`** process and at least one Markdown file under global or workspace memory so recall can run
   - When the user sends a chat message that completes a full ReAct turn
   - Then the transcript shows no memory row, and while the run is in flight the live status line reads **Working with memory**
   - When the user opens the Tasks drawer
   - Then a task labelled **`memory: <first line of the message>`** carries the **memory** badge (**`bgtask-agent-badge-<id>`**), its detail pane shows the child's log ending with **`=== subagent report ===`** and the delivery line, and **Open transcript** opens the child session read-only
 
-For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the live status shows **Working with memory** while running and the Tasks drawer shows the memory task and its child transcript.
+For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

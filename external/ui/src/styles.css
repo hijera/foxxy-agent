@@ -8583,7 +8583,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
-.settings-input[readonly] {
+.settings-input[readonly],
+.settings-input:disabled {
   background: var(--foxxycode-surface-muted);
   color: var(--muted);
   cursor: not-allowed;

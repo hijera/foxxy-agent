@@ -20,7 +20,7 @@ of three places. They apply in this order:
    and what a `foxxycode` started from a shortcut uses: nothing passes those a proxy in the
    environment.
 
-Loopback addresses (`localhost`, `127.0.0.1`, `::1`) never go through a proxy. A local
+Loopback addresses (`localhost`, `127.0.0.1`, `::1`) never go through a proxy. Provider and Telegram proxy fields also accept `inherit` (the default) and `none` (always direct). A local
 `api_base` (Ollama, LM Studio) keeps working with any of the three.
 
 ## The proxy field in Settings
