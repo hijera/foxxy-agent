@@ -8,7 +8,7 @@ A machine-readable [JSON Schema](../../internal/config/config.schema.json) accom
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
-VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in coddy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
+VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in foxxy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
@@ -297,7 +297,7 @@ Summarize older turns when the conversation approaches the model's context windo
 | `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
 | `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |
-| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99. |
+| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (foxxycode) / 85 (opencode); the opencode engine clamps to 50..99. |
 | `compaction.keep_recent_turns` | integer | 2 | Number of most recent user turns preserved verbatim (never summarized). Default 2. |
 | `compaction.max_tokens` | integer | 4096 | Completion token cap for the summary generation (opencode engine only). |
 | `compaction.result_eviction` | object |  | Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete. |
@@ -318,18 +318,23 @@ Generate a short LLM thread title after the first exchange in a fresh, non-pinne
 
 ### `memory`
 
-Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).
+Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.enable` | boolean | false | Turn on the memory copilot. |
-| `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
-| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not silence the copilot. |
+| `memory.enable` | boolean | false | Turn on the memory subagent. |
+| `memory.model` | string | "" | Exact models[].model id the memory subagent runs on; empty uses the session's model. |
+| `memory.fallback_models` | list of strings |  | Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~. |
-| `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
-| `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |
-| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory copilot LLM calls. |
+| `memory.wait_seconds` | integer or null | 20 | How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer. |
+| `memory.timeout_seconds` | integer | 300 | Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool. |
+| `memory.keep_runs` | integer or null | 20 | Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run. |
+| `memory.recall_max_turns` | integer | 6 | Bounds the memory subagent's ReAct rounds together with persist_max_turns; the cap is the larger of the two. |
+| `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the cap is the larger of the two. |
+| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory subagent LLM calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
+| `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and foxxycode -t reports it. 0 means no cap. |
 
 ### `httpserver`
 
@@ -617,7 +622,7 @@ project-local file need a workspace approval before they are started - see
 
 MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
 
-Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
+Added for [issue #80](https://github.com/hijera/foxxy-agent/issues/80).
 Approvals are recorded in `~/.foxxycode/mcp-trust.json`, keyed by the canonical workspace path
 and a digest of the command-bearing declaration (transport, command, args, env, url,
 headers), so rewriting an approved entry asks again. Approve with `foxxycode mcp trust <name>`,
@@ -681,7 +686,7 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 
 Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
 
-Two engines share the section, selected by `engine`: the default **coddy** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward; the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Both answer the manual `/compact` command, the HTTP compact endpoint and the model's `compact_context` tool, fold a history larger than the summarizer's window in passes and walk `fallback_models`. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
+Two engines share the section, selected by `engine`: the default **foxxycode** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward; the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Both answer the manual `/compact` command, the HTTP compact endpoint and the model's `compact_context` tool, fold a history larger than the summarizer's window in passes and walk `fallback_models`. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
 
 #### `compaction.result_eviction`
 
@@ -693,7 +698,7 @@ Automatic session titles (`config.TitleConfig`, `internal/config/title.go`; alwa
 
 ### `memory`
 
-Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag).
+The long-term memory subagent (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag): the child run every user turn starts in the task pool, the wait for its report, the retention of finished runs ([Long-term memory](../features/memory.md)).
 
 ### `httpserver`
 

@@ -458,7 +458,7 @@ SSE payloads
   - `mode` (`currentModeId`; the backend switched the session profile itself — a plan run, or `plan_exit`)
   - `token_usage`
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
-  - `memory_phase`, `memory_chunk`, `compaction`, `mcp_phase`, `debug`, `available_commands`
+  - `memory_run`, `compaction`, `mcp_phase`, `debug`, `available_commands`
   - `permission`, `question`, and the terminal `foxxycode_meta` before `data: [DONE]`
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
@@ -1114,11 +1114,11 @@ both processes with headroom under a 45-second outer timeout.
   - When the user reloads the page
   - Then the token usage HUD shows the persisted totals
 
-- Memory copilot row (Playwright MCP)
+- Memory subagent task (Playwright MCP)
   - Given **`memory.enable: true`** on the **`foxxycode http`** process and at least one Markdown file under global or workspace memory so recall can run
   - When the user sends a chat message that completes a full ReAct turn
-  - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
-  - When the user opens the details element
-  - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `foxxycode_memory_save`)
+  - Then the transcript shows no memory row, and while the run is in flight the live status line reads **Working with memory**
+  - When the user opens the Tasks drawer
+  - Then a task labelled **`memory: <first line of the message>`** carries the **memory** badge (**`bgtask-agent-badge-<id>`**), its detail pane shows the child's log ending with **`=== subagent report ===`** and the delivery line, and **Open transcript** opens the child session read-only
 
-For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.
+For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the live status shows **Working with memory** while running and the Tasks drawer shows the memory task and its child transcript.

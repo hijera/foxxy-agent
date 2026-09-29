@@ -23,7 +23,7 @@
   <a href="https://hijera.github.io/foxxy-agent/?lang=ru"><strong>Сайт</strong></a> - загрузки, скриншоты, <a href="https://hijera.github.io/foxxy-agent/compare/?lang=ru">сравнение</a>, <a href="https://hijera.github.io/foxxy-agent/changelog/?lang=ru">изменения</a>
 </p>
 
-> **Foxxy Agent основан на [coddy-agent](https://github.com/coddy-project/coddy-agent)** проекта Coddy (MIT).
+> **Foxxy Agent основан на [foxxy-agent](https://github.com/hijera/foxxy-agent)** проекта FoxxyCode (MIT).
 > Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
 > оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.
 

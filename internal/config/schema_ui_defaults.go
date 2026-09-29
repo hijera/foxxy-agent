@@ -1,6 +1,7 @@
 package config
 
 func boolPtr(v bool) *bool { return &v }
+func intPtr(v int) *int   { return &v }
 
 // SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
@@ -137,6 +138,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Enabled:          false,
 			Model:            "",
 			Dir:              "",
+			WaitSeconds:      intPtr(MemoryDefaultWaitSeconds),
+			TimeoutSeconds:   MemoryDefaultTimeoutSeconds,
+			KeepRuns:         intPtr(MemoryDefaultKeepRuns),
 			RecallMaxTurns:   6,
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,

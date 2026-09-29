@@ -32,7 +32,6 @@ import type { PermissionResolvedState } from "../chat/permissionTypes";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
-import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
@@ -40,19 +39,6 @@ import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
-
-/** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
-function mainThinkingOverlapsMemory(
-  items: TranscriptItem[],
-  memIndex: number,
-): boolean {
-  for (let i = memIndex + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it || it.type === "user_message") return false;
-    if (it.type === "thinking" && it.status === "in_progress") return true;
-  }
-  return false;
-}
 
 export function MessageList(props: {
   items: TranscriptItem[];
@@ -239,57 +225,6 @@ export function MessageList(props: {
             />
           );
         }
-        if (it.type === "memory_copilot") {
-          return (
-            <MemoryCopilotMessage
-              key={it.id}
-              mainThinkingInProgress={mainThinkingOverlapsMemory(
-                props.items,
-                idx,
-              )}
-              {...(typeof it.memoryStatus !== "undefined"
-                ? { memoryStatus: it.memoryStatus }
-                : {})}
-              {...(typeof it.memoryText === "string"
-                ? { memoryText: it.memoryText }
-                : {})}
-              recallStatus={it.recallStatus}
-              persistStatus={it.persistStatus}
-              recallText={it.recallText}
-              persistText={it.persistText}
-              {...(typeof it.recallDurationMs === "number"
-                ? { recallDurationMs: it.recallDurationMs }
-                : {})}
-              {...(typeof it.persistDurationMs === "number"
-                ? { persistDurationMs: it.persistDurationMs }
-                : {})}
-              {...(typeof it.memoryWallStartedAtMs === "number"
-                ? { memoryWallStartedAtMs: it.memoryWallStartedAtMs }
-                : {})}
-              {...(typeof it.memoryWallLiveCapMs === "number"
-                ? { memoryWallLiveCapMs: it.memoryWallLiveCapMs }
-                : {})}
-              {...(typeof it.memoryWallDurationMs === "number"
-                ? { memoryWallDurationMs: it.memoryWallDurationMs }
-                : {})}
-              {...(typeof it.persistSaved === "boolean"
-                ? { persistSaved: it.persistSaved }
-                : {})}
-              {...(it.persistRelativePath !== undefined
-                ? { persistRelativePath: it.persistRelativePath }
-                : {})}
-              {...(it.persistTitle !== undefined
-                ? { persistTitle: it.persistTitle }
-                : {})}
-              {...(it.persistSavedBody !== undefined
-                ? { persistSavedBody: it.persistSavedBody }
-                : {})}
-              {...(it.recallReadPaths !== undefined
-                ? { recallReadPaths: it.recallReadPaths }
-                : {})}
-            />
-          );
-        }
         if (it.type === "assistant_message") {
           // Whitespace alone is a zero-height row that still takes the column's
           // gap, a hole between the rows around it; there is nothing in it to copy.
@@ -320,6 +255,9 @@ export function MessageList(props: {
         }
         if (it.type === "compaction") {
           return <CompactionMessage key={it.id} summary={it.summary} />;
+        }
+        if (it.type === "memory_run") {
+          return null;
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();

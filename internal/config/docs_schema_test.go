@@ -91,11 +91,18 @@ func schemaTypeForGoType(t reflect.Type) string {
 // checkSchemaNodeMatchesType recursively verifies that a schema node describes goType.
 func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, node map[string]interface{}) {
 	t.Helper()
+	wasPointer := goType.Kind() == reflect.Pointer
 	if goType.Kind() == reflect.Pointer {
 		goType = goType.Elem()
 	}
 	wantType := schemaTypeForGoType(goType)
 	gotType, _ := node["type"].(string)
+	if choices, ok := node["type"].([]interface{}); ok && wasPointer && len(choices) == 2 {
+		if (choices[0] == wantType && choices[1] == "null") ||
+			(choices[1] == wantType && choices[0] == "null") {
+			gotType = wantType
+		}
+	}
 	if gotType != wantType {
 		t.Errorf("%s: schema type %q, want %q", path, gotType, wantType)
 		return

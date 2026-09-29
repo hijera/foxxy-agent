@@ -262,7 +262,7 @@ Some features live under **`external/`** and define tools that are **not** regis
 
 1. **One tool per file** - a package-local constructor returns **`*tooling.Tool`** with **`Definition`** (name, description, **`InputSchema`**) and **`Execute`** in one place. **`Execute`** takes **`context.Context`**, JSON args as a string, and **`*tooling.Env`** (use **`CWD`** or other fields when the tool needs session context; pass **`&tooling.Env{}`** when unused).
 2. **JSON schema maps** - prefer **`map[string]interface{}`** for **`InputSchema`** and **`[]interface{}`** for **`required`** and enum lists so OpenAI and Anthropic marshaling stay consistent with existing scheduler tools.
-3. **`register.go`** - collects constructors. **`external/scheduler/tools`** exposes **`RegisterTools`** for the main agent registry. **`external/memory/tools`** exposes **`PersistTools`**, **`RecallTools`**, **`ToolDefinitions`**, and **`Exec`** because the memory copilot runs a separate LLM loop in **`external/memory/copilot.go`**.
+3. **`register.go`** - collects constructors. **`external/scheduler/tools`** exposes **`RegisterTools`** for the main agent registry. **`external/memory/tools`** exposes **`PersistTools`** and **`RecallTools`**, which **`external/memory.Tools`** hands to **`internal/agent`** for the registry of the memory subagent (a child session the runtime starts per user turn), never for an ordinary session.
 4. **Naming** - scheduler files use the **`job_*.go`** prefix; memory tool bodies use the **`mem_*.go`** prefix; **`external/memory/tools`** keeps **`env.go`**, **`names.go`**, **`register.go`** without the **`mem_`** prefix.
 
 ### MCP Client (`internal/mcp`)
@@ -352,7 +352,7 @@ This is unrelated to the **`debug`** session mode below; the mode changes the mo
 ### `ask` mode
 - Read-only question-answering surface enforced by **`internal/agent.ToolSetForMode("ask")`** and re-checked at execution time: a call that names a tool outside the set (for example one replayed from history recorded in agent mode) is refused with a read-only notice instead of run
 - Tools: **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, and **`load_skill`**
-- No shell, no plan/todo/config tools, no MCP tools, no file/document writers, no scheduler or SSH tools, no browser automation, and no memory mutations (the memory copilot runs its recall-only pass)
+- No shell, no plan/todo/config tools, no MCP tools, no file/document writers, no scheduler or SSH tools, no browser automation, and no memory mutations (the memory subagent runs in recall-only mode)
 - Suitable for: repository-grounded explanations, reviews, investigation, and user questions without changing project state
 
 Mode switching:
@@ -368,7 +368,7 @@ Top level after **`git clone`** (folder name is arbitrary; **`foxxy-agent`** is 
 ├── cmd/foxxycode/                   # CLI entry (acp, http, sessions, skills)
 ├── internal/                    # core harness (acp, session, agent, config, tools, …)
 ├── external/
-│   ├── memory/                  # long-term memory copilot (`-tags memory`)
+│   ├── memory/                  # long-term memory subagent (`-tags memory`)
 │   ├── httpserver/              # optional REST gateway (build tag http)
 │   ├── ui/                      # Vite SPA sources (embedded when built with http+ui)
 │   ├── scheduler/               # optional cron runner (build tag scheduler)

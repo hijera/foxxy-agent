@@ -42,7 +42,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 
 | Setting | Default compose | Dev compose |
 |---------|-----------------|-------------|
-| **Image** | **`${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}`** | **`foxxycode-agent:${FOXXYCODE_VERSION:-dev}`** (built locally) |
+| **Image** | **`${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}`** | **`foxxy-agent:${FOXXYCODE_VERSION:-dev}`** (built locally) |
 | **Command** | Image **`CMD`**: **`serve -H 0.0.0.0 -P 12345`**, overridable with **`FOXXYCODE_COMMAND`** | Same |
 | **Published port** | **`${FOXXYCODE_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`FOXXYCODE_CWD`**) | Same |
@@ -236,7 +236,7 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 - **`http`** - **`foxxycode http`** and REST gateway (see **[docs/reference/http-api.md](../reference/http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/operate/scheduler.md](../operate/scheduler.md)**).
-- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
+- **`memory`** - long-term memory subagent and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
 - **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/surfaces/gateway.md](../surfaces/gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
 - **`browser`** - interactive browser tools (**[docs/features/browser-tool.md](../features/browser-tool.md)**), off until **`browser.enable`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 

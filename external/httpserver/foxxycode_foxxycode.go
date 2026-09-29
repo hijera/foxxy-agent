@@ -1126,7 +1126,7 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []
 		}
 		// Compaction markers so the SPA renders the summary row as its own
 		// CompactionMessage foldout and hides messages folded away by the
-		// opencode engine. The coddy engine sets compaction_summary; the
+		// opencode engine. The foxxycode engine sets compaction_summary; the
 		// opencode engine additionally sets compacted on the folded head.
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
@@ -1301,11 +1301,6 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 			})
 		}
 		out["uiLog"] = rows
-	}
-	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
-		if env, err := session.ReadMemoryTrace(sd); err == nil && env != nil && len(env.Turns) > 0 {
-			out["memoryTurns"] = env.Turns
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
