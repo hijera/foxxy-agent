@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -324,6 +324,11 @@ test-matrix: test-opencode-rules ui-build
 
 # The matrix as a JSON array for the CI workflow: [""] for the untagged build,
 # then every entry of TEST_TAG_SETS.
+# The race detector checks the full non-UI tag set; UI only embeds assets.
+# CI runs this target on every pull request.
+test-race:
+	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+
 print-test-tag-sets:
 	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
 

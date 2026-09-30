@@ -187,6 +187,8 @@ it cannot drift from the Makefile. Locally, reach for a single combination inste
 console through a real pty (`examples/cli/cli_e2e_startup.py`), `gateway` runs the Telegram bot
 against the offline stand of `cmd/tgfake` (`examples/gateway/tg_e2e_offline.sh`).
 
+**`make test-race`** runs the race detector over every non-UI Go tag in one pass. CI runs it on pull requests; the UI tag only embeds the already built SPA.
+
 ## Desktop (Windows WebView2)
 
 Build a GUI **`foxxycode-desktop.exe`** that embeds the SPA in an Edge WebView2 window (no separate browser, no console window):
