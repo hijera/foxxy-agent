@@ -43,8 +43,8 @@ func TestStatusVerbForTool(t *testing.T) {
 		"background_list":             "Checking background tasks",
 		"some_mcp_server__do_thing":   "Running a tool",
 		"":                            "Running a tool",
-		"foxxycode_docs_search": "Searching the docs",
-		"foxxycode_docs_read": "Reading the docs",
+		"foxxycode_docs_search":       "Searching the docs",
+		"foxxycode_docs_read":         "Reading the docs",
 	}
 	for name, want := range cases {
 		if got := statusVerbForTool(name); got != want {

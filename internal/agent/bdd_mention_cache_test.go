@@ -54,7 +54,7 @@ func (s *mentionCacheFeatureState) project(file, goRule, ruleName, mentionRule, 
 		return err
 	}
 	writes := map[string]string{
-		filepath.Join(dir, file):                "package main\n",
+		filepath.Join(dir, file):                 "package main\n",
 		filepath.Join(rulesDir, "go.mdc"):        "---\nglobs: **/*.go\nalwaysApply: false\n---\n" + goRule + "\n",
 		filepath.Join(rulesDir, ruleName+".mdc"): "---\nalwaysApply: false\ndescription: manual\n---\n" + mentionRule + "\n",
 	}

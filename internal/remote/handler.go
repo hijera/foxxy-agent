@@ -72,16 +72,16 @@ type Handler struct {
 }
 
 type sessionState struct {
-	mode             string
-	modelID          string
-	reasoning        string
+	mode      string
+	modelID   string
+	reasoning string
 	// permissionMode mirrors the server session's permission mode, and
 	// settingsVersion the last settings snapshot adopted (settings.go).
 	permissionMode  string
 	settingsVersion uint64
 	// pendingSettings are changes held for a session the server has not
 	// created yet; they ride in at the start of its first prompt.
-	pendingSettings []session.SettingsChange
+	pendingSettings  []session.SettingsChange
 	pendingReplay    []messageRow
 	turn             *remoteTurn
 	activityRevision uint64

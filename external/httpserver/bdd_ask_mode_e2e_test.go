@@ -47,7 +47,7 @@ var askE2EReadOnlyTools = map[string]bool{
 	"websearch": true, "webfetch": true, "question": true, "load_skill": true,
 	// Filing writes the session's own title and tags, which is nothing a reader
 	// of the workspace could see change.
-	"session_describe": true,
+	"session_describe":      true,
 	"foxxycode_docs_search": true, "foxxycode_docs_read": true,
 }
 
