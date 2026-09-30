@@ -8,7 +8,27 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-29
+## Unreleased — 2026-09-30
+
+**Memory runs as a background agent.**
+It gathers context for the current turn in a separate task, with progress visible in Tasks. Existing notes and memory settings continue to work.
+
+**A provider can bypass the proxy.**
+Provider and Telegram settings offer inherited proxy, no proxy, or a custom URL. The Windows system proxy and saved URLs with passwords still work.
+
+**Background tasks are visible during a reply.**
+The chat shows turn duration, token use, and task status. When a task with notifications finishes, the agent can continue with its result; a busy session waits for its current turn to finish.
+
+**Mentions and documentation are available in chat.**
+Use `@` to attach a file, directory, line range, session, rule, or documentation page. `/docs` opens the built-in reader; select documentation mode through Mode or `/mode docs`.
+
+**Session settings stay in sync across windows.**
+Mode and permission changes appear in other connected clients. A permission mode selected for an ordinary session lasts until restart, when the configured mode takes effect again.
+
+**Devin is available as a provider.**
+Sign in through a browser or Devin CLI to use its models and streaming replies.
+
+## 0.3.24 — 2026-09-29
 
 **Background subagent permissions remain available after the turn ends.**
 If a subagent asks for access after the main agent has answered, the request appears in the chat
