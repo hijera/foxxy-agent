@@ -89,9 +89,26 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// Subversion tools: registered only when vcs.svn is enabled and a client is
 	// installed, so turning the setting off removes them from the next turn.
 	toolsvn.RegisterBuiltins(r.Register, cfg)
+	// The model's own switch between the configured models and reasoning
+	// levels: offered when there is something to switch to.
+	if modelSwitchOffered(cfg) {
+		r.Register(SwitchModelTool(cfg))
+	}
 	registerSchedulerTools(r, cfg)
 	registerBrowserTools(r, cfg)
 	return r
+}
+
+// modelSwitchOffered reports whether switch_model has anything to switch:
+// more than one configured model, or one that offers reasoning levels.
+func modelSwitchOffered(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if len(cfg.Models) > 1 {
+		return true
+	}
+	return len(cfg.Models) == 1 && len(cfg.ReasoningChoicesFor(&cfg.Models[0])) > 0
 }
 
 // ResolvePath returns an absolute filesystem path resolved against cwd.

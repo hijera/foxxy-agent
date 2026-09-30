@@ -63,6 +63,15 @@ type SessionState interface {
 	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	// The settings the running turn works with (session/settings_state.go):
+	// its own when a --once / --count override, a skill or the model's
+	// switch_model set one, the session's otherwise. SettingsRevision moves
+	// whenever one a model request reads changes.
+	EffectiveMode() string
+	EffectivePermissionMode() string
+	SettingsRevision() uint64
+	SetTurnSetting(setting, value string)
+	TurnSetting(setting string) string
 	// How the session_describe tool reaches the session's own filing
 	// (session_filing.go). The writers report what they moved and do their own
 	// merging, so the tool never has to read a filing it is about to write.
@@ -219,7 +228,10 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
+	// A new user turn starts its account of time spent on usage limits
+	// (limit_wait.go); the built-ins below never touch it.
+	a.limitLedger = &limitWaitLedger{}
 	// Hook definitions are re-read for every turn.
 	a.resetHooks()
 	a.hookStopReason = ""
@@ -261,6 +273,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// The bodies of the skills the prompt invokes as /name, and the rules its
 	// mentioned paths activate, ride in this message (mentions.go), never in
 	// the system prompt and never added per request.
+	for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
+		a.applySkillSettings(ctx, inv.name, inv.skill)
+	}
 	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills()); len(extra) > 0 {
 		prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
 		userText = contentBlocksToText(prompt)
@@ -423,6 +438,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
+	}
+	// The model's own model switch; a subagent runs on what its parent chose.
+	if a.subagent == nil && a.settings() != nil {
+		toolEnv.SwitchModel = a.switchModel
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -733,6 +752,10 @@ func (a *Agent) runReActLoop(
 	// maxTurns bounds the model's reasoning steps, so the bound grows with the
 	// iterations spent recovering from a provider failure and reactTurn - the index
 	// the loop body reasons with - stays the count of real steps.
+	// What the transport was built for, to notice a change between requests.
+	transportRev := a.state.SettingsRevision()
+	transportKey := a.transportKey()
+
 	for turn := 0; turn < maxTurns+recoveryTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
@@ -772,6 +795,22 @@ func (a *Agent) runReActLoop(
 			a.readQueuedMessages(&messages)
 		}
 		replaying = false
+
+		// A model or a reasoning level changed since the transport was built -
+		// by the operator, a --once override, the model's own switch_model -
+		// takes effect from this request, never inside a stream.
+		if rev := a.state.SettingsRevision(); rev != transportRev {
+			transportRev = rev
+			if key := a.transportKey(); key != transportKey {
+				next, err := a.getProvider(mode)
+				if err != nil {
+					a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
+				} else {
+					a.log.Info("model settings changed mid-turn", "from", transportKey, "to", key)
+					transport, transportKey = next, key
+				}
+			}
+		}
 
 		// The system message stays exactly as the turn rendered it, so the
 		// provider's cached copy of everything behind it survives this step.
@@ -2063,6 +2102,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if d := a.cfg.Tools.ResolvedPermissionTimeout(); d > 0 {
 			permCtx, cancelPerm = context.WithTimeout(ctx, d)
 		}
+		// The mode this prompt is asked under: the session's, or ask when a
+		// hook forced the prompt - a sender must not wave that one through.
+		askedUnder := env.PermissionMode
+		if hookRes.ask {
+			askedUnder = config.PermModeAsk
+		}
 		permResult, err := a.server.RequestPermission(permCtx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -2074,7 +2119,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
 				},
 			},
-			Options: permission.Options(tc.Name, tc.InputJSON),
+			Options: permission.OptionsFor(tc.Name, tc.InputJSON, permission.OptionContext{
+				Mode:          env.PermissionMode,
+				SessionSwitch: a.subagent == nil && !hookRes.ask,
+			}),
+			SessionPermissionMode: askedUnder,
 		})
 		timedOut := permCtx.Err() == context.DeadlineExceeded
 		if cancelPerm != nil {
@@ -2100,6 +2149,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if st := sessionStatePtr(a.state); st != nil {
 			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)
 		}
+		a.switchPermissionModeFromDialog(ctx, env, permResult)
 	}
 
 	// Execute the tool.
@@ -2330,20 +2380,9 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 // written once, so the next turn replays the same bytes rather than a message
 // that lost the body it was sent with.
 func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlock {
-	if len(allSkills) == 0 {
-		return nil
-	}
-	names := skills.ParseInvokedCommandNames(text)
-	if len(names) == 0 {
-		return nil
-	}
-	idx := skills.SkillBySlashName(allSkills)
 	var out []acp.ContentBlock
-	for _, n := range names {
-		sk, ok := idx[n]
-		if !ok {
-			continue
-		}
+	for _, inv := range invokedSkills(text, allSkills) {
+		n, sk := inv.name, inv.skill
 		body := strings.TrimSpace(sk.Content)
 		if body == "" {
 			continue
@@ -2356,6 +2395,61 @@ func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlo
 		}})
 	}
 	return out
+}
+
+// invokedSkill is one skill a prompt invokes, under the name it was invoked by.
+type invokedSkill struct {
+	name  string
+	skill *skills.Skill
+}
+
+// invokedSkills resolves the /name tokens of the typed text to skills, in the
+// order they appear.
+func invokedSkills(text string, allSkills []*skills.Skill) []invokedSkill {
+	if len(allSkills) == 0 {
+		return nil
+	}
+	names := skills.ParseInvokedCommandNames(text)
+	if len(names) == 0 {
+		return nil
+	}
+	idx := skills.SkillBySlashName(allSkills)
+	var out []invokedSkill
+	for _, n := range names {
+		if sk, ok := idx[n]; ok {
+			out = append(out, invokedSkill{name: n, skill: sk})
+		}
+	}
+	return out
+}
+
+// applySkillSettings runs the rest of the turn on the model and reasoning
+// level a skill's frontmatter names, whether the operator invoked the skill
+// or the model loaded it. A setting the turn already holds - the operator's
+// --once, the model's own switch - is not overridden, and a value the
+// configuration cannot honour is logged and skipped: a skill never fails the
+// turn it helps.
+func (a *Agent) applySkillSettings(ctx context.Context, name string, sk *skills.Skill) {
+	if sk == nil || a.subagent != nil || (sk.Model == "" && sk.Reasoning == "") {
+		return
+	}
+	ap := a.settings()
+	if ap == nil {
+		return
+	}
+	ch := session.SettingsChange{Source: "skill:" + name}
+	if m := sk.Model; m != "" && a.state.TurnSetting(session.SettingModel) == "" {
+		ch.Model = &m
+	}
+	if r := sk.Reasoning; r != "" && a.state.TurnSetting(session.SettingReasoning) == "" {
+		ch.Reasoning = &r
+	}
+	if ch.Empty() {
+		return
+	}
+	if _, err := ap.ApplyTurnSettings(ctx, a.state.GetID(), ch); err != nil {
+		a.log.Warn("skill frontmatter settings skipped", "skill", name, "error", err)
+	}
 }
 
 // typedText is what the user wrote: the text blocks of a prompt, without the
@@ -2487,6 +2581,90 @@ func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.Resolve
 		in.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()
 	}
 	return llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
+}
+
+// settingsApplier is the manager's setter for session settings. The agent
+// reaches it through its subagent runtime, which is the manager on every
+// surface; without one (a bare agent in a test) the state is written directly.
+type settingsApplier interface {
+	ApplySessionSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+	ApplyTurnSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+}
+
+// settings returns the manager's setter, or nil when the agent runs without one.
+func (a *Agent) settings() settingsApplier {
+	if ap, ok := a.subagentRuntime.(settingsApplier); ok {
+		return ap
+	}
+	return nil
+}
+
+// switchModel backs the switch_model tool: the model's own choice of model
+// and reasoning level, for the rest of the turn or for the session. It goes
+// through the manager's setter like the operator's command, so it is checked
+// against the configuration, logged and shown on every surface; the loop
+// builds the new transport before its next request.
+func (a *Agent) switchModel(ctx context.Context, req tooling.ModelSwitch) (string, error) {
+	ap := a.settings()
+	if ap == nil {
+		return "", fmt.Errorf("switch_model is not available in this session")
+	}
+	ch := session.SettingsChange{Source: "model"}
+	if req.Model != "" {
+		ch.Model = &req.Model
+	}
+	if req.Reasoning != "" {
+		ch.Reasoning = &req.Reasoning
+	}
+	scope := "for the rest of this turn"
+	var err error
+	if req.Session {
+		scope = "for the rest of the session"
+		_, err = ap.ApplySessionSettings(ctx, a.state.GetID(), ch)
+	} else {
+		_, err = ap.ApplyTurnSettings(ctx, a.state.GetID(), ch)
+	}
+	if err != nil {
+		return "", err
+	}
+	model := a.state.EffectiveModelID(a.cfg)
+	reasoning := a.state.EffectiveReasoning(a.cfg)
+	if reasoning == "" {
+		reasoning = "none offered"
+	}
+	return fmt.Sprintf("Switched %s: model %s, reasoning %s. It applies from your next request.", scope, model, reasoning), nil
+}
+
+// switchPermissionModeFromDialog applies a permission answer that also
+// switches the session's permission mode ("bypass permissions for this
+// session", "allow edits for this session", #292). The change goes through
+// the manager's setter, so every surface shows it and the log records it,
+// and the tool environment follows at once: the rest of this turn runs under
+// the new mode.
+func (a *Agent) switchPermissionModeFromDialog(ctx context.Context, env *tools.Env, res *acp.PermissionResult) {
+	mode := permission.SessionModeOption(res)
+	if mode == "" || a.subagent != nil {
+		return
+	}
+	if ap := a.settings(); ap != nil {
+		if _, err := ap.ApplySessionSettings(ctx, a.state.GetID(), session.SettingsChange{PermissionMode: &mode, Source: "permission_dialog"}); err != nil {
+			a.log.Warn("permission dialog: the session's permission mode could not be switched", "mode", mode, "error", err)
+			return
+		}
+	} else if st := sessionStatePtr(a.state); st != nil {
+		st.SetPermissionMode(mode)
+		st.ClearTurnOverride(session.SettingPermissionMode)
+		a.log.Info("permission mode switched from the permission dialog", "session", a.state.GetID(), "mode", mode)
+	}
+	if env != nil {
+		env.PermissionMode = effectivePermMode(a.state, a.cfg)
+	}
+}
+
+// transportKey names what a model request is built for: the model and the
+// reasoning level. The transport is rebuilt only when it changes.
+func (a *Agent) transportKey() string {
+	return a.state.EffectiveModelID(a.cfg) + "|" + a.state.EffectiveReasoning(a.cfg)
 }
 
 // childProviderInput applies what a system child's spec says about its
@@ -2719,7 +2897,7 @@ func configWriteTool(name string) bool {
 
 // effectivePermMode returns the session-level permission mode override, falling back to the config default.
 func effectivePermMode(state SessionState, cfg *config.Config) string {
-	if m := state.GetPermissionMode(); m != "" {
+	if m := state.EffectivePermissionMode(); m != "" {
 		return m
 	}
 	return cfg.Tools.ResolvedPermMode()

@@ -54,8 +54,8 @@ type CompactionResult struct {
 	Steps int
 }
 
-// coddyCompactionSystemPrompt instructs the summarizer model.
-const coddyCompactionSystemPrompt = `You are compacting the conversation history of a coding agent so the session can continue in a smaller context window.
+// foxxycodeCompactionSystemPrompt instructs the summarizer model.
+const foxxycodeCompactionSystemPrompt = `You are compacting the conversation history of a coding agent so the session can continue in a smaller context window.
 
 Write a dense summary of the transcript you are given. Preserve, in this order:
 1. The user's goals, requirements, and constraints (including exact wording of still-relevant instructions).
@@ -80,7 +80,7 @@ Output plain markdown, no preamble and no closing remarks. Do not invent facts t
 //
 // Both compaction engines come through here. They differ in two places only -
 // which head is folded (compactionHead) and how the summary is written back
-// (the coddy engine inserts a summary row and replays the window after it, the
+// (the foxxycode engine inserts a summary row and replays the window after it, the
 // opencode engine flags the folded messages Compacted) - and share everything
 // else: the hooks, the summarizer chain, the fold in passes, the live row.
 func (a *Agent) CompactSession(ctx context.Context, instructions string, force bool) (*CompactionResult, error) {
@@ -109,7 +109,7 @@ func (a *Agent) compactSession(ctx context.Context, instructions string, force b
 	if force {
 		trigger = compactTriggerManual
 	}
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
 		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
 	}
@@ -353,7 +353,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 type compactionCandidate struct {
 	provider llm.Provider
 	modelID  string
-	// system is the summarizer's system prompt; empty means the coddy engine's.
+	// system is the summarizer's system prompt; empty means the foxxycode engine's.
 	// It rides the candidate so the fold keeps one signature for both engines.
 	system string
 }
@@ -482,7 +482,7 @@ func compactionRequest(carry, body, instructions string) []llm.Message {
 // summarizerPromptTokens is the room a pass leaves for the summarizer's system
 // prompt: the larger of the two engines', so one budget fits either.
 func summarizerPromptTokens() int {
-	n := session.EstimateTokens(coddyCompactionSystemPrompt)
+	n := session.EstimateTokens(foxxycodeCompactionSystemPrompt)
 	if m := session.EstimateTokens(compactionSystemPrompt); m > n {
 		n = m
 	}
@@ -490,10 +490,10 @@ func summarizerPromptTokens() int {
 }
 
 // compactionRequestWith is compactionRequest under a given system prompt; empty
-// means the coddy engine's.
+// means the foxxycode engine's.
 func compactionRequestWith(system, carry, body, instructions string) []llm.Message {
 	if strings.TrimSpace(system) == "" {
-		system = coddyCompactionSystemPrompt
+		system = foxxycodeCompactionSystemPrompt
 	}
 	var b strings.Builder
 	if strings.TrimSpace(carry) != "" {

@@ -26,6 +26,7 @@ func openAPISpec() map[string]interface{} {
 				"**`metadata.model`** may appear only on agent/plan/docs/ask/debug requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
 				"**`metadata.reasoning`** (optional, agent/plan/docs/ask/debug only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
 				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs over **`POST /v1/responses`** emit a final **`event: foxxycode_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
+				"For an agent turn, **`metadata.settingsVersion`** fences stale mode, model and reasoning selections from another tab. A prompt beginning with settings commands applies them before the turn; a command-only prompt produces a notice without running the model. " +
 				"Optional header **X-FoxxyCode-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
 		},
@@ -489,8 +490,8 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/slash-commands": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "List slash commands from skills (paginated)",
-					"description": "Returns slash command **`name`** and **`description`** rows: the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**, the same rows as **GET /foxxycode/commands**) first, then the skill-derived commands sorted by name. " +
+					"summary": "List slash commands (paginated)",
+					"description": "Returns slash command **`name`** and **`description`** rows: settings commands (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/debug`**, **`/permissions`**) first with optional **`hint`**, then deterministic actions (**`/compact`**, **`/export`**, **`/plugin`**), then skill-derived commands. **`/docs`** is the client-side documentation reader. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
 						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
 					"operationId": "listSlashCommands",
@@ -538,7 +539,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List built-in slash commands",
-					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, on their own: **GET /foxxycode/slash-commands** leads with the same rows ahead of the skills, and the remote console merges both lists. " +
+					"description": "Returns session settings commands with **`kind`**, **`setting`**, **`hint`**, **`choices`** and **`value`**, followed by deterministic actions (**`/compact`**, **`/export`**, **`/plugin`**). **GET /foxxycode/slash-commands** includes the same command names ahead of skills. " +
 						"**`compact`** appears only while **`compaction.enable`** is true (both engines answer the manual command); **`export`** and **`plugin`** are always present. " +
 						"Optional **`prefix`** filters by case-insensitive name prefix.",
 					"operationId": "listBuiltinCommands",
@@ -565,6 +566,13 @@ func openAPISpec() map[string]interface{} {
 													"properties": map[string]interface{}{
 														"name":        map[string]string{"type": "string"},
 														"description": map[string]string{"type": "string"},
+														"kind":        map[string]interface{}{"type": "string", "enum": []string{"setting", "action"}},
+														"setting":     map[string]interface{}{"type": "string", "enum": []string{"model", "reasoning", "mode", "permission_mode"}},
+														"hint":        map[string]string{"type": "string"},
+														"aliases":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+														"choices":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+														"value":       map[string]string{"type": "string"},
+														"duringTurn":  map[string]string{"type": "boolean"},
 													},
 												},
 											},
@@ -1831,7 +1839,6 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"title": map[string]string{"type": "string"},
-										"mode":  map[string]string{"type": "string"},
 										"tags": map[string]interface{}{
 											"type":  "array",
 											"items": map[string]string{"type": "string"},
@@ -1840,6 +1847,9 @@ func openAPISpec() map[string]interface{} {
 										"pinned":            map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
+										"mode":              map[string]interface{}{"type": "string", "enum": []string{"agent", "plan", "docs", "ask", "debug"}},
+										"permissionMode":    map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}},
+										"turns":             map[string]interface{}{"type": "integer", "minimum": 0, "maximum": session.MaxOverrideTurns},
 										"titleIfUnpinned":   map[string]string{"type": "boolean"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
@@ -2090,7 +2100,7 @@ func openAPISpec() map[string]interface{} {
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /foxxycode/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
-						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. The response also includes the current **settings** snapshot (model, reasoning, mode, permissionMode, configuredPermissionMode, overrides and version).",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -2242,7 +2252,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself. Emits **event: session_settings** with **`{object, sessionId, settings, notice, source}`** whenever any surface changes session settings; **settings.version** lets clients discard older snapshots.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -4292,6 +4302,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"name":        map[string]string{"type": "string", "description": "Slash command id (text after `/`)."},
 						"description": map[string]string{"type": "string", "description": "Short summary for pickers."},
+						"hint":        map[string]string{"type": "string", "description": "Optional argument hint for a settings command."},
 					},
 					"required": []string{"name", "description"},
 				},

@@ -21,6 +21,13 @@ import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import {
+  isNewerSettings,
+  parseSessionSettings,
+  type SessionSettings,
+  type SessionSettingsEvent,
+  type TurnOverride,
+} from "./chat/sessionSettings";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
@@ -707,6 +714,7 @@ export function App() {
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
+    sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
     ready: () => void;
   }>({
@@ -715,6 +723,7 @@ export function App() {
     providerUsage: () => {},
     configReloaded: () => {},
     messageQueue: () => {},
+    sessionSettings: () => {},
     subagentPermission: () => {},
     ready: () => {},
   });
@@ -1258,6 +1267,25 @@ export function App() {
   const [viewportXL, setViewportXL] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
+  /**
+   * The viewed session's permission mode and the one a restart would give it
+   * back, the settings changed for the next turns, and the version of the
+   * snapshot they came from (chat/sessionSettings.ts). The server is the
+   * source of truth: every surface's change arrives as a versioned snapshot.
+   */
+  const [permissionMode, setPermissionMode] = useState("ask");
+  const [configuredPermissionMode, setConfiguredPermissionMode] =
+    useState("ask");
+  const [settingsOverrides, setSettingsOverrides] = useState<TurnOverride[]>(
+    [],
+  );
+  const settingsVersionRef = useRef<{ sid: string; version: number }>({
+    sid: "",
+    version: 0,
+  });
+  /** A permission mode picked before the chat has a session: it rides in as a
+   *  command at the start of the first message, where the server takes it. */
+  const pendingPermissionModeRef = useRef("");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
@@ -3001,6 +3029,7 @@ export function App() {
       selectedModelId?: string;
       selectedReasoning?: string;
       mode?: string;
+      settings?: unknown;
       subagent?: {
         parentSessionId?: string;
         name?: string;
@@ -3062,6 +3091,12 @@ export function App() {
         ) {
           setMode(serverMode);
         }
+      }
+      // The whole snapshot: the mode, the permission mode, the overrides for
+      // the next turns, and the version the next send names.
+      const snap = parseSessionSettings(res.data.settings);
+      if (snap) {
+        applySessionSettings(snap);
       }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
@@ -3604,6 +3639,11 @@ export function App() {
     // A new chat starts in agent; the mode used to survive New chat while the
     // model was reset, so a plan session leaked its profile into the next one.
     setMode("agent");
+    // A new chat runs under the configured permission mode until it is changed.
+    settingsVersionRef.current = { sid: "", version: 0 };
+    pendingPermissionModeRef.current = "";
+    setPermissionMode(configuredPermissionMode);
+    setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
       setLlmModel(
         pickDefaultLlmModelForNewChat({
@@ -4418,6 +4458,8 @@ export function App() {
     // browser or from a console attached over --remote.
     messageQueue: (sid: string, queue: QueuedMessageEvent) =>
       applyQueue(sid, queue.messages, queue.version),
+    sessionSettings: (event: SessionSettingsEvent) =>
+      applySessionSettings(event.settings),
     subagentPermission: (parentSid: string) => {
       if (parentSid.trim() === viewedSessionIdRef.current.trim()) {
         void refreshBackgroundTasks({ silent: true });
@@ -4447,6 +4489,8 @@ export function App() {
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
+      onSessionSettings: (event) =>
+        serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
       onConnectedChange: setServerEventsConnected,
@@ -4691,6 +4735,7 @@ export function App() {
             applyQueue(key, q.messages, q.version, queueEpoch);
           }
         },
+        onSessionSettings: (e) => applySessionSettings(e.settings),
         onTurnProgress: (progress) => {
           if (ownsRelay() && !fetchCtl.signal.aborted) {
             applyTurnProgress(key, progress, "stream");
@@ -4989,6 +5034,7 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
       const baseItems = pickStreamMutationBase({
@@ -5071,13 +5117,28 @@ export function App() {
       const yamlSel = llmModel.trim();
       const reasoningSel = llmReasoning.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
-      if (yamlSel || reasoningSel || runSlug) {
+      // The version of the settings snapshot these selectors mirror: when a
+      // newer one was published meanwhile (the model switched from another
+      // surface), the server keeps its own values instead of these.
+      const heldVersion =
+        settingsVersionRef.current.sid === sid.trim()
+          ? settingsVersionRef.current.version
+          : 0;
+      if (yamlSel || reasoningSel || runSlug || heldVersion > 0) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
         if (reasoningSel) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
+        if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
         reqBody.metadata = meta;
       }
+      // A permission mode picked before the chat had a session goes first,
+      // as the command that asks for it; the server takes it off the text.
+      if (!sid.trim() && pendingPermissionModeRef.current) {
+        reqBody.input = `/permissions ${pendingPermissionModeRef.current}\n${text}`;
+        pendingPermissionModeRef.current = "";
+      }
+      if (!ownsPost() || abortCtl.signal.aborted) return;
       const res = await fetch("/v1/responses", {
         method: "POST",
         headers: { ...hdrs, "Content-Type": "application/json" },
@@ -5239,14 +5300,37 @@ export function App() {
             applyQueue(streamKey, q.messages, q.version, queueEpoch);
           }
         },
+        onSessionSettings: (e) => applySessionSettings(e.settings),
         onTurnProgress: (progress) => {
           if (ownsPost() && !abortCtl.signal.aborted) {
             applyTurnProgress(streamKey, progress, "stream");
           }
         },
+        onSettingsOnly: () => {
+          settingsOnly = true;
+        },
       });
       if (!ownsPost() || abortCtl.signal.aborted) return;
       assistantStreamId = finalAssistantId;
+      // Only settings commands: the exchange drawn for it is not part of the
+      // conversation. The transcript's log holds the notice, which the reload
+      // below renders in the place a reload of the page would.
+      if (settingsOnly) {
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              it.id !== userItem.id &&
+              !(it.type === "assistant_message" && it.id === finalAssistantId),
+          ),
+        );
+        void loadSessionsList(true);
+        await loadMessages(sidEffective, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== postSessionKey,
+          preserveOnError: true,
+        });
+        completedNormally = true;
+        return;
+      }
 
       const syncAssistantFromServer = async () => {
         try {
@@ -5570,6 +5654,75 @@ export function App() {
     );
   }, [llmModel, modelInfos]);
 
+  /**
+   * applySessionSettings mirrors a settings snapshot of the viewed session in
+   * the composer: the model, the reasoning level, the mode, the permission
+   * mode and what is changed for the next turns. A snapshot of another
+   * session, or one older than the snapshot already shown, is dropped: the
+   * same change reaches a tab down the turn stream and the events stream.
+   * Cookies are left alone: they are the default of a new chat, not the
+   * record of an existing session.
+   */
+  const applySessionSettings = useStableHandler((snap: SessionSettings) => {
+    const viewed = viewedSessionIdRef.current.trim();
+    const held =
+      settingsVersionRef.current.sid === snap.sessionId
+        ? settingsVersionRef.current.version
+        : 0;
+    if (!isNewerSettings(held, viewed, snap)) {
+      return;
+    }
+    settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setPermissionMode(snap.permissionMode);
+    setConfiguredPermissionMode(snap.configuredPermissionMode);
+    setSettingsOverrides(snap.overrides);
+    if (snap.mode) {
+      setMode(snap.mode);
+    }
+    if (snap.model && llmModelIds.includes(snap.model)) {
+      setLlmModel(snap.model);
+    }
+    setLlmReasoning(snap.reasoning);
+  });
+
+  /** patchSessionSettings sends a settings change and mirrors the answer. */
+  const patchSessionSettings = useCallback(
+    (sid: string, body: Record<string, unknown>) =>
+      fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { settings?: unknown } | null) => {
+          const snap = parseSessionSettings(b?.settings);
+          if (snap) {
+            applySessionSettings(snap);
+          }
+        })
+        .catch(() => {}),
+    [headers, applySessionSettings],
+  );
+
+  const onPermissionModeChange = useCallback(
+    (next: string) => {
+      const pm = next.trim();
+      if (!pm) {
+        return;
+      }
+      setPermissionMode(pm);
+      const sid = sessionId.trim();
+      if (!sid) {
+        // No session yet: the choice rides in with the first message.
+        pendingPermissionModeRef.current =
+          pm === configuredPermissionMode ? "" : pm;
+        return;
+      }
+      void patchSessionSettings(sid, { permissionMode: pm });
+    },
+    [sessionId, configuredPermissionMode, patchSessionSettings],
+  );
+
   const onLlmReasoningChange = useCallback(
     (level: string) => {
       const lv = level.trim();
@@ -5582,16 +5735,9 @@ export function App() {
       if (!sid) {
         return;
       }
-      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedReasoning: lv }),
-      }).catch(() => {
-        // The choice is already applied locally and in the cookie; a lost write
-        // must not surface as an unhandled rejection.
-      });
+      void patchSessionSettings(sid, { selectedReasoning: lv });
     },
-    [sessionId, headers],
+    [sessionId, patchSessionSettings],
   );
 
   const onLlmModelChange = useCallback(
@@ -5606,24 +5752,9 @@ export function App() {
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
-      // The pick outranks whatever the session had stored, so a reconcile still
-      // in flight cannot revert it.
-      userTouchedSelectionSidRef.current = sid;
-      // A client draft has no server session yet; the first turn persists the
-      // pick through metadata.model, and a PATCH here would only 404.
-      if (isClientDraftSessionId(sid)) {
-        return;
-      }
-      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedModelId: mid }),
-      }).catch(() => {
-        // The choice is already applied locally and in the cookie; a lost write
-        // must not surface as an unhandled rejection.
-      });
+      void patchSessionSettings(sid, { selectedModelId: mid });
     },
-    [sessionId, llmModelIds, headers],
+    [sessionId, llmModelIds, patchSessionSettings],
   );
 
   // A Mode switch is a session change, not a client preference: it is stored
@@ -6694,6 +6825,12 @@ export function App() {
                 }
               : {})}
             onModeChange={onModeChange}
+            permissionMode={permissionMode}
+            configuredPermissionMode={configuredPermissionMode}
+            onPermissionModeChange={
+              subagentTranscript ? undefined : onPermissionModeChange
+            }
+            settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
             generating={generating}
             onContextRingOpen={() => {

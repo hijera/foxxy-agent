@@ -85,6 +85,9 @@ var docsToolNames = []string{
 	// A documentation session is filed like any other: the tool touches the
 	// session's own title and tags and nothing in the workspace.
 	"session_describe",
+	// Choosing the model and the reasoning level changes nothing outside the
+	// session, and a hard planning step is where a stronger model pays.
+	"switch_model",
 	// FoxxyCode's own documentation, read out of the binary.
 	"foxxycode_docs_search",
 	"foxxycode_docs_read",
@@ -109,6 +112,8 @@ var askToolNames = []string{
 	// title and tags - nothing a reader of the repository could see change - so
 	// a long question-and-answer session can file itself too.
 	"session_describe",
+	// The model and the reasoning level are the session's own settings.
+	"switch_model",
 	// FoxxyCode's own documentation, read out of the binary: "how do I set up
 	// the Telegram bot" is exactly the question ask mode is for.
 	"foxxycode_docs_search",

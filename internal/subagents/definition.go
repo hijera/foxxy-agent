@@ -81,6 +81,10 @@ type Definition struct {
 	// Model is a models[].model id, or empty to inherit the parent's model.
 	Model string
 	// Mode is "agent", "plan", "debug" (fork), or empty to inherit the parent's mode.
+	// Reasoning is the child's reasoning level (a level its model offers,
+	// "off" or "default"), or empty for the model's default. Checked at spawn.
+	Reasoning string
+	// Mode is "agent", "plan", or empty to inherit the parent's mode.
 	Mode string
 	// Tools is an allowlist of tool names or prefix* patterns; empty means
 	// everything the parent has.
@@ -116,6 +120,8 @@ type frontmatter struct {
 	Name            string      `yaml:"name"`
 	Description     string      `yaml:"description"`
 	Model           string      `yaml:"model"`
+	Reasoning       string      `yaml:"reasoning"`
+	Effort          string      `yaml:"effort"`
 	Mode            string      `yaml:"mode"`
 	Tools           interface{} `yaml:"tools"`
 	DisallowedTools interface{} `yaml:"disallowed_tools"`
@@ -207,6 +213,7 @@ func Parse(path string, data []byte) (*Definition, error) {
 		Name:            name,
 		Description:     description,
 		Model:           strings.TrimSpace(meta.Model),
+		Reasoning:       firstNonEmpty(strings.ToLower(strings.TrimSpace(meta.Reasoning)), strings.ToLower(strings.TrimSpace(meta.Effort))),
 		Mode:            mode,
 		Tools:           stringList(meta.Tools),
 		DisallowedTools: denied,
@@ -324,4 +331,14 @@ func MatchTool(pattern, name string) bool {
 		return strings.HasPrefix(name, strings.TrimSuffix(pattern, "*"))
 	}
 	return pattern == name
+}
+
+// firstNonEmpty returns the first of values that is not empty.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

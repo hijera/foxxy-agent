@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { setLocale } from "../i18n/i18n";
 import {
   permissionOptionLabel,
@@ -107,4 +107,22 @@ describe("http_request grants", () => {
       setLocale("en");
     }
   });
+});
+
+test("the session-wide switches of #292 are translated", () => {
+  const bypass = {
+    optionId: "allow_session_bypass",
+    name: "Bypass permissions for this session",
+    kind: "allow_always",
+  };
+  const edits = {
+    optionId: "allow_session_accept_edits",
+    name: "Allow edits for this session",
+    kind: "allow_always",
+  };
+  expect(permissionOptionLabel(bypass)).toBe("Bypass permissions for this session");
+  expect(permissionOptionLabel(edits)).toBe("Allow edits for this session");
+  setLocale("ru");
+  expect(permissionOptionLabel(bypass)).toBe("Без вопросов до конца сессии");
+  expect(permissionOptionLabel(edits)).toBe("Правки без вопросов до конца сессии");
 });

@@ -46,6 +46,7 @@ import {
   type MentionMarks,
 } from "../skills/composerMirrorSegments";
 import { terminalPickerRows, type TerminalRef } from "./terminalPickerRows";
+import type { TurnOverride } from "./sessionSettings";
 import {
   readWorkspaceAtRecents,
   recordWorkspaceAtRecent,
@@ -220,7 +221,12 @@ function displayLlmId(id: string, modelFallback: string): string {
 /** One follow-up waiting for the running turn to read it. */
 export type QueuedMessage = { id: string; text: string };
 
-type SlashRow = { name: string; description: string };
+type SlashRow = {
+  name: string;
+  description: string;
+  /** Argument hint of a built-in settings command ("<model id> [--once|--count=N]"). */
+  hint?: string;
+};
 
 /** How many "@" candidates one query asks for; the total is shown when cut. */
 const MENTION_PICKER_LIMIT = 50;
@@ -266,6 +272,21 @@ function pickMenuDir(
   return "opens-down";
 }
 
+
+/**
+ * The command group of the / menu: the server's rows, plus /docs where the
+ * composer can open the reader (docsLabel is its description, null where it
+ * cannot), in name order once /docs joins.
+ */
+function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
+  if (docsLabel === null || rows.some((r) => r.name === "docs")) {
+    return rows;
+  }
+  return [...rows, { name: "docs", description: docsLabel }].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -305,6 +326,13 @@ export function Composer(props: {
   /** Known skill names from the catalog — chips confirmed `/name` tokens in the mirror overlay. */
   knownSkillNames?: Set<string>;
   onModeChange: (mode: string) => void;
+  /** The session's permission mode (ask, accept_edits, bypass) and the one a
+   *  restart would give back; the chip is hidden without a handler. */
+  permissionMode?: string;
+  configuredPermissionMode?: string;
+  onPermissionModeChange?: (mode: string) => void;
+  /** Settings changed for the running and the next turns (--once, --count=N). */
+  settingsOverrides?: TurnOverride[];
   onChange: (v: string) => void;
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
@@ -339,9 +367,8 @@ export function Composer(props: {
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const [attachHint, setAttachHint] = useState("");
-  const pastedSeqRef = useRef({ n: 0 });
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -356,7 +383,11 @@ export function Composer(props: {
   // so a physical Enter must still obey ui.send_mode (Enter by default) rather
   // than fall back to the touch/phone newline-only behavior.
   const enterInsertsNewline = isMobileShell && !isEditorEmbed();
-  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | null>(
+  const llmChipRef = useRef<HTMLButtonElement | null>(null);
+  const reasoningChipRef = useRef<HTMLButtonElement | null>(null);
+  const permissionChipRef = useRef<HTMLButtonElement | null>(null);
+  const pastedSeqRef = useRef({ n: 0 });
+  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | "permission" | null>(
     null,
   );
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
@@ -1426,11 +1457,57 @@ export function Composer(props: {
     setComposerScrollTop(ta.scrollTop);
   }
 
+  // A settings command whose value the composer already has a control for
+  // goes to that control when the command is the whole draft: /model opens the
+  // model menu, /reasoning (/effort) the level menu, /permissions the
+  // permission menu, /agent, /plan and /ask switch the mode. The control
+  // applies the value the way a click would (PATCH, mirrored by every tab).
+  // Anything else - /think, a command in front of a message, --once - is
+  // typed and sent, and the server takes it off the text.
+  function settingsControlFor(name: string): (() => void) | null {
+    switch (name) {
+      case "model":
+        return props.onLlmModelChange && llmChipRef.current
+          ? () => toggleMenu("llm", llmChipRef.current as HTMLElement)
+          : null;
+      case "reasoning":
+      case "effort":
+        return reasoningChipRef.current
+          ? () => toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
+          : null;
+      case "permissions":
+        return props.onPermissionModeChange && permissionChipRef.current
+          ? () =>
+              toggleMenu("permission", permissionChipRef.current as HTMLElement)
+          : null;
+      case "agent":
+      case "plan":
+      case "ask":
+      case "debug":
+        return props.modes.includes(name)
+          ? () => props.onModeChange(name)
+          : null;
+    }
+    return null;
+  }
+
   const applySlashChoice = (name: string) => {
     if (!slashReplace) {
       return;
     }
     const { from, to } = slashReplace;
+    const around = (props.value.slice(0, from) + props.value.slice(to)).trim();
+    const control = around === "" ? settingsControlFor(name) : null;
+    if (control) {
+      props.onChange("");
+      setSlashOpen(false);
+      setSlashReplace(null);
+      setSlashNoMatch(null);
+      bumpSlashFetchGen();
+      setSlashLoading(false);
+      control();
+      return;
+    }
     const insert = `/${name} `;
     const next = props.value.slice(0, from) + insert + props.value.slice(to);
     props.onChange(next);
@@ -1938,7 +2015,40 @@ export function Composer(props: {
   }
 
   const modeLabel = displayMode(props.mode || "agent");
-  const llmLabel = llmVal ? displayLlmId(llmVal, t("composer.model")) : t("composer.model");
+  const permissionVal = (props.permissionMode || "ask").trim();
+  function displayPermission(id: string): string {
+    if (id === "bypass") {
+      return t("composer.permissionBypass");
+    }
+    if (id === "accept_edits") {
+      return t("composer.permissionAcceptEdits");
+    }
+    return t("composer.permissionAsk");
+  }
+  function permissionHint(id: string): string {
+    if (id === "bypass") {
+      return t("composer.permissionBypassHint");
+    }
+    if (id === "accept_edits") {
+      return t("composer.permissionAcceptEditsHint");
+    }
+    return t("composer.permissionAskHint");
+  }
+  // One line per override: the value and the turns it lasts.
+  const overrideLines = (props.settingsOverrides ?? []).map((o) => {
+    if (o.active) {
+      return o.turnsLeft > 0
+        ? t("composer.overrideThisTurnMore", {
+            value: o.value,
+            count: o.turnsLeft,
+          })
+        : t("composer.overrideThisTurn", { value: o.value });
+    }
+    return tp("composer.overrideNextTurns", o.turnsLeft, { value: o.value });
+  });
+  const llmLabel = llmVal
+    ? displayLlmId(llmVal, t("composer.model"))
+    : t("composer.model");
   const contextIdle = props.contextIdle === true;
   const maxCtx =
     typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
@@ -1968,7 +2078,7 @@ export function Composer(props: {
   }
 
   function toggleMenu(
-    type: "mode" | "llm" | "reasoning",
+    type: "mode" | "llm" | "reasoning" | "permission",
     trigger: HTMLElement,
   ) {
     if (menuOpen === type) {
@@ -2036,6 +2146,7 @@ export function Composer(props: {
                 }}
               >
                 <span className="slash-row-name">/{row.name}</span>
+                {row.hint ? <span className="slash-row-hint">{row.hint}</span> : null}
                 <span className="slash-row-desc">{row.description}</span>
               </button>
             </li>
@@ -2737,10 +2848,33 @@ export function Composer(props: {
                 </button>
               </div>
 
+              {props.onPermissionModeChange ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    ref={permissionChipRef}
+                    className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
+                    aria-label={t("composer.permission")}
+                    title={t("composer.permissionTitle", {
+                      configured: displayPermission(
+                        props.configuredPermissionMode || "ask",
+                      ),
+                    })}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "permission"}
+                    data-testid="composer-permission"
+                    onClick={(e) => toggleMenu("permission", e.currentTarget)}
+                  >
+                    {displayPermission(permissionVal)}
+                  </button>
+                </div>
+              ) : null}
+
               {showLlm && props.onLlmModelChange ? (
                 <div className="mode">
                   <button
                     type="button"
+                    ref={llmChipRef}
                     className="composer-tab mode-btn mode-llm"
                     aria-label={t("composer.model")}
                     title={t("composer.modelTitle")}
@@ -2758,6 +2892,7 @@ export function Composer(props: {
                 <div className="mode">
                   <button
                     type="button"
+                    ref={reasoningChipRef}
                     className="composer-tab mode-btn mode-reasoning"
                     aria-label={t("composer.reasoningLevel")}
                     title={t("composer.reasoningLevelTitle")}
@@ -2768,6 +2903,21 @@ export function Composer(props: {
                     {reasoningLabel}
                   </button>
                 </div>
+              ) : null}
+
+              {overrideLines.length > 0 ? (
+                <span
+                  className="composer-overrides"
+                  data-testid="composer-overrides"
+                  title={t("composer.overridesTitle", {
+                    list: overrideLines.join("\n"),
+                  })}
+                >
+                  {overrideLines[0]}
+                  {overrideLines.length > 1
+                    ? ` +${overrideLines.length - 1}`
+                    : ""}
+                </span>
               ) : null}
             </div>
 
@@ -2921,6 +3071,23 @@ export function Composer(props: {
                         }}
                       >
                         {displayMode(m)}
+                      </button>
+                    ))
+                  : null}
+                {menuOpen === "permission"
+                  ? ["ask", "accept_edits", "bypass"].map((pm) => (
+                      <button
+                        key={pm}
+                        type="button"
+                        role="menuitem"
+                        title={permissionHint(pm)}
+                        className={`mode-item perm-item perm-${pm} ${pm === permissionVal ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.onPermissionModeChange?.(pm);
+                          closeMenu();
+                        }}
+                      >
+                        {displayPermission(pm)}
                       </button>
                     ))
                   : null}

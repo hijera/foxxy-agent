@@ -563,7 +563,7 @@
       "properties": {
         "permission_mode": {
           "type": "string",
-          "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only).",
+          "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here.",
           "default": "ask",
           "enum": ["ask", "accept_edits", "bypass"]
         },
@@ -1012,9 +1012,9 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
-          "enum": ["coddy", "opencode"],
-          "default": "coddy"
+          "description": "Compaction implementation: \"foxxycode\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
+          "enum": ["foxxycode", "opencode"],
+          "default": "foxxycode"
         },
         "enable": {
           "type": "boolean",

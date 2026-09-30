@@ -85,6 +85,9 @@ groups:
       - path: features/modes.md
         title: Operating modes
         summary: agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
+      - path: features/session-settings.md
+        title: Session settings
+        summary: Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
       - path: features/sessions.md
         title: Sessions
         summary: Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.

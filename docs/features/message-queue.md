@@ -95,6 +95,8 @@ The fork's turn lock fails fast instead of queueing, so a prompt the console pos
 
 A session with no turn running answers **409** with code `no_active_turn`; a full queue answers **409** with `queue_full`; a child session answers **409** with `subagent_read_only`; a turn running in another FoxxyCode process over the same home answers **409** with `session_busy`. The refusal codes are what a client branches on — the SPA turns `no_active_turn` into an ordinary `POST /v1/responses`, so a turn that ends between the keystroke and the request never loses what was typed.
 
+Settings commands at the start of a queued text (`/model x`, `/permissions bypass`) apply at once and only the remaining text is queued. A message containing only settings commands queues nothing. A turn-scoped command with text answers **409** with `turn_scoped_follow_up`, since a queued message has no turn of its own ([Session settings](session-settings.md#what-happens-when-you-send-one)).
+
 Every change is published as `event: message_queue` with the full list and its version, on the turn's stream and on `GET /foxxycode/events` alike; a message the agent reads arrives on the turn's stream as `event: user_message`, at the point it entered the conversation. Full shapes: [HTTP API](../reference/http-api.md).
 
 ## What it is not

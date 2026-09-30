@@ -49,7 +49,9 @@ type App struct {
 	// the UI goroutine and other workers keep reading it, hence the atomic.
 	cfgAt atomic.Pointer[config.Config]
 	mgr   backend
-	log   *slog.Logger
+	// settingsVersion is the version of the last settings snapshot shown.
+	settingsVersion uint64
+	log             *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote foxxycode serve server.
 	remoteURL string
@@ -909,7 +911,11 @@ func (a *App) openModelSelector() {
 
 func (a *App) setModel(id string) {
 	sessionID := a.sessionID
+	// A worker: the change is written to session.json, and JoinWorkers lets
+	// that write finish before the process exits.
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 			SessionID: sessionID, ConfigID: "model", Value: id,
 		}); err != nil {
@@ -1048,7 +1054,9 @@ func (a *App) setReasoning(level string) {
 	done := make(chan struct{})
 	a.reasoningTail = done
 	a.reasoningMu.Unlock()
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		if previous != nil {
 			<-previous
 		}
@@ -1336,7 +1344,24 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read FoxxyCode's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit foxxycode"},
 	)
-	items = append(items, a.slashServer...)
+	// The settings commands come from the manager's registry, like the
+	// server's rows; a server row never shadows a console command.
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		seen[it.Value] = true
+	}
+	for _, c := range session.SettingsCommands() {
+		if len(a.slashServer) == 0 && !seen[c.Name] {
+			items = append(items, tui.AutocompleteItem{Value: c.Name, Label: c.Name, Description: c.Description})
+			seen[c.Name] = true
+		}
+	}
+	for _, it := range a.slashServer {
+		if !seen[it.Value] {
+			items = append(items, it)
+			seen[it.Value] = true
+		}
+	}
 	return items
 }
 

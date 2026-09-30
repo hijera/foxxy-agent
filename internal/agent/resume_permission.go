@@ -36,7 +36,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 		}
 		return "", err
 	}
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
 	if !permission.Approved(perm) {
@@ -81,6 +81,9 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled())
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
+	}
+	if !refusedByMode {
+		a.switchPermissionModeFromDialog(ctx, toolEnv, perm)
 	}
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
@@ -170,6 +173,32 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 	}
 	a.applySubagentEnv(env, mode)
 	a.wireFileEditHook(env)
+	if a.subagent == nil && a.settings() != nil {
+		env.SwitchModel = a.switchModel
+	}
+	if a.configReloader != nil {
+		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			env.PermissionMode = effectivePermMode(a.state, next)
+			env.CommandAllowlist = append([]string(nil), next.Tools.CommandAllowlist...)
+			env.HTTPAllowlist = append([]string(nil), next.Tools.HTTPRequest.Allowlist...)
+			env.SSHConnectTimeout = next.Tools.SSHConnectTimeout
+			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
+			env.Background = a.backgroundPool(sessionDir)
+			env.BackgroundEnabled = next.Tools.Background.ResolvedEnabled()
+			env.WebSearch = webSearchSettings(next)
+			return warnings, nil
+		}
+	}
 	return env
 }
 

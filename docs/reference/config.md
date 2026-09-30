@@ -202,7 +202,7 @@ Filesystem and shell policy for built-in tools.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). |
+| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here. |
 | `tools.command_allowlist` | list of strings |  | Commands that never require permission. Exact or prefix match (prefix + space + any args). "*" allows all commands. |
 | `tools.permission_timeout_seconds` | integer | 0 | How long a permission prompt may wait for the operator before the tool call is cancelled instead. 0 (default) waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely. |
 | `tools.ssh_connect_timeout` | integer | 30 | TCP dial timeout for SSH connections (ssh_run_command tool), in seconds. |
@@ -293,7 +293,7 @@ Summarize older turns when the conversation approaches the model's context windo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `compaction.engine` | string, one of `coddy`, `opencode` | coddy | Compaction implementation: "coddy" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
+| `compaction.engine` | string, one of `foxxycode`, `opencode` | foxxycode | Compaction implementation: "foxxycode" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
 | `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
 | `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |
@@ -644,7 +644,7 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 
 ### `subagents`
 
-Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /foxxycode/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `reasoning`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /foxxycode/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
 
 Approvals for project-scope definitions are recorded in `~/.foxxycode/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
 

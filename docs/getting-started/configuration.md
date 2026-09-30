@@ -352,7 +352,8 @@ tools:
   # ask          - always prompt for commands and file writes (default)
   # accept_edits - auto-approve file writes; prompt for shell commands
   # bypass       - never ask for permission (use only in trusted environments)
-  # Overridable per session via ACP session/set_config_option with configId "permission_mode".
+  # Overridable per session (ACP session/set_config_option "permission_mode", /permissions,
+  # the web composer chip); the override lives in memory, a restart comes back to this value.
   permission_mode: ask
 
   # How long a permission prompt may wait for the operator before the tool

@@ -48,7 +48,7 @@ func TestBuildSystemPromptIdentifiesFoxxyCodeInEveryMode(t *testing.T) {
 // own persona must still be attributable, so the identity line is prepended.
 func TestBuildSystemPromptIdentifiesFoxxyCodeWithCustomPromptsDir(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"agent.md", "plan.md"} {
+	for _, name := range []string{"agent.md", "plan.md", "ask.md"} {
 		body := "You are a terse assistant. Working directory: {{.CWD}}\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
