@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -41,10 +40,10 @@ type neuralDeepBDDState struct {
 	hubMirror *httptest.Server
 	api       *httptest.Server
 	// proxy is the provider row's own proxy, when the scenario names one.
-	proxy *proxytest.Proxy
-	server    *Server
-	ts        *httptest.Server
-	loginID   string
+	proxy   *proxytest.Proxy
+	server  *Server
+	ts      *httptest.Server
+	loginID string
 
 	mu       sync.Mutex
 	apiAuths []string
@@ -351,12 +350,10 @@ func (s *neuralDeepBDDState) startServerWith(prov config.ProviderConfig) error {
 	return nil
 }
 
-func (s *neuralDeepBDDState) signInReachedHubThroughProxy() error {
+func (s *neuralDeepBDDState) signInBypassedProxyForLoopbackHub() error {
 	carried := s.proxy.Carried()
-	for _, want := range []string{"/api/cli/device/start", "/api/cli/device/token"} {
-		if !slices.Contains(carried, want) {
-			return fmt.Errorf("the proxy did not carry %s; it carried %v", want, carried)
-		}
+	if len(carried) != 0 {
+		return fmt.Errorf("the loopback sign-in went through the proxy: %v", carried)
 	}
 	return nil
 }
@@ -672,7 +669,7 @@ func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a foxxycode HTTP server with a neuraldeep provider and a stand-in hub$`, s.startServerWithProvider)
 	sc.Step(`^a foxxycode HTTP server with a neuraldeep provider that names a proxy of its own, and a stand-in hub$`, s.startServerWithProxiedProvider)
-	sc.Step(`^the sign-in reached the hub through that proxy$`, s.signInReachedHubThroughProxy)
+	sc.Step(`^the loopback sign-in bypassed that proxy$`, s.signInBypassedProxyForLoopbackHub)
 	sc.Step(`^I sign in to NeuralDeep through the device flow over REST$`, s.signInThroughRESTDeviceFlow)
 	sc.Step(`^the neuraldeep provider reports connected with a masked key$`, s.providerReportsConnectedMasked)
 	sc.Step(`^I sign out of NeuralDeep over REST$`, s.signOutOverREST)

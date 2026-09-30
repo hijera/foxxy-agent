@@ -333,6 +333,7 @@ const (
 	UpdateTypeLLMRetry                = "llm_retry"
 	UpdateTypeDebug                   = "debug"
 	UpdateTypeMessageQueue            = "message_queue"
+	UpdateTypeTurnProgress            = "turn_progress"
 )
 
 // MCP phase values for MCPPhaseUpdate.Phase.
@@ -463,6 +464,27 @@ type TokenUsageUpdate struct {
 	InputTokens   int    `json:"inputTokens"`
 	OutputTokens  int    `json:"outputTokens"`
 	TotalTokens   int    `json:"totalTokens"`
+}
+
+// TurnProgressUpdate reports how far the running turn has come: when it was
+// admitted and how many tokens the model has generated in it so far. A surface
+// renders it as the turn's clock and token count next to what the agent is
+// doing; before the first token it carries the clock alone.
+//
+// It is sent when the turn's loop starts, at most once a second while a model
+// call streams, and after every call. OutputTokens sums what the provider
+// reported for the turn's completed calls and an estimate of what the call in
+// flight has streamed; Estimated says an estimate is part of the number, which
+// stays true for a provider that reports no usage.
+type TurnProgressUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "turn_progress"
+	// StartedAt is when the turn was admitted, RFC3339 with sub-second digits.
+	StartedAt string `json:"startedAt"`
+	// ElapsedMs is the turn's age when the update was written. A client whose
+	// clock disagrees with the server's counts from its own now minus this.
+	ElapsedMs    int64 `json:"elapsedMs"`
+	OutputTokens int   `json:"outputTokens"`
+	Estimated    bool  `json:"estimated"`
 }
 
 // UsageUpdate reports how much of the model context window is currently occupied.

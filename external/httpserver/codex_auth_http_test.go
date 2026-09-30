@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -197,10 +196,9 @@ func TestCodexAuthDeviceHTTPFlow(t *testing.T) {
 	}
 }
 
-// TestCodexAuthDeviceStartGoesThroughTheRowsProxy pins that the Settings
-// sign-in of a codex row asks the OAuth issuer through the proxy the row
-// names, like every other request of that row.
-func TestCodexAuthDeviceStartGoesThroughTheRowsProxy(t *testing.T) {
+// TestCodexAuthDeviceStartBypassesTheRowsProxyForLoopback pins the fork's
+// loopback bypass for a configured URL proxy, including OAuth device sign-in.
+func TestCodexAuthDeviceStartBypassesTheRowsProxyForLoopback(t *testing.T) {
 	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/accounts/deviceauth/usercode" {
 			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-proxy","user_code":"PRXY","interval":"5"}`)
@@ -237,7 +235,7 @@ func TestCodexAuthDeviceStartGoesThroughTheRowsProxy(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("start status = %d", res.StatusCode)
 	}
-	if carried := proxy.Carried(); !slices.Contains(carried, "/api/accounts/deviceauth/usercode") {
-		t.Fatalf("the device start did not go through the row's proxy; it carried %v", carried)
+	if carried := proxy.Carried(); len(carried) != 0 {
+		t.Fatalf("the loopback device start went through the row's proxy: %v", carried)
 	}
 }

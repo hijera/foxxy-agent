@@ -6,7 +6,7 @@ How the documentation under `docs/` is organised, what a change to FoxxyCode mus
 
 | Folder | What lives there | Page type |
 |--------|------------------|-----------|
-| `docs/getting-started/` | Install, configure, update, troubleshoot, how FoxxyCode relates to coddy-agent | Guides, read once in order |
+| `docs/getting-started/` | Install, configure, update, troubleshoot, how FoxxyCode relates to foxxy-agent | Guides, read once in order |
 | `docs/surfaces/` | One page per way of talking to the agent: console, web UI, editors, Telegram | Surface pages |
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
 | `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export | Feature pages |

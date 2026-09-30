@@ -59,6 +59,16 @@ Feature: Interactive console TUI
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 
+  Scenario: The status line leads with the turn's clock and the tokens generated in it
+    When the console app starts
+    And the operator submits the prompt "run the long build"
+    Then the status line leads with the turn clock before "Waiting for the model"
+    And the status line shows no token count yet
+    When the agent reports 1200 tokens generated in this turn
+    Then the status line shows "1.2k tokens · Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "1.2k tokens · Reading README.md"
+
   Scenario: The status line names the subagent that is running
     When the console app starts
     And the operator submits the prompt "delegate the review"
@@ -215,3 +225,65 @@ Feature: Interactive console TUI
     And the stub turn streams the text "automation pong"
     Then the one-shot output contains "automation pong"
     And the one-shot run ends cleanly
+
+  Scenario: The footer shows the NeuralDeep session and weekly usage
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    Then the footer shows the neuraldeep usage "Pro • 3h 3% (resets"
+    And the footer shows the neuraldeep usage "week 7% (resets"
+    And the footer shows the neuraldeep usage "wallet -1 229 ₽"
+
+  Scenario: The footer warns when the session window is nearly spent
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    And the stand-in limits API reports the session window at 85%
+    When the console app starts
+    Then the footer shows the neuraldeep usage "3h 85%"
+    And the transcript shows a usage notice containing "You've used 85% of your NeuralDeep 3h limit"
+
+  Scenario: A finished turn refreshes the usage line
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the footer shows the neuraldeep usage "3h 3%"
+    And the usage clock moves 20 seconds forward
+    And the stand-in limits API reports the session window at 42%
+    And the operator submits the prompt "spend some quota"
+    And the stub turn streams the text "spent"
+    Then the footer shows the neuraldeep usage "3h 42%"
+
+  Scenario: /usage prints the account breakdown
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the operator submits the command "/usage"
+    Then the usage report shows "NeuralDeep · Pro · key foxxycode"
+    And the usage report shows "407 / 15 000"
+    And the usage report shows "rpm            2 / 120 this minute"
+
+  Scenario: Switching to another provider hides the usage line
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the footer shows the neuraldeep usage "3h 3%"
+    And the operator switches the model to "stub/model-one"
+    Then the footer names the model "(stub) model-one"
+    And the footer does not show the neuraldeep usage
+
+  Scenario: The usage line stays off when the panel is switched off in config
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider whose usage limits panel is switched off
+    When the console app starts
+    And the operator submits the prompt "spend some quota"
+    And the stub turn streams the text "spent"
+    And the operator submits the command "/usage"
+    Then the usage report shows "usage limits panel is switched off"
+    And the footer does not show the neuraldeep usage
+    And the stand-in limits API was never asked
+
+  Scenario: The operator lists the background tasks of the session, reads one and stops it
+    When the console app starts
+    And the session runs the background command "echo tests started; sleep 30"
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "echo tests started; sleep 30" as running
+    And the footer names 1 running task
+    When the operator opens the selected task
+    Then the tasks overlay shows the output "tests started"
+    When the operator stops the task from the overlay
+    Then the background command is stopped
+    And the tasks overlay lists the task as stopped

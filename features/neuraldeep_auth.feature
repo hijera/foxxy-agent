@@ -24,13 +24,13 @@ Feature: NeuralDeep hub sign-in feeds the neuraldeep provider
     Then the neuraldeep provider reports disconnected
 
   @http
-  Scenario: Signing in from Settings goes through the provider's own proxy
-    A row that names a proxy reaches the hub through it, the sign-in included.
+  Scenario: Signing in from Settings bypasses the provider proxy for loopback
+    A row that names a proxy still reaches a local hub directly.
 
     Given a foxxycode HTTP server with a neuraldeep provider that names a proxy of its own, and a stand-in hub
     When I sign in to NeuralDeep through the device flow over REST
     Then the neuraldeep provider reports connected with a masked key
-    And the sign-in reached the hub through that proxy
+    And the loopback sign-in bypassed that proxy
 
   @http
   Scenario: The provider is pinned to the international mirror

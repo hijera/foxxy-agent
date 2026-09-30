@@ -230,6 +230,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("mode", u)
 	case acp.MessageQueueUpdate:
 		return s.writeNamedEventJSON("message_queue", u)
+	case acp.TurnProgressUpdate:
+		return s.writeNamedEventJSON("turn_progress", u)
 	default:
 		return nil
 	}

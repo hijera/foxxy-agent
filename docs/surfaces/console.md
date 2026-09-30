@@ -49,17 +49,26 @@ Top to bottom:
   received, cut at the first of 10 written lines or 600 characters with
   `... (ctrl+o for the whole prompt)`. The child's report lands below it as
   the box body, so the task and the answer read as one block.
-- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
-  the current step while a turn runs - verb plus target plus elapsed counter
-  (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
-  `Responding`; `Running subagent reviewer · 40s` while a `spawn_agent` call
-  is in flight). A plain wait escalates with time: `Waiting for the model` →
-  `The model is taking longer than usual` (15 s) → `Still no response from the
-  server` (60 s). While a permission or question modal is open the line shows
-  `Waiting for your approval` / `Waiting for your answer` with **no** counter
-  (nothing is running), and after approval it returns to the gated tool with a
-  restarted counter. Phrase table lives in `external/cli/status.go` (Go twin of
-  the SPA's `liveStatus.ts`).
+- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line while a
+  turn runs. The line leads with the turn's own numbers: how long the turn has
+  been running, how many tokens the model has generated in it, how many
+  background tasks run right now - `15m 08s · 13.5k tokens · 1 running task ·
+  Thinking…`. Before the first token it is the clock and the phrase alone
+  (`57s · Waiting for the model`), and the tasks appear only while something
+  runs. The tokens are the agent's `turn_progress` update: the provider's
+  figures for the calls that finished plus an estimate of the one in flight, so
+  the count moves while the answer streams; a console attached over `--remote`
+  receives the same update. Then comes the current step - verb plus target -
+  and, for a step that runs something other than the model, a counter of its
+  own (`2m 05s · 1.2k tokens · Running npm test · 45s`, `Running subagent
+  reviewer · 40s` while a `spawn_agent` call is in flight); thinking, responding
+  and waiting are covered by the turn clock. A plain wait escalates with time:
+  `Waiting for the model` → `The model is taking longer than usual` (15 s) →
+  `Still no response from the server` (60 s). While a permission or question
+  modal is open the line shows `Waiting for your approval` / `Waiting for your
+  answer` with **no** step counter (nothing is running), and after approval it
+  returns to the gated tool with a restarted counter. Phrase table lives in
+  `external/cli/status.go` (Go twin of the SPA's `liveStatus.ts`).
 - **Plan widget**: current todo entries (`✓` done, `◐` active, `○` pending,
   `✗` failed) above the editor.
 - **Editor**: multi-line input between full-width `─` rules (green while the
@@ -72,8 +81,43 @@ Top to bottom:
   A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
   the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
   those lines reach the model (see `docs/surfaces/web-ui.md`, **Line ranges**).
-- **Footer**: dim `cwd (git-branch) • title [• plan]`, then
-  `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
+- **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)]`,
+  then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
+  right. The running-task note stays after the turn that started the tasks has
+  ended, which is when the status line that counted them is gone. When the
+  line does not fit, the path and the title give way and the note stays.
+  A third line appears while the active model's provider reports account
+  usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
+  `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
+  the plan, each metered window as percent **used** with its reset time in
+  your clock (time of day within 24 h, weekday within a week, date beyond),
+  the day window only when it is above zero, and the account's own ruble
+  balance for wallet keys. A window at 80 % or more turns to the warning
+  colour and a transcript notice says `You've used 82% of your NeuralDeep 3h
+  limit · resets 20:59`, once per window and period; a hit limit replaces the
+  windows with `limit reached (resets 20:59)` in the error colour (`rate
+  limited (retry in 42s)` for a per-minute block, `key blocked`, `wallet
+  empty` or `account blocked` for the ones no clock lifts) and posts `Usage
+  limit reached` once. With `agent.wait_for_limit_reset` on, a turn that
+  hits a limit the retries could never cover (a `429` naming a reset far
+  ahead) waits for it instead of failing: the live status row reads `Usage
+  limit reached · resuming at 20:59` without a running counter, the footer
+  keeps the hub's numbers, and the same call runs again when the limit
+  lifts (Esc stops the wait like any turn). A model on the provider's unlimited option (Qwen ∞)
+  reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
+  foxxycode providers login neuraldeep`; when the hub cannot be reached the last
+  numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
+  week and the plan leave in that order. The numbers arrive from the session
+  manager at session start and after every turn (`provider_usage` update,
+  same on `--remote`); after `/model` the console asks its backend for the
+  numbers of the new provider (from the cache when warm), once a window's
+  reset passes it asks for a fresh read, and when the backend deferred a
+  refresh by its pacing floor the console reads the cache again when the
+  answer says so. Nothing polls otherwise. `usage_limits_panel: false` on
+  the provider row switches the panel off: the line stays hidden, `/usage`
+  says so, and no request goes to the hub for that row; a configuration
+  reload re-reads the cache, so a switched panel follows without a restart.
+  Design record: `docs/plans/neuraldeep-usage.md`.
 
 Rendering is pi's inline main-screen model: line-diff against the previous
 frame, synchronized output (`ESC[?2026h/l`), per-line SGR + OSC 8 reset, a
@@ -93,11 +137,36 @@ it; a second one ends the process the default way instead of being swallowed.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server.
+
+`/tasks` opens the background tasks of the session in the place of the editor
+([Background tasks](../features/background-tasks.md#in-the-console)). The
+agent has had `background_list`, `background_output` and `background_stop`
+all along; this is the operator's side of the same pool. Every task is one
+row: a status mark, a tag that says what stands behind it (`shell` for a
+command, the agent's name for a subagent run, `memory` for the memory run of
+a turn), the title - the command, or what the agent was asked to do - and how
+it is going (`1m 08s · est. 5m 00s`, `1m 30s` once it has ended), with the
+model and the tokens of an agent run (`44s · qwen3.8-27b · 88.7k tokens`),
+newest first, the way the web UI's Tasks panel lists them. How a task ended
+is its mark (`✓`, `✗`, `■`); the open task says it in words. **enter** opens
+the task under the cursor: how it ended with the exit code and the duration
+(`failed · exit 2 · 1m 30s`), its command, the child session of an agent run,
+the error it ended with unless that is only the exit code again, and the last
+lines of its output, read again while the task
+runs and once more when it ends, for what it printed last. One output read is
+in flight at a time, like the list read, so a slow server does not collect a
+queue of them. **s** stops the task under the cursor or the open one, process group
+and all; **r** reads everything again; **escape** leaves an open task first,
+then the overlay. Under `--remote` the rows, the output and the stop go
+through the server's REST routes, so the overlay manages the processes of the
+machine the agent runs on. The list refreshes every 2.5 s while the overlay is
+open, a turn runs or a task runs, and every 15 s otherwise; between turns the
+footer keeps saying how many tasks still run.
 
 Submitting while a turn is running does not refuse the prompt: it joins the
 session's message queue, which the running turn reads at its next step
@@ -419,6 +488,73 @@ editor buffer, never from model output, so nothing the model writes can start
 a command through it. Project-local MCP servers still go
 through the workspace trust gate; a server pending approval stays disconnected
 and is visible via `foxxycode mcp list` (approve with `foxxycode mcp trust <name>`).
+
+## Captures
+
+![The launch line, header, editor and footer of a fresh console](../assets/screenshot-console-start.png)
+
+*The launch line with the header, the `[Context]` and `[Skills]` sections, the editor and the footer*
+
+![The ctrl+l model selector](../assets/screenshot-console-models.png)
+
+*The ctrl+l model selector*
+
+![The usage footer with the account windows](../assets/cli-tui/09-usage-footer.png)
+
+*The usage footer with the account windows*
+
+![The footer warning as a window fills up](../assets/cli-tui/10-usage-warning.png)
+
+*The footer warning as a window fills up*
+
+![A limit hit: the turn waits for the reset](../assets/cli-tui/11-usage-blocked.png)
+
+*A limit hit: the turn waits for the reset*
+
+![The turn resuming after the reset](../assets/cli-tui/12-usage-resuming.png)
+
+*The turn resuming after the reset*
+
+![The status line of a running turn: 2s, 64 tokens, 1 running task, Responding](../assets/cli-tui/14-turn-progress.png)
+
+*The status line of a running turn leads with its clock, the tokens generated in it and the running background task; the footer names the task as well*
+
+![The /tasks overlay listing a running command](../assets/cli-tui/15-tasks-overlay.png)
+
+*`/tasks`: the background tasks of the session in the place of the editor*
+
+![A task opened in the /tasks overlay: its command and the last lines of its output](../assets/cli-tui/16-tasks-output.png)
+
+*A task opened with enter: the command, the last lines of its output, and `s` to stop it*
+
+Two capture sets exist, and they answer different questions.
+
+`docs/assets/screenshot-console-*.png` are photographs of the running console
+in a real **Konsole** window (1920 px wide, cropped to the used rows): the
+launch line and header with `[Context]` / `[Skills]`
+(`screenshot-console-start.png`), the `ctrl+l` model selector
+(`screenshot-console-models.png`), and a finished turn with a tool box, a
+thinking block, and the footer counters (`screenshot-console-chat.png`). Use
+these in README and on the site: they show what a user actually sees in a
+terminal emulator.
+
+`docs/assets/cli-tui/` is the deterministic set produced by
+`examples/cli/capture.py`, which drives the shared e2e driver and renders each
+state from the pyte buffer as `.txt`, styled `.html`, and `.png`. Those are
+regression references for colors and cell layout, not marketing images;
+regenerate them when the transcript chrome changes. The four usage states
+(`09-usage-footer`, `10-usage-warning`, `12-usage-resuming`,
+`11-usage-blocked`) come from `examples/cli/capture_usage.py`, which stands
+a fake hub `GET /limits` behind `FOXXYCODE_NEURALDEEP_BASE_URL`, plus one chat
+completion that answers a `429` naming a reset far ahead for the waiting
+turn, so no real key is needed; only their PNGs are kept.
+`13-subagent-delegation` comes from `examples/cli/capture_subagent.py` the
+same way: a local OpenAI-compatible endpoint scripts a `load_skill` call, a
+`spawn_agent` call, the child's report and the parent's answer, so the shot
+needs neither a provider nor a key.
+
+`docs/assets/pi-tui-reference/` holds captures of the pi original for
+comparison, as described under **Visual model**.
 
 ## Testing
 

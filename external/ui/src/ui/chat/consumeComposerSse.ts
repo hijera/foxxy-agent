@@ -7,9 +7,10 @@ import {
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
+import type { TokenUsage, TranscriptItem } from "./types";
+import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
 import { t } from "../i18n/i18n";
-import type { TokenUsage, TranscriptItem } from "./types";
 
 export type ContextUsageUpdate = {
   used: number;
@@ -109,6 +110,8 @@ export type ConsumeComposerSseParams = {
   onModeChanged?: (mode: string) => void;
   /** FoxxyCode extension. What the session message queue holds now (`event: message_queue`). */
   onMessageQueue?: (queue: QueuedMessageSnapshot) => void;
+  /** FoxxyCode extension. The running turn's clock and generated tokens (`event: turn_progress`). */
+  onTurnProgress?: (progress: TurnProgress) => void;
 };
 
 /** One follow-up still waiting for the running turn to read it. */
@@ -207,6 +210,7 @@ export async function consumeComposerSseReader(
     onProviderUsage,
     onModeChanged,
     onMessageQueue,
+    onTurnProgress,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -607,6 +611,22 @@ export async function consumeComposerSseReader(
                   tokenBaselineRef.current.total + (u.totalTokens || 0),
               };
               setTokenUsage(merged);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "turn_progress") {
+            try {
+              const progress = turnProgressFromFrame(
+                JSON.parse(ev.data),
+                ev.ageMs,
+                Date.now(),
+              );
+              if (progress) {
+                onTurnProgress?.(progress);
+              }
             } catch {
               // ignore
             }
