@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
+  preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
+  transcriptItemsLooselyEqual,
 } from "./transcriptServerSnapshot";
 import type { TranscriptItem } from "./types";
 
@@ -155,3 +158,113 @@ describe("keepLocalTranscriptIfServerEmpty", () => {
   });
 });
 
+describe("preserveUserMessageFiles", () => {
+  it("prefers persisted server thumbnails over optimistic blob URLs", () => {
+    const server: TranscriptItem[] = [
+      {
+        ...u("server", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "/foxxycode/sessions/sess_a/assets/photo.png/thumbnail",
+        }],
+      },
+    ];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "blob:optimistic-photo",
+        }],
+      },
+    ];
+    expect(preserveUserMessageFiles(server, local)).toEqual(server);
+  });
+
+  it("keeps optimistic files while the server snapshot has no file metadata", () => {
+    const server = [u("server", "hello")];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "blob:optimistic-photo",
+        }],
+      },
+    ];
+    expect(preserveUserMessageFiles(server, local)[0]).toMatchObject({
+      files: local[0]!.type === "user_message" ? local[0]!.files : undefined,
+    });
+  });
+
+  it("revokes an optimistic blob after the persisted thumbnail arrives", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const server: TranscriptItem[] = [
+        {
+          ...u("server", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "/foxxycode/sessions/sess_a/assets/photo.png/thumbnail",
+          }],
+        },
+      ];
+      const local: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          }],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(server, local);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:optimistic-photo");
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+
+  it("does not revoke a blob that is still only an optimistic local tail", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const optimistic: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          }],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(optimistic, optimistic);
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+});
+
+
+it("a wake from the stream and the same wake from the transcript are one row", () => {
+  const live: TranscriptItem = { id: "wake-7", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] };
+  const stored: TranscriptItem = {
+    id: "wake_2",
+    type: "background_wake",
+    tasks: [{ id: "bg_3", status: "failed", exitCode: 2 }],
+    createdAtUtc: "2026-09-18T12:00:00Z",
+  };
+  const other: TranscriptItem = { id: "wake_3", type: "background_wake", tasks: [{ id: "bg_4", status: "failed" }] };
+  expect(transcriptItemsLooselyEqual(stored, live)).toBe(true);
+  expect(transcriptItemsLooselyEqual(other, live)).toBe(false);
+});

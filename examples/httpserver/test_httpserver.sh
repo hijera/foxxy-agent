@@ -85,6 +85,10 @@ python3 "$HTTP_DIR/http_e2e_skills_slash.py"
 python3 "$HTTP_DIR/http_e2e_rules.py"
 # Ranged @mentions: picker read, attachments[].source lines, typed grammar, 400 past EOF.
 python3 "$HTTP_DIR/http_e2e_mentions.py"
+python3 "$HTTP_DIR/http_e2e_background.py"
+# Self-boots the scripted model of cmd/tgfake and its own foxxycode serve: no key.
+python3 "$HTTP_DIR/http_e2e_background_wake.py"
+python3 "$HTTP_DIR/http_e2e_subagents.py"
 python3 "$HTTP_DIR/http_e2e_hooks.py"
 python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_compact.py"

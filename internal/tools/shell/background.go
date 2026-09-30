@@ -55,11 +55,12 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		ToolCallID:      env.ToolCallID,
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
-		// Child and scheduled-run transcripts are sealed after their one turn.
-		NotifyOnFinish: args.NotifyOnFinish && env.WakeableSession,
-		// A dev server or watcher is started so later steps can talk to it, so a
-		// clock must not end it; background_stop does. An explicit
-		// timeout_seconds still wins.
+		// The task records a wake only where one will happen: a child's or a
+		// scheduled run's transcript is sealed once its turn returns, and a
+		// process with no waker (foxxycode -p) has nobody to start the turn.
+		NotifyOnFinish: args.NotifyOnFinish && WakeAvailable(pool, env),
+		// A dev server or watcher runs until background_stop unless an explicit
+		// timeout_seconds was supplied.
 		NoTimeout: isLongRunningCommand(args.Command),
 	})
 	if err != nil {
@@ -78,12 +79,24 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 	default:
 		fmt.Fprintf(&b, "Hard timeout %s.\n", humanSeconds(snap.TimeoutSeconds))
 	}
-	if snap.NotifyOnFinish {
+	switch {
+	case snap.NotifyOnFinish:
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
-	} else {
+	case args.NotifyOnFinish:
+		// Promising a turn that never starts would have the model end this one
+		// waiting for it.
+		fmt.Fprintf(&b, "Nothing will wake you when it finishes here, so notify_on_finish was ignored: check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
+	default:
 		fmt.Fprintf(&b, "Keep working; check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
 	}
 	return b.String(), nil
+}
+
+// WakeAvailable reports whether a task started from env can wake the agent when
+// it ends: the session is one a turn can still be started on, and something in
+// this process is subscribed to turn a finished task into that turn.
+func WakeAvailable(pool *bgtask.Pool, env *tooling.Env) bool {
+	return env != nil && env.WakeableSession && pool != nil && pool.CanWake()
 }
 
 // refuseSystemTask answers a task id that names a system task (the memory
@@ -388,6 +401,9 @@ func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 
 	if t.Overdue(now) {
 		b.WriteString(" overdue")
+	}
+	if t.NotifyOnFinish && !t.Status.Finished() {
+		b.WriteString(" wakes you when it ends")
 	}
 	if silent := t.SilentFor(now); silent >= stallHintAfter {
 		fmt.Fprintf(&b, " silent for %s", humanSeconds(int(silent.Round(time.Second)/time.Second)))

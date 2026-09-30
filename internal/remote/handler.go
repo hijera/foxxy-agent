@@ -65,6 +65,10 @@ type Handler struct {
 	// detachedPromptsState holds the permission prompts of background
 	// subagents the server announced on that stream (detached_prompts.go).
 	detachedPromptsState
+
+	// followState is the woken turns this client follows on the composer
+	// relay (follow.go).
+	followState
 }
 
 type sessionState struct {
@@ -75,6 +79,10 @@ type sessionState struct {
 	turn             *remoteTurn
 	activityRevision uint64
 	queue            queueOrder
+	// historyRev is the messagesRev of the transcript this client loaded, and
+	// historyLoaded whether it loaded one (follow.go).
+	historyRev    uint64
+	historyLoaded bool
 }
 
 // remoteTurn is the identity of one locally admitted request, not the server's
@@ -240,6 +248,7 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		case err == nil:
 			h.mu.Lock()
 			st.pendingReplay = msgs.Messages
+			st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 			if msgs.SelectedModelID != "" {
 				st.modelID = msgs.SelectedModelID
 			}
@@ -280,6 +289,7 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if msgs.Mode != "" {
 		st.mode = msgs.Mode
 	}
+	st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 	h.mu.Unlock()
 	h.replayMessages(id, msgs.Messages)
 	// A background subagent of this session may have asked before the console
@@ -693,6 +703,10 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 	for _, row := range rows {
 		switch row.Role {
 		case "user":
+			if row.BackgroundWake != nil {
+				_ = sender.SendSessionUpdate(sessionID, session.BackgroundWakeUpdate(row.BackgroundWake))
+				continue
+			}
 			if text := strings.TrimSpace(row.Content); text != "" {
 				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeUserMessageChunk,

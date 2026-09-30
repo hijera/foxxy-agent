@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/gateway/proxyutil"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -82,6 +83,10 @@ type Bot struct {
 	promptSurfaces PromptSurfaces
 	apiMu          sync.Mutex
 	api            *tgbotapi.BotAPI
+
+	// wakeSurfaces is where the bot offers to run the woken turns of its
+	// chats' sessions (wake.go).
+	wakeSurfaces agent.WakeSurfaces
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
@@ -141,6 +146,12 @@ func (b *Bot) Start(ctx context.Context) error {
 	defer b.asks.stop()
 	if b.promptSurfaces != nil {
 		withdraw := b.promptSurfaces.AddDetachedPermissionApprover(b)
+		defer withdraw()
+	}
+	// A turn a finished background task starts in one of these chats'
+	// sessions runs in that chat, for as long as the bot is connected.
+	if b.wakeSurfaces != nil {
+		withdraw := b.wakeSurfaces.AddWakeSurface(b, agent.WakeOwner)
 		defer withdraw()
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 const (
@@ -100,6 +101,15 @@ func toolResultText(items []acp.ToolCallResultItem) string {
 // SendSessionUpdate handles streaming events from the agent.
 func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	switch u := update.(type) {
+
+	case acp.BackgroundWakeUpdate:
+		// A turn nobody typed opens with what woke the agent, as a message of
+		// its own above the answer. Plain text: a task label is a command line,
+		// full of characters Markdown would eat.
+		msg := tgbotapi.NewMessage(s.chatID, "🔔 "+session.BackgroundWakeNote(u))
+		if _, err := s.bot.Send(msg); err != nil {
+			s.log.Warn("telegram: wake note not delivered", "err", err, "chat", s.chatID)
+		}
 
 	case acp.MessageChunkUpdate:
 		if u.Content.Type != acp.ContentTypeText {

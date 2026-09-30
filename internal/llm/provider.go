@@ -67,6 +67,10 @@ type Message struct {
 	// client re-attaching to the turn uses it to tell the prompt the turn started from apart
 	// from the follow-ups the turn's own stream will replay.
 	Queued bool `json:"queued,omitempty"`
+	// BackgroundWake marks a user-role message no person typed: the one a
+	// finished notify_on_finish task started a turn with (excluded from what
+	// the provider is sent; the Content still is).
+	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.

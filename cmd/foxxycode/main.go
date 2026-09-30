@@ -348,7 +348,10 @@ func runACP(args []string) error {
 		}
 		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
 		srv := acp.NewServer(h, log)
-		h.SetServer(srv)
+		// The server wakes the agent on its own; a turn it woke in a session
+		// this editor has open is followed here, and opens with a note an
+		// editor that renders only the standard updates can read.
+		h.SetServer(acpWakeNotice{srv})
 		return srv.Run(context.Background(), os.Stdin)
 	}
 
@@ -388,7 +391,13 @@ func runACP(args []string) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	srv = acp.NewServer(mgr, log)
-	mgr.SetServer(srv)
+	// A woken turn opens with a note an editor that renders only the standard
+	// updates can read, live and when session/load replays it.
+	notice := acpWakeNotice{srv}
+	mgr.SetServer(notice)
+	// A task the model started with notify_on_finish begins its own turn here
+	// when it ends, the way it does in the console and under foxxycode serve.
+	agent.NewBackgroundWaker(log, acpWakeRunner(mgr, notice)).Attach(bgtask.Default())
 
 	ctx := context.Background()
 	// The scheduler runs its jobs as children of their job sessions through

@@ -12,6 +12,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_todo`** | **`httpserver/http_e2e_todo.py`** | **`acp/acp_e2e_todo.py`** |
 | **`e2e_memory`** | **`httpserver/http_e2e_memory.py`** (a `remember` turn persisted by the memory subagent, the `memory` task row and its read-only child transcript) | **`acp/acp_e2e_memory.py`** (a seeded note recalled, a `remember` turn persisted, the fact asked again in a fresh session so it can only come from disk, the child bundle under `subagents/`) |
 | **`e2e_background`** | **`httpserver/http_e2e_background.py`** (task list, live output, stop, 404) | **`acp/acp_e2e_background.py`** (persisted `background/<id>/meta.json` plus `output.log`) |
+| **`e2e_background_wake`** | **`httpserver/http_e2e_background_wake.py`** (self-boots **`foxxycode serve`** on the scripted model of **`cmd/tgfake`**, no key: a failing command started with **`notify_on_finish`** wakes the agent; **`background_wake`** on **`GET /foxxycode/events`**, the woken turn's relay opening with the **`background_wake`** frame, the marker in **`GET .../messages`**, the task row's **`notify_on_finish`**; then the woken turn's permission prompt answered through **`POST .../permission`**) | **`acp/acp_e2e_background_wake.py`** (self-boots **`foxxycode acp`** on the same model: the **`background_wake`** update and the quoted note outside any **`session/prompt`**, no user message for the instruction, **`session/request_permission`** inside the woken turn, **`session/load`** replaying the wake) |
 | **`e2e_subagents`** | **`httpserver/http_e2e_subagents.py`** (trust route, `spawn_agent` run as an `agent` task, read-only child transcript, `include_subagents`, catalog with declared bounds; then a detached child's permission prompt: `pending_permission` on the task row, `subagent_permission` on `GET /foxxycode/events`, answered against the child session) | **`acp/acp_e2e_subagents.py`** (`foxxycode agents trust`, persisted `agent` task plus the child bundle inside the parent's, with the parent link) |
 | **`e2e_hooks`** | **`httpserver/http_e2e_hooks.py`** (catalog with the held project file, the notice row in the transcript, `POST /foxxycode/hooks/trust` then a turn that runs the approved hook, `untrust`) | **`acp/acp_e2e_hooks.py`** (user-scope `PreToolUse` / `PostToolUse` recorder hooks see a real `run_command`, the project-scope hook stays held until `foxxycode hooks trust .foxxycode/hooks.json`, then runs on the next turn) |
 | **`e2e_toolcalls_persist`** | **`httpserver/http_e2e_toolcalls_persist.py`** | **`acp/acp_e2e_toolcalls_persist.py`** |
@@ -47,7 +48,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 
 ```bash
 ./examples/build_foxxycode.sh
-./examples/test_gateway.sh                        # boots tgfake --llm and foxxycode serve --gateway, sends "hello", checks the reply, /clear then /resume back
+./examples/test_gateway.sh                        # boots tgfake --llm and foxxycode serve --gateway, sends "hello", checks the reply, /clear then /resume back, then a background wake: the woken turn's note and answer in the chat
 TG_E2E_KEEP=1 ./examples/test_gateway.sh             # leaves both running and prints the chat page URL
 RICH_MESSAGES=true ./examples/test_gateway.sh
 ```

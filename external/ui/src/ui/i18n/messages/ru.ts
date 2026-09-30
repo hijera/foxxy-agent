@@ -1568,6 +1568,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.footDuration": "Длительность {value}",
   "tasks.agentTokensTitle": "Токены на входе {input}, на выходе {output}",
   "tasks.notReachable": "FoxxyCode недоступен",
+  "tasks.notifyTitle": "Разбудит агента, когда завершится",
+  "tasks.wokeTitle": "Разбудила агента, когда завершилась",
   "tasks.running.one": "Выполняется {count} задача",
   "tasks.running.few": "Выполняются {count} задачи",
   "tasks.running.many": "Выполняется {count} задач",

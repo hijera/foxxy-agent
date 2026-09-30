@@ -40,6 +40,7 @@ import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
+import { opensTurn } from "../chat/backgroundWake";
 
 /**
  * The turn's clock and tokens for the live line: what the server reported, and until it
@@ -168,12 +169,17 @@ export function MessageList(props: {
     ],
   );
 
+  // The server numbers every user-role message of the transcript, a woken
+  // turn's first message included, so the wake counts here too: an edit of a
+  // later message must name the message the server knows by that index.
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
     let idx = 0;
     for (const it of props.items) {
       if (it.type === "user_message") {
         m.set(it.id, idx++);
+      } else if (it.type === "background_wake") {
+        idx++;
       }
     }
     return m;
@@ -193,7 +199,7 @@ export function MessageList(props: {
     for (let i = props.items.length - 1; i >= 0; i--) {
       const item = props.items[i];
       if (!item) continue;
-      if (item.type === "user_message") {
+      if (opensTurn(item)) {
         seenInTurn = false;
         inRunningTurn = false;
         continue;
@@ -251,6 +257,21 @@ export function MessageList(props: {
             />
           );
         }
+        if (it.type === "compaction") {
+          return <CompactionMessage key={it.id} summary={it.summary} />;
+        }
+        if (it.type === "background_wake") {
+          // Nobody typed the first message of a turn a finished background
+          // task started, and nothing stands in its place: the agent's answer
+          // reads as the work carrying on, and the task's card in the Tasks
+          // panel keeps a bell for what woke it.
+          return null;
+        }
+        if (it.type === "memory_run") {
+          // The memory subagent's run is the live status line's business and
+          // the Tasks drawer's record; the transcript shows nothing for it.
+          return null;
+        }
         if (it.type === "assistant_message") {
           // Whitespace alone is a zero-height row that still takes the column's
           // gap, a hole between the rows around it; there is nothing in it to copy.
@@ -278,12 +299,6 @@ export function MessageList(props: {
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
             />
           );
-        }
-        if (it.type === "compaction") {
-          return <CompactionMessage key={it.id} summary={it.summary} />;
-        }
-        if (it.type === "memory_run") {
-          return null;
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();

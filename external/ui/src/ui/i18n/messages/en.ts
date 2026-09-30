@@ -1522,6 +1522,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.footDuration": "Duration {value}",
   "tasks.agentTokensTitle": "Tokens in {input}, out {output}",
   "tasks.notReachable": "FoxxyCode is not reachable",
+  "tasks.notifyTitle": "Wakes the agent when it ends",
+  "tasks.wokeTitle": "Woke the agent when it ended",
   "tasks.running.one": "{count} running task",
   "tasks.running.other": "{count} running tasks",
   "tasks.openAria": "Open background tasks: {label}",

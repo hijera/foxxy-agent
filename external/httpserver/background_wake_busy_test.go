@@ -2,14 +2,12 @@
 
 package httpserver
 
-// Fork-specific: upstream's session turn lock queues, so a wake landing mid-turn
-// simply waits. Ours fails fast with ErrSessionTurnBusy (which is what lets the
-// composer answer 409 session_busy instead of hanging), and BackgroundWaker
-// drops a batch whose run returned an error. Without a retry here, a task
-// finishing while the user is mid-turn loses its notification outright.
+// The fork's session turn lock fails fast with ErrSessionTurnBusy, so the
+// process waker must retry while a user turn owns the session.
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -29,6 +28,8 @@ type busySession struct {
 	srv       *Server
 	mgr       *session.Manager
 	sessionID string
+	pool      *bgtask.Pool
+	attempts  atomic.Int32
 	// entered closes once the first turn is inside the runner. The runner only
 	// runs after the turn lock has been acquired, so this is a definitive signal
 	// that the session is busy -- unlike probing the lock, which is not portable:
@@ -91,6 +92,7 @@ func wakeBusySession(t *testing.T) *busySession {
 	}
 	return &busySession{
 		srv: srv, mgr: mgr, sessionID: res.SessionID,
+		pool:    bgtask.New(bgtask.Config{}),
 		entered: entered, release: closeRelease,
 	}
 }
@@ -121,9 +123,17 @@ func (b *busySession) occupy(t *testing.T) (done chan struct{}) {
 // wake runs the wake turn in the background and reports its result.
 func (b *busySession) wake() chan error {
 	out := make(chan error, 1)
-	go func() {
-		out <- b.srv.runWakeTurn(context.Background(), b.sessionID, "a background task finished")
-	}()
+	waker := agent.NewBackgroundWaker(slog.Default(), func(ctx context.Context, wake agent.Wake) error {
+		b.attempts.Add(1)
+		_, err := b.srv.RunBackgroundWake(ctx, wake)
+		if !errors.Is(err, session.ErrSessionTurnBusy) {
+			out <- err
+		}
+		return err
+	})
+	waker.Attach(b.pool)
+	waker.OnSnapshot(bgtask.Snapshot{ID: "bg_busy", SessionID: b.sessionID,
+		Status: bgtask.StatusSucceeded, NotifyOnFinish: true})
 	return out
 }
 
@@ -132,8 +142,7 @@ func TestWakeTurnRetriesWhileTheSessionIsBusy(t *testing.T) {
 	userTurnDone := b.occupy(t)
 	wakeErr := b.wake()
 
-	// Upstream's waker would have returned ErrSessionTurnBusy by now and the
-	// notification would be gone.
+	// The wake remains pending while the user turn holds the lock.
 	select {
 	case err := <-wakeErr:
 		t.Fatalf("wake returned %v instead of retrying while the session was busy", err)
@@ -170,14 +179,21 @@ func TestWakeTurnStopsRetryingOnceDraining(t *testing.T) {
 
 	// Let it enter the retry loop, then close the pool the way Drain does.
 	time.Sleep(1200 * time.Millisecond)
-	bgtask.Default().SetDraining(true)
+	if b.attempts.Load() == 0 {
+		t.Fatal("wake did not attempt the busy session")
+	}
+	b.pool.SetDraining(true)
+	attempts := b.attempts.Load()
+	b.release()
+	<-userTurnDone
+	time.Sleep(1500 * time.Millisecond)
+	if got := b.attempts.Load(); got != attempts {
+		t.Fatalf("wake retried after draining: %d attempts, want %d", got, attempts)
+	}
 
 	select {
 	case err := <-wakeErr:
-		if err != nil {
-			t.Fatalf("draining wake returned %v, want nil", err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatalf("wake kept retrying after the pool started draining")
+		t.Fatalf("wake ran after draining: %v", err)
+	default:
 	}
 }
