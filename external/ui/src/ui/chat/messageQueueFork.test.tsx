@@ -77,8 +77,7 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
   };
   const res = await consumeComposerSseReader(params);
   res.flushToolQueue();

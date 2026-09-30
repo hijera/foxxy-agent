@@ -17,8 +17,8 @@ groups:
         title: Quickstart
         summary: From a fresh install to the first answer in five minutes, on the console, in the browser and from an editor.
       - path: getting-started/foxxycode-and-coddy.md
-        title: FoxxyCode and coddy-agent
-        summary: What this fork adds over upstream coddy-agent - the IDE plugins, the desktop window, the browser tool and the rest - and how it follows upstream.
+        title: FoxxyCode and foxxy-agent
+        summary: What this fork adds over upstream foxxy-agent - the IDE plugins, the desktop window, the browser tool and the rest - and how it follows upstream.
       - path: getting-started/install.md
         title: Install
         summary: Release archives, Linux .deb and .rpm packages, Homebrew, the IntelliJ and VS Code plugins, Windows paths, manual placement.
@@ -85,6 +85,9 @@ groups:
       - path: features/modes.md
         title: Operating modes
         summary: agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
+      - path: features/session-settings.md
+        title: Session settings
+        summary: Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
       - path: features/sessions.md
         title: Sessions
         summary: Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
@@ -106,12 +109,21 @@ groups:
       - path: features/browser-tool.md
         title: Browser tool
         summary: The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+      - path: features/devin.md
+        title: Devin
+        summary: Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.
       - path: features/web-search.md
         title: Web search
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
       - path: features/http-requests.md
         title: HTTP requests
         summary: The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+      - path: features/mentions.md
+        title: Mentions
+        summary: Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
+      - path: features/built-in-docs.md
+        title: Built-in documentation
+        summary: This documentation inside the binary - the web UI's reader, F1 in the console, foxxycode docs, the agent's foxxycode_docs tools and @foxxycode:<page> mentions - searched with BM25, with no site involved.
       - path: features/message-queue.md
         title: Message queue
         summary: Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
@@ -123,7 +135,7 @@ groups:
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
       - path: features/memory.md
         title: Long-term memory
-        summary: The memory copilot, what it recalls and saves, the storage layout, configuration and cost.
+        summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
       - path: features/session-export.md
         title: Session export
         summary: /export and foxxycode sessions export, formats, path rules, trimming options, the JSON document.

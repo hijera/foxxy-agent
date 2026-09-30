@@ -88,3 +88,48 @@ test("persisted hydrated attachments render as compact @ paths", () => {
   expect(screen.getByText(/@note\.txt/)).toBeInTheDocument();
   expect(screen.queryByText(/secret body/)).toBeNull();
 });
+
+test("image files with previewUrl render a thumbnail chip; others keep the icon", () => {
+  render(
+    <UserMessage
+      content="look at this"
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "blob:foxxycode-user-thumb-1",
+        },
+        { name: "notes.txt", mimeType: "text/plain", sizeBytes: 4 },
+      ]}
+    />,
+  );
+  const thumbs = screen.getAllByTestId("msg-user-file-thumb");
+  expect(thumbs).toHaveLength(1);
+  expect(thumbs[0]).toHaveAttribute("src", "blob:foxxycode-user-thumb-1");
+  expect(thumbs[0]!.closest(".msg-user-file-chip")).toHaveClass(
+    "msg-user-file-chip--image",
+  );
+  expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  // Metadata-only entry (e.g. after reload) renders no thumbnail element.
+  expect(
+    screen.getByText("notes.txt").closest(".msg-user-file-chip"),
+  ).not.toHaveClass("msg-user-file-chip--image");
+});
+
+// A page of the documentation the user mentioned is a link in the sent
+// bubble: it opens the reader at that page and section.
+test("an @foxxycode: mention in the sent message opens the documentation reader", () => {
+  render(
+    <UserMessage
+      content="@foxxycode:operate/swarm как настроить рой? and @foxxycode:features/mentions#completion, not user@example.com"
+      knownSkillNames={new Set(["demo"])}
+    />,
+  );
+  const links = Array.from(document.querySelectorAll("a.foxxycode-doc-mention"));
+  expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+    ["@foxxycode:operate/swarm", "#/docs/operate/swarm"],
+    ["@foxxycode:features/mentions#completion", "#/docs/features/mentions#completion"],
+  ]);
+  expect(screen.getByTestId("user-message-body").textContent).toContain("как настроить рой?");
+});

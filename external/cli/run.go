@@ -282,6 +282,11 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
+	// A task the model started with notify_on_finish begins its own turn in
+	// this console when it ends. A console attached to a remote server does
+	// not attach one (buildRemoteApp): the server's pool runs its tasks and
+	// the server wakes the agent.
+	app.attachBackgroundWaker(bgtask.Default())
 	startScheduler(context.Background(), cfg, mgr, log)
 	return app
 }
@@ -452,7 +457,15 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		app.populateHeader()
 	}
 
-	return app.Run(ctx)
+	runErr := app.Run(ctx)
+	// The console does not drain the pool: a memory run still persisting
+	// would die with the process. Give it the drain grace, as foxxycode serve
+	// does before it stops the pool.
+	if agent.MemoryRunsInFlight() > 0 {
+		_, _ = fmt.Fprintln(os.Stderr, "finishing the memory subagent of the last turn...")
+		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
+	}
+	return runErr
 }
 
 // isolatedLogger forces log output away from the terminal: exactly one file

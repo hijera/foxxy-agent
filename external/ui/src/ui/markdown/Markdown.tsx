@@ -15,6 +15,12 @@ import {
 } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { docsHrefFromFoxxyCodeLink } from "../scheduler/hashRoute";
+import { remarkDocMentions } from "./remarkDocMentions";
+
+/** A video file where Markdown has an image: the documentation embeds its
+ *  recordings this way, fetched from GitHub when they play. */
+const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
 
 type CodeProps = {
   className?: string | undefined;
@@ -32,6 +38,12 @@ type AProps = {
   // absent, so both fields have to admit an explicit undefined.
   href?: string | undefined;
   children?: unknown;
+};
+
+type ImgProps = {
+  src?: string | undefined;
+  alt?: string | undefined;
+  title?: string | undefined;
 };
 
 function normalizeText(children: unknown): string {
@@ -158,6 +170,16 @@ function MarkdownBase(props: { text: string }) {
             </span>
           );
         }
+        // A page of the built-in documentation, as pages link to each other
+        // and as the agent quotes them: open it in the reader.
+        const docsHref = docsHrefFromFoxxyCodeLink(href);
+        if (docsHref) {
+          return (
+            <a href={docsHref} className="md-docs-link">
+              {p.children as any}
+            </a>
+          );
+        }
         const external = /^https?:\/\//i.test(href);
         return (
           <a
@@ -170,12 +192,31 @@ function MarkdownBase(props: { text: string }) {
           </a>
         );
       },
+      img: (p: ImgProps) =>
+        p.src && VIDEO_SRC.test(p.src) ? (
+          <video
+            className="md-video"
+            // #t=0.1 shows a first frame before it plays, not a black box.
+            src={p.src.includes("#") ? p.src : `${p.src}#t=0.1`}
+            controls
+            preload="metadata"
+            playsInline
+            aria-label={p.alt || undefined}
+          />
+        ) : (
+          <img
+            src={p.src}
+            alt={p.alt || ""}
+            {...(p.title ? { title: p.title } : {})}
+            loading="lazy"
+          />
+        ),
     }),
     [],
   );
 
   const urlTransform = useCallback((url: string) => {
-    if (url.startsWith("foxxycode-skill:")) {
+    if (url.startsWith("foxxycode-skill:") || url.startsWith("foxxycode:")) {
       return url;
     }
     // react-markdown's defaultUrlTransform takes the url alone; the key and node
@@ -186,7 +227,7 @@ function MarkdownBase(props: { text: string }) {
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkDocMentions]}
         rehypePlugins={[[rehypeHighlight, syntaxHighlightOptions]]}
         components={components}
         urlTransform={urlTransform}

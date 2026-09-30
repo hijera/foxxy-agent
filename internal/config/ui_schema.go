@@ -229,17 +229,17 @@ func UISchemaMap() map[string]interface{} {
 		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
 	providerAPIKey["x-foxxycode-provider-api-key-env-placeholder"] = true
 	providerAPIKey["x-foxxycode-secret"] = true
-	providerProxy := proxyProp("HTTP or SOCKS proxy",
-		"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or the operating system proxy settings when there is none (on Windows including a PAC script or automatic detection); with neither the connection is direct. Special characters in the login or password must be percent-encoded - the … button next to the field builds the URL for you.")
+	providerProxy := proxyProp("Proxy URL",
+		"Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.")
 	providerProps := map[string]interface{}{
 		"name": providerName,
 		"type": map[string]interface{}{
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex", "devin"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint."),
+		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex and devin, which use their official endpoints."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
@@ -355,8 +355,8 @@ func UISchemaMap() map[string]interface{} {
 			"BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"rich_messages": boolProp("Rich messages",
 			"Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported."),
-		"proxy": proxyProp("Proxy",
-			"Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h."),
+		"proxy": proxyProp("Proxy URL",
+			"Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly."),
 		"admins": map[string]interface{}{
 			"type":        "array",
 			"title":       "Admins",
@@ -693,23 +693,28 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dirs", "sources", "auto_discovery"},
 			nil),
-		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
+		"memory": objectSchema("Long-term memory", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
-				"model":  strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
+				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
+				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
 				"fallback_models": map[string]interface{}{
 					"type":        "array",
 					"items":       map[string]interface{}{"type": "string"},
 					"title":       "Fallback memory models",
-					"description": "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.",
+					"description": "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.",
 				},
-				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
-				"recall_max_turns":   intProp("Recall max turns", "Bounds recall-side LLM rounds in the memory loop."),
-				"persist_max_turns":  intProp("Persist max turns", "Bounds persist-side LLM rounds in the memory loop."),
-				"copilot_max_tokens": intProp("Copilot max tokens", "Completion token cap for memory copilot calls."),
-				"max_search_hits":    intProp("Max search hits", "Maximum snippets returned by memory search tools."),
+				"dir":                         strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
+				"wait_seconds":                intProp("Wait for the report (seconds)", "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20)."),
+				"timeout_seconds":             intProp("Run timeout (seconds)", "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300)."),
+				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20)."),
+				"recall_max_turns":            intProp("Recall max turns", "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two."),
+				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
+				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
+				"max_search_hits":             intProp("Max search hits", "Maximum snippets returned by memory search tools."),
+				"additional_prompt":           strProp("Additional instructions", "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them."),
+				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
-			[]string{"enable", "model", "fallback_models", "dir", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits"},
+			[]string{"enable", "model", "fallback_models", "dir", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "additional_prompt", "additional_prompt_max_chars"},
 			nil),
 		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
 			map[string]interface{}{

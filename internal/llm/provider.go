@@ -67,6 +67,10 @@ type Message struct {
 	// client re-attaching to the turn uses it to tell the prompt the turn started from apart
 	// from the follow-ups the turn's own stream will replay.
 	Queued bool `json:"queued,omitempty"`
+	// BackgroundWake marks a user-role message no person typed: the one a
+	// finished notify_on_finish task started a turn with (excluded from what
+	// the provider is sent; the Content still is).
+	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -171,7 +175,7 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
-	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
+	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
@@ -290,6 +294,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through FOXXYCODE_CODEX_BASE_URL.
 		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+	case "devin":
+		// A Devin session token reaches the Devin API server only: api_base is
+		// ignored, and FOXXYCODE_DEVIN_API_SERVER_URL moves the process as a whole.
+		inner = newDevinProvider(p, hc)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

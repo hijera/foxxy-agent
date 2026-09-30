@@ -22,16 +22,16 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints, \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), or \"codex\" for ChatGPT OAuth against the official Codex backend.",
-            "enum": ["openai", "anthropic", "neuraldeep", "codex"]
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints, \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"codex\" for ChatGPT OAuth against the official Codex backend, or \"devin\" for a Devin account; see https://hijera.github.io/foxxy-agent/features/devin.md.",
+            "enum": ["openai", "anthropic", "neuraldeep", "codex", "devin"]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1; for type \"anthropic\" use an Anthropic-compatible gateway. For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for type \"codex\", which always uses a fixed official endpoint."
+            "description": "Optional base URL override. For type \"openai\" include /v1; for type \"anthropic\" use an Anthropic-compatible gateway. For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints."
           },
           "api_key": {
             "type": "string",
-            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY."
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a session token and wins over browser and CLI logins."
           },
           "api_key_command": {
             "type": "string",
@@ -39,7 +39,8 @@
           },
           "proxy": {
             "type": "string",
-            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). Overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g. forwarded by the IDE plugin); NO_PROXY is still honored and local addresses always connect directly. When empty, the environment proxy is used, else the operating system proxy settings (on Windows including a PAC script or automatic detection). Special characters in the login or password must be percent-encoded (@ as %40, / as %2F)."
+            "description": "inherit (the default, also empty) follows HTTP_PROXY/HTTPS_PROXY and NO_PROXY, or the operating system proxy when no environment proxy is set. none connects directly. An http, https, socks5 or socks5h URL overrides the inherited proxy while preserving NO_PROXY and loopback bypass. The setting covers completions, model lists, account usage and sign-in. Percent-encode special characters in proxy credentials.",
+            "default": "inherit"
           },
           "timeout_ms": {
             "type": "integer",
@@ -562,7 +563,7 @@
       "properties": {
         "permission_mode": {
           "type": "string",
-          "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only).",
+          "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here.",
           "default": "ask",
           "enum": ["ask", "accept_edits", "bypass"]
         },
@@ -706,7 +707,7 @@
         "http_request": {
           "type": "object",
           "title": "HTTP requests",
-          "description": "Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://foxxycode.dev/docs/features/http-requests.",
+          "description": "Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://hijera.github.io/foxxy-agent/features/http-requests.md.",
           "additionalProperties": false,
           "properties": {
             "allowlist": {
@@ -925,13 +926,13 @@
     },
     "memory": {
       "type": "object",
-      "title": "Long-term memory copilot",
-      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).",
+      "title": "Long-term memory subagent",
+      "description": "Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable).",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Turn on the memory copilot.",
+          "description": "Turn on the memory subagent.",
           "default": false
         },
         "enabled": {
@@ -941,7 +942,7 @@
         },
         "model": {
           "type": "string",
-          "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
+          "description": "Exact models[].model id the memory subagent runs on; empty uses the session's model.",
           "default": ""
         },
         "fallback_models": {
@@ -949,32 +950,57 @@
           "items": {
             "type": "string"
           },
-          "description": "Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not silence the copilot."
+          "description": "Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed."
         },
         "dir": {
           "type": "string",
           "description": "Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~.",
           "default": ""
         },
+        "wait_seconds": {
+          "type": ["integer", "null"],
+          "description": "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer.",
+          "default": 20
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool.",
+          "default": 300
+        },
+        "keep_runs": {
+          "type": ["integer", "null"],
+          "description": "Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run.",
+          "default": 20
+        },
         "recall_max_turns": {
           "type": "integer",
-          "description": "Bounds recall-side LLM rounds in the memory loop.",
+          "description": "Bounds the memory subagent's ReAct rounds together with persist_max_turns; the cap is the larger of the two.",
           "default": 6
         },
         "persist_max_turns": {
           "type": "integer",
-          "description": "Bounds persist-side LLM rounds in the memory loop.",
+          "description": "Bounds the memory subagent's ReAct rounds together with recall_max_turns; the cap is the larger of the two.",
           "default": 12
         },
         "copilot_max_tokens": {
           "type": "integer",
-          "description": "Completion token cap for memory copilot LLM calls.",
+          "description": "Completion token cap for memory subagent LLM calls.",
           "default": 4096
         },
         "max_search_hits": {
           "type": "integer",
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
+        },
+        "additional_prompt": {
+          "type": "string",
+          "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
+          "default": ""
+        },
+        "additional_prompt_max_chars": {
+          "type": "integer",
+          "description": "Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and foxxycode -t reports it. 0 means no cap.",
+          "default": 0
         }
       }
     },
@@ -986,9 +1012,9 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
-          "enum": ["coddy", "opencode"],
-          "default": "coddy"
+          "description": "Compaction implementation: \"foxxycode\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
+          "enum": ["foxxycode", "opencode"],
+          "default": "foxxycode"
         },
         "enable": {
           "type": "boolean",
@@ -1014,7 +1040,7 @@
         },
         "threshold_percent": {
           "type": "integer",
-          "description": "Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99.",
+          "description": "Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (foxxycode) / 85 (opencode); the opencode engine clamps to 50..99.",
           "default": 80,
           "minimum": 1,
           "maximum": 100
@@ -1527,7 +1553,7 @@
             },
             "proxy": {
               "type": "string",
-              "description": "Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL.",
+              "description": "inherit (the default, also empty) follows environment or system proxy settings; none connects directly; or set an http, https, socks5 or socks5h URL for Telegram API requests.",
               "default": ""
             },
             "rich_messages": {

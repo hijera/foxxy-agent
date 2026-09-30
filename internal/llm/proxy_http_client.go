@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
 	xproxy "golang.org/x/net/proxy"
 
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
@@ -33,7 +34,23 @@ var (
 	llmHTTP2PingTimeout     = 15 * time.Second
 )
 
-// HTTPClientForOptionalProxy returns an HTTP client that sends traffic through the given proxy URL.
+// A test seam for inherited routes, which net/http otherwise caches per
+// process and exempts loopback from. Production always uses the netx resolver.
+type proxyFunc = func(*http.Request) (*url.URL, error)
+
+var environmentProxy atomic.Pointer[proxyFunc]
+
+// HTTPClientForProviderProxy uses the shared provider transport for model
+// listing, account usage and sign-in requests, just as for completions.
+func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
+	t, route, err := providerTransport(setting)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: debugTransportFor(t, route)}, nil
+}
+
+// HTTPClientForOptionalProxy returns an HTTP client for the selected route.
 // Supported schemes are http, https (HTTP proxy), socks5, and socks5h (SOCKS5 with remote DNS on socks5h).
 //
 // A configured proxy takes precedence over the process environment: it overrides HTTP_PROXY/HTTPS_PROXY,
@@ -56,13 +73,20 @@ func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 // route the connection trace describes it by. The providers share one per
 // setting (transport.go); the other callers get their own.
 func buildLLMTransport(proxyURL string) (*http.Transport, routeFunc, error) {
-	proxyURL = strings.TrimSpace(proxyURL)
-	if proxyURL == "" {
-		return transportEnvironmentProxy()
-	}
-	u, err := netx.ParseProxyURL(proxyURL)
+	mode, u, err := config.ParseProxySetting(proxyURL)
 	if err != nil {
 		return nil, nil, err
+	}
+	switch mode {
+	case config.ProxyModeInherit:
+		return transportEnvironmentProxy()
+	case config.ProxyModeNone:
+		t, err := cloneLLMTransport()
+		if err != nil {
+			return nil, nil, err
+		}
+		t.Proxy = nil
+		return t, func(*url.URL) netRoute { return netRoute{desc: "direct (proxy: none)"} }, nil
 	}
 	switch u.Scheme {
 	case "http", "https":
@@ -151,6 +175,9 @@ func transportEnvironmentProxy() (*http.Transport, routeFunc, error) {
 	// (on Windows its manual proxy, PAC script or WPAD), which net/http never reads.
 	resolve := netx.EnvironmentProxyResolver()
 	t.Proxy = func(req *http.Request) (*url.URL, error) {
+		if override := environmentProxy.Load(); override != nil {
+			return (*override)(req)
+		}
 		r, err := resolve(req.URL)
 		return r.Proxy, err
 	}

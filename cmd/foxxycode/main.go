@@ -166,6 +166,8 @@ func main() {
 		err = runHooks(args[1:])
 	case "mcp":
 		err = runMCP(args[1:])
+	case "docs":
+		err = runDocs(args[1:], os.Stdout)
 	case "update":
 		err = runUpdate(args[1:])
 	default:
@@ -215,7 +217,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
-  %[1]s providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
@@ -231,6 +233,9 @@ func printUsage(w io.Writer) {
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]
+  %[1]s docs [list] | search <words> [--limit N] | show <page>[#section] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI)
   %[1]s update [flags]
 `, os.Args[0])
 }
@@ -348,12 +353,16 @@ func runACP(args []string) error {
 		}
 		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
 		srv := acp.NewServer(h, log)
-		h.SetServer(srv)
+		// The server wakes the agent on its own; a turn it woke in a session
+		// this editor has open is followed here, and opens with a note an
+		// editor that renders only the standard updates can read.
+		h.SetServer(acpWakeNotice{srv})
 		return srv.Run(context.Background(), os.Stdin)
 	}
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogDevinAuthNotices(log, cfg)
 	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
@@ -388,7 +397,13 @@ func runACP(args []string) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	srv = acp.NewServer(mgr, log)
-	mgr.SetServer(srv)
+	// A woken turn opens with a note an editor that renders only the standard
+	// updates can read, live and when session/load replays it.
+	notice := acpWakeNotice{srv}
+	mgr.SetServer(notice)
+	// A task the model started with notify_on_finish begins its own turn here
+	// when it ends, the way it does in the console and under foxxycode serve.
+	agent.NewBackgroundWaker(log, acpWakeRunner(mgr, notice)).Attach(bgtask.Default())
 
 	ctx := context.Background()
 	// The scheduler runs its jobs as children of their job sessions through

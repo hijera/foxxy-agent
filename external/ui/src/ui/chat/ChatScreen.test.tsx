@@ -97,6 +97,52 @@ test("new background permission prompts follow the reader at the bottom, but pol
   expect(scroller.scrollTop).toBe(300);
 });
 
+test("a background subagent's prompt waits at the end of its parent chat", () => {
+  const task: BackgroundTask = {
+    id: "bg_waiting",
+    session_id: "sess_parent",
+    kind: "agent",
+    label: "writer",
+    status: "running",
+    started_at: "2026-09-14T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 1,
+    overdue: false,
+    running: true,
+    agent: { name: "writer", session_id: "sess_child" },
+    pending_permission: {
+      sessionId: "sess_child",
+      toolCall: { toolCallId: "call_1", title: "Run: run_command" },
+      options: [],
+    },
+  };
+  const { container } = render(
+    <ChatScreen
+      title="Audit"
+      sessionId="sess_parent"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "u1", content: "audit" }]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      backgroundTasks={[task]}
+    />,
+  );
+  const scroller = container.querySelector("#messages");
+  const card = screen.getByTestId("subagent-permission-bg_waiting");
+  expect(scroller).toContainElement(card);
+  expect(card).toHaveTextContent('The subagent "writer" asks for permission');
+  expect(card).toHaveTextContent("run_command");
+});
+
 test("empty hero shows headline with accent span", () => {
   const { getByTestId, getByRole } = render(
     <ChatScreen
@@ -700,4 +746,152 @@ test("a transcript still following the newest output shows no button", async () 
 test("the empty hero has no scroll-to-bottom button", () => {
   render(<ChatScreen {...scrollBase} sessionId="" title="" items={[]} />);
   expect(screen.queryByTestId("chat-scroll-bottom")).toBeNull();
+});
+
+// The live line and the chip share one count of running tasks (taskStatus.ts).
+function turnLineScreen(
+  over: Partial<React.ComponentProps<typeof ChatScreen>>,
+): React.ReactElement {
+  const finished: BackgroundTask = {
+    id: "bg_1",
+    session_id: "sess_turn",
+    kind: "command",
+    label: "go build ./...",
+    command: "go build ./...",
+    status: "succeeded",
+    started_at: "2026-09-18T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 5,
+    overdue: false,
+    running: false,
+  };
+  return (
+    <ChatScreen
+      title="Build"
+      sessionId="sess_turn"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "u1", content: "build it" }]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      generating={true}
+      onStop={() => {}}
+      backgroundTasks={[finished]}
+      onOpenBackgroundTasks={() => {}}
+      {...over}
+    />
+  );
+}
+
+test("the live line of a running turn carries the server's clock and token count", () => {
+  render(
+    turnLineScreen({
+      turnProgress: {
+        startedAtMs: Date.now() - 125_000,
+        outputTokens: 1_200,
+        estimated: true,
+      },
+    }),
+  );
+  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe(
+    "2m 05s",
+  );
+  expect(screen.getByTestId("typing-dots-turn-tokens").textContent).toBe(
+    "1.2k tokens",
+  );
+});
+
+test("until the server reports progress the turn clock counts from the user's message", () => {
+  render(
+    turnLineScreen({
+      items: [
+        {
+          type: "user_message",
+          id: "u1",
+          content: "build it",
+          createdAtUtc: new Date(Date.now() - 57_000).toISOString(),
+        },
+      ],
+    }),
+  );
+  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe(
+    "57s",
+  );
+  expect(screen.queryByTestId("typing-dots-turn-tokens")).toBeNull();
+});
+
+test("the live line of a running turn names the running tasks and opens the Tasks panel", () => {
+  const onOpen = vi.fn();
+  const running: BackgroundTask = {
+    id: "bg_2",
+    session_id: "sess_turn",
+    kind: "command",
+    label: "make test",
+    command: "make test",
+    status: "running",
+    started_at: "2026-09-18T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 5,
+    overdue: false,
+    running: true,
+  };
+  const memory: BackgroundTask = {
+    ...running,
+    id: "bg_3",
+    kind: "agent",
+    agent: { name: "memory", system: true },
+  };
+  render(
+    turnLineScreen({
+      backgroundTasks: [running, memory],
+      onOpenBackgroundTasks: onOpen,
+    }),
+  );
+  // The memory run of the turn is a system task and is not counted.
+  expect(screen.getByTestId("typing-dots-turn-tasks").textContent).toBe(
+    "1 running task",
+  );
+  fireEvent.click(screen.getByTestId("typing-dots-turn-tasks"));
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+test("the transcript ends with the conversation: the way to the tasks is the header control", () => {
+  render(turnLineScreen({ generating: false }));
+  expect(screen.queryByTestId("bgtask-chip")).toBeNull();
+  expect(screen.getByTestId("chat-header-tasks")).toBeInTheDocument();
+});
+
+test("the header control opens the Tasks panel and puts it away again", () => {
+  const onOpen = vi.fn();
+  const onClose = vi.fn();
+  const { rerender } = render(
+    turnLineScreen({
+      generating: false,
+      onOpenBackgroundTasks: onOpen,
+      onCloseBackgroundTasks: onClose,
+    }),
+  );
+  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  expect(onOpen).toHaveBeenCalledTimes(1);
+  rerender(
+    turnLineScreen({
+      generating: false,
+      onOpenBackgroundTasks: onOpen,
+      onCloseBackgroundTasks: onClose,
+      backgroundTasksOpen: true,
+    }),
+  );
+  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(onOpen).toHaveBeenCalledTimes(1);
 });

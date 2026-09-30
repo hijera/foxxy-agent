@@ -212,7 +212,7 @@ func restorePersistedNonMessageFields(st *State, snap *LoadedSnapshot) {
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.SetTagsWithoutPersist(snap.Meta.Tags)
 	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)

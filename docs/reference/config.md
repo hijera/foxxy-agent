@@ -8,7 +8,7 @@ A machine-readable [JSON Schema](../../internal/config/config.schema.json) accom
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
-VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in coddy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
+VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in foxxy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
@@ -51,11 +51,11 @@ API credentials and transport selection for upstream LLM vendors. When api_key i
 |-----|------|---------|-------------|
 | `providers` | list of objects |  | API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores). |
 | `providers[].name` | string |  | Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter. |
-| `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `codex` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints, "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), or "codex" for ChatGPT OAuth against the official Codex backend. |
-| `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1; for type "anthropic" use an Anthropic-compatible gateway. For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for type "codex", which always uses a fixed official endpoint. |
-| `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. |
+| `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `codex`, `devin` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints, "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), "codex" for ChatGPT OAuth against the official Codex backend, or "devin" for a Devin account; see https://hijera.github.io/foxxy-agent/features/devin.md. |
+| `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1; for type "anthropic" use an Anthropic-compatible gateway. For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types "codex" and "devin", which always use their official endpoints. |
+| `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type "devin" it is a session token and wins over browser and CLI logins. |
 | `providers[].api_key_command` | string |  | Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. |
-| `providers[].proxy` | string |  | Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). Overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g. forwarded by the IDE plugin); NO_PROXY is still honored and local addresses always connect directly. When empty, the environment proxy is used, else the operating system proxy settings (on Windows including a PAC script or automatic detection). Special characters in the login or password must be percent-encoded (@ as %40, / as %2F). |
+| `providers[].proxy` | string | inherit | inherit (the default, also empty) follows HTTP_PROXY/HTTPS_PROXY and NO_PROXY, or the operating system proxy when no environment proxy is set. none connects directly. An http, https, socks5 or socks5h URL overrides the inherited proxy while preserving NO_PROXY and loopback bypass. The setting covers completions, model lists, account usage and sign-in. Percent-encode special characters in proxy credentials. |
 | `providers[].timeout_ms` | integer | 0 | Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short. |
 | `providers[].usage_limits_panel` | boolean | true | Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected. |
 
@@ -202,7 +202,7 @@ Filesystem and shell policy for built-in tools.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). |
+| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here. |
 | `tools.command_allowlist` | list of strings |  | Commands that never require permission. Exact or prefix match (prefix + space + any args). "*" allows all commands. |
 | `tools.permission_timeout_seconds` | integer | 0 | How long a permission prompt may wait for the operator before the tool call is cancelled instead. 0 (default) waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely. |
 | `tools.ssh_connect_timeout` | integer | 30 | TCP dial timeout for SSH connections (ssh_run_command tool), in seconds. |
@@ -232,7 +232,7 @@ Filesystem and shell policy for built-in tools.
 | `tools.websearch.cache_ttl_seconds` | integer | 300 | Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off. |
 | `tools.websearch.searxng_url` | string | "" | Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose. |
 | `tools.websearch.brave_api_key` | string | "" | Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${FOXXYCODE_HOME}/.env), so the key need not be stored here. |
-| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://foxxycode.dev/docs/features/http-requests. |
+| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://hijera.github.io/foxxy-agent/features/http-requests.md. |
 | `tools.http_request.allowlist` | list of strings | [] | Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). "*" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy. |
 
 ### `subagents`
@@ -293,11 +293,11 @@ Summarize older turns when the conversation approaches the model's context windo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `compaction.engine` | string, one of `coddy`, `opencode` | coddy | Compaction implementation: "coddy" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
+| `compaction.engine` | string, one of `foxxycode`, `opencode` | foxxycode | Compaction implementation: "foxxycode" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
 | `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
 | `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |
-| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99. |
+| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (foxxycode) / 85 (opencode); the opencode engine clamps to 50..99. |
 | `compaction.keep_recent_turns` | integer | 2 | Number of most recent user turns preserved verbatim (never summarized). Default 2. |
 | `compaction.max_tokens` | integer | 4096 | Completion token cap for the summary generation (opencode engine only). |
 | `compaction.result_eviction` | object |  | Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete. |
@@ -318,18 +318,23 @@ Generate a short LLM thread title after the first exchange in a fresh, non-pinne
 
 ### `memory`
 
-Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).
+Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.enable` | boolean | false | Turn on the memory copilot. |
-| `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
-| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not silence the copilot. |
+| `memory.enable` | boolean | false | Turn on the memory subagent. |
+| `memory.model` | string | "" | Exact models[].model id the memory subagent runs on; empty uses the session's model. |
+| `memory.fallback_models` | list of strings |  | Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~. |
-| `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
-| `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |
-| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory copilot LLM calls. |
+| `memory.wait_seconds` | integer or null | 20 | How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer. |
+| `memory.timeout_seconds` | integer | 300 | Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool. |
+| `memory.keep_runs` | integer or null | 20 | Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run. |
+| `memory.recall_max_turns` | integer | 6 | Bounds the memory subagent's ReAct rounds together with persist_max_turns; the cap is the larger of the two. |
+| `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the cap is the larger of the two. |
+| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory subagent LLM calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
+| `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and foxxycode -t reports it. 0 means no cap. |
 
 ### `httpserver`
 
@@ -434,7 +439,7 @@ Messenger bot adapters (used only by binaries built with -tags gateway or -tags 
 | `gateways.telegram` | object |  | Telegram bot adapter. |
 | `gateways.telegram.enable` | boolean | false | Activate the Telegram adapter when foxxycode gateway starts. |
 | `gateways.telegram.token` | string | "" | Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.foxxycode/.env). |
-| `gateways.telegram.proxy` | string | "" | Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL. |
+| `gateways.telegram.proxy` | string | "" | inherit (the default, also empty) follows environment or system proxy settings; none connects directly; or set an http, https, socks5 or socks5h URL for Telegram API requests. |
 | `gateways.telegram.rich_messages` | boolean | false | Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported. |
 | `gateways.telegram.admins` | list of integers |  | Telegram user IDs with elevated rights; admins always pass access checks. |
 | `gateways.telegram.default_access` | string | all | Fallback access level for chats without an override: "all", "admins", or "group:<name>". |
@@ -617,7 +622,7 @@ project-local file need a workspace approval before they are started - see
 
 MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
 
-Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
+Added for [issue #80](https://github.com/hijera/foxxy-agent/issues/80).
 Approvals are recorded in `~/.foxxycode/mcp-trust.json`, keyed by the canonical workspace path
 and a digest of the command-bearing declaration (transport, command, args, env, url,
 headers), so rewriting an approved entry asks again. Approve with `foxxycode mcp trust <name>`,
@@ -639,7 +644,7 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 
 ### `subagents`
 
-Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /foxxycode/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `reasoning`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /foxxycode/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
 
 Approvals for project-scope definitions are recorded in `~/.foxxycode/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
 
@@ -681,7 +686,7 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 
 Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
 
-Two engines share the section, selected by `engine`: the default **coddy** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward; the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Both answer the manual `/compact` command, the HTTP compact endpoint and the model's `compact_context` tool, fold a history larger than the summarizer's window in passes and walk `fallback_models`. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
+Two engines share the section, selected by `engine`: the default **foxxycode** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward; the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Both answer the manual `/compact` command, the HTTP compact endpoint and the model's `compact_context` tool, fold a history larger than the summarizer's window in passes and walk `fallback_models`. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
 
 #### `compaction.result_eviction`
 
@@ -693,7 +698,7 @@ Automatic session titles (`config.TitleConfig`, `internal/config/title.go`; alwa
 
 ### `memory`
 
-Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag).
+The long-term memory subagent (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag): the child run every user turn starts in the task pool, the wait for its report, the retention of finished runs ([Long-term memory](../features/memory.md)).
 
 ### `httpserver`
 

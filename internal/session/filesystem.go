@@ -437,7 +437,11 @@ type SessionMeta struct {
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
 	ReadActivitySeq uint64 `json:"readActivitySeq,omitempty"`
-	// PermissionMode is the session-level override for tools.permission_mode.
+	// PermissionMode records the mode a subagent child ran with, narrowed from
+	// its parent's: part of the child's record, never read back. An ordinary
+	// session's override is not written - it lasts as long as the process and
+	// a restart returns to tools.permission_mode (#292) - and a key an older
+	// version wrote for one is ignored.
 	PermissionMode string `json:"permissionMode,omitempty"`
 }
 
@@ -1090,7 +1094,9 @@ func (f *FileStore) Save(state *State) error {
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
-	meta.PermissionMode = state.GetPermissionMode()
+	if state.IsSubagentRun() {
+		meta.PermissionMode = state.GetPermissionMode()
+	}
 	// A sidecar-only save must leave newer session.json changes from another
 	// process intact, even if neither process added a message. A local mode or
 	// model switch still writes its change.
@@ -1101,7 +1107,6 @@ func (f *FileStore) Save(state *State) error {
 				newActivitySeq == prevMeta.ActivitySeq && newReadSeq == prevMeta.ReadActivitySeq
 		}
 	}
-
 	// The stamp stands only when this save puts nothing new anywhere - not the
 	// history, and not a field of the meta either.
 	//

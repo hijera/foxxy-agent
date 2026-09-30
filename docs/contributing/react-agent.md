@@ -86,6 +86,10 @@ Runtime state refreshed by FoxxyCode for this step. It is not a message from the
 ## Project rules activated by this turn
 ### go-files (Go style)
 ...
+
+## Long-term memory
+Already on disk:
+- ...
 </turn_context>
 ```
 
@@ -100,7 +104,17 @@ Runtime state refreshed by FoxxyCode for this step. It is not a message from the
   **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
   They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
   the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
-  given yet.
+  given yet;
+- the **memory subagent's report** for this turn, when long-term memory is on
+  ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
+  the system message would make **`messages[0]`** a new one on every turn and cost the cached
+  conversation each time. It joins the block on the first request when the run settled inside
+  **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
+  **`{{.Memory}}`** slot of the templates holds the session notes alone;
+- the **background tasks still running** in this session, one line each in the wording of
+  **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
+  so the model knows what it left running without a call. Finished and system tasks are left out,
+  and the section is not written with **`tools.background.enable`** false.
 
 The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
 read/grep eviction projection, and the working message slice the loop keeps appending to never sees
@@ -108,7 +122,9 @@ it. Only the last few hundred tokens of a request are therefore uncached; the co
 them is a cache hit.
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
-render them - at the cost of that cache, on every request.
+render them - at the cost of that cache, on every request. Such a template gets no clock and no
+checklist after the history; its block carries the two sections no template prints, the memory
+report and the running background tasks, and is left out when there is neither.
 
 ### The other half: read/grep eviction
 
@@ -151,7 +167,7 @@ Where it is applied:
 
 - **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), around the language directive and the rendered template — covers every mode, a user's own **`prompts.dir`** template, and the render fallback;
 - both compaction engines (`internal/agent/compact.go`, `internal/agent/compaction.go`) — a summarizer is its own request with its own system prompt;
-- the auxiliary prompts: session titles (`internal/agent/title.go`), chat-title descriptions (`external/httpserver/foxxycode_foxxycode.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
+- the auxiliary prompts: session titles (`internal/agent/title.go`), chat-title descriptions (`external/httpserver/foxxycode_foxxycode.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory subagent (`external/memory/agent.go`).
 
 Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
 
@@ -366,7 +382,7 @@ turn says something:
   **`agent.llm_continue_max`** times per turn (**`llm_continue_stall_delays_ms`** between
   them); off, the turn ends at the cut and says why. A stall before anything visible goes
   to the **`agent.llm_stall_retry`** family instead. The same guard bounds compaction, the
-  title pass, the memory copilot and the direct model routes. See
+  title pass, the memory subagent and the direct model routes. See
   `docs/reference/config.md` for the keys.
 - **A provider that fails mid-answer.** A 5xx the retry wrapper could not ride out, or a
   stream that dropped after text was shown, is carried on the same way
@@ -475,7 +491,7 @@ Docs mode does not expose **`run_command`** or MCP tools because those surfaces 
 
 ### Ask Mode
 
-The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/features/subagents.md`**).
+The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/features/subagents.md`**).
 
 ## Built-in Tools Specification
 

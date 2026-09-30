@@ -79,6 +79,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **MCP server integration** - connect any MCP server for additional tools
 - **Web UI sign-in** - a server on a network closes with a password for the browser (**`foxxycode serve set-password`**, or **`FOXXYCODE_HTTP_USER`** / **`FOXXYCODE_HTTP_PASSWORD`** in **`~/.foxxycode/.env`**) and a bearer token for API clients; the plugin panels and the desktop window on the same machine never meet the form ([Remote mode](docs/operate/remote.md#the-sign-in-form))
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API; **`POST /v1/chat/completions`** itself streams the strict OpenAI contract, so FoxxyCode works as a model in VS Code Copilot ([tutorial](docs/tutorials/foxxycode-as-a-model-in-vs-code.md))
+- **Devin** - sign in through the browser or reuse `devin auth login`, then select model families and reasoning levels; see [Devin](docs/features/devin.md).
 - **Works behind a corporate proxy** - with no proxy set on the provider or in the environment, the Windows system proxy applies, PAC script and automatic detection (WPAD) included; the proxy field in Settings hides the password, and its **…** button builds the address from host, port, login and a password with any characters - see [Working behind a proxy](docs/operate/proxy.md)
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Background tasks** - `run_command` can detach from the turn (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, the **Background tasks** panel shows what is still running, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a series of similar calls asks once - see [Background tasks](docs/features/background-tasks.md)
@@ -601,6 +602,7 @@ See [Architecture docs](docs/contributing/architecture.md) for full details.
 
 ## Documentation
 
+- [Built-in documentation](docs/features/built-in-docs.md) - pages in the binary, searchable and readable through the web UI, console, CLI and agent tools
 - [What FoxxyCode adds over coddy-agent](docs/getting-started/foxxycode-and-coddy.md) - fork-specific features vs upstream
 - [Roadmap](ROADMAP.en.md) - plans for 0.3.x-0.6.x and what has already shipped
 - [Build from source](docs/contributing/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**

@@ -9,6 +9,7 @@ import { applyModelsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
+import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
   defaultForSchema,
@@ -162,7 +163,32 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   );
 }
 
+function providerProxyOverride(ctx: FieldOverrideContext) {
+  return (
+    <ProxySettingField
+      value={ctx.value}
+      onChange={ctx.onChange}
+      label={tSchemaText(ctx.schema.title) || "Proxy URL"}
+      description={tSchemaText(ctx.schema.description)}
+    />
+  );
+}
+
+function gatewaysFieldOverride(ctx: FieldOverrideContext) {
+  if (ctx.path !== "telegram.proxy") return null;
+  return (
+    <ProxySettingField
+      value={ctx.value}
+      onChange={ctx.onChange}
+      label={tSchemaText(ctx.schema.title) || "Proxy URL"}
+      description={tSchemaText(ctx.schema.description)}
+      switchDescriptionKey="settings.gatewayProxy.ignoreSystemDesc"
+    />
+  );
+}
+
 function providerFieldOverride(ctx: FieldOverrideContext) {
+  if (ctx.path === "proxy") return providerProxyOverride(ctx);
   const providerType =
     ctx.parentObj?.type === undefined || ctx.parentObj.type === null
       ? ""
@@ -465,6 +491,7 @@ export function SettingsSection(props: {
                 schema={sub}
                 value={asObject(doc[ck])}
                 onChange={(v) => setKey(ck, v)}
+                fieldOverride={ck === "gateways" ? gatewaysFieldOverride : undefined}
               />
             </div>
           );

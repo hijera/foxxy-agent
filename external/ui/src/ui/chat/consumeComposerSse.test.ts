@@ -33,8 +33,7 @@ function baseParams(reader: ReadableStreamDefaultReader<Uint8Array>) {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map<string, number>() },
     newId: (p: string) => `${p}-${Math.random().toString(36).slice(2)}`,
-    applyMemoryPhaseToItems: (prev: TranscriptItem[]) => prev,
-    applyMemoryChunkToItems: (prev: TranscriptItem[]) => prev,
+    applyMemoryRunToItems: (prev: TranscriptItem[]) => prev,
     getItems: () => items,
   };
 }

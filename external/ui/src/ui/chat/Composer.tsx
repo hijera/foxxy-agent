@@ -40,18 +40,26 @@ import {
   draftExtendsFailedSlashPrefix,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
-import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
-import { workspacePickRowSubtitle } from "../skills/workspacePickRowSubtitle";
 import {
-  terminalPickerRows,
-  type TerminalRef,
-} from "./terminalPickerRows";
+  segmentComposerMirrorSpans,
+  type MentionMark,
+  type MentionMarks,
+} from "../skills/composerMirrorSegments";
+import { terminalPickerRows, type TerminalRef } from "./terminalPickerRows";
+import type { TurnOverride } from "./sessionSettings";
 import {
-  pickerRowFromRecent,
   readWorkspaceAtRecents,
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "../skills/workspaceAtRecents";
+import {
+  applyMentionRow,
+  mentionRowFromRecent,
+  mergeMentionRows,
+  recentKindOf,
+  type MentionRow,
+  type MentionSearchBody,
+} from "../skills/mentionRows";
 import {
   shellStackMaxWidthMediaQuery,
   subscribeShellStack,
@@ -61,6 +69,7 @@ import {
 import { hostResolvesFileDrops, isEditorEmbed } from "../embedShell";
 import { contextUsagePercent } from "./contextUsage";
 import { reasoningLevelLabel } from "./reasoningLevelLabel";
+import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
@@ -212,9 +221,17 @@ function displayLlmId(id: string, modelFallback: string): string {
 /** One follow-up waiting for the running turn to read it. */
 export type QueuedMessage = { id: string; text: string };
 
-type SlashRow = { name: string; description: string };
+type SlashRow = {
+  name: string;
+  description: string;
+  /** Argument hint of a built-in settings command ("<model id> [--once|--count=N]"). */
+  hint?: string;
+};
 
-type WorkspaceFileRow = { name: string; path_rel: string; kind: string };
+/** How many "@" candidates one query asks for; the total is shown when cut. */
+const MENTION_PICKER_LIMIT = 50;
+/** Pause in typing before the draft's mentions are checked with the server. */
+const MENTION_CHECK_DELAY_MS = 150;
 
 /** Floating slash menu anchored to **`composer-field-wrap`** (viewport-relative). */
 type PickerFloatRect = {
@@ -253,6 +270,21 @@ function pickMenuDir(
     return "opens-up";
   }
   return "opens-down";
+}
+
+
+/**
+ * The command group of the / menu: the server's rows, plus /docs where the
+ * composer can open the reader (docsLabel is its description, null where it
+ * cannot), in name order once /docs joins.
+ */
+function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
+  if (docsLabel === null || rows.some((r) => r.name === "docs")) {
+    return rows;
+  }
+  return [...rows, { name: "docs", description: docsLabel }].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 }
 
 export function Composer(props: {
@@ -294,6 +326,13 @@ export function Composer(props: {
   /** Known skill names from the catalog — chips confirmed `/name` tokens in the mirror overlay. */
   knownSkillNames?: Set<string>;
   onModeChange: (mode: string) => void;
+  /** The session's permission mode (ask, accept_edits, bypass) and the one a
+   *  restart would give back; the chip is hidden without a handler. */
+  permissionMode?: string;
+  configuredPermissionMode?: string;
+  onPermissionModeChange?: (mode: string) => void;
+  /** Settings changed for the running and the next turns (--once, --count=N). */
+  settingsOverrides?: TurnOverride[];
   onChange: (v: string) => void;
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
@@ -304,6 +343,12 @@ export function Composer(props: {
   onPasteChipCaptured?: (key: string, literal: string) => void;
   generating?: boolean;
   onStop?: () => void;
+  /**
+   * `/docs [page or words]` opens the documentation reader here instead of
+   * going to the agent; absent where there is no reader to open. The argument
+   * is what follows the command, "" for the command alone.
+   */
+  onDocsCommand?: (arg: string) => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. Only while generating. */
@@ -322,9 +367,8 @@ export function Composer(props: {
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const [attachHint, setAttachHint] = useState("");
-  const pastedSeqRef = useRef({ n: 0 });
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -339,7 +383,11 @@ export function Composer(props: {
   // so a physical Enter must still obey ui.send_mode (Enter by default) rather
   // than fall back to the touch/phone newline-only behavior.
   const enterInsertsNewline = isMobileShell && !isEditorEmbed();
-  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | null>(
+  const llmChipRef = useRef<HTMLButtonElement | null>(null);
+  const reasoningChipRef = useRef<HTMLButtonElement | null>(null);
+  const permissionChipRef = useRef<HTMLButtonElement | null>(null);
+  const pastedSeqRef = useRef({ n: 0 });
+  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | "permission" | null>(
     null,
   );
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
@@ -389,13 +437,21 @@ export function Composer(props: {
     props.generating === true &&
     typeof props.onQueue === "function" &&
     props.value.trim().length > 0;
+  const openDocsFromDraft = useCallback((): boolean => {
+    if (!props.onDocsCommand || sendableAttachedFiles.length > 0) return false;
+    const arg = parseDocsCommand(props.value);
+    if (arg === null) return false;
+    props.onDocsCommand(arg);
+    return true;
+  }, [props.onDocsCommand, props.value, sendableAttachedFiles.length]);
   const queueDraft = useCallback(() => {
+    if (openDocsFromDraft()) return;
     const txt = props.value.trim();
     if (!txt || !props.onQueue) {
       return;
     }
     props.onQueue(txt);
-  }, [props.value, props.onQueue]);
+  }, [props.value, props.onQueue, openDocsFromDraft]);
   /** An attachment on its own is a valid message; text is not required. */
   const idleSendDisabled =
     props.value.trim() === "" && sendableAttachedFiles.length === 0;
@@ -415,6 +471,7 @@ export function Composer(props: {
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
+  const [slashActive, setSlashActive] = useState(0);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashPrefix, setSlashPrefix] = useState("");
   const [slashLoading, setSlashLoading] = useState(false);
@@ -440,13 +497,25 @@ export function Composer(props: {
    * Skip reopening `@` on the next picker sync ticks (handles duplicate selection events).
    */
   const deferAtDraftPickerTicksRef = useRef(0);
-  const [atItems, setAtItems] = useState<WorkspaceFileRow[]>([]);
+  const [atItems, setAtItems] = useState<MentionRow[]>([]);
   const [atOpen, setAtOpen] = useState(false);
   const [atPrefix, setAtPrefix] = useState("");
   const [atLoading, setAtLoading] = useState(false);
   const [atErr, setAtErr] = useState<string | null>(null);
-  const [atPage, setAtPage] = useState(1);
-  const [atHasMore, setAtHasMore] = useState(false);
+  /** Matches the server counted before cutting the list to MENTION_PICKER_LIMIT. */
+  const [atTotal, setAtTotal] = useState(0);
+  /** Keyboard-highlighted row of the "@" picker. */
+  const [atActive, setAtActive] = useState(0);
+  /**
+   * The draft the listed rows answer ("@" position and query) and the row the
+   * arrows are on: a second answer for the same draft - the server's after the
+   * recent picks, a retry while the index builds - keeps that row highlighted.
+   */
+  const atItemsDraftRef = useRef<string | null>(null);
+  const atActiveInsertRef = useRef<string | null>(null);
+  /** The first query after the picker opens rebuilds the server's workspace index. */
+  const atRefreshNextRef = useRef(true);
+  const atListRef = useRef<HTMLUListElement>(null);
   const [atReplace, setAtReplace] = useState<{
     from: number;
     to: number;
@@ -757,38 +826,41 @@ export function Composer(props: {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      return (await res.json()) as {
+      const body = (await res.json()) as {
         items: SlashRow[];
         has_more: boolean;
         page: number;
       };
+      if (page === 1 && props.onDocsCommand && "docs".startsWith(prefix.toLowerCase()) &&
+          !body.items?.some((row) => row.name === "docs")) {
+        body.items = [...(body.items || []), { name: "docs", description: t("composer.docsCommand") }];
+      }
+      return body;
     },
-    [props.sessionId],
+    [props.sessionId, props.onDocsCommand, t],
   );
 
-  const fetchAtPage = useCallback(
-    async (prefix: string, page: number) => {
+  const fetchMentions = useCallback(
+    async (query: string, refresh: boolean) => {
       const sp = new URLSearchParams({
-        page: String(page),
-        page_size: "10",
-        prefix,
-        dirs: "true",
+        q: query,
+        limit: String(MENTION_PICKER_LIMIT),
       });
+      if (refresh) {
+        sp.set("refresh", "1");
+      }
       const headers: Record<string, string> = {};
       const sid = (props.sessionId || "").trim();
       if (sid) {
         headers["X-FoxxyCode-Session-ID"] = sid;
       }
-      const res = await fetch(`/foxxycode/workspace/files?${sp.toString()}`, {
+      const res = await fetch(`/foxxycode/mentions?${sp.toString()}`, {
         headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      return (await res.json()) as {
-        items: WorkspaceFileRow[];
-        has_more: boolean;
-      };
+      return (await res.json()) as MentionSearchBody;
     },
     [props.sessionId],
   );
@@ -1041,12 +1113,18 @@ export function Composer(props: {
         setAtReplace(null);
         setAtNoMatch(null);
         setAtLoading(false);
+        atRefreshNextRef.current = true;
         return;
       }
       // IDE terminals for the @terminal menu section (best-effort, additive to
       // the workspace-file rows so the file-search path is unaffected).
       refreshTerminals();
-      const termRows = terminalPickerRows(draft.prefix, terminalRefs);
+      const termRows: MentionRow[] = terminalPickerRows(draft.prefix, terminalRefs).map((row) => ({
+        kind: "terminal",
+        insert: `@${row.path_rel}`,
+        label: row.path_rel,
+        detail: t("composer.terminalRowDesc"),
+      }));
 
       if (
         atNoMatch &&
@@ -1063,18 +1141,23 @@ export function Composer(props: {
       setAtReplace({ from: draft.atIdx, to: draft.caret });
       setAtPrefix(draft.prefix);
 
-      if (draft.prefix.trim() === "") {
-        bumpAtFetchGen();
-        const wk =
-          (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
-        const recents = readWorkspaceAtRecents(wk).map(pickerRowFromRecent);
-        setAtItems([...termRows, ...recents]);
-        setAtPage(1);
-        setAtHasMore(false);
-        setAtNoMatch(null);
-        setAtLoading(false);
-        setAtErr(null);
-        return;
+      // Recent picks lead an empty query, ahead of the scheme hints and the
+      // top of the workspace the server offers for it.
+      const recent =
+        draft.prefix.trim() === ""
+          ? readWorkspaceAtRecents(
+              (props.sessionId || "").trim() ||
+                WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+            ).map(mentionRowFromRecent)
+          : [];
+      const draftKey = `${draft.atIdx}\u0000${draft.prefix}`;
+      const initialRows = mergeMentionRows(termRows, recent);
+      if (initialRows.length > 0) {
+        setAtItems(initialRows);
+        setAtTotal(initialRows.length);
+        setAtActive(0);
+        atItemsDraftRef.current = draftKey;
+        atActiveInsertRef.current = initialRows[0]?.insert ?? null;
       }
 
       // Show any matching terminal rows immediately; file results merge below.
@@ -1085,7 +1168,9 @@ export function Composer(props: {
 
       atFetchGenRef.current += 1;
       const gen = atFetchGenRef.current;
-      void (async () => {
+      const refresh = atRefreshNextRef.current;
+      atRefreshNextRef.current = false;
+      const run = async (attempt: number) => {
         const el = taRef.current;
         const now = el
           ? atMenuDraftAtCaret(el.value, el.selectionStart ?? el.value.length)
@@ -1102,7 +1187,10 @@ export function Composer(props: {
         setAtLoading(true);
         setAtErr(null);
         try {
-          const body = await fetchAtPage(now.prefix.trimEnd(), 1);
+          const body = await fetchMentions(
+            now.prefix.trimEnd(),
+            refresh && attempt === 0,
+          );
           if (gen !== atFetchGenRef.current) {
             return;
           }
@@ -1121,38 +1209,44 @@ export function Composer(props: {
           ) {
             return;
           }
-          const rows = body.items || [];
-          setAtItems([...termRows, ...rows]);
-          setAtPage(1);
-          setAtHasMore(!!body.has_more);
-          if (rows.length === 0) {
-            if (termRows.length === 0) {
-              setAtNoMatch({ atIdx: after.atIdx, prefix: after.prefix });
-              setAtItems([]);
-            } else {
-              setAtNoMatch(null);
-              setAtItems(termRows);
-            }
-            setAtHasMore(false);
+          const rows = mergeMentionRows(initialRows, body.items || []);
+          const kept =
+            atItemsDraftRef.current === draftKey && atActiveInsertRef.current
+              ? rows.findIndex((r) => r.insert === atActiveInsertRef.current)
+              : -1;
+          setAtItems(rows);
+          setAtTotal(Math.max(body.total ?? rows.length, rows.length));
+          setAtActive(kept >= 0 ? kept : 0);
+          atItemsDraftRef.current = draftKey;
+          if (rows.length === 0 && !body.indexing) {
+            setAtNoMatch({ atIdx: after.atIdx, prefix: after.prefix });
           } else {
             setAtNoMatch(null);
+          }
+          // The workspace is still being indexed: ask again shortly rather
+          // than leave the list empty until the next keystroke.
+          if (body.indexing && attempt < 5) {
+            window.setTimeout(() => void run(attempt + 1), 400);
           }
         } catch (e) {
           if (gen !== atFetchGenRef.current) {
             return;
           }
-          setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
-          setAtItems(termRows);
-          setAtHasMore(false);
+          setAtErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
+          setAtItems(initialRows);
+          setAtTotal(initialRows.length);
           setAtNoMatch(null);
         } finally {
           if (gen === atFetchGenRef.current) {
             setAtLoading(false);
           }
         }
-      })();
+      };
+      void run(0);
     },
-    [fetchAtPage, atNoMatch, props.sessionId, refreshTerminals, terminalRefs],
+    [fetchMentions, atNoMatch, props.sessionId, refreshTerminals, terminalRefs, t],
   );
 
   // Re-evaluate the open @ menu once the IDE terminal list arrives so the
@@ -1232,6 +1326,67 @@ export function Composer(props: {
     ],
   );
 
+  /**
+   * What the server said about the "@" tokens of the draft
+   * (**`POST /foxxycode/mentions/check`**), keyed by the whole token: the mirror
+   * chips a mention only when sending would attach it, over the part that
+   * resolves, so a package in "npm install @google/genai" stays text.
+   */
+  const [mentionMarks, setMentionMarks] = useState<MentionMarks>(
+    () => new Map(),
+  );
+  const mentionCheckGenRef = useRef(0);
+  useEffect(() => {
+    mentionCheckGenRef.current++;
+    setMentionMarks(new Map());
+  }, [props.sessionId]);
+  useEffect(() => {
+    const text = props.value;
+    const gen = ++mentionCheckGenRef.current;
+    if (!text.includes("@")) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const sid = (props.sessionId || "").trim();
+      if (sid) {
+        headers["X-FoxxyCode-Session-ID"] = sid;
+      }
+      fetch("/foxxycode/mentions/check", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            return;
+          }
+          const body = (await res.json()) as {
+            mentions?: { token: string; typed?: string; kind?: string }[];
+          };
+          if (gen !== mentionCheckGenRef.current) {
+            return;
+          }
+          const next = new Map<string, MentionMark>();
+          for (const m of body.mentions || []) {
+            next.set(m.token, { typed: m.typed ?? "", kind: m.kind ?? "" });
+          }
+          for (const match of props.value.matchAll(/(?:^|\s)(@terminal(?::[^\s]+)?)(?=\s|$)/g)) {
+            const token = match[1];
+            if (token) next.set(token, { typed: token, kind: "terminal" });
+          }
+          setMentionMarks(next);
+        })
+        .catch(() => {
+          // The marks of the last check stay: a chip does not blink out
+          // because one request failed.
+        });
+    }, MENTION_CHECK_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [props.value, props.sessionId]);
+
   const maskComposerText = props.value.length > 0;
   const composerSegments = useMemo(
     () =>
@@ -1241,8 +1396,16 @@ export function Composer(props: {
         slashNoMatch,
         atNoMatch,
         props.knownSkillNames,
+        mentionMarks,
       ),
-    [props.value, caretPos, slashNoMatch, atNoMatch, props.knownSkillNames],
+    [
+      props.value,
+      caretPos,
+      slashNoMatch,
+      atNoMatch,
+      props.knownSkillNames,
+      mentionMarks,
+    ],
   );
 
   useLayoutEffect(() => {
@@ -1294,11 +1457,57 @@ export function Composer(props: {
     setComposerScrollTop(ta.scrollTop);
   }
 
+  // A settings command whose value the composer already has a control for
+  // goes to that control when the command is the whole draft: /model opens the
+  // model menu, /reasoning (/effort) the level menu, /permissions the
+  // permission menu, /agent, /plan and /ask switch the mode. The control
+  // applies the value the way a click would (PATCH, mirrored by every tab).
+  // Anything else - /think, a command in front of a message, --once - is
+  // typed and sent, and the server takes it off the text.
+  function settingsControlFor(name: string): (() => void) | null {
+    switch (name) {
+      case "model":
+        return props.onLlmModelChange && llmChipRef.current
+          ? () => toggleMenu("llm", llmChipRef.current as HTMLElement)
+          : null;
+      case "reasoning":
+      case "effort":
+        return reasoningChipRef.current
+          ? () => toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
+          : null;
+      case "permissions":
+        return props.onPermissionModeChange && permissionChipRef.current
+          ? () =>
+              toggleMenu("permission", permissionChipRef.current as HTMLElement)
+          : null;
+      case "agent":
+      case "plan":
+      case "ask":
+      case "debug":
+        return props.modes.includes(name)
+          ? () => props.onModeChange(name)
+          : null;
+    }
+    return null;
+  }
+
   const applySlashChoice = (name: string) => {
     if (!slashReplace) {
       return;
     }
     const { from, to } = slashReplace;
+    const around = (props.value.slice(0, from) + props.value.slice(to)).trim();
+    const control = around === "" ? settingsControlFor(name) : null;
+    if (control) {
+      props.onChange("");
+      setSlashOpen(false);
+      setSlashReplace(null);
+      setSlashNoMatch(null);
+      bumpSlashFetchGen();
+      setSlashLoading(false);
+      control();
+      return;
+    }
     const insert = `/${name} `;
     const next = props.value.slice(0, from) + insert + props.value.slice(to);
     props.onChange(next);
@@ -1322,31 +1531,54 @@ export function Composer(props: {
     });
   };
 
-  const applyAtChoice = (row: WorkspaceFileRow) => {
+  const applyAtChoice = (row: MentionRow) => {
     if (!atReplace) {
       return;
     }
-    deferAtDraftPickerTicksRef.current = 2;
     const { from, to } = atReplace;
-    const isTerminal = row.kind === "terminal";
-    const insert = isTerminal
-      ? `@${row.path_rel} `
-      : row.kind === "dir"
-        ? `@${row.path_rel}`
-        : `@${row.path_rel.replace(/\/$/, "")} `;
-    const next = props.value.slice(0, from) + insert + props.value.slice(to);
+    // A folder or a scheme hint is a step, not a finished mention: no space,
+    // and the picker stays open on what it now holds.
+    const { text: next, caret: pos } = applyMentionRow(
+      props.value,
+      from,
+      to,
+      row,
+    );
     props.onChange(next);
-    // Terminal mentions are not workspace paths — keep them out of file recents.
-    if (!isTerminal) {
-      recordWorkspaceAtRecent(
-        (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
-        row,
+    if (!row.continue && row.kind !== "scheme") {
+      // A row the server offered names something: chip it now rather than
+      // after the next check.
+      setMentionMarks((prev) =>
+        new Map(prev).set(row.insert, { typed: row.insert, kind: row.kind }),
       );
     }
+    const recentKind = recentKindOf(row);
+    if (recentKind) {
+      recordWorkspaceAtRecent(
+        (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+        { path_rel: row.label, kind: recentKind },
+      );
+    }
+    if (row.continue) {
+      deferAtDraftPickerTicksRef.current = 0;
+      bumpAtFetchGen();
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) {
+          return;
+        }
+        el.focus();
+        el.setSelectionRange(pos, pos);
+        updatePickerMenus(next, pos);
+      });
+      return;
+    }
+    deferAtDraftPickerTicksRef.current = 2;
     setAtOpen(false);
     setAtReplace(null);
     setAtNoMatch(null);
     bumpAtFetchGen();
+    atRefreshNextRef.current = true;
     setSlashOpen(false);
     setSlashReplace(null);
     setSlashNoMatch(null);
@@ -1357,7 +1589,6 @@ export function Composer(props: {
       if (!el) {
         return;
       }
-      const pos = from + insert.length;
       el.focus();
       el.setSelectionRange(pos, pos);
     });
@@ -1375,17 +1606,19 @@ export function Composer(props: {
    */
   const insertFileMention = useCallback(
     (pathRel: string) => {
-      const rel = normalizeRelPath(pathRel);
-      if (rel === "") {
+      const normalized = normalizeRelPath(pathRel);
+      if (normalized === "") {
         return;
       }
+      const rel = /[/\\]$/.test(pathRel) ? `${normalized}/` : normalized;
+      const mention = /\s/.test(rel) ? `@"${rel}"` : `@${rel}`;
       const el = taRef.current;
       const value = el ? el.value : props.value;
       const caret = el ? el.selectionStart ?? value.length : value.length;
       const before = value.slice(0, caret);
       const after = value.slice(caret);
       const lead = before !== "" && !/\s$/.test(before) ? " " : "";
-      const insert = `${lead}@${rel} `;
+      const insert = `${lead}${mention} `;
       const next = before + insert + after;
 
       props.onChange(next);
@@ -1600,6 +1833,7 @@ export function Composer(props: {
 
   /** Trims and sends. Dropped files already carry their full path in the draft. */
   const handleSend = useCallback(() => {
+    if (openDocsFromDraft()) return;
     if (props.generating) {
       // A turn is running: what the operator wrote joins the queue the turn reads
       // at its next step instead of being refused, sent with the same key ui.send_mode
@@ -1627,6 +1861,7 @@ export function Composer(props: {
     queueDraft,
     attachedFiles,
     attachmentSendingEnabled,
+    openDocsFromDraft,
   ]);
 
   /**
@@ -1719,31 +1954,6 @@ export function Composer(props: {
     })();
   };
 
-  const loadMoreAt = () => {
-    if (!atOpen || atLoading || !atHasMore || atPrefix.trim() === "") {
-      return;
-    }
-    void (async () => {
-      setAtLoading(true);
-      setAtErr(null);
-      try {
-        const nextPage = atPage + 1;
-        const body = await fetchAtPage(atPrefix.trimEnd(), nextPage);
-        const more = body.items || [];
-        setAtItems((prev) => [...prev, ...more]);
-        if (more.length > 0) {
-          setAtNoMatch(null);
-        }
-        setAtPage(nextPage);
-        setAtHasMore(!!body.has_more);
-      } catch (e) {
-        setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
-      } finally {
-        setAtLoading(false);
-      }
-    })();
-  };
-
   const llmList = props.llmModels ?? [];
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || "").trim();
@@ -1807,7 +2017,40 @@ export function Composer(props: {
   }
 
   const modeLabel = displayMode(props.mode || "agent");
-  const llmLabel = llmVal ? displayLlmId(llmVal, t("composer.model")) : t("composer.model");
+  const permissionVal = (props.permissionMode || "ask").trim();
+  function displayPermission(id: string): string {
+    if (id === "bypass") {
+      return t("composer.permissionBypass");
+    }
+    if (id === "accept_edits") {
+      return t("composer.permissionAcceptEdits");
+    }
+    return t("composer.permissionAsk");
+  }
+  function permissionHint(id: string): string {
+    if (id === "bypass") {
+      return t("composer.permissionBypassHint");
+    }
+    if (id === "accept_edits") {
+      return t("composer.permissionAcceptEditsHint");
+    }
+    return t("composer.permissionAskHint");
+  }
+  // One line per override: the value and the turns it lasts.
+  const overrideLines = (props.settingsOverrides ?? []).map((o) => {
+    if (o.active) {
+      return o.turnsLeft > 0
+        ? t("composer.overrideThisTurnMore", {
+            value: o.value,
+            count: o.turnsLeft,
+          })
+        : t("composer.overrideThisTurn", { value: o.value });
+    }
+    return tp("composer.overrideNextTurns", o.turnsLeft, { value: o.value });
+  });
+  const llmLabel = llmVal
+    ? displayLlmId(llmVal, t("composer.model"))
+    : t("composer.model");
   const contextIdle = props.contextIdle === true;
   const maxCtx =
     typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
@@ -1837,7 +2080,7 @@ export function Composer(props: {
   }
 
   function toggleMenu(
-    type: "mode" | "llm" | "reasoning",
+    type: "mode" | "llm" | "reasoning" | "permission",
     trigger: HTMLElement,
   ) {
     if (menuOpen === type) {
@@ -1868,6 +2111,12 @@ export function Composer(props: {
         .filter(Boolean)
         .join("\n");
 
+  const slashRows = slashItems;
+  const slashActiveIdx = slashRows.length
+    ? Math.min(Math.max(slashActive, 0), slashRows.length - 1)
+    : 0;
+  useEffect(() => setSlashActive(0), [slashPrefix, slashOpen]);
+
   const slashMenuChrome = (
     <>
       <div className="slash-menu-surface" aria-hidden />
@@ -1884,19 +2133,22 @@ export function Composer(props: {
           <div className="slash-muted">{t("composer.noCommands")}</div>
         ) : null}
         <ul className="slash-rows">
-          {slashItems.map((row) => (
+          {slashItems.map((row, idx) => (
             <li key={row.name}>
               <button
                 type="button"
                 role="option"
-                className="slash-row-btn"
+                aria-selected={idx === slashActiveIdx}
+                className={`slash-row-btn${idx === slashActiveIdx ? " is-active" : ""}`}
                 data-testid={`slash-command-row-${row.name}`}
+                onMouseEnter={() => setSlashActive(idx)}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   applySlashChoice(row.name);
                 }}
               >
                 <span className="slash-row-name">/{row.name}</span>
+                {row.hint ? <span className="slash-row-hint">{row.hint}</span> : null}
                 <span className="slash-row-desc">{row.description}</span>
               </button>
             </li>
@@ -1918,6 +2170,66 @@ export function Composer(props: {
     </>
   );
 
+  const atActiveIdx = atItems.length
+    ? Math.min(Math.max(atActive, 0), atItems.length - 1)
+    : 0;
+  atActiveInsertRef.current = atItems[atActiveIdx]?.insert ?? null;
+  // Arrow keys move the highlight; keep it in view inside the scrolling list.
+  useEffect(() => {
+    const row = atListRef.current?.querySelector<HTMLElement>(
+      `[data-at-idx="${atActiveIdx}"]`,
+    );
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [atActiveIdx, atOpen]);
+
+  const mentionKindLabel = (kind: string): string => {
+    switch (kind) {
+      case "directory":
+        return t("composer.mentionKindDirectory");
+      case "session":
+        return t("composer.mentionKindSession");
+      case "rule":
+        return t("composer.mentionKindRule");
+      case "agent":
+        return t("composer.mentionKindAgent");
+      case "plan":
+        return t("composer.mentionKindPlan");
+      case "scheme":
+        return t("composer.mentionKindScheme");
+      case "terminal":
+        return t("composer.terminalRowDesc");
+      case "doc":
+        return t("composer.mentionKindDoc");
+      default:
+        return t("composer.mentionKindFile");
+    }
+  };
+  /**
+   * The dimmer second part of a row. A path's label already is the whole path,
+   * so it has none; a scheme hint's is ours to word; the rest (a session's id
+   * and date, a rule's description) comes from the server.
+   */
+  const mentionRowDetail = (row: MentionRow): string => {
+    if (row.kind === "file" || row.kind === "directory") {
+      return "";
+    }
+    if (row.kind === "scheme") {
+      switch (row.label) {
+        case "session:":
+          return t("composer.mentionSchemeSession");
+        case "rule:":
+          return t("composer.mentionSchemeRule");
+        case "agent:":
+          return t("composer.mentionSchemeAgent");
+        case "foxxycode:":
+          return t("composer.mentionSchemeFoxxyCode");
+      }
+    }
+    return row.detail ?? "";
+  };
+
   const atMenuChrome = (
     <>
       <div className="slash-menu-surface" aria-hidden />
@@ -1925,56 +2237,70 @@ export function Composer(props: {
         className="slash-menu-scroll"
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
-        <div className="slash-menu-title">{t("composer.workspaceFilesTitle")}</div>
-        {atPrefix.trim() === "" && atItems.length === 0 ? (
-          <div className="slash-muted">{t("composer.typeAfterAt")}</div>
-        ) : null}
-        {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
+        <div className="slash-menu-title mention-title">
+          {t("composer.workspaceFilesTitle")}
+          {atTotal > atItems.length ? (
+            // In the title, not under the rows: the list scrolls, and a cut
+            // it only admits at its end is one the reader never sees.
+            <span className="mention-more" data-testid="mention-more">
+              {t("composer.mentionMore", {
+                shown: atItems.length,
+                total: atTotal,
+              })}
+            </span>
+          ) : null}
+        </div>
+        {atLoading && atItems.length === 0 ? (
           <div className="slash-muted">{t("composer.loading")}</div>
         ) : null}
         {atErr ? <div className="slash-err">{atErr}</div> : null}
-        {!atLoading &&
-        atItems.length === 0 &&
-        !atErr &&
-        atPrefix.trim() !== "" ? (
-          <div className="slash-muted">{t("composer.noFiles")}</div>
+        {!atLoading && atItems.length === 0 && !atErr ? (
+          <div className="slash-muted">
+            {atPrefix.trim() === ""
+              ? t("composer.typeAfterAt")
+              : t("composer.noFiles")}
+          </div>
         ) : null}
-        <ul className="slash-rows">
-          {atItems.map((row) => (
-            <li key={`${row.kind}:${row.path_rel}`}>
-              <button
-                type="button"
-                role="option"
-                className="slash-row-btn"
-                data-testid={`workspace-file-row-${row.path_rel.replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  applyAtChoice(row);
-                }}
-              >
-                <span className="slash-row-name">@{row.path_rel}</span>
-                <span className="slash-row-desc">
-                  {row.kind === "terminal"
-                    ? t("composer.terminalRowDesc")
-                    : workspacePickRowSubtitle(row)}
-                </span>
-              </button>
-            </li>
-          ))}
+        <ul className="slash-rows" ref={atListRef}>
+          {atItems.map((row, idx) => {
+            const detail = mentionRowDetail(row);
+            return (
+              <li key={`${row.kind}:${row.insert}`}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={idx === atActiveIdx}
+                  className={`slash-row-btn mention-row${idx === atActiveIdx ? " is-active" : ""}`}
+                  data-at-idx={idx}
+                  data-testid={`mention-row-${row.kind}-${row.label.replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
+                  onMouseEnter={() => setAtActive(idx)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyAtChoice(row);
+                  }}
+                >
+                  <span className="slash-row-line">
+                    <span
+                      className={`mention-kind mention-kind--${row.kind}`}
+                    >
+                      {mentionKindLabel(row.kind)}
+                    </span>
+                    <span className="slash-row-name">
+                      {row.kind === "scheme" ? `@${row.label}` : row.label}
+                    </span>
+                    {detail ? (
+                      <>
+                        {" "}
+                        <span className="slash-row-desc">{detail}</span>
+                      </>
+                    ) : null}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
-        {atHasMore ? (
-          <button
-            type="button"
-            className="slash-load-more"
-            disabled={atLoading}
-            data-testid="workspace-files-more"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => loadMoreAt()}
-          >
-            {atLoading ? t("composer.loading") : t("composer.more")}
-          </button>
-        ) : null}
-        {atItems.length > 0 ? (
+        {atItems.some((row) => row.kind === "file") ? (
           <div className="slash-muted at-range-menu-hint">
             {t("composer.atRangeMenuHint")}
           </div>
@@ -2361,17 +2687,49 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
-                  if (ev.key === "Tab" && atOpen && atItems.length > 0 && !props.generating) {
+                  if (
+                    (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
+                    atOpen &&
+                    atItems.length > 0
+                  ) {
                     ev.preventDefault();
-                    const row0 = atItems[0];
-                    if (row0) {
-                      applyAtChoice(row0);
+                    const len = atItems.length;
+                    setAtActive((i) => {
+                      const cur = Math.min(Math.max(i, 0), len - 1);
+                      return ev.key === "ArrowDown"
+                        ? (cur + 1) % len
+                        : (cur - 1 + len) % len;
+                    });
+                    return;
+                  }
+                  if (
+                    (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
+                    slashOpen &&
+                    !atOpen &&
+                    slashRows.length > 0 &&
+                    !props.generating
+                  ) {
+                    ev.preventDefault();
+                    const len = slashRows.length;
+                    setSlashActive((i) => {
+                      const cur = Math.min(Math.max(i, 0), len - 1);
+                      return ev.key === "ArrowDown"
+                        ? (cur + 1) % len
+                        : (cur - 1 + len) % len;
+                    });
+                    return;
+                  }
+                  if (ev.key === "Tab" && atOpen && atItems.length > 0) {
+                    ev.preventDefault();
+                    const row = atItems[atActiveIdx];
+                    if (row) {
+                      applyAtChoice(row);
                     }
                     return;
                   }
                   if (ev.key === "Tab" && slashOpen && slashItems.length > 0 && !props.generating) {
                     ev.preventDefault();
-                    const row0 = slashItems[0];
+                    const row0 = slashRows[slashActiveIdx];
                     if (row0) {
                       applySlashChoice(row0.name);
                     }
@@ -2381,13 +2739,12 @@ export function Composer(props: {
                     ev.key === "Enter" &&
                     !ev.shiftKey &&
                     atOpen &&
-                    atItems.length > 0 &&
-                    !props.generating
+                    atItems.length > 0
                   ) {
                     ev.preventDefault();
-                    const row0 = atItems[0];
-                    if (row0) {
-                      applyAtChoice(row0);
+                    const row = atItems[atActiveIdx];
+                    if (row) {
+                      applyAtChoice(row);
                     }
                     return;
                   }
@@ -2399,7 +2756,7 @@ export function Composer(props: {
                     !props.generating
                   ) {
                     ev.preventDefault();
-                    const row0 = slashItems[0];
+                    const row0 = slashRows[slashActiveIdx];
                     if (row0) {
                       applySlashChoice(row0.name);
                     }
@@ -2493,10 +2850,33 @@ export function Composer(props: {
                 </button>
               </div>
 
+              {props.onPermissionModeChange ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    ref={permissionChipRef}
+                    className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
+                    aria-label={t("composer.permission")}
+                    title={t("composer.permissionTitle", {
+                      configured: displayPermission(
+                        props.configuredPermissionMode || "ask",
+                      ),
+                    })}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "permission"}
+                    data-testid="composer-permission"
+                    onClick={(e) => toggleMenu("permission", e.currentTarget)}
+                  >
+                    {displayPermission(permissionVal)}
+                  </button>
+                </div>
+              ) : null}
+
               {showLlm && props.onLlmModelChange ? (
                 <div className="mode">
                   <button
                     type="button"
+                    ref={llmChipRef}
                     className="composer-tab mode-btn mode-llm"
                     aria-label={t("composer.model")}
                     title={t("composer.modelTitle")}
@@ -2514,6 +2894,7 @@ export function Composer(props: {
                 <div className="mode">
                   <button
                     type="button"
+                    ref={reasoningChipRef}
                     className="composer-tab mode-btn mode-reasoning"
                     aria-label={t("composer.reasoningLevel")}
                     title={t("composer.reasoningLevelTitle")}
@@ -2524,6 +2905,21 @@ export function Composer(props: {
                     {reasoningLabel}
                   </button>
                 </div>
+              ) : null}
+
+              {overrideLines.length > 0 ? (
+                <span
+                  className="composer-overrides"
+                  data-testid="composer-overrides"
+                  title={t("composer.overridesTitle", {
+                    list: overrideLines.join("\n"),
+                  })}
+                >
+                  {overrideLines[0]}
+                  {overrideLines.length > 1
+                    ? ` +${overrideLines.length - 1}`
+                    : ""}
+                </span>
               ) : null}
             </div>
 
@@ -2677,6 +3073,23 @@ export function Composer(props: {
                         }}
                       >
                         {displayMode(m)}
+                      </button>
+                    ))
+                  : null}
+                {menuOpen === "permission"
+                  ? ["ask", "accept_edits", "bypass"].map((pm) => (
+                      <button
+                        key={pm}
+                        type="button"
+                        role="menuitem"
+                        title={permissionHint(pm)}
+                        className={`mode-item perm-item perm-${pm} ${pm === permissionVal ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.onPermissionModeChange?.(pm);
+                          closeMenu();
+                        }}
+                      >
+                        {displayPermission(pm)}
                       </button>
                     ))
                   : null}

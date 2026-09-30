@@ -22,6 +22,7 @@ _foxxycode() {
         'rules:list project rules'
         'agents:list and trust subagents'
         'hooks:list and trust lifecycle hooks'
+        'docs:read and search the built-in documentation'
         'update:install the latest release'
     )
 
@@ -51,6 +52,7 @@ _foxxycode() {
                         _arguments \
                             '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
                             '--device[neuraldeep: the device flow, which is the default]' \
+                            '--devin-cli[devin: use the login devin auth login already holds]' \
                             '--no-config[login: do not add the provider and its models to config.yaml]' \
                             '--api-base[neuraldeep: endpoint to sign in against]:url:' \
                             '--home[override FOXXYCODE_HOME]:dir:_files -/'
@@ -59,6 +61,16 @@ _foxxycode() {
                     fi
                     ;;
                 rules)    _values 'subcommand' list ;;
+                docs)
+                    if (( CURRENT == 3 )) && [[ $words[2] == show ]]; then
+                        # The pages the binary carries, from the binary itself.
+                        _values 'page' ${(f)"$(foxxycode docs list --slugs 2>/dev/null)"}
+                    elif (( CURRENT > 2 )) && [[ $words[2] == search ]]; then
+                        _arguments '--limit[sections to print]:count:'
+                    else
+                        _values 'subcommand' list search show
+                    fi
+                    ;;
                 update)
                     _arguments \
                         '--check[report whether a newer release exists]' \

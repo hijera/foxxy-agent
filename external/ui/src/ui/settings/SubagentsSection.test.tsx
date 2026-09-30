@@ -84,13 +84,18 @@ function renderSection(workspacePath?: string) {
   );
 }
 
-test("lists every definition and offers the shield only on the project one", async () => {
+test("lists every definition of the session workspace with its scope, description and file", async () => {
   stubFetch();
   renderSection("/work/repo");
   await waitFor(() => expect(screen.getByTestId("subagents-list")).toBeInTheDocument());
 
   expect(screen.getByTestId("subagent-row-general")).toBeInTheDocument();
   expect(screen.getByTestId("subagent-row-reviewer")).toBeInTheDocument();
+  expect(screen.getByTestId("subagent-row-general")).toHaveTextContent("General-purpose worker.");
+  expect(screen.getByTestId("subagent-row-general")).toHaveTextContent(/built in/i);
+  expect(screen.getByTestId("subagent-row-reviewer")).toHaveTextContent(/project/i);
+  expect(screen.getByTestId("subagent-trust-note-reviewer")).toHaveTextContent("/work/repo/.foxxycode/agents/reviewer.md");
+  expect(screen.getByTestId("subagent-row-reviewer")).not.toHaveTextContent("Reviews a diff for correctness.");
   // A built-in needs no approval, so it carries no control at all.
   expect(screen.queryByTestId("subagent-trust-general")).toBeNull();
   expect(screen.getByTestId("subagent-trust-reviewer")).toBeInTheDocument();

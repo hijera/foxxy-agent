@@ -295,7 +295,7 @@ func (s *modeSyncState) patchSessionMode(mode string) error {
 }
 
 func (s *modeSyncState) patchEchoesMode(want string) error {
-	if got := gjson.Get(s.patchBody, "mode").String(); got != want {
+	if got := gjson.Get(s.patchBody, "settings.mode").String(); got != want {
 		return fmt.Errorf("patch response mode = %q, want %q in %s", got, want, s.patchBody)
 	}
 	return nil

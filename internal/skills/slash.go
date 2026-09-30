@@ -18,6 +18,7 @@ var invokedMidLineSlashRE = regexp.MustCompile(`(?:^|[\t ])\/([a-zA-Z0-9][a-zA-Z
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Hint        string `json:"hint,omitempty"`
 }
 
 // BuiltinCommands returns the deterministic built-in slash commands (they run

@@ -17,6 +17,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/proxytest"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -192,5 +193,49 @@ func TestCodexAuthDeviceHTTPFlow(t *testing.T) {
 	}
 	if !status.Connected || status.Source != "foxxycode" {
 		t.Fatalf("saved status = %+v", status)
+	}
+}
+
+// TestCodexAuthDeviceStartBypassesTheRowsProxyForLoopback pins the fork's
+// loopback bypass for a configured URL proxy, including OAuth device sign-in.
+func TestCodexAuthDeviceStartBypassesTheRowsProxyForLoopback(t *testing.T) {
+	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/accounts/deviceauth/usercode" {
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-proxy","user_code":"PRXY","interval":"5"}`)
+			return
+		}
+		// Nobody confirms in the browser.
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer issuer.Close()
+	proxy := proxytest.New()
+	defer proxy.Close()
+
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: t.TempDir()},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex", Proxy: proxy.URL()}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.codexAuthIssuer = issuer.URL
+	ts := httptest.NewServer(srv.Handler())
+	defer func() {
+		ts.Close()
+		srv.Drain()
+	}()
+
+	res, err := http.Post(ts.URL+"/foxxycode/providers/codex/codex-auth/device", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("start status = %d", res.StatusCode)
+	}
+	if carried := proxy.Carried(); len(carried) != 0 {
+		t.Fatalf("the loopback device start went through the row's proxy: %v", carried)
 	}
 }

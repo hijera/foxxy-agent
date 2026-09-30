@@ -21,8 +21,8 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 | `stats.json` | token totals of the completed model calls |
 | `branches.json` | the branch points of an edited conversation |
 | `diffs/turn_<n>.json` | the workspace files each turn changed, replayed backwards when a branch is created |
-| `background/<task_id>/` | the record and output log of every background task and subagent run |
-| `memory_trace.json` | what the memory copilot did on each turn ([Long-term memory](memory.md)) |
+| `background/<task_id>/` | the record and output log of every background task and subagent run, the memory subagent of each turn included ([Long-term memory](memory.md)) |
+| `subagents/<child id>/` | the bundle of every child session this session spawned: a `spawn_agent` child or the memory subagent of a turn, each a session of its own with this same layout |
 | `ui_log.json`, `permission_grants.json`, `pending_permission.json` | notice rows shown in the transcript, the commands and write targets approved with "allow always", a permission prompt waiting for its answer over HTTP |
 | `pending_plan_context.json` | the design plan text handed to the turn a plan run started, kept until that turn is over. A turn stopped on a permission prompt is continued after the answer arrives, sometimes in another process, and renders the same system prompt again ([Plan mode](modes.md)) |
 
@@ -30,7 +30,7 @@ Compaction and result eviction never rewrite a bundle: both are projections buil
 
 ## What a session remembers
 
-The mode (`agent`, `plan` or `ask`), the model, the reasoning level and the permission mode are session-scoped overrides persisted in `session.json`: the ACP `session/set_mode` and `session/set_config_option` methods, the composer's Mode, Model and Reasoning selectors (`PATCH /foxxycode/sessions/{id}` with `selectedModelId` or `selectedReasoning`) and the console's `/mode` and `ctrl+l` all write there, and a session-level `permission_mode` outranks `tools.permission_mode` from the configuration. The working directory is recorded too: `foxxycode -c`, the console picker and `foxxycode sessions list --cwd` filter on it. The web UI picks the folder, the git branch and an optional worktree before the first message and locks them once the transcript has messages ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn-chips)). The title is derived from the first prompt until you pin one, inline in the chat header or with `PATCH /foxxycode/sessions/{id}` and a `title`; the same route carries the `tags` and the `archived` flag described below.
+The mode (`agent`, `plan`, `docs`, `ask` or `debug`), the model and the reasoning level are session overrides persisted in `session.json`. The permission mode also overrides `tools.permission_mode`, but lasts only until the process restarts; an ordinary session never restores it from disk. A subagent child records the narrower mode it ran under in its own bundle. ACP settings methods, the web composer's selectors, settings commands and the console's `/mode` use one setter; changes for the next few turns remain in memory only ([Session settings](session-settings.md)). The working directory is recorded too: `foxxycode -c`, the console picker and `foxxycode sessions list --cwd` filter on it. The web UI picks the folder, git branch and optional worktree before the first message and locks them once the transcript has messages ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn-chips)). The title is derived from the first prompt until you pin one, inline in the chat header or with `PATCH /foxxycode/sessions/{id}` and a `title`; the same route carries the `tags` and `archived` flag described below.
 
 ## Tags and the archive
 

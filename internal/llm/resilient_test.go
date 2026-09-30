@@ -353,7 +353,7 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 		{"TLS handshake timeout", fmt.Errorf("openai stream: %w",
 			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("net/http: TLS handshake timeout")}), true},
 		{"dial timeout", fmt.Errorf("openai stream: %w",
-			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: realDialTimeout(t)}), true},
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: dialTimeout()}), true},
 		{"dial host unreachable", fmt.Errorf("openai stream: %w",
 			&net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.EHOSTUNREACH)}), true},
 		{"dial temporary DNS failure", fmt.Errorf("openai stream: %w",
@@ -373,17 +373,10 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 	}
 }
 
-// realDialTimeout returns the error net.Dialer produces when its timeout
-// fires: an "i/o timeout" that also matches context.DeadlineExceeded. A
-// deadline already in the past fails before any packet is sent.
-func realDialTimeout(t *testing.T) error {
-	t.Helper()
-	_, err := (&net.Dialer{Timeout: time.Nanosecond}).Dial("tcp", "192.0.2.1:443")
-	var op *net.OpError
-	if !errors.As(err, &op) || op.Op != "dial" || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("dial error = %#v, want a dial timeout", err)
-	}
-	return err
+// dialTimeout models net.Dialer's wrapped deadline error without depending on
+// a network route or a Windows firewall's response to a test address.
+func dialTimeout() error {
+	return &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
 }
 
 // TestStreamTransportErrorEmittedBlocksRetry pins the emitted contract for

@@ -188,12 +188,18 @@ List merged MCP servers and approve or revoke project\-local
 declarations for a workspace.
 .TP
 .B "providers list | login | logout"
-Manage provider credentials. A login signs in through the device flow: it
-prints a short code and the page that confirms it, so the browser can be on
-any machine. Pass
+Manage provider credentials. A NeuralDeep login signs in through the device
+flow: it prints a short code and the page that confirms it, so the browser can
+be on any machine. Pass
 .B \-\-browser
 for the loopback callback instead, which only completes in a browser running
-on this machine. A login also adds the provider, the
+on this machine. A Devin login opens the Devin sign\-in page and waits for the
+browser to return to this machine; from another machine, paste the final
+address into the terminal. With
+.B \-\-devin\-cli
+it uses the login held by
+.B devin auth login
+without opening a browser. A login also adds the provider, the
 models the account can use and an
 .I agent.model
 to the configuration unless
@@ -220,6 +226,23 @@ List subagent definitions and approve or revoke project\-scope ones.
 .TP
 .B "hooks list | trust | untrust"
 List lifecycle hooks and approve or revoke project\-scope hook files.
+.TP
+.B "docs list | search | show"
+Read the documentation built into this binary, the same pages as
+.I https://hijera.github.io/foxxy-agent/
+for this version, with no network access.
+.B list
+prints the contents,
+.BI "search " words
+the best matching sections
+.RB ( \-\-limit
+bounds them), and
+.BI "show " page\fR[\fB#\fIsection\fR]
+a page or one of its sections as Markdown, for example
+.BR "foxxycode docs show features/mentions#completion" .
+The console opens the same documentation on
+.BR F1 ,
+the web UI on its Docs screen.
 .TP
 .B update
 Install the latest release. See
@@ -435,8 +458,8 @@ Project documentation:
 .UR https://github.com/hijera/foxxy-agent
 .UE .
 .PP
-FoxxyCode is a fork of coddy\-agent:
-.UR https://github.com/coddy-project/coddy-agent
+FoxxyCode is a fork of foxxycode\-agent:
+.UR https://github.com/hijera/foxxy-agent
 .UE .
 .SH AUTHOR
-Pavel Rykov and the coddy\-agent contributors, and the contributors to this fork.
+Pavel Rykov and the foxxycode\-agent contributors, and the contributors to this fork.

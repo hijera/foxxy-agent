@@ -1,4 +1,5 @@
-# Run the full test matrix (one job per tag combination) and golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination), the race detector and
+# golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -266,8 +267,8 @@ jobs:
   # The suite runs without -race, so a data race in the session manager, the
   # background task pool or the SSE fan-out only ever shows up as a flake in
   # production. -race needs cgo, which is unavailable on some contributor
-  # machines but always present here. The scope is the packages with real
-  # concurrency; widen it as more of the tree is shown to be race-free.
+  # machines but always present here. The full non-UI tag set runs through
+  # make test-race.
   race:
     name: Race detector
     runs-on: ubuntu-latest
@@ -296,9 +297,7 @@ jobs:
       - name: Run tests under the race detector
         env:
           CGO_ENABLED: "1"
-        run: |
-          go test -race -count=1 ./internal/agent/... ./internal/session/... ./internal/bgtask/... ./internal/llm/... ./internal/mcp/...
-          go test -race -count=1 -tags=http,scheduler,memory ./external/httpserver/... ./external/scheduler/...
+        run: make test-race
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `foxxycode` opens on a Terminal.app pty. A hang there was
