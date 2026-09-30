@@ -1,8 +1,8 @@
 package dev.foxxycode.intellij.autocomplete
 
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.editor.Editor
 
 /**
@@ -10,7 +10,7 @@ import com.intellij.openapi.editor.Editor
  * autocomplete.trigger is "manual", and a way to force one without waiting for the debounce when it
  * is "auto".
  */
-class TriggerSuggestionAction : AnAction() {
+class TriggerSuggestionAction : DumbAwareAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val editor: Editor = e.getData(CommonDataKeys.EDITOR) ?: return
@@ -21,7 +21,6 @@ class TriggerSuggestionAction : AnAction() {
     override fun update(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR)
         val project = editor?.project
-        e.presentation.isEnabled = project != null &&
-            FoxxyCodeAutocompleteService.getInstance(project).config.enabled
+        e.presentation.isEnabled = project != null
     }
 }

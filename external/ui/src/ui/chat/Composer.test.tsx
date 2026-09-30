@@ -1242,6 +1242,34 @@ test("a dropped file lands in the draft as its full relative path and is sent ve
   expect(onSend).toHaveBeenCalledWith("@external/ui/src/ui/chat/Composer.tsx");
 });
 
+test("a dropped directory keeps its trailing slash in the sent mention", async () => {
+  const onSend = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={onSend}
+      />
+    );
+  }
+  render(<Harness />);
+
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  emitFileMention("src/");
+  await waitFor(() => expect(ta.value).toBe("@src/ "));
+  emitFileMention("src/my dir/");
+  await waitFor(() => expect(ta.value).toBe('@src/ @"src/my dir/" '));
+
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith('@src/ @"src/my dir/"');
+});
+
 test("a second dropped file keeps the first mention's full path", async () => {
   function Harness() {
     const [value, setValue] = useState("");

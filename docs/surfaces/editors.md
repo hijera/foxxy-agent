@@ -7,9 +7,15 @@ FoxxyCode reaches an editor two ways. The IntelliJ plugin and the VS Code extens
 The plugin (`editors/intellij`, every IntelliJ-based IDE from 2022.2) and the extension (`editors/vscode`) bundle the `foxxycode` binary, so an editor panel needs no separate install; both are attached to every [GitHub Release](https://github.com/hijera/foxxy-agent/releases). Each starts one `foxxycode http` for the open project on a free loopback port, with `--cwd` set to the project root and the shared `~/.foxxycode` as its home, and embeds the [web UI](web-ui.md) in a tool window (JCEF) or a webview. Everything the web UI does is there - sessions and History, modes and models, settings, skills, the scheduler - plus what only an editor can give it:
 
 - the open files and the active editor, sent to the agent with every prompt (`<foxxycode_ide_context>`), and the output of the IDE terminals behind `@terminal`;
-- files dragged from the project tree into the composer as `@` mentions;
+- files dragged from the project tree into the composer as `@` mentions; in IntelliJ, dropping a directory inserts `@path/` with the trailing slash that marks it as a directory;
 - the agent's file edits as native inline diffs with Accept, Reject and checkpoints, driven by the `/foxxycode/ide/*` routes;
 - inline code completion in the editor when `autocomplete` is on ([config reference](../reference/config.md#autocomplete)).
+
+In IntelliJ, **Suggest Code at Caret** is available from the editor context menu and through `Alt+\` in the default keymap. The shortcut starts FoxxyCode if its panel has not been opened yet. Autocomplete is off by default; when it is off, the action shows a hint pointing to FoxxyCode Settings instead of silently doing nothing. If your keyboard layout does not produce that shortcut, find **Suggest Code at Caret** under Settings → Keymap and assign a key combination that works in your layout. Accept a shown suggestion with Tab or dismiss it with Escape.
+
+![A directory dropped from the IntelliJ project tree inserts a mention ending in slash](../assets/editors/intellij-directory-mention-dark-1400.png)
+
+*The directory mention keeps its trailing slash in the embedded composer.*
 
 The panel talks to its own loopback server, so it shares sessions with the console and the browser through the home directory, not through the network. Build and packaging are in [editors/intellij/README.md](../../editors/intellij/README.md) and [editors/vscode/README.md](../../editors/vscode/README.md); how the JCEF panel hosts the SPA is in [Embedding the UI in IntelliJ](../contributing/intellij-embedding.md).
 

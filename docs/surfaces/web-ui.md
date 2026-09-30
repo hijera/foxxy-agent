@@ -122,9 +122,12 @@ round-trips through the footer Save because the whole config doc is PUT back.
   map is gone (draft restored after reload) the backend reads the line range
   from the file instead. Any non-match, error, or timeout degrades to a plain
   text paste. Short single-line pastes (<16 chars) are never classified.
-- **Drop** — a file dropped anywhere on the page still inserts an **`@path`**
+- **Drop** — a file dropped anywhere on the page inserts an **`@path`**
   mention (see the file-drop rule in **`.claude/rules/ui-spa.md`**); it does not
-  attach the file. Use the paste path or the attach button for image uploads.
+  attach the file. An editor embed may also pass a project directory, which
+  inserts **`@path/`** with the trailing slash preserved. Paths containing
+  spaces are quoted, including the slash for directories, as **`@"path with spaces/"`**.
+  Use the paste path or the attach button for image uploads.
 - **Multimodal gate** — chips are always shown, but for a model without
   **`multimodal: true`** they render disabled (dashed, greyed) and are excluded
   from the request; a paste is refused with a transient

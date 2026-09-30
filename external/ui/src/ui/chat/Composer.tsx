@@ -1606,17 +1606,19 @@ export function Composer(props: {
    */
   const insertFileMention = useCallback(
     (pathRel: string) => {
-      const rel = normalizeRelPath(pathRel);
-      if (rel === "") {
+      const normalized = normalizeRelPath(pathRel);
+      if (normalized === "") {
         return;
       }
+      const rel = /[/\\]$/.test(pathRel) ? `${normalized}/` : normalized;
+      const mention = /\s/.test(rel) ? `@"${rel}"` : `@${rel}`;
       const el = taRef.current;
       const value = el ? el.value : props.value;
       const caret = el ? el.selectionStart ?? value.length : value.length;
       const before = value.slice(0, caret);
       const after = value.slice(caret);
       const lead = before !== "" && !/\s$/.test(before) ? " " : "";
-      const insert = `${lead}@${rel} `;
+      const insert = `${lead}${mention} `;
       const next = before + insert + after;
 
       props.onChange(next);

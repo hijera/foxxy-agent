@@ -9,6 +9,12 @@
 
 ## Unreleased — 2026-09-30
 
+**Project directories can be dropped into chat.**
+A directory is inserted as `@path/` with the trailing slash; **Add to FoxxyCode** in the Project menu now does the same.
+
+**Code suggestions can be requested before opening the panel.**
+**Suggest Code at Caret** starts FoxxyCode on demand and is available in the editor menu. When Autocomplete is off, the action explains where to enable it; `Alt+\` can be reassigned in Keymap for your keyboard layout.
+
 **Memory runs as a background agent.**
 It gathers context for the current turn in a separate task, with progress visible in Tasks. Existing notes and memory settings continue to work.
 
