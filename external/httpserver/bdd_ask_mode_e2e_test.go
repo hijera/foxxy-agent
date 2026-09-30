@@ -48,6 +48,7 @@ var askE2EReadOnlyTools = map[string]bool{
 	// Filing writes the session's own title and tags, which is nothing a reader
 	// of the workspace could see change.
 	"session_describe": true,
+	"foxxycode_docs_search": true, "foxxycode_docs_read": true,
 }
 
 // askModeStubBackend is an OpenAI-compatible chat completions server that

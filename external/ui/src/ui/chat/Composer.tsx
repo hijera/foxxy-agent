@@ -68,6 +68,7 @@ import {
 import { hostResolvesFileDrops, isEditorEmbed } from "../embedShell";
 import { contextUsagePercent } from "./contextUsage";
 import { reasoningLevelLabel } from "./reasoningLevelLabel";
+import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
@@ -314,6 +315,12 @@ export function Composer(props: {
   onPasteChipCaptured?: (key: string, literal: string) => void;
   generating?: boolean;
   onStop?: () => void;
+  /**
+   * `/docs [page or words]` opens the documentation reader here instead of
+   * going to the agent; absent where there is no reader to open. The argument
+   * is what follows the command, "" for the command alone.
+   */
+  onDocsCommand?: (arg: string) => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. Only while generating. */
@@ -399,13 +406,21 @@ export function Composer(props: {
     props.generating === true &&
     typeof props.onQueue === "function" &&
     props.value.trim().length > 0;
+  const openDocsFromDraft = useCallback((): boolean => {
+    if (!props.onDocsCommand || sendableAttachedFiles.length > 0) return false;
+    const arg = parseDocsCommand(props.value);
+    if (arg === null) return false;
+    props.onDocsCommand(arg);
+    return true;
+  }, [props.onDocsCommand, props.value, sendableAttachedFiles.length]);
   const queueDraft = useCallback(() => {
+    if (openDocsFromDraft()) return;
     const txt = props.value.trim();
     if (!txt || !props.onQueue) {
       return;
     }
     props.onQueue(txt);
-  }, [props.value, props.onQueue]);
+  }, [props.value, props.onQueue, openDocsFromDraft]);
   /** An attachment on its own is a valid message; text is not required. */
   const idleSendDisabled =
     props.value.trim() === "" && sendableAttachedFiles.length === 0;
@@ -780,13 +795,18 @@ export function Composer(props: {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      return (await res.json()) as {
+      const body = (await res.json()) as {
         items: SlashRow[];
         has_more: boolean;
         page: number;
       };
+      if (page === 1 && props.onDocsCommand && "docs".startsWith(prefix.toLowerCase()) &&
+          !body.items?.some((row) => row.name === "docs")) {
+        body.items = [...(body.items || []), { name: "docs", description: t("composer.docsCommand") }];
+      }
+      return body;
     },
-    [props.sessionId],
+    [props.sessionId, props.onDocsCommand, t],
   );
 
   const fetchMentions = useCallback(
@@ -1734,6 +1754,7 @@ export function Composer(props: {
 
   /** Trims and sends. Dropped files already carry their full path in the draft. */
   const handleSend = useCallback(() => {
+    if (openDocsFromDraft()) return;
     if (props.generating) {
       // A turn is running: what the operator wrote joins the queue the turn reads
       // at its next step instead of being refused, sent with the same key ui.send_mode
@@ -1761,6 +1782,7 @@ export function Composer(props: {
     queueDraft,
     attachedFiles,
     attachmentSendingEnabled,
+    openDocsFromDraft,
   ]);
 
   /**
@@ -2065,6 +2087,8 @@ export function Composer(props: {
         return t("composer.mentionKindScheme");
       case "terminal":
         return t("composer.terminalRowDesc");
+      case "doc":
+        return t("composer.mentionKindDoc");
       default:
         return t("composer.mentionKindFile");
     }
@@ -2086,6 +2110,8 @@ export function Composer(props: {
           return t("composer.mentionSchemeRule");
         case "agent:":
           return t("composer.mentionSchemeAgent");
+        case "foxxycode:":
+          return t("composer.mentionSchemeFoxxyCode");
       }
     }
     return row.detail ?? "";

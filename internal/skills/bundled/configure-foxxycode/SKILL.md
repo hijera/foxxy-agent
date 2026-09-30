@@ -1,6 +1,6 @@
 ---
 name: configure-foxxycode
-version: 1.0.0
+version: 1.1.0
 description: "Change FoxxyCode's own configuration when the user asks for it: edit settings, providers, models, logging, permissions, or find, install, update, and remove MCP servers and skills. Stages UCI-style commands and commits only after the user confirms saving. Load when the user explicitly asks to change a FoxxyCode setting, or when the request implies it (install an MCP server, add a skill, switch a model, roll back the config). Do not load for ordinary coding or unrelated tasks."
 ---
 
@@ -45,7 +45,7 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 
 ## Configuration areas
 
-The active YAML file covers these areas (full field tables: https://github.com/hijera/foxxy-agent/blob/main/docs/reference/config.md):
+The active YAML file covers these areas (full field tables: `foxxycode_docs_read` with page `reference/config`, or a section such as `reference/config#providers`, read from the documentation built into this binary; the same page is public at https://hijera.github.io/foxxy-agent/reference/config.md):
 
 - `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound. A proxy URL's login and password must be percent-encoded when they hold `/ ? # %`, a space or non-Latin letters (`@` as `%40` is safe too); an empty proxy falls back to `HTTP(S)_PROXY`, then to the Windows system proxy including a PAC script (`FOXXYCODE_SYSTEM_PROXY=off` disables that). `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`foxxycode providers login <name>` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$FOXXYCODE_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login. For `neuraldeep`, `api_base` selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, used when empty) or `https://api.neuraldeep.tech/v1` (the international mirror); any other value falls back to the first, and the choice also decides which hub signs the user in, so set it before login (`foxxycode providers login neuraldeep --api-base <url>`, which also moves an existing row to that endpoint). `codex` ignores api_base entirely;
 - `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: FoxxyCode then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default. `reasoning_levels` has three states: key absent auto-detects the levels from the model id (the default), an explicit `[]` hides the reasoning selector, and a non-empty list offers exactly those levels; `delete models.N.reasoning_levels` returns an entry to auto-detection, `set models.N.reasoning_levels=[]` opts out;

@@ -60,3 +60,12 @@ Feature: "@" mentions in a prompt
     Given a web page "https://example.com/guide" reading "GUIDE_TOKEN"
     When the user sends "follow @https://example.com/guide."
     Then the prompt attaches "https://example.com/guide" holding "GUIDE_TOKEN"
+
+  Scenario: A section of FoxxyCode's own documentation
+    When the user sends "how do ranges work? see @foxxycode:features/mentions#what-a-prompt-can-mention"
+    Then the prompt attaches the documentation "features/mentions#what-a-prompt-can-mention" holding "## What a prompt can mention"
+
+  Scenario: The composer marks a page of the documentation and leaves a page that is not there
+    When the composer checks the draft "compare @foxxycode:features/mentions with @foxxycode:features/nowhere"
+    Then the check marks "@foxxycode:features/mentions" as a mention of a doc
+    And the check leaves "@foxxycode:features/nowhere" unmarked

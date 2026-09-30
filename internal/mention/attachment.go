@@ -19,6 +19,9 @@ const (
 	KindPlan      = "plan"
 	// KindSkill carries the body of a skill the message invoked as /name.
 	KindSkill = "skill"
+	// KindDoc carries a page or a section of FoxxyCode's own documentation,
+	// mentioned as "@foxxycode:<page>#<section>".
+	KindDoc = "doc"
 )
 
 // Tag is the element a resolved mention is written as inside the user message.

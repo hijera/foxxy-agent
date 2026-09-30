@@ -370,6 +370,8 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("svn_commit")).toBe("status.vcs");
     expect(statusKeyForTool("http_request")).toBe("status.httpRequest");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
+    expect(statusKeyForTool("foxxycode_docs_search")).toBe("status.docsSearch");
+    expect(statusKeyForTool("foxxycode_docs_read")).toBe("status.docsRead");
     expect(statusKeyForTool("")).toBe("status.tool");
   });
 

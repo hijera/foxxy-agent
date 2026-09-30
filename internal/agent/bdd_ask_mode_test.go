@@ -33,6 +33,7 @@ var bddAskReadOnlyTools = map[string]bool{
 	// Filing writes the session's own title and tags. Nothing a reader of the
 	// repository could see changes, so the promise of the mode holds.
 	"session_describe": true,
+	"foxxycode_docs_search": true, "foxxycode_docs_read": true,
 }
 
 const (

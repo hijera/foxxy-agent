@@ -700,7 +700,7 @@ An **`@`** at line start or after whitespace, an opening bracket or a quote open
 
 - **Automation**: container **`data-testid="workspace-files-menu"`** (**`role="listbox"`**, aria label **`composer.workspaceFilesAriaLabel`**), rows **`data-testid={`mention-row-${kind}-${label}`}`** (label with non **`[a-zA-Z0-9_-]`** runs replaced by **`_`**) with **`data-at-idx`**, the cut count **`data-testid="mention-more"`**.
 - **Title row** is the shared **`slash-menu-title`**, **`composer.workspaceFilesTitle`** (**Mention** / **Упоминание**).
-- **Rows** are **`.slash-row-btn.mention-row`** inside one **`.slash-row-line`** (two-line clamp, as the slash rows): a kind label **`.mention-kind`** first - **10px** uppercase text at **16px** line height, **44px** minimum width, **6px** radius, a **7%** text-tint plate with **62%** text; the meta kinds (**`.mention-kind--session`**, **`--rule`**, **`--agent`**, **`--plan`**, **`--scheme`**) take the accent on a **14%** accent plate - then the label in **`.slash-row-name`** (a scheme hint prints **`@session:`**), then **`.slash-row-desc`**: nothing for a path (its label is the whole path), the id and date for a session, the description for a rule or a subagent, a localized sentence for a scheme hint.
+- **Rows** are **`.slash-row-btn.mention-row`** inside one **`.slash-row-line`** (two-line clamp, as the slash rows): a kind label **`.mention-kind`** first - **10px** uppercase text at **16px** line height, **44px** minimum width, **6px** radius, a **7%** text-tint plate with **62%** text; the meta kinds (**`.mention-kind--session`**, **`--rule`**, **`--agent`**, **`--plan`**, **`--doc`**, **`--scheme`**) take the accent on a **14%** accent plate - then the label in **`.slash-row-name`** (a scheme hint prints **`@session:`**), then **`.slash-row-desc`**: nothing for a path (its label is the whole path), the id and date for a session, the description for a rule or a subagent, a localized sentence for a scheme hint.
 - **Highlight**: **ArrowUp** / **ArrowDown** move **`is-active`** (the slash picker's accent tint) and **`aria-selected`**, wrapping, and scroll the row into view; the pointer moves it too (**`onMouseEnter`**). **Enter** and **Tab** take the highlighted row, while a turn runs as well; **Escape** closes the picker.
 - **Taking a row** replaces **`@`** plus the query with its **`insert`**. A folder or a scheme hint (**`continue`**) adds no space and the picker stays open on the new query; anything else ends the mention with a space.
 - **Cut list**: when the server matched more than it returned, **`.mention-more`** on the right of the title row (**`.mention-title`**) says **50 of 1204, type to narrow** (**`composer.mentionMore`**): the rows scroll, the title is what the reader sees when the picker opens. The **`.at-range-menu-hint`** footer (a **`:`** after a file picks lines) shows only while a file row is listed.
@@ -776,7 +776,7 @@ Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** row
 - Treat `vue` as an HTML/XML grammar alias for component tags, attributes, and comments, with standard embedded JavaScript and CSS highlighting. This is not a Vue compiler: interpolation expressions and alternative `lang` preprocessors do not receive dedicated grammars.
 - Use the declared fence language (`js` / `javascript`, `ts`, `css`, `html`, `json`, `python`, `go`, and other bundled highlight.js common languages). Unknown or unlabelled fences remain literal text without language guessing; incomplete streamed fences still render safely.
 - Syntax colors use the `--syntax-*` semantic palette in each of the seven appearance themes. Keywords, strings, numbers, titles, attributes/selectors, types, comments, metadata, and deletions follow the active theme immediately, including already-rendered responses. Keep token selectors scoped to `.md-code`.
-- Each code block has a copy button in the top right corner that copies only the block contents.
+- Each code block has a copy button in the top right corner that copies only the block contents. The block keeps its own line box (**12px** at **1.5**, whatever the text around it) and the button sits on the middle of its first line (**`top: 3px`** for a **26px** button over **1px** border, **6px** padding and an **18px** line), so a one-line block has it centred (**`codeCopyButtonCss.test.ts`**).
 
 ### Memory tree (deferred explorer)
 
@@ -805,6 +805,91 @@ The UI should be implemented as small React components with folder-enforced hier
 ### Session overflow menu (`…`)
 
 Opens lightweight rename/delete UX (prompt-first until richer modals arrive).
+
+### Swarm screen (`ui/swarm/SwarmView.tsx`)
+
+Shown at **`#/swarm`** in any environment that answers **`GET /swarm/info`**, and as the **home
+screen** when the environment is a relay itself. It is the only screen a relay has, and the map
+is the screen: there is no list of nodes under it, because everything the list did the map does.
+
+- **Relay as home.** A relay serves no **`/foxxycode/*`** at all: it holds no sessions, no workspace and
+  no model. **`App.tsx`** tracks this as **`atSwarmRoot`** (the swarm probe answered and the
+  environment is not a node reached *through* a relay). While it is true the composer and
+  **`ChatScreen`** are not rendered, and the rail hides **History** and **Scheduler** - a drawer of
+  sessions that cannot exist is furniture for a room nobody can enter.
+- **The map is the way in.** Clicking a node in the graph connects to it: the app repoints at that
+  node through the relay (**`connectSwarmNode`**) and every ordinary screen - chat, History,
+  Scheduler - then works against it. The attached relay and a node with no route are not
+  clickable. Enter and Space do what a click does, and an enterable node takes a visible focus
+  ring.
+- **Where we are, and how we got there.** **`returnToSwarm`** carries the node last entered back to
+  the relay environment as **`swarmFrom`**, so the map can mark it: that node is drawn as *you are
+  here* and every edge on its route from the attached relay is drawn as the live path, with
+  everything off the route receding. Hovering or focusing another node previews its route the
+  same way, weaker.
+- **What the swarm is doing.** **`GET /swarm/sessions`** carries **`turnActive`** and
+  **`permissionPending`** per session; **`nodeActivity`** (**`swarm/routes.ts`**, pure and tested)
+  folds them per node path. Under each node's meta line: nothing when it holds no sessions,
+  a session count when it is idle, a running count when a turn is in flight, and *needs an answer*
+  when anything there waits on a permission prompt - that state wins, because it is the one that
+  needs a human. A running node pulses slowly, a waiting node pulses sharply in a different
+  rhythm, and the hops on the route to a running node carry a travelling dash. Every one of those
+  is driven by that live data and by nothing else, and
+  **`@media (prefers-reduced-motion: reduce)`** removes all of it, leaving the states carried by
+  the copy and a static ring.
+- **Dock on a phone.** Below **1200px** the shell's backdrop rises to **`z-index: 60`** and **`#/swarm`** opens it, so **`.swarm-dock-cluster`** takes **70** there, like the settings drawer and the documentation reader, and starts under the top bar the rail becomes (**`top: calc(var(--foxxycode-mobile-top-inset) + 6px)`**, the side insets clearing the safe area). Under the backdrop every tap on the map, the search box or a node landed on the backdrop and closed the screen. Pinned by **`SwarmView.test.tsx`** (**takes taps on a phone**) and **`features/swarm_web_ui.feature`**.
+- **Header.** Title (relay name) and a subtitle counting relays, agents and offline nodes, then
+  **`.swarm-header-actions`** holding the **`headerSlot`** - **`App.tsx`** passes
+  **`<EnvironmentChip/>`** there at the relay root, because the composer that normally carries it
+  is not on screen.
+- **The click lands on the question.** Spotting on the map that a box is asking is half the job:
+  clicking a node whose sessions include one waiting on a permission prompt opens *that* session,
+  then one with a turn in flight, freshest first; only a node with neither opens its own home
+  (**`sessionToOpen`** in **`swarm/routes.ts`**, pure and tested). The graph box also scrolls
+  itself to the current node, so a narrow shell opens on the branch you are on rather than on an
+  empty gutter.
+- **Search, not filter.** The box goes to the relay, which fans out, so a query reaches machines
+  this browser cannot dial. With a query, matching sessions appear as rows under the map, each
+  naming its node and route, and a row opens that session on that node. With no query there are
+  no rows at all.
+- **Distinct empty and error states.** **`/swarm/info`** is public, so a credentialed relay answers
+  the probe and refuses everything else; the view then shows **`.swarm-error`** asking for a token
+  rather than reporting an empty swarm. Nodes that did not answer are listed in
+  **`.swarm-warnings`** above the map rather than silently dropped.
+- **The topology graph** is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in
+  **`swarm/layout.ts`**). A relay is a card carrying an accent-filled tile with the router mark; an
+  agent is a circle with its name on a chip below. Hops are orthogonal elbows that leave the
+  bottom, turn on a rail shared by the children of one parent, and arrive at the top with an
+  arrowhead; a same-tier link between peers is a bow that leaves and arrives at the sides, with
+  its name at the apex; a link that skips a row goes round the outside in a lane clear of every
+  card. Depth is stated in the left gutter - a dashed upright with a tick, a hop caption and a
+  node count per tier. Every state is said twice, never in colour alone: the route in use is solid
+  with a filled head, a way round a ring is dotted with an open chevron, a link into an offline
+  node is coarsely dashed and dimmed, and a node that dials out carries a badge as well as a
+  dotted wire. Because **`role="img"`** collapses the subtree, the SVG is described by a visually
+  hidden paragraph naming each tier, its nodes, where the app is and what is running; marker ids
+  are **`useId()`**-scoped so two graphs on one page cannot collide. The SVG keeps its intrinsic
+  size and scrolls inside **`.swarm-graph-scroll`** rather than scaling its labels below
+  legibility on a phone, and the legend below it wraps instead of setting a minimum width.
+
+The relay serves this SPA from its own address when built with **`-tags "swarm ui"`**
+(**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
+service you reach through some other node's UI.
+
+### Documentation screen (`ui/docs/DocsView.tsx`)
+
+FoxxyCode's own documentation, read out of the binary (**`GET /foxxycode/docs*`**), at **`#/docs/<page>#<section>`**. It is a reading surface, so it takes the swarm screen's glass dock (**`.docs-dock-cluster`**, the same fixed inset, radius, border, tint and blur as **`.swarm-dock-cluster`**) and reuses the app's controls rather than drawing its own. Unlike the swarm map it is a **sheet**, not a floor: it grows no wider than its three columns (**1350px**: 240 + 780 + 210, two 32px gaps, 28px either side) and stays centred in the space right of the rail (**`width: min(1350px, ...)`** with **`margin-inline: auto`**), so a wide window neither frames the page in empty glass nor pushes the outline away from the text (**`docsReaderCss.test.ts`**). The sheet does not scroll: the header stays put and the page scrolls in the body under it (**`.docs-body`**, **`overflow: auto`**), so the sheet's scrollbar starts below the search box instead of running up beside it. Reference capture: **`docs/assets/built-in-docs/reader-page-dark-1280.png`**.
+
+- **Header** (**`.docs-header`**) is laid on the columns of the page (the same **`grid-template-columns`** and **32px** gap as the layout, areas **title search actions**): the title over the contents, the search over the text and as wide as it (at most **780px**), the actions over the outline. The title **Documentation** is spelled like the head of every other panel (**`.sessions-head`** of History, Scheduler and Tasks: **12px**, **700**, uppercase, **0.06em** tracking, a **72%** text tint), with the version alone in **11px** at **52%** under it (where the pages come from is not news on this screen). The actions are **Ask the agent** (**`.docs-ask`**, a **999px** pill **30px** tall - the height of the close control beside it, as every row of controls keeps one height - on a **16%** accent plate with a **45%** accent border, the accent's own action because it starts a conversation; the longer explanation is its **`title`**) and the shared close control **`.sessions-close`** - never a bare glyph. The header sits on an **82%** canvas plate with a **6%** hairline under it, outside what scrolls. On the stacked shell it becomes two rows: the title with the actions, then the search across.
+- **Three columns** from **1280px**: the contents (**240px**), the page (a reading measure of at most **780px**), **On this page** (**210px**); below **1280px** the outline goes, below **1200px** (the stacked shell) the contents fold into a **Contents** button with **`<Chevron pointing="down">`** above the page. Both side columns are sticky at the top of the body (**18px**, as tall as the body less that gap at either end: **`calc(100cqh - 2 * var(--docs-top))`**), scroll on their own with the thin scrollbars of Settings, and pad themselves by **3px** so a focus ring is never clipped.
+- **Contents** (**`.docs-toc`**): group titles in **11px** uppercase at **52%** text; each page is a **`.docs-toc-page`** drawn exactly like a Settings tab (**`.settings-nav-item`**: **10px** radius, the **6%** text-tint hover, the page being read on a **22%** accent plate with a **40%** accent border and **`aria-current="page"`**).
+- **Search** (**`.docs-search`**) is the swarm screen's field (**`--foxxycode-surface-field`**, **10px** radius, **14px** text, a **2px** accent focus outline), with a **`/`** key cap at its right end while it is empty. The hits hang under it (**`.docs-search-results`**, **12px** radius, the panel border and shadow, at most **62vh**) while the box is in use, and the contents stay where they are. The panel is **opaque** - the canvas colour with a **5%** text tint layered on it - because it lives inside the blurred header, where a nested blur sees nothing and a glass tint lets the page show through. The list (**`.docs-hits`**, a **`role="listbox"`** the input controls as a **combobox**) reads page **›** section, then a three-line snippet whose matched words are **`<mark>`**s on a **24%** accent plate; the selected hit (**`aria-activedescendant`**, also the one under the pointer) sits on a **14%** accent plate with a **32%** accent border. Opening a hit folds the panel away; focusing the box brings it back; Escape clears it.
+- **The page** (**`.docs-article .md`**) reads, it does not chat: **15px** at **1.68** line height, **h1 28px**, **h2 20px** with a hairline under it and **36px** above, **h3 16px**; links in the accent mixed **72%** with the text, underlined at **45%**; images fit the column with the panel border. Every section heading carries a **`#`** link (**`.docs-heading-anchor`**) that shows on hover or focus. A breadcrumb (group **›** page) and a quiet **GitHub Pages ↗** link sit above the title. While the next page loads, the one on screen stays at **55%** opacity (**`.is-loading`**, **`aria-busy`**) and the ask pill is disabled.
+- **Images and videos.** An image of the page shows **`cursor: zoom-in`** and opens in a lightbox (**`.docs-lightbox`**, rendered into the body at **`z-index: 400`** over an **88%** canvas veil with an **8px** blur): a bar with the caption, **−**, the level, **+** and the shared close control, all **30px** tall in the close control's frame, over a stage that scrolls a zoomed image. The level is one **58px** control that puts the image back to fit: a frame icon while the image is fitted, the percentage while it is zoomed, so the bar keeps its width either way (the words are its **`title`**). A zoom keeps the point clicked, or the middle of the view for the keys and the buttons, where it was. A video (**`video.md-video`**) fills the column with a **10px** radius and the panel border, on black until its first frame (**`#t=0.1`**) arrives.
+- **`/docs`** in the composer opens this screen rather than sending a prompt. The browser adds it to the slash menu's command rows only where the composer can open the reader. With words it opens the reader with them typed in the search box and the hits open under it.
+- **The foot** (**`.docs-pager`**): the page before and the page after as two cards on **`--foxxycode-surface-subtle`** with the panel border, the direction in **12px** muted text over the title; the accent frames the one under the pointer.
+- **On this page** (**`.docs-outline`**): the sections two levels deep on a hairline rule, the one being read (it follows the scroll) marked by a **2px** accent segment of that rule and the full text colour.
+- Every transition here is removed under **`prefers-reduced-motion: reduce`**. The screen follows every theme through the tokens only (**`--text`**, **`--bg`**, **`--accent`**, **`--foxxycode-blend-base`**, **`--foxxycode-glass-panel-*`**, **`--foxxycode-surface-*`**): no colour of its own.
 
 ### Sign-in screen (`httpserver.login`)
 

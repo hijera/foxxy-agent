@@ -607,6 +607,7 @@ LLM  Инструменты Навыки  MCP
 
 ## Документация
 
+- [Встроенная документация](docs/features/built-in-docs.md) — страницы внутри бинарника, поиск и чтение через веб-интерфейс, консоль, CLI и инструменты агента
 - [Отличия FoxxyCode от foxxy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
 - [Дорожная карта](ROADMAP.md) — планы по версиям 0.3.x–0.6.x и что из них уже вышло
 - [Сборка из исходников](docs/contributing/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**

@@ -335,6 +335,40 @@
     ]
   },
   {
+    "in": "read @foxxycode:features/mentions#what-the-model-receives, then @foxxycode:reference/config. and @foxxycode:mentions#",
+    "tokens": [
+      {
+        "span": "@foxxycode:features/mentions#what-the-model-receives",
+        "readings": [
+          "foxxycode:features/mentions#what-the-model-receives"
+        ]
+      },
+      {
+        "span": "@foxxycode:reference/config",
+        "readings": [
+          "foxxycode:reference/config"
+        ]
+      },
+      {
+        "span": "@foxxycode:mentions",
+        "readings": [
+          "foxxycode:mentions"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "only foxxycode: pages take a slash, @rule:deploy/x stops at it",
+    "tokens": [
+      {
+        "span": "@rule:deploy",
+        "readings": [
+          "rule:deploy"
+        ]
+      }
+    ]
+  },
+  {
     "in": "@. and @.. and @/ and @~ are prose",
     "tokens": []
   },
@@ -354,7 +388,7 @@
     ]
   },
   {
-    "in": "\u003e quoted @x.go\nplain @y.go",
+    "in": "> quoted @x.go\nplain @y.go",
     "tokens": [
       {
         "span": "@y.go",

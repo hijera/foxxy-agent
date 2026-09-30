@@ -81,6 +81,8 @@ export function ChatScreen(props: {
   onSend: (text: string, files?: File[]) => void;
   /** Pass-through to Composer: captured paste-chip literals (see Composer). */
   onPasteChipCaptured?: (key: string, literal: string) => void;
+  /** `/docs [page or words]` typed in the composer opens the documentation reader. */
+  onDocsCommand?: (arg: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -557,7 +559,10 @@ export function ChatScreen(props: {
                 {...(props.onPasteChipCaptured
                   ? { onPasteChipCaptured: props.onPasteChipCaptured }
                   : {})}
-                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                {...(props.onContextRingOpen
+                  ? { onContextRingOpen: props.onContextRingOpen }
+                  : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
@@ -770,7 +775,10 @@ export function ChatScreen(props: {
                   {...(props.onPasteChipCaptured
                     ? { onPasteChipCaptured: props.onPasteChipCaptured }
                     : {})}
-                  {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                  {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                  {...(props.onContextRingOpen
+                    ? { onContextRingOpen: props.onContextRingOpen }
+                    : {})}
                   {...(props.generating === true && props.onStop !== undefined
                     ? { generating: true, onStop: props.onStop }
                     : {})}

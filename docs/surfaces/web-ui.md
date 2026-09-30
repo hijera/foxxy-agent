@@ -1063,11 +1063,83 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   browser cannot dial. Matching sessions appear as rows under the map only while
   there is a query; a row opens that session on its node. Nodes that did not
   answer are listed as warnings above the map rather than dropped.
+- On a phone (below 1200 px) the screen opens under the top bar and above the
+  dimmed backdrop, so taps reach the map, the search and the nodes; tapping the
+  top bar's own entries still leaves it.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
 - The environment selector in the map header opens **downward**, because on a
   relay the chip sits at the top of the window rather than in the composer at
   the foot.
+
+## Documentation screen
+
+![The documentation reader at 1280 px](../assets/built-in-docs/reader-page-dark-1280.png)
+
+*The documentation reader: contents, the page, the sections of the page*
+
+Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documentation screen**).
+
+- **Docs** in the rail (above Settings), **F1** anywhere in the app, or an address
+  **`#/docs/<page>#<section>`** opens the reader (**`ui/docs/DocsView.tsx`**) in the
+  same glass dock the swarm screen uses. The rail entry reopens the page the
+  reader was left on; **`#/docs`** alone settles on the first page of the
+  contents with **`replaceState`**, so Back does not return to an empty reader.
+  **F1** again or the **×** control closes it and returns to where it was opened
+  from (a chat, the swarm screen, the scheduler); a click on the backdrop closes it too.
+- **`/docs [words or page]`** in the composer is the console's command, run in the
+  browser (**`ui/docs/docsCommand.ts`**, **`Composer`** **`onDocsCommand`**): the
+  draft is cleared and nothing is sent, while a turn runs as well. Alone it
+  reopens the book; an argument with a **`/`**, **`#`** or scheme, or the exact title
+  of the page **`GET /foxxycode/docs/page`** resolves it to, opens that page at its
+  section; any other words open the reader with the search typed in and its hits
+  open (**`searchSeed`**). The Commands group of the slash menu lists **`/docs`**
+  beside the server's commands.
+- The data comes from **`GET /foxxycode/docs`** (contents), **`GET /foxxycode/docs/page`**
+  (one page with its headings and neighbours) and **`GET /foxxycode/docs/search`**
+  (**`ui/docs/api.ts`**), through the environment shim like every other route, so
+  a remote environment shows the documentation of the binary it talks to.
+- Every page, section, hit and neighbour is a real **`href`**: following one adds
+  a history entry (Back and Forward move between pages read), a middle click opens
+  a new tab, and the **`#`** after a section heading is that section's address. A
+  **`foxxycode:<page>#<section>`** link in any rendered Markdown - a page, or an answer
+  of the agent - becomes **`#/docs/<page>#<section>`** (**`docsHrefFromFoxxyCodeLink`**
+  in **`scheduler/hashRoute.ts`**, used by **`markdown/Markdown.tsx`**). A malformed
+  escape in a pasted address is kept as typed rather than taking the router down.
+- Headings get the anchors the server computed, paired by level and text
+  (**`assignHeadingIds`** in **`ui/docs/docsReader.ts`**), then the reader scrolls to
+  the section the address names. **On this page** follows the section being read as
+  the page scrolls; below 1280 px it is left out, below 1200 px the contents fold
+  into a **Contents** button above the page.
+- The header sits on the columns of the page: the title over the contents, the
+  search box over the text, **Ask the agent** and the close control over the
+  outline. The header does not scroll: the page scrolls in the body under it
+  (**`.docs-body`**), so its scrollbar starts below the search box. The reader
+  grows no wider than its three columns (1350 px) and stays centred, so the
+  outline keeps to the text on a wide window.
+- The search box (**`/`** focuses it; the reader opens with the keyboard on the
+  page, so the arrow and page keys scroll it) searches as it is typed, 120 ms after
+  the last key, and drops the hits under itself while the contents stay: page ›
+  section, and the snippet with the matched words marked. It is a combobox: Up and
+  Down move the selection (**`aria-activedescendant`**), Enter opens the selected
+  hit and folds the list away, Escape clears.
+- A click on an image of the page opens it over everything (**`ui/docs/ImageLightbox.tsx`**,
+  rendered into the body): fitted first, **`+`** / **`-`** / the buttons zoom from
+  100% to 300%, a click on the image toggles fitted and 200%, **`0`** fits again,
+  a zoomed image scrolls, Escape or the close control closes it. A video of a page
+  (a Markdown image whose file is **`.mp4`**, **`.webm`** or **`.mov`**, which is
+  what the server makes of a GitHub attachment line) plays in a **`<video>`**
+  fetched from GitHub at the release.
+- **`@foxxycode:<page>#<section>`** is a link to the reader in a sent message
+  (**`UserMessage.tsx`**) and in an answer (**`markdown/remarkDocMentions.ts`**),
+  read with the grammar of mentions (**`ui/docs/docMentions.ts`**); code stays code.
+- **Ask the agent** starts a new chat (**`askAboutDocs`** in
+  **`App.tsx`**) whose draft mentions the page, or the section being read; with
+  text selected on the page it quotes the selection and mentions the section the
+  selection sits in (**`askDraftFor`**, **`sectionAnchorAt`**). The button keeps
+  the selection by not taking focus on mouse down, and is disabled while the next
+  page loads; the page on screen stays, dimmed, until it arrives. On a relay, where
+  there is no chat, the button is not shown.
 
 ## Swagger
 

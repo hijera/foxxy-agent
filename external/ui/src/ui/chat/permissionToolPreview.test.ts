@@ -46,7 +46,7 @@ function payload(
   };
 }
 
-test("uses the concrete Coddy tool name instead of the generic ACP kind", () => {
+test("uses the concrete FoxxyCode tool name instead of the generic ACP kind", () => {
   expect(permissionPromptToolName(payload("apply_patch", {}))).toBe(
     "apply_patch",
   );
@@ -185,7 +185,7 @@ test("edit shows unchanged lines around the replacement as diff context", () => 
   ]);
 });
 
-test("builds readable transcript previews for read-only Coddy tools", () => {
+test("builds readable transcript previews for read-only FoxxyCode tools", () => {
   expect(
     buildToolCallPreview({
       title: "read",
@@ -234,6 +234,8 @@ test("toolCallTargetIsPath tells a path apart from a command, a pattern or a nam
     { title: "webfetch", argsText: '{"url":"https://foxxycode.dev/"}' },
     { title: "load_skill", argsText: '{"name":"rpa-bugfix"}' },
     { title: "spawn_agent", argsText: '{"agent":"explore"}' },
+    // A documentation page is named like a path but lives in the binary.
+    { title: "foxxycode_docs_read", argsText: '{"page":"features/mentions"}' },
     { title: "read", argsText: "" },
   ]) {
     expect(toolCallTargetIsPath(context), context.title).toBe(false);
@@ -268,6 +270,30 @@ test("toolCallTargetText returns empty without usable arguments", () => {
   expect(toolCallTargetText({ title: "read" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "{}" })).toBe("");
+  expect(
+    toolCallTargetText({ title: "websearch", argsText: '{"query":"go slog"}' }),
+  ).toBe("go slog");
+  expect(
+    toolCallTargetText({ title: "foxxycode_docs_search", argsText: '{"query":"telegram proxy"}' }),
+  ).toBe("telegram proxy");
+  expect(
+    toolCallTargetText({
+      title: "foxxycode_docs_read",
+      argsText: '{"page":"features/mentions#completion","offset":40}',
+    }),
+  ).toBe("features/mentions#completion");
+  expect(
+    toolCallTargetText({
+      title: "mv",
+      argsText: '{"src":"a.ts","dst":"b.ts"}',
+    }),
+  ).toBe("a.ts");
+  expect(
+    toolCallTargetText({
+      title: "webfetch",
+      argsText: '{"url":"https://x.dev"}',
+    }),
+  ).toBe("https://x.dev");
 });
 
 test("an http_request names its method and address, never a path", () => {

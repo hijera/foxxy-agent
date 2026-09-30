@@ -7,7 +7,7 @@ Commands that only print a one-line usage (`skills`, `mcp`, `rules`, `agents`, `
 ## Help screens
 
 <!-- docsgen:cli:start -->
-Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,browser,gateway,swarm`, the set the release binaries carry.
+Help screens of the default build (no build tags).
 
 ### foxxycode
 
@@ -60,61 +60,16 @@ Usage:
   foxxycode mcp list [--cwd DIR]
   foxxycode mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   foxxycode mcp untrust <name> [--cwd DIR]
+  foxxycode docs [list] | search <words> [--limit N] | show <page>[#section] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI)
   foxxycode update [flags]
 ```
 
 ### foxxycode cli
 
 ```text
-Usage of cli (interactive console, also the default for bare foxxycode on a terminal):
-  -c	shorthand for --continue
-  -config string
-    	path to config.yaml (FOXXYCODE_CONFIG, else <home>/config.yaml)
-  -continue
-    	continue the most recent session in this folder
-  -cwd string
-    	session working directory (FOXXYCODE_CWD, default process cwd)
-  -dry-run
-    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
-  -home string
-    	agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
-  -log-file string
-    	log file path (default <home>/logs/cli.log)
-  -log-level string
-    	log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)
-  -mcp-project-trust string
-    	trust policy for project-local .foxxycode/mcp.json: ask (approve each declaration), allow (start them automatically), deny (never load them); overrides mcp.project_trust (default "ask")
-  -mode string
-    	start in this mode: agent|plan
-  -model string
-    	select a configured model id (provider/model)
-  -p string
-    	shorthand for --prompt
-  -permission-mode string
-    	permission mode: ask|accept_edits|bypass
-  -plain
-    	deterministic rendering for tests: no terminal queries or protocol negotiation
-  -prompt string
-    	run one prompt non-interactively, print the answer, and exit
-  -remote string
-    	connect to a remote foxxycode serve server (configured remote name, host:port, or http(s) URL)
-  -remote-token string
-    	bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)
-  -resume
-    	open the session picker before starting
-  -scheduler
-    	run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)
-  -session-id string
-    	reopen or create the session under this id
-  -sessions-dir string
-    	sessions root (empty uses config sessions.dir or ~/.foxxycode/sessions)
-  -skills-auto-discovery
-    	model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config (default true)
-  -t	alias of --test-config
-  -test-config
-    	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
-  -theme string
-    	color theme: dark|light|auto (default "auto")
+interactive console is not built in (rebuild with: go build -tags=cli, or make build TAGS=cli)
 ```
 
 ### foxxycode acp
@@ -163,48 +118,7 @@ Usage of acp:
 ### foxxycode http
 
 ```text
-Usage of http:
-  -H string
-    	bind address for HTTP (default "0.0.0.0")
-  -P string
-    	listen port for HTTP (default "12345")
-  -auth-token string
-    	bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth
-  -config string
-    	path to config.yaml (FOXXYCODE_CONFIG, else <home>/config.yaml or legacy search paths)
-  -cwd string
-    	default session cwd when the client omits cwd (FOXXYCODE_CWD, default process cwd)
-  -debug
-    	enable diagnostics: forces debug log level (sets debug.enable=true)
-  -dry-run
-    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
-  -home string
-    	agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
-  -host string
-    	bind address for HTTP (alias of -H) (default "0.0.0.0")
-  -log-file string
-    	log file path when output includes file (default from config)
-  -log-format string
-    	text|json (default from config)
-  -log-level string
-    	debug|info|warn|error (default from config)
-  -log-output string
-    	stdout|stderr|file|both (default from config)
-  -mcp-project-trust string
-    	trust policy for project-local .foxxycode/mcp.json: ask (approve each declaration), allow (start them automatically), deny (never load them); overrides mcp.project_trust
-  -plan-no-self-run
-    	forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run
-  -port string
-    	listen port (alias of -P) (default "12345")
-  -scheduler-enabled
-    	set scheduler.enable=true in this process (build with -tags scheduler)
-  -session-id string
-    	optional session id for new sessions (folder name)
-  -sessions-dir string
-    	sessions root (empty uses config sessions.dir or ~/.foxxycode/sessions)
-  -t	alias of --test-config
-  -test-config
-    	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
+http support is not built in (rebuild with: go build -tags=http)
 ```
 
 ### foxxycode serve

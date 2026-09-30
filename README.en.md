@@ -601,6 +601,7 @@ See [Architecture docs](docs/contributing/architecture.md) for full details.
 
 ## Documentation
 
+- [Built-in documentation](docs/features/built-in-docs.md) - pages in the binary, searchable and readable through the web UI, console, CLI and agent tools
 - [What FoxxyCode adds over coddy-agent](docs/getting-started/foxxycode-and-coddy.md) - fork-specific features vs upstream
 - [Roadmap](ROADMAP.en.md) - plans for 0.3.x-0.6.x and what has already shipped
 - [Build from source](docs/contributing/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**

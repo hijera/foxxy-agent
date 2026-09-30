@@ -8,7 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"unicode"
+
+	"github.com/hijera/foxxycode-agent/internal/docs"
 )
 
 // Problem is one finding of a check: the file it concerns and what is wrong.
@@ -98,7 +99,9 @@ func CheckLinks(root string, files []string) []Problem {
 	return problems
 }
 
-// headingAnchors returns the GitHub-style anchors of every heading in a file.
+// headingAnchors returns the GitHub-style anchors of every heading in a file,
+// read the way the binary's documentation reader reads them (internal/docs),
+// so an anchor this check accepts is one every reader finds.
 func headingAnchors(path string) map[string]bool {
 	out := map[string]bool{}
 	data, err := readFile(path)
@@ -136,18 +139,4 @@ func headingAnchors(path string) map[string]bool {
 
 // Slug converts a heading to the anchor GitHub generates for it: inline
 // markup removed, lower-cased, punctuation dropped, spaces turned into hyphens.
-func Slug(heading string) string {
-	// Drop inline markup that GitHub does not render into the anchor.
-	r := strings.NewReplacer("`", "", "*", "", "[", "", "]", "", "(", "", ")", "")
-	h := strings.ToLower(r.Replace(heading))
-	var b strings.Builder
-	for _, c := range h {
-		switch {
-		case unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || c == '-':
-			b.WriteRune(c)
-		case c == ' ':
-			b.WriteRune('-')
-		}
-	}
-	return b.String()
-}
+func Slug(heading string) string { return docs.Anchor(heading) }

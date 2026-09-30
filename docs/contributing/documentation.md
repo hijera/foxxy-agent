@@ -9,7 +9,7 @@ How the documentation under `docs/` is organised, what a change to FoxxyCode mus
 | `docs/getting-started/` | Install, configure, update, troubleshoot, how FoxxyCode relates to foxxy-agent | Guides, read once in order |
 | `docs/surfaces/` | One page per way of talking to the agent: console, web UI, editors, Telegram | Surface pages |
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
-| `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export | Feature pages |
+| `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export, the built-in documentation | Feature pages |
 | `docs/reference/` | Complete lists: CLI, `config.yaml`, environment variables, slash commands, keyboard, tools, HTTP API, ACP | Reference pages, generated where the code is the source of truth |
 | `docs/tutorials/` | Task-shaped guides, one page per tutorial | Tutorials |
 | `docs/contributing/` | How FoxxyCode is built, tested, designed and documented | Contributor pages |
@@ -18,7 +18,8 @@ How the documentation under `docs/` is organised, what a change to FoxxyCode mus
 
 The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub) is generated from it, and so are the `llms.txt` and `llms-full.txt` the website publishes. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
 
-A page that moves takes its address with it: there are no redirect stubs, so an old link breaks. Links that leave the repository - the binary, the schema descriptions, the bundled skill - name the page on GitHub, `https://github.com/hijera/foxxy-agent/blob/main/docs/<group>/<page>.md`, and move with it.
+A page that moves takes its address with it: there are no redirect stubs, so an old link breaks. Links that leave the repository - the binary, the schema descriptions, the bundled skill - use the public GitHub Pages copy at `https://hijera.github.io/foxxy-agent/<group>/<page>.md`.
+The pages of the map ship inside the binary ([Built-in documentation](../features/built-in-docs.md)): `docs/embed.go` embeds `nav.yaml` and the Markdown of the group folders, and the web UI's reader, the console's F1 help, `foxxycode docs` and the agent's `foxxycode_docs_*` tools all read that copy. Two things follow for a writer. A new group folder under `docs/` has to be added to the pattern in `docs/embed.go`, or `TestDefaultCarriesEveryPageOfTheMap` in `internal/docs` fails. And a page is read outside the repository: relative links to other pages work everywhere (they become `foxxycode:<slug>#<anchor>`), images and links to files of the repository resolve to GitHub at the release tag, so an image needs a caption that stands on its own, which is what a reader offline and the console see instead of it.
 
 ## Page types
 

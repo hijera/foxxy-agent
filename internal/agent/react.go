@@ -2680,7 +2680,7 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes", "foxxycode_docs_search", "foxxycode_docs_read":
 		return "read"
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
 		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",

@@ -157,6 +157,10 @@ func statusVerbForTool(toolName string) string {
 		return "Deleting"
 	case "websearch":
 		return "Searching the web"
+	case "foxxycode_docs_search":
+		return "Searching the docs"
+	case "foxxycode_docs_read":
+		return "Reading the docs"
 	case "webfetch":
 		return "Fetching"
 	case "http_request":
@@ -197,8 +201,11 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 		return stringArg(args, "command")
 	case "grep", "glob":
 		return stringArg(args, "pattern")
-	case "websearch":
+	case "websearch", "foxxycode_docs_search":
 		return stringArg(args, "query")
+	case "foxxycode_docs_read":
+		// A page of the documentation built into the binary, with its section.
+		return stringArg(args, "page")
 	case "http_request":
 		// The method is half of what a request does; the url alone reads like a fetch.
 		method, target := strings.ToUpper(stringArg(args, "method")), stringArg(args, "url")

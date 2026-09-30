@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
 import { setSendMode, DEFAULT_SEND_MODE } from "../i18n/sendModeConfig";
 import { emitFileMention } from "../skills/fileMentionBus";
@@ -311,6 +311,55 @@ test("send_mode off: neither Enter nor Ctrl+Enter sends", () => {
   expect(onSend).not.toHaveBeenCalled();
 });
 
+test("the slash menu lists /docs where the reader can open", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          String(url).includes("/foxxycode/commands")
+            ? { object: "foxxycode.commands", items: [{ name: "compact", description: "Summarize" }] }
+            : { items: [], has_more: false, page: 1 },
+      }),
+    ),
+  );
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+        onDocsCommand={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, { target: { value: "/do", selectionStart: 3, selectionEnd: 3 } });
+  // No skill matches "do", yet the menu stays open on the command.
+  await waitFor(() => {
+      expect(screen.getByTestId("slash-command-row-docs")).toBeTruthy();
+  });
+  expect(screen.getByTestId("slash-command-row-docs").textContent).toContain("documentation");
+  vi.unstubAllGlobals();
+});
+
 test("Tab key selects first slash command from picker", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: true,
@@ -521,6 +570,61 @@ test("opening the @ menu fetches the IDE terminal list", async () => {
   );
 
   vi.unstubAllGlobals();
+});
+
+// /docs is the console's help command; in the web UI it opens the reader
+// instead of going to the agent as a prompt.
+describe("/docs", () => {
+  function renderWith(value: string, extra: Partial<Parameters<typeof Composer>[0]> = {}) {
+    const onSend = vi.fn();
+    const onDocsCommand = vi.fn();
+    const onQueue = vi.fn();
+    render(
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={onSend}
+        onQueue={onQueue}
+        onDocsCommand={onDocsCommand}
+        {...extra}
+      />,
+    );
+    return { onSend, onDocsCommand, onQueue };
+  }
+
+  test("opens the reader with what follows it, and sends nothing", () => {
+    const { onSend, onDocsCommand } = renderWith("  /docs telegram proxy ");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).toHaveBeenCalledWith("telegram proxy");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test("the send button does the same", () => {
+    const { onSend, onDocsCommand } = renderWith("/docs");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onDocsCommand).toHaveBeenCalledWith("");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test("works while a turn runs instead of joining the queue", () => {
+    const { onQueue, onDocsCommand } = renderWith("/docs features/mentions#completion", {
+      generating: true,
+    });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).toHaveBeenCalledWith("features/mentions#completion");
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+
+  test("a word that only starts like it is an ordinary prompt", () => {
+    const { onSend, onDocsCommand } = renderWith("/docsify the readme");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledWith("/docsify the readme");
+  });
 });
 
 test("generating shows stop and calls onStop", () => {

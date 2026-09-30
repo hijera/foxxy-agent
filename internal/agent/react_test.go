@@ -158,6 +158,8 @@ func TestToolKind(t *testing.T) {
 		{"read", "read"},
 		{"glob", "read"},
 		{"grep", "read"},
+		{"foxxycode_docs_search", "read"},
+		{"foxxycode_docs_read", "read"},
 		{"write", "write"},
 		{"apply_patch", "write"},
 		{"run_command", "run_command"},
@@ -872,7 +874,7 @@ func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question", "foxxycode_docs_search", "foxxycode_docs_read"} {
 		if !got[want] {
 			t.Errorf("ask toolset should include %q", want)
 		}

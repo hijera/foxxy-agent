@@ -43,6 +43,8 @@ func TestStatusVerbForTool(t *testing.T) {
 		"background_list":             "Checking background tasks",
 		"some_mcp_server__do_thing":   "Running a tool",
 		"":                            "Running a tool",
+		"foxxycode_docs_search": "Searching the docs",
+		"foxxycode_docs_read": "Reading the docs",
 	}
 	for name, want := range cases {
 		if got := statusVerbForTool(name); got != want {
@@ -66,6 +68,8 @@ func TestStatusTargetFromArgs(t *testing.T) {
 		{"query", "websearch", `{"query":"go slog"}`, "go slog"},
 		{"source", "mv", `{"src":"a.go","dst":"b.go"}`, "a.go"},
 		{"url", "webfetch", `{"url":"https://example.dev"}`, "https://example.dev"},
+		{"docs query", "foxxycode_docs_search", `{"query":"telegram proxy","limit":3}`, "telegram proxy"},
+		{"docs page", "foxxycode_docs_read", `{"page":"features/mentions#completion","offset":40}`, "features/mentions#completion"},
 		{"request", "http_request", `{"method":"post","url":"https://api.example.dev/items","json":{}}`, "POST https://api.example.dev/items"},
 		{"request without a method", "http_request", `{"url":"http://localhost:8080/health"}`, "http://localhost:8080/health"},
 		{"arguments envelope", "read", `Arguments: {"path":"a.go"}`, "a.go"},

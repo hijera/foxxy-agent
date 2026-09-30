@@ -85,6 +85,9 @@ var docsToolNames = []string{
 	// A documentation session is filed like any other: the tool touches the
 	// session's own title and tags and nothing in the workspace.
 	"session_describe",
+	// FoxxyCode's own documentation, read out of the binary.
+	"foxxycode_docs_search",
+	"foxxycode_docs_read",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
@@ -106,6 +109,10 @@ var askToolNames = []string{
 	// title and tags - nothing a reader of the repository could see change - so
 	// a long question-and-answer session can file itself too.
 	"session_describe",
+	// FoxxyCode's own documentation, read out of the binary: "how do I set up
+	// the Telegram bot" is exactly the question ask mode is for.
+	"foxxycode_docs_search",
+	"foxxycode_docs_read",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
