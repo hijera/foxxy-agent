@@ -4974,15 +4974,22 @@ export function App() {
         input: text,
         stream: true,
       };
-      const atts = extractAtFileAttachments(text);
+      // The "@" mentions of the text are resolved by the server, when the
+      // message is sent (internal/session/mentions.go): one grammar for
+      // every surface, so nothing is derived here but the recent picks.
       const profileModel = (PROFILE_MODES as readonly string[]).includes(mode);
-      if (atts.length > 0 && profileModel) {
-        // A ranged mention attaches the pasted literal when we still hold it;
-        // otherwise the backend reads the line range from the file.
-        reqBody.attachments = atts.map((a) => {
-          if (a.startLine == null || a.endLine == null) {
-            return { path: a.path };
-          }
+      if (profileModel) {
+        const atts = extractAtFileAttachments(text);
+        // The server resolves ordinary mentions. Keep the exact pasted bytes
+        // only for a ranged mention whose source is still in this composer.
+        const literalAtts = atts.filter(
+          (a) =>
+            a.startLine != null &&
+            a.endLine != null &&
+            pasteLiteralsRef.current.has(`${a.path}:${a.startLine}-${a.endLine}`),
+        );
+        if (literalAtts.length > 0) {
+          reqBody.attachments = literalAtts.map((a) => {
           const literal = pasteLiteralsRef.current.get(
             `${a.path}:${a.startLine}-${a.endLine}`,
           );
@@ -4994,7 +5001,8 @@ export function App() {
               endLine: a.endLine,
             },
           };
-        });
+          });
+        }
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });

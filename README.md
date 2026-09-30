@@ -27,7 +27,7 @@
 > Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
 > оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.
 
-**Что FoxxyCode добавляет к coddy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
+**Что FoxxyCode добавляет к foxxy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
 
 - **Нативное настольное окно (WebView2)** с системными уведомлениями, звуковым сигналом и пошаговым знакомством при первом запуске
 - **Глубокая интеграция с IDE** — контекст открытых файлов (`<foxxycode_ide_context>`), отслеживание терминала (`@terminal`), упоминание файлов перетаскиванием, выбор папки проекта, метаданные проекта из `.vscode`/`.idea` и нативные встроенные diff в IntelliJ
@@ -607,7 +607,7 @@ LLM  Инструменты Навыки  MCP
 
 ## Документация
 
-- [Отличия FoxxyCode от coddy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
+- [Отличия FoxxyCode от foxxy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
 - [Дорожная карта](ROADMAP.md) — планы по версиям 0.3.x–0.6.x и что из них уже вышло
 - [Сборка из исходников](docs/contributing/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**
 - [Обновление FoxxyCode](docs/getting-started/update.md) — **`foxxycode update`**, артефакты релизов, **`PATH`** и **`make install`**

@@ -268,6 +268,9 @@ type State struct {
 	// queueNotify is what the manager installed to announce a change; it runs
 	// after every mutation, with queueMu released.
 	queueNotify func()
+	// queueMentions resolves the "@" references of a follow-up the turn reads
+	// (SetQueuedMentionResolver); turn-scoped like the queue.
+	queueMentions func([]acp.ContentBlock) []acp.ContentBlock
 
 	// nextPromptQueued marks the next user message recorded as a queued
 	// follow-up: set by the manager for a run its turn boundary starts from the

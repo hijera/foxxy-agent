@@ -5,6 +5,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mention"
 )
 
 func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string) error {
@@ -45,7 +46,10 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				_ = m.server.SendSessionUpdate(sessionID, BackgroundWakeUpdate(msg.BackgroundWake))
 				continue
 			}
-			content := strings.TrimSpace(msg.Content)
+			// The attachments a message was sent with ride in its content;
+			// a client shows the mentions that brought them, not their bodies
+			// (mention.ForDisplay, the web UI's stripFoxxyCodeAttachments twin).
+			content := strings.TrimSpace(mention.ForDisplay(StripContextBlocks(msg.Content, TagSessionAssets)))
 			if content != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",

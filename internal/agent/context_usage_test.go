@@ -79,7 +79,7 @@ func TestLLMVisibleMessagesMatchesEngineWindow(t *testing.T) {
 // folded messages carry no flag — the ring never dropped after compaction.
 func TestBuildSystemPromptExcludesFoldedTurnsFromConversation(t *testing.T) {
 	a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
-	_ = a.buildSystemPrompt("agent", nil, nil, "", nil)
+	_ = a.buildSystemPrompt("agent", nil, nil, nil)
 
 	b := st.GetLastContextBreakdown()
 	if b == nil {
@@ -135,7 +135,7 @@ func TestTurnOpensWithTheEstimateItsFirstRequestCosts(t *testing.T) {
 	for _, mode := range []string{"agent", "plan"} {
 		t.Run(mode, func(t *testing.T) {
 			a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
-			build := a.buildSystemPromptParts(mode, nil, nil, "", nil)
+			build := a.buildSystemPromptParts(mode, nil, nil, nil)
 			opened := st.GetLastContextBreakdown()
 			if opened == nil {
 				t.Fatal("expected a context breakdown")

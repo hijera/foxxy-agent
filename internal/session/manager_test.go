@@ -19,6 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/mention"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 )
@@ -1251,4 +1252,56 @@ func approveProjectMCP(t *testing.T, cfg *config.Config, workspace, name string)
 		}
 	}
 	t.Fatalf("mcp server %q not declared in %s", name, workspace)
+}
+
+// session/load replays a user message the way it was typed: the attachments
+// its mentions brought ride in the stored content, and a client is sent the
+// mention that brought each one, never the file body.
+func TestSessionLoadReplaysMentionsNotAttachmentBodies(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	store := &session.FileStore{Root: t.TempDir()}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("SECRET_BODY_TOKEN\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var parts []string
+		for _, b := range prompt {
+			if b.Type == acp.ContentTypeText {
+				parts = append(parts, b.Text)
+			} else if b.Resource != nil {
+				parts = append(parts, mention.Attachment{Path: b.Resource.URI, Body: b.Resource.Text}.XML())
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.Join(parts, "\n\n")})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m1 := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, store)
+	res, err := m1.HandleSessionNew(ctx, acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m1.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "summarize @notes.md"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snd := &captureSender{}
+	m2 := session.NewManager(cfg, snd, noopRunner, slog.Default(), root, store)
+	if _, err := m2.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: res.SessionID, CWD: root}); err != nil {
+		t.Fatal(err)
+	}
+	snd.mu.Lock()
+	defer snd.mu.Unlock()
+	for _, u := range snd.ups {
+		if chunk, ok := u.(acp.MessageChunkUpdate); ok && chunk.SessionUpdate == "user_message_chunk" {
+			if chunk.Content.Text != "summarize @notes.md" {
+				t.Fatalf("replayed user message = %q, want the text as typed", chunk.Content.Text)
+			}
+			return
+		}
+	}
+	t.Fatal("no user message was replayed")
 }

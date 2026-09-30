@@ -1,6 +1,6 @@
 # FoxxyCode documentation
 
-FoxxyCode is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, the IntelliJ and VS Code plugins, a desktop window on Windows, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.foxxycode`. FoxxyCode is a fork of [coddy-agent](https://github.com/coddy-project/coddy-agent); what it adds is in [FoxxyCode and coddy-agent](getting-started/foxxycode-and-coddy.md).
+FoxxyCode is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, the IntelliJ and VS Code plugins, a desktop window on Windows, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.foxxycode`. FoxxyCode is a fork of [foxxy-agent](https://github.com/hijera/foxxy-agent); what it adds is in [FoxxyCode and foxxy-agent](getting-started/foxxycode-and-coddy.md).
 
 New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds <https://hijera.github.io/foxxy-agent/llms.txt> and <https://hijera.github.io/foxxy-agent/llms-full.txt> for agents that read documentation, built on every website run and published from there rather than kept here. How the pages are organised and what a change to FoxxyCode must carry into them is in [Writing documentation](contributing/documentation.md).
 
@@ -10,7 +10,7 @@ New here? Read [Quickstart](getting-started/quickstart.md), then the page of the
 Install FoxxyCode, give it a model, run it for the first time and keep it updated.
 
 - [Quickstart](getting-started/quickstart.md) - From a fresh install to the first answer in five minutes, on the console, in the browser and from an editor.
-- [FoxxyCode and coddy-agent](getting-started/foxxycode-and-coddy.md) - What this fork adds over upstream coddy-agent - the IDE plugins, the desktop window, the browser tool and the rest - and how it follows upstream.
+- [FoxxyCode and foxxy-agent](getting-started/foxxycode-and-coddy.md) - What this fork adds over upstream foxxy-agent - the IDE plugins, the desktop window, the browser tool and the rest - and how it follows upstream.
 - [Install](getting-started/install.md) - Release archives, Linux .deb and .rpm packages, Homebrew, the IntelliJ and VS Code plugins, Windows paths, manual placement.
 - [Configuration](getting-started/configuration.md) - Where config.yaml lives, how to check it with -t and --dry-run, providers and models, SSH remote execution, the .env file.
 - [Update](getting-started/update.md) - foxxycode update, release assets, installations owned by a package manager, the report of what changed.
@@ -53,6 +53,7 @@ What the agent can do and how each capability is configured.
 - [Browser tool](features/browser-tool.md) - The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
 - [Web search](features/web-search.md) - The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
 - [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+- [Mentions](features/mentions.md) - Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
 - [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.

@@ -163,6 +163,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/workspace/folders", s.foxxycodeWorkspaceFoldersPost)
 	s.mux.HandleFunc("GET /foxxycode/workspace/file", s.foxxycodeWorkspaceFileGet)
 	s.mux.HandleFunc("POST /foxxycode/workspace/relativize", s.foxxycodeWorkspaceRelativizePost)
+	s.mux.HandleFunc("GET /foxxycode/mentions", s.foxxycodeMentionsGet)
+	s.mux.HandleFunc("POST /foxxycode/mentions/check", s.foxxycodeMentionsCheckPost)
 	s.mux.HandleFunc("GET /foxxycode/slash-commands", s.foxxycodeSlashCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/commands", s.foxxycodeCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions", s.foxxycodeSessionsList)

@@ -6,7 +6,7 @@ A message written **during** a turn is therefore queued on the session instead o
 
 ## What the agent sees
 
-A queued message becomes an ordinary user message in the conversation, at the point where it was read. Nothing tells the model it was queued: it is a person talking in the middle of the work, which is what it is. The stored message carries a `queued` flag that only clients read - a client re-attaching to the running turn uses it to tell the prompt the turn started from apart from the follow-ups the turn's stream replays. Several messages written during the same step are read together, in the order they were written.
+A queued message becomes an ordinary user message in the conversation at the point where it was read. The model sees its `@` mentions and `/skill` invocations resolved as for any prompt; it is not told that the message was queued ([Mentions](mentions.md)). The stored message carries a `queued` flag for clients reconnecting to the running turn. Several messages written during one step are read together in order.
 
 The read happens at two places in the turn, and both are the same idea — the earliest moment the model can act on it:
 
