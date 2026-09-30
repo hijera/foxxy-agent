@@ -33,6 +33,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`FOXXYCODE_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 - **`CODEX_HOME`** - Codex CLI state directory read by `type: codex` providers when no FoxxyCode-managed credential exists. Default **`~/.codex`**.
 - **`FOXXYCODE_CODEX_BASE_URL`** - process-level Codex backend override. The default is the official backend; `providers[].api_base` is intentionally ignored for Codex.
+- **`FOXXYCODE_DEVIN_CLI_CREDENTIALS`** - Devin CLI `credentials.toml` used when no FoxxyCode-managed login exists. The default is `~/.local/share/devin/credentials.toml` or the equivalent under `$XDG_DATA_HOME`. `FOXXYCODE_DEVIN_API_SERVER_URL`, `FOXXYCODE_DEVIN_WEBAPP_URL` and `FOXXYCODE_DEVIN_API_URL` override Devin endpoints for the whole process; see [Devin](../features/devin.md).
 
 If no **`--config`** is given, the loader uses **`$FOXXYCODE_HOME/config.yaml`** (default home **`~/.foxxycode`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -185,6 +186,12 @@ providers:
   - name: "codex"
     type: "codex"
 
+  # `foxxycode providers login devin` signs in through the browser, or
+  # --devin-cli reuses the Devin CLI login. The token is stored under
+  # $FOXXYCODE_HOME/providers/devin/ rather than in config.yaml.
+  - name: "devin"
+    type: "devin"
+
 # Logical models (Go: []config.ModelEntry, internal/config/models.go).
 # Each model value is "provider_name/api_model_id". The first path segment must match providers[].name.
 # The same string is the ACP model selector and agent.model default.
@@ -214,6 +221,10 @@ models:
 
   - model: "codex/gpt-5.6-sol"
     max_tokens: 8192
+
+  - model: "devin/claude-sonnet-5"
+    reasoning_levels: [low, medium, high, xhigh, max]
+    reasoning_default: medium
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
@@ -641,7 +652,7 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
 
 YAML split:
 
@@ -670,6 +681,10 @@ Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic AP
 
 ### `neuraldeep`
 NeuralDeep hub (**`https://hub.neuraldeep.ru`**). It speaks the OpenAI wire protocol, so requests are handled by the OpenAI client. The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`foxxycode providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; FoxxyCode warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`FOXXYCODE_NEURALDEEP_BASE_URL`** and **`FOXXYCODE_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Provider needs only **`api_key`** — a literal key, a **`"${NEURALDEEP_API_KEY}"`** reference, or empty to read **`NEURALDEEP_API_KEY`** at call time when the provider is named **`neuraldeep`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/gpt-oss-120b`**, plus **`max_tokens`**, **`temperature`**.
+
+### `devin`
+
+Devin (Cognition) account models use a browser login via `foxxycode providers login devin`, or the existing Devin CLI login with `--devin-cli`. The managed session token is stored under `$FOXXYCODE_HOME/providers/<name>/devin-auth.json`. Without it the provider reads the CLI's `credentials.toml`; an explicit `api_key`, `api_key_command` or `DEVIN_API_KEY` wins over both logins. Login adds one model per family, such as `devin/claude-opus-5`, with family variants exposed as reasoning levels. `api_base` is ignored; the optional `proxy` routes sign-in, catalog and chat. See [Devin](../features/devin.md).
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

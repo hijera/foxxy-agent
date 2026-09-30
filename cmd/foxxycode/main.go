@@ -217,7 +217,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
-  %[1]s providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
@@ -362,6 +362,7 @@ func runACP(args []string) error {
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogDevinAuthNotices(log, cfg)
 	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 

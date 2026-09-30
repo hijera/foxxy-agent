@@ -4,7 +4,7 @@ This page takes a fresh machine to a first answer: install the binary, give it o
 
 ## 1. Install
 
-Download the archive for your platform from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) (`foxxycode_X.Y.Z_linux_amd64.tar.gz`, `..._darwin_arm64.tar.gz`, `..._windows_amd64.zip` and so on), unpack it and put `foxxycode` on `PATH` (`~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\foxxycode` on Windows). The `coddy.dev` one-line installers install upstream coddy-agent, not this fork; the [install guide](install.md) has the Linux packages, Homebrew and manual placement. Check the binary from a new terminal:
+Download the archive for your platform from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) (`foxxycode_X.Y.Z_linux_amd64.tar.gz`, `..._darwin_arm64.tar.gz`, `..._windows_amd64.zip` and so on), unpack it and put `foxxycode` on `PATH` (`~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\foxxycode` on Windows). The `foxxycode.dev` one-line installers install upstream foxxy-agent, not this fork; the [install guide](install.md) has the Linux packages, Homebrew and manual placement. Check the binary from a new terminal:
 
 ```bash
 foxxycode -v
@@ -55,7 +55,7 @@ providers:
     api_key: "~"
 ```
 
-Anthropic, NeuralDeep (`foxxycode providers login neuraldeep` instead of a key) and Codex (ChatGPT OAuth) are covered in [Configuration](configuration.md).
+Anthropic, NeuralDeep (`foxxycode providers login neuraldeep` instead of a key) and Codex (ChatGPT OAuth) are covered in [Configuration](configuration.md); a Devin account signs in with `foxxycode providers login devin` ([Devin](../features/devin.md)).
 
 ## 3. Check the file
 

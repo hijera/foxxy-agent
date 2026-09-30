@@ -109,6 +109,9 @@ groups:
       - path: features/browser-tool.md
         title: Browser tool
         summary: The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+      - path: features/devin.md
+        title: Devin
+        summary: Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.
       - path: features/web-search.md
         title: Web search
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.

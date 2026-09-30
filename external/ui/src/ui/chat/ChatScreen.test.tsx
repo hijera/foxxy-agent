@@ -97,6 +97,52 @@ test("new background permission prompts follow the reader at the bottom, but pol
   expect(scroller.scrollTop).toBe(300);
 });
 
+test("a background subagent's prompt waits at the end of its parent chat", () => {
+  const task: BackgroundTask = {
+    id: "bg_waiting",
+    session_id: "sess_parent",
+    kind: "agent",
+    label: "writer",
+    status: "running",
+    started_at: "2026-09-14T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 1,
+    overdue: false,
+    running: true,
+    agent: { name: "writer", session_id: "sess_child" },
+    pending_permission: {
+      sessionId: "sess_child",
+      toolCall: { toolCallId: "call_1", title: "Run: run_command" },
+      options: [],
+    },
+  };
+  const { container } = render(
+    <ChatScreen
+      title="Audit"
+      sessionId="sess_parent"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "u1", content: "audit" }]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      backgroundTasks={[task]}
+    />,
+  );
+  const scroller = container.querySelector("#messages");
+  const card = screen.getByTestId("subagent-permission-bg_waiting");
+  expect(scroller).toContainElement(card);
+  expect(card).toHaveTextContent('The subagent "writer" asks for permission');
+  expect(card).toHaveTextContent("run_command");
+});
+
 test("empty hero shows headline with accent span", () => {
   const { getByTestId, getByRole } = render(
     <ChatScreen

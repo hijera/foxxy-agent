@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -188,7 +189,10 @@ func TestForegroundTimeoutDoesNotWaitOnAPipeHoldingGrandchild(t *testing.T) {
 		t.Skipf("no lasting-child form for this shell: %v", err)
 	}
 
-	_, took := runForegroundForTest(context.Background(), t, command, 1, &tooling.Env{CWD: t.TempDir()})
+	// The grandchild intentionally survives the foreground timeout. On Windows
+	// it can keep its cwd open after this assertion, so use the shared temp root
+	// rather than a t.TempDir that testing must remove immediately.
+	_, took := runForegroundForTest(context.Background(), t, command, 1, &tooling.Env{CWD: os.TempDir()})
 	if took > 20*time.Second {
 		t.Fatalf("run_command blocked for %s on a command whose child held the output pipe", took)
 	}

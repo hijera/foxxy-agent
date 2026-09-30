@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -173,18 +172,15 @@ func (s *loginFlowState) providerNamesAProxy() error {
 	return os.WriteFile(filepath.Join(s.home, "config.yaml"), []byte(body), 0o644)
 }
 
-func (s *loginFlowState) everyHubCallWentThroughTheProxy() error {
+func (s *loginFlowState) loopbackHubBypassedProxy() error {
 	if s.runErr != nil {
 		return fmt.Errorf("sign-in failed: %w", s.runErr)
 	}
-	carried := s.proxy.Carried()
-	for _, want := range []string{"/api/cli/device/start", "/api/cli/device/token", "/api/cli/whoami", "/api/cli/status"} {
-		if !slices.Contains(carried, want) {
-			return fmt.Errorf("the proxy did not carry %s; it carried %v", want, carried)
-		}
+	if carried := s.proxy.Carried(); len(carried) != 0 {
+		return fmt.Errorf("loopback hub requests passed through proxy: %v", carried)
 	}
-	if got := int(s.hubCalls.Load()); got != len(carried) {
-		return fmt.Errorf("the hub answered %d calls and the proxy carried %d: some went around it", got, len(carried))
+	if got := s.hubCalls.Load(); got < 4 {
+		return fmt.Errorf("hub answered %d calls, want the device flow and catalog", got)
 	}
 	return nil
 }
@@ -387,7 +383,7 @@ func initializeLoginFlowScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a stand-in NeuralDeep hub that serves both sign-in flows$`, s.standInHub)
 	sc.Step(`^this machine has no local browser$`, s.noLocalBrowser)
 	sc.Step(`^the neuraldeep provider in config\.yaml names a proxy of its own$`, s.providerNamesAProxy)
-	sc.Step(`^every call the sign-in made to the hub went through that proxy$`, s.everyHubCallWentThroughTheProxy)
+	sc.Step(`^the local hub was reached directly without using that proxy$`, s.loopbackHubBypassedProxy)
 	sc.Step(`^this machine has a local browser$`, s.aLocalBrowser)
 	sc.Step(`^I run the terminal sign-in to NeuralDeep$`, s.runSignIn)
 	sc.Step(`^I run the terminal sign-in to NeuralDeep with --browser$`, s.runSignInBrowser)

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // MaxIndexEntries caps a workspace index: a checkout larger than that is
@@ -121,6 +123,7 @@ func gitListFiles(ctx context.Context, root string, limit int) ([]string, bool, 
 // after limit records when limit is positive.
 func runGitZ(ctx context.Context, gitPath, root string, limit int, args ...string) ([]string, bool, error) {
 	cmd := exec.CommandContext(ctx, gitPath, append([]string{"-C", root, "-c", "core.quotepath=off"}, args...)...)
+	platform.HideConsoleWindow(cmd)
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

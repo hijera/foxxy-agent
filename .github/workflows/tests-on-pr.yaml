@@ -163,34 +163,6 @@ jobs:
         if: matrix.tags == 'gateway'
         run: FOXXYCODE_BIN="$PWD/build/foxxycode" examples/gateway/tg_e2e_offline.sh
 
-  # The race detector, `make test-race`: the whole tree with every tag but ui.
-  # The races fixed so far lived mostly in test harnesses - a backend swapped
-  # under a running console, a step reading a stub's counter without its lock -
-  # and one in the task pool, and all of them passed every ordinary run, so
-  # this job is what keeps them from coming back. One
-  # job, because go test already runs the packages side by side on the
-  # runner's cores; without the ui tag it needs no Node.
-  race:
-    name: Race detector
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # The test suite runs with ripgrep installed; the same code paths run here.
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-
-      - name: Run tests under the race detector
-        run: make test-race
-
   # The suite above runs on Linux, so nothing behind //go:build windows is ever
   # compiled by it. This job type-checks that half across every tag combination
   # for the price of a cross-build, and catches a shared signature that only one
@@ -295,8 +267,8 @@ jobs:
   # The suite runs without -race, so a data race in the session manager, the
   # background task pool or the SSE fan-out only ever shows up as a flake in
   # production. -race needs cgo, which is unavailable on some contributor
-  # machines but always present here. The scope is the packages with real
-  # concurrency; widen it as more of the tree is shown to be race-free.
+  # machines but always present here. The full non-UI tag set runs through
+  # make test-race.
   race:
     name: Race detector
     runs-on: ubuntu-latest
@@ -325,9 +297,7 @@ jobs:
       - name: Run tests under the race detector
         env:
           CGO_ENABLED: "1"
-        run: |
-          go test -race -count=1 ./internal/agent/... ./internal/session/... ./internal/bgtask/... ./internal/llm/... ./internal/mcp/...
-          go test -race -count=1 -tags=http,scheduler,memory ./external/httpserver/... ./external/scheduler/...
+        run: make test-race
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `foxxycode` opens on a Terminal.app pty. A hang there was

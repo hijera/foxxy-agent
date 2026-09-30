@@ -46,6 +46,12 @@ providers:
   #   type: anthropic
   #   api_key: "${ANTHROPIC_API_KEY}"
 
+  # Devin account. `foxxycode providers login devin` signs in through the
+  # browser; --devin-cli reuses `devin auth login`. A configured api_key
+  # wins over both stored logins. api_base is ignored.
+  # - name: devin
+  #   type: devin
+
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
@@ -103,6 +109,10 @@ models:
   # - model: "neuraldeep/qwen3.6-35b-a3b"
   #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
   #   multimodal: true
+
+  # - model: "devin/claude-sonnet-5"
+  #   reasoning_levels: [low, medium, high, xhigh, max]
+  #   reasoning_default: medium
 
   # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
   #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens

@@ -89,6 +89,9 @@ func CLIReference(binary, tags string) (string, error) {
 // generates on Linux.
 func normalizeHelp(out, binary, home string) string {
 	text := strings.ReplaceAll(out, "\r\n", "\n")
+	// flag.PrintDefaults uses spaces followed by a tab for descriptions;
+	// normalize that indentation so the generated Markdown passes git diff --check.
+	text = strings.ReplaceAll(text, "\n    \t", "\n        ")
 	text = strings.TrimRight(text, "\n")
 	for _, b := range []string{binary, strings.TrimSuffix(binary, ".exe"), filepath.Base(binary)} {
 		if b != "" && b != "foxxycode" {
