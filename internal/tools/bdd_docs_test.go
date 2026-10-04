@@ -63,7 +63,7 @@ func (s *docsToolsState) getsSection(heading, page string) error {
 	if !strings.Contains(s.out, "public address: https://hijera.github.io/foxxy-agent/surfaces/gateway.md#proxy") {
 		return fmt.Errorf("the public address does not name the section:\n%.300s", s.out)
 	}
-	headingLine := regexp.MustCompile(`\n#{2,6} ` + regexp.QuoteMeta(heading) + `\n`)
+	headingLine := regexp.MustCompile(`\n#{2,6} ` + regexp.QuoteMeta(heading) + `\r?\n`)
 	if !strings.Contains(s.out, "] "+page+" > "+heading+"\n") || !headingLine.MatchString(s.out) {
 		return fmt.Errorf("want the section %q of %q:\n%s", heading, page, s.out)
 	}

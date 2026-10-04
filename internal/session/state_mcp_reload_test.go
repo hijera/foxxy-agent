@@ -93,7 +93,8 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 	}
 	cancelReload()
 	for i := 0; i < 20; i++ {
-		callCtx, cancelCall := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		// This checks context ownership, not subprocess scheduling latency.
+		callCtx, cancelCall := context.WithTimeout(context.Background(), 5*time.Second)
 		got, callErr := clients[0].CallTool(callCtx, "ping", `{}`)
 		cancelCall()
 		if callErr != nil {

@@ -299,6 +299,180 @@ What the packages install, and how they interact with **`foxxycode update`**, is
 [install.md](../getting-started/install.md#linux-packages-deb-rpm) and
 [update.md](../getting-started/update.md#installations-owned-by-a-package-manager).
 
+## Windows regression checks
+
+Windows test runs support CRLF checkouts: CSS source assertions normalize line
+endings before matching selectors, and embedded-documentation heading assertions
+accept either line ending. The SPA-wide source audit has a bounded
+15-second timeout for slower filesystem scans under parallel load. These test
+accommodations do not change the shipped UI. Reverse-tunnel tests also exercise
+an explicitly initialized HTTP/2 transport, including the Go 1.27 implementation
+of `x/net/http2`, rather than assuming a zero-value transport can adopt a socket.
+The background-wake permission scenario selects a file-creation command for the
+detected shell, so it does not require Unix `touch` on Windows. The MCP reload
+test allows five seconds for each subprocess response while still checking that
+the connection survives cancellation of the reload context.
+
+For a fresh Go run without reusing test results, use:
+
+```bash
+go test -count=1 "-tags=http,ui,scheduler,memory,cli,browser,gateway,swarm" ./...
+```
+
+Build the embedded SPA first (`make ui-build`); `make test` also runs the UI suite.
+
+## Preparing an upstream port
+
+The repository helper [scripts/upstream.py](../../scripts/upstream.py) inventories
+changes from coddy-agent before a manual port into FoxxyCode. It needs Python
+3.10+, Git and PyYAML for reading the port ledger. Install the dependency with
+`python -m pip install -r scripts/requirements-upstream.txt`. Run it from the repository
+root; use `--repo <checkout>` before the subcommand to inspect another checkout.
+
+```bash
+python scripts/upstream.py scan --from <upstream-base-sha> --to <upstream-target-sha>
+python scripts/upstream.py check --base <fork-base-sha>
+python scripts/upstream.py ledger-check
+```
+
+Fetch upstream explicitly before scanning a remote ref. `scan`, `check` and
+`ledger-check` are read-only apart from an optional output report. The helper
+never fetches, applies patches, commits, pushes or runs tests. `scan`
+requires an explicit ancestor range and records full commit IDs. Its candidate
+list includes merge commits (first-parent diffs), so related entries can overlap.
+It retains paths touched by intermediate commits even if a later commit reverts
+them, and includes both old and new paths for renames.
+
+`check` compares the fork base with the working tree, including staged changes
+and non-ignored untracked paths. Both commands report matching divergence
+registry entries, named guard tests and follow-up checks. The checker also reads
+the base registry and source markers so deleting a guard during a port does not
+hide the review requirement. Reports map `coddy` to `foxxycode`, `Coddy` to
+`FoxxyCode` and `CODDY` to `FOXXYCODE` in directory and file names, checking both
+original and mapped paths for protected behavior. For example,
+`cmd/coddy/main.go` is checked against `cmd/foxxycode/main.go`. JSON exposes
+`path_mappings`, `fork_files` and the `branding` replacement rules.
+
+Apply the same rebranding to imported code: identifiers, imports, string
+literals, environment prefixes, CLI names and routes, with corresponding
+references, tests and documentation. Preserve upstream provenance and explicit
+compatibility contracts; module/repository owner changes must use the fork's
+actual addresses. The helper reports mappings without rewriting files. Inspect
+other renames, mapping collisions and indirect dependencies manually. A clean
+report does not prove that fork behavior is preserved.
+
+Add `--format json` for machine-readable output, or `--output <new-file>` to a
+read-only command to
+write a UTF-8 report. Existing output files are never overwritten. Exit status
+0 means a report was produced, not that checks passed; input, Git and output
+errors return 2. Reports explicitly indicate that no tests were executed.
+
+The versioned [ports.yaml](../../ports.yaml) records reviewed commits. Historical
+decisions cover the journal's waves from `bc1afb9` through `4b091359` (upstream
+1.1.61), selected earlier ports identified by fork commit messages, and the
+partially ported PR #351. Full Git IDs and fork ancestry were checked during
+migration. An `adapted` historical record describes a consolidated wave or PR,
+including deliberate fork differences; it does not claim a patch-identical
+cherry-pick or a fresh semantic audit. The ledger notes state its coverage.
+An absent entry is `unreviewed`, not necessarily unported. Do not infer port
+status from Git ancestry after a manual or adapted port. A record has this shape
+(replace the SHA placeholders with actual full lowercase Git commit IDs):
+
+```yaml
+version: 1
+upstream: https://github.com/coddy-project/coddy-agent
+ports:
+  - upstream_sha: '<full upstream SHA>'
+    status: partial
+    fork_commits: ['<full fork SHA>']
+    reason: Recovery was adapted to the fork continuation path.
+    remaining:
+      - Port the provider status API.
+```
+
+Allowed statuses are `ported`, `adapted`, `partial`, `deferred` and `skipped`.
+Every record requires a reason. Ported/adapted/partial records require fork
+commits as evidence; partial/deferred records require a nonempty remaining list.
+Completed/skipped records have `remaining: []`. Update a record when its status
+changes; duplicate upstream SHAs, duplicate YAML keys and unknown fields are
+errors. Optional top-level `notes` holds text about ledger coverage.
+
+`scan` retains all commits for review and adds their `port` status. JSON also
+exposes `pending_commits` (unreviewed/partial/deferred SHAs in the range) and
+`backlog` (all partial/deferred entries outside it, whose relevance to the target
+must be checked manually). File and divergence reports still cover the whole
+range, including recorded ports. `check` also displays the open backlog.
+
+`--ledger <file>` selects a ledger relative to the inspected repository. An
+absent default ledger is tolerated by scan/check; a missing explicit ledger or
+a missing ledger for `ledger-check` is an error. `ledger-check` validates YAML
+and record structure only: it does not fetch or verify commit existence,
+ancestry, or behavior. Edit the ledger after verifying the port, then run the
+validator. The helper never advances a synchronization checkpoint automatically.
+
+### Prepare a worktree and patches
+
+```bash
+python scripts/upstream.py prepare --wave recovery --from <upstream-base> --to <target> --fork-base HEAD --worktree worktrees/recovery --dry-run
+```
+
+Remove `--dry-run` to create a fresh branch `codex/upstream-recovery` and worktree.
+The worktree path is relative to the inspected repository unless absolute.
+Existing paths or branches and branding path collisions are rejected before
+creation. The source checkout can be dirty: only the committed `--fork-base`
+(default `HEAD`) is checked out, and local edits are not copied or discarded.
+
+The returned `bundle` path is inside the new worktree's private Git directory,
+so reports do not appear as source changes. It contains `original.patch`,
+`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs.
+The patches describe the net upstream range, including recorded ports; choose
+the needed hunks after reviewing partial/completed entries. The adapted patch
+mechanically rebrands paths and UTF-8 text, leaving binary and non-UTF-8 payloads
+unchanged with warnings. It is a review candidate, not a semantic port: correct
+compatibility values, provenance and repository owners before applying it.
+
+Run `git apply --check <bundle>/adapted.patch` in the new worktree after review.
+Adapted text patches omit obsolete blob IDs and must not use `--3way`. Neither
+patch is applied automatically. A bundle write failure leaves the new worktree
+and branch in place and reports their location, rather than deleting possible
+work. Git's ordinary worktree lifecycle applies; preserve any needed bundle
+before removing the worktree.
+
+### Record a reviewed result
+
+```bash
+python scripts/upstream.py record --upstream-commit <source> --status adapted --fork-commit <result> --reason "Kept fork continuation behavior" --dry-run
+```
+
+Remove `--dry-run` to update the existing ledger. Refs are resolved to full SHAs;
+every fork commit must be an ancestor of the inspected checkout's `HEAD`.
+Repeat `--fork-commit` for several result commits and `--remaining` for individual
+unfinished items. `--update` is required to replace a different existing record
+and supplies the entire replacement decision. An identical record is a no-op.
+Commit existence and ancestry do not prove semantic correctness.
+
+The ledger must be a regular file within the inspected repository. Recording
+uses an exclusive `<ledger>.lock`, a same-directory temporary file and atomic
+replacement; invalid input or an existing lock leaves the ledger intact.
+Concurrent edits detected before replacement are rejected. Remove a stale lock
+only after confirming its writer is no longer running. YAML is serialized again,
+so formatting and comments may change; top-level notes and other records remain.
+`--dry-run` neither locks nor writes. If the worktree does not yet contain the
+helper, invoke it from the original checkout with `--repo <worktree>`.
+
+The repository skill
+[upstream-port](../../.claude/skills/upstream-port/SKILL.md) guides the manual
+workflow and refers to the existing Cursor rules. The
+[upstream-review](../../.claude/skills/upstream-review/SKILL.md) skill audits the
+original upstream changes against the fork implementation and ledger evidence.
+Agents that do not discover
+`.claude/skills` can be asked to read that file explicitly. Run the helper's
+offline integration suite with:
+
+```bash
+python -m unittest discover -s scripts -p "test_upstream*.py"
+```
+
 ## Release binaries (CI)
 
 On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:
