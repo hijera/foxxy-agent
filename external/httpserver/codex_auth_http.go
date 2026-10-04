@@ -95,7 +95,7 @@ func (s *Server) foxxycodeProviderCodexAuthDevicePost(w http.ResponseWriter, r *
 	if !ok {
 		return
 	}
-	client, err := llm.HTTPClientForOptionalProxy(provider.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, err.Error())
 		return

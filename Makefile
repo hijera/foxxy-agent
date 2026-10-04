@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -93,8 +93,10 @@ build-desktop: ui-build
 # current directory on Windows npm, so it fails at the repo root with a confusing
 # "Could not read package.json" pointing at a file that was never meant to exist.
 # Changing directory works the same way on every platform.
-ui-build:
+ui-deps:
 	cd external/ui && npm install --no-fund --no-audit
+
+ui-build: ui-deps
 	cd external/ui && npm run build:go
 
 # Run the SPA's own unit suite (vitest, 1000+ tests) and type-check it. Neither
@@ -106,6 +108,10 @@ ui-test:
 	cd external/ui && npm install --no-fund --no-audit
 	cd external/ui && npm run typecheck
 	cd external/ui && npm test
+
+ui-typecheck:
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run typecheck
 
 # Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -318,6 +324,11 @@ test-matrix: test-opencode-rules ui-build
 
 # The matrix as a JSON array for the CI workflow: [""] for the untagged build,
 # then every entry of TEST_TAG_SETS.
+# The race detector checks the full non-UI tag set; UI only embeds assets.
+# CI runs this target on every pull request.
+test-race:
+	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+
 print-test-tag-sets:
 	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
 
@@ -357,53 +368,42 @@ check-windows:
 clean:
 	rm -rf $(BUILD_DIR)
 
-# Tag sets the linter must cover. A build tag hides whole files from the linter,
-# so anything not listed here is never linted: for a long time only the untagged
-# and cli passes ran, which left external/httpserver, external/memory and
-# external/scheduler - the bulk of external/ - unchecked. Keep this in sync with
-# the TAGS list at the top of this file whenever a new optional tag lands.
-#
-# The combinations compile every file at least once rather than enumerating the
-# power set: http,scheduler,memory covers the optional server surfaces together,
-# browser covers the chromedp tool, cli covers the TUI, gateway covers the
-# messenger bots (gateway.telegram is a subset of gateway), swarm covers the
-# relay. The ui tag lives in
-# lint-ui because it embeds a bundle that only exists after ui-build, and
-# desktop lives in lint-windows because it is //go:build desktop && windows.
-LINT_TAG_SETS := cli browser gateway swarm http,scheduler,memory,gateway,swarm
+# The untagged, all-but-ui and full-tag passes cover the stubs, the files that
+# exist only without the embedded SPA, and the shipped UI surface. Keep these
+# derived from FULL_TAGS so a new optional module enters the gate automatically.
+LINT_TAGS_NO_UI := $(filter-out ui,$(FULL_TAGS))
+LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
+
+print-full-tags:
+	@printf '%s\n' "$(FULL_TAGS_CSV)"
+
+print-lint-tags-no-ui:
+	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"
 
 # Fail on every finding rather than golangci-lint's default caps
 # (max-issues-per-linter=50, max-same-issues=3), which silently hid most of a
 # backlog of identical errcheck hits behind the first three of each kind.
 LINT_FLAGS := --max-issues-per-linter 0 --max-same-issues 0
 
-# Run the linter (requires golangci-lint): the untagged pass plus one pass per
-# tag set above. Needs no npm - run `make lint-ui` for the embedded-SPA pass.
-lint:
+# Run the linter over all Go surfaces and type-check the SPA.
+lint: ui-build
 	golangci-lint run $(LINT_FLAGS) ./...
-	@for t in $(LINT_TAG_SETS); do \
-		echo "==> golangci-lint --build-tags $$t"; \
-		golangci-lint run $(LINT_FLAGS) --build-tags "$$t" ./... || exit 1; \
-	done
+	golangci-lint run $(LINT_FLAGS) --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+	$(MAKE) ui-typecheck
 
-# Lint the http+ui surface (spa_embed_ui.go and friends). Separate from lint
-# because the ui tag go:embeds external/ui/dist, which is gitignored and only
-# exists after ui-build - so this target needs Node, and plain `make lint` does not.
+# Lint the http+ui surface (spa_embed_ui.go and friends) on its own when only
+# that pass is needed. Both this target and lint build the embedded SPA first.
 lint-ui: ui-build
-	golangci-lint run $(LINT_FLAGS) --build-tags http,scheduler,memory,ui ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
 
 # Run the linter against the Windows build, which lint above never compiles.
-# desktop is Windows-only (//go:build desktop && windows), so this is the only
-# pass that ever sees internal/desktop; it compiles without the ui tag, so no
-# bundle is needed here either.
-LINT_TAG_SETS_WINDOWS := $(LINT_TAG_SETS) desktop,http,scheduler,memory
-
-lint-windows:
+# desktop is Windows-only, so the last pass adds it explicitly.
+lint-windows: ui-build
 	GOOS=windows golangci-lint run $(LINT_FLAGS) ./...
-	@for t in $(LINT_TAG_SETS_WINDOWS); do \
-		echo "==> GOOS=windows golangci-lint --build-tags $$t"; \
-		GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags "$$t" ./... || exit 1; \
-	done
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags desktop,$(FULL_TAGS_CSV) ./...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

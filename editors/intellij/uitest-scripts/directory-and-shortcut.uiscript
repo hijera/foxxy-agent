@@ -1,0 +1,14 @@
+# A directory dragged from the Project tree becomes an @ mention ending in /.
+toolwindow FoxxyCode
+sleep 8
+drag sample-dir
+sleep 2
+cef-js (() => { const value = document.querySelector('#composer')?.value || ''; if (!value.includes('@sample-dir/')) throw new Error('directory mention missing: ' + value); return value; })()
+screenshot directory-mention
+
+# The editor shortcut remains actionable when Autocomplete is off by default.
+js var project = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()[0]; var file = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(project.getBasePath() + '/hello.txt'); var editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).getSelectedTextEditor(); com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(file, true); editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).getSelectedTextEditor(); editor.getContentComponent().requestFocusInWindow();
+js var keymap = com.intellij.openapi.keymap.KeymapManager.getInstance().getActiveKeymap(); if (keymap.getShortcuts('FoxxyCodeTriggerSuggestion').length == 0) throw new java.lang.IllegalStateException('shortcut not registered');
+key ALT+BACK_SLASH
+wait //div[contains(@visible_text,'Enable Autocomplete in FoxxyCode Settings')] 10
+screenshot autocomplete-disabled-hint

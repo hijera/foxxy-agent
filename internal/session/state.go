@@ -83,6 +83,20 @@ type State struct {
 	persistOnce sync.Once
 	persistID   uint64
 
+	// diskMsgs is what messages.json looked like when this State last read it
+	// or a save wrote or confirmed it (disk_refresh.go).
+	diskMsgs diskStamp
+	// diskMeta is the corresponding stamp for session.json. A mode or model
+	// switch can change it without changing the transcript.
+	diskMeta diskStamp
+	// persistedMeta is the metadata this process last read or wrote. A stale
+	// sidecar-only save must not replace newer metadata from another process.
+	persistedMeta *SessionMeta
+	// Sidecar revisions let a stale save write only the plan, UI log or grants
+	// changed in this process, leaving the other process's files alone.
+	sidecarRev      sidecarRevisions
+	savedSidecarRev sidecarRevisions
+
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
@@ -192,20 +206,36 @@ type State struct {
 	// surfaceSystemPrompt is the block the surface running the current turn
 	// contributed to the system prompt; turn-scoped and never persisted.
 	surfaceSystemPrompt string
+	// turnWake is the background wake the current turn was started for, until
+	// the agent takes it to mark the turn's first message; turn-scoped.
+	turnWake *llm.BackgroundWake
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
-	// Scheduler run metadata (cron / foxxycode_scheduler_job_run); written to session.json when SchedulerRun is true.
-	SchedulerRun        bool
-	SchedulerJobID      string
-	SchedulerStartedAt  string // RFC3339 UTC
-	SchedulerEndedAt    string // RFC3339 UTC when terminal
-	SchedulerStopStatus string // running | completed | failed | cancelled
+	// Scheduler job session: the session every run of one scheduler job is a
+	// child of. It never runs a turn of its own - a read-only transcript for
+	// every surface - and is written to session.json as schedulerRun and
+	// schedulerJobId, which is what keeps it out of the working list.
+	SchedulerRun   bool
+	SchedulerJobID string
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
+	// It lives in process memory only: a restart returns to the configuration.
 	PermissionMode string
+
+	// turn holds the settings that belong to turns rather than to the session
+	// (settings_state.go): overrides armed by --once / --count=N, what the
+	// running turn holds, what the last operator turn held. settingsMu guards
+	// it alone; it is never taken together with mu.
+	settingsMu sync.Mutex
+	turn       turnSettings
+	// settingsRev is the number of the last change of a setting a model
+	// request reads (SettingsRevision).
+	settingsRev atomic.Uint64
+	// publishedSettings is the version of the last snapshot published.
+	publishedSettings atomic.Uint64
 
 	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
 	PermissionCommandGrants []string
@@ -232,6 +262,11 @@ type State struct {
 	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
 	userCancelledTurn bool
 
+	// turnStopNotice is why the running turn stopped before its answer (its
+	// step limit, the model's output limit), set by the agent and taken by
+	// the manager once the turn is over (TakeTurnStopNotice).
+	turnStopNotice string
+
 	// queue holds the follow-ups written while the current turn runs, read by
 	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
 	// boundary: a message is only ever accepted by the turn it belongs to.
@@ -246,6 +281,9 @@ type State struct {
 	// queueNotify is what the manager installed to announce a change; it runs
 	// after every mutation, with queueMu released.
 	queueNotify func()
+	// queueMentions resolves the "@" references of a follow-up the turn reads
+	// (SetQueuedMentionResolver); turn-scoped like the queue.
+	queueMentions func([]acp.ContentBlock) []acp.ContentBlock
 
 	// nextPromptQueued marks the next user message recorded as a queued
 	// follow-up: set by the manager for a run its turn boundary starts from the
@@ -256,6 +294,13 @@ type State struct {
 	// queue change made from outside the turn's goroutine reaches the clients
 	// watching that turn. Turn-scoped, never persisted.
 	turnSender acp.UpdateSender
+
+	// progress is the running turn's clock and token count (turn_progress.go).
+	// It has a lock of its own: the loop writes it while a call streams, and
+	// nothing there should wait on a reader of the history.
+	progressMu  sync.Mutex
+	progress    TurnProgress
+	progressSet bool
 }
 
 // GetID returns the session ID.
@@ -311,53 +356,39 @@ func (s *State) GetPersistedSessionDir() string {
 	return s.SessionDir
 }
 
-// SetSchedulerRunMeta configures this state as a persisted scheduler run (writes scheduler* fields in session.json via Save).
-func (s *State) SetSchedulerRunMeta(jobID string, startedRFC3339UTC string) {
+// SetSchedulerJobWithoutPersist marks this state as the session of a scheduler
+// job. It does not persist by itself: the manager saves the state right after
+// building it, and a load restores the mark from session.json.
+func (s *State) SetSchedulerJobWithoutPersist(jobID string) {
 	s.mu.Lock()
 	s.SchedulerRun = true
 	s.SchedulerJobID = strings.TrimSpace(jobID)
-	s.SchedulerStartedAt = strings.TrimSpace(startedRFC3339UTC)
-	s.SchedulerEndedAt = ""
-	s.SchedulerStopStatus = "running"
 	s.mu.Unlock()
 }
 
-// FinishSchedulerRun marks the scheduler run terminal (call before final Save).
-func (s *State) FinishSchedulerRun(endedRFC3339UTC, status string) {
-	s.mu.Lock()
-	s.SchedulerEndedAt = strings.TrimSpace(endedRFC3339UTC)
-	s.SchedulerStopStatus = strings.TrimSpace(status)
-	s.mu.Unlock()
-}
-
-func (s *State) GetSchedulerRun() bool {
+// IsSchedulerJob reports whether this session belongs to a scheduler job: the
+// parent of that job's runs, never a chat.
+func (s *State) IsSchedulerJob() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.SchedulerRun
 }
 
+// GetSchedulerJobID returns the scheduler job this session belongs to, or ""
+// for an ordinary session.
 func (s *State) GetSchedulerJobID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.SchedulerJobID
 }
 
-func (s *State) GetSchedulerStartedAt() string {
+// IsReadOnlyTranscript reports whether no surface may start a turn on this
+// session: a child spawned by another session (its one turn is its own task
+// turn) and the session of a scheduler job (nothing ever talks to it).
+func (s *State) IsReadOnlyTranscript() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.SchedulerStartedAt
-}
-
-func (s *State) GetSchedulerEndedAt() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.SchedulerEndedAt
-}
-
-func (s *State) GetSchedulerStopStatus() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.SchedulerStopStatus
+	return s.subagent != nil || s.SchedulerRun
 }
 
 // GetSkills returns the loaded skills.
@@ -415,15 +446,72 @@ type SubagentMeta struct {
 	Role string
 	// Tools is the effective tool set the child may call. Not persisted.
 	Tools []string
+	// Kind marks a child the runtime started on its own behalf (SubagentKindMemory);
+	// empty for a spawn_agent child. The tool registration, the system flag
+	// of the task and the manager's shortcuts key on it. Not persisted.
+	Kind string
+	// PromptTemplate, when set, is the system prompt template source a system
+	// child renders instead of the mode template. Not persisted.
+	PromptTemplate string
+	// MaxTokens clamps the child's completion size; 0 keeps the model's own
+	// bound. Not persisted.
+	MaxTokens int
+	// FallbackModels are the models[].model ids the child's provider moves to
+	// when the one before them fails before answering. Not persisted.
+	FallbackModels []string
+	// Scheduler is set when the child is a run the scheduler started rather
+	// than a delegate a model spawned: the job it belongs to, and how the run
+	// was triggered. Persisted, so a transcript read from disk still says
+	// which job it was.
+	Scheduler *SchedulerRunMeta
 }
+
+// SchedulerRunMeta is the origin of a scheduled run.
+type SchedulerRunMeta struct {
+	// JobID is the scheduler job (the file basename under scheduler.dir).
+	JobID string
+	// Trigger is "cron" for a run the tick started, "manual" for one asked
+	// for through the API or a tool.
+	Trigger string
+	// FireSlot is the UTC minute the cron fire was committed for; zero for a
+	// manual run.
+	FireSlot time.Time
+}
+
+// clone copies the origin so a caller never shares a pointer with the state.
+func (m *SchedulerRunMeta) clone() *SchedulerRunMeta {
+	if m == nil {
+		return nil
+	}
+	out := *m
+	return &out
+}
+
+// SubagentKindMemory is the Kind of the memory subagent, the child a user
+// turn starts to recall and persist long-term memory.
+const SubagentKindMemory = "memory"
 
 // SetSubagentMeta marks the session as a child run. It does not persist by
 // itself: the manager saves the state right after building it.
 func (s *State) SetSubagentMeta(meta SubagentMeta) {
 	meta.Tools = append([]string(nil), meta.Tools...)
+	meta.FallbackModels = append([]string(nil), meta.FallbackModels...)
+	meta.Scheduler = meta.Scheduler.clone()
 	s.mu.Lock()
 	s.subagent = &meta
 	s.mu.Unlock()
+}
+
+// SetSubagentTools replaces the child's effective tool set. The manager calls
+// it for a run whose set is decided only once its MCP clients are up, before
+// the run's turn starts.
+func (s *State) SetSubagentTools(tools []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.subagent == nil {
+		return
+	}
+	s.subagent.Tools = append([]string(nil), tools...)
 }
 
 // Subagent returns a copy of the child-run metadata, or nil for an ordinary
@@ -436,6 +524,8 @@ func (s *State) Subagent() *SubagentMeta {
 	}
 	out := *s.subagent
 	out.Tools = append([]string(nil), s.subagent.Tools...)
+	out.FallbackModels = append([]string(nil), s.subagent.FallbackModels...)
+	out.Scheduler = s.subagent.Scheduler.clone()
 	return &out
 }
 
@@ -555,6 +645,7 @@ func (s *State) SetMode(mode string) {
 	s.mu.Lock()
 	s.Mode = Mode(mode)
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
@@ -570,6 +661,7 @@ func (s *State) SetPermissionMode(mode string) {
 	s.mu.Lock()
 	s.PermissionMode = mode
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
@@ -592,6 +684,7 @@ func (s *State) SetSelectedModelID(id string) {
 	s.mu.Lock()
 	s.SelectedModelID = id
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
@@ -629,12 +722,15 @@ func (s *State) SetSelectedReasoning(level string) {
 	s.mu.Lock()
 	s.SelectedReasoning = level
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
 // EffectiveReasoning returns the reasoning level for LLM calls for this session.
-// Returns empty when the effective model has no reasoning support. A valid session
-// selection wins; otherwise the model's configured default is used (may be empty).
+// Returns empty when the effective model has no reasoning support. The running
+// turn's own level wins, then the session's selection when the model offers it
+// ("off" included where the provider can turn thinking off), then the model's
+// default level.
 func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -643,17 +739,23 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := cfg.ReasoningLevelsFor(ent)
-	if len(levels) == 0 {
+	choices := cfg.ReasoningChoicesFor(ent)
+	if len(choices) == 0 {
 		return ""
+	}
+	if turn := s.TurnSetting(SettingReasoning); turn != "" {
+		if turn == config.ReasoningDefault {
+			return cfg.DefaultReasoningLevelFor(ent)
+		}
+		if containsLevel(choices, turn) {
+			return turn
+		}
 	}
 	s.mu.RLock()
 	sel := strings.TrimSpace(s.SelectedReasoning)
 	s.mu.RUnlock()
-	for _, lv := range levels {
-		if lv == sel {
-			return sel
-		}
+	if containsLevel(choices, sel) {
+		return sel
 	}
 	return cfg.DefaultReasoningLevelFor(ent)
 }
@@ -672,10 +774,22 @@ func (s *State) ContextWindow(cfg *config.Config) (tokens int, source string) {
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
 func (s *State) EffectiveModelID(cfg *config.Config) string {
+	// The running turn's own model wins while the configuration still knows it.
+	if turn := s.TurnSetting(SettingModel); turn != "" && cfg != nil && cfg.FindModelEntry(turn) != nil {
+		return turn
+	}
 	s.mu.RLock()
 	sel := s.SelectedModelID
 	s.mu.RUnlock()
-	if sel != "" {
+	return ResolveModelID(cfg, sel)
+}
+
+// ResolveModelID is the model a session selecting this one runs on: the selection
+// when the config knows it, the config's agent model when nothing is selected. A
+// caller that names what a session will run before the session exists (the row of a
+// scheduled run) asks here, so it names the same model the session then picks.
+func ResolveModelID(cfg *config.Config, selected string) string {
+	if sel := strings.TrimSpace(selected); sel != "" {
 		return normalizeModelID(cfg, sel)
 	}
 	return normalizeModelID(cfg, strings.TrimSpace(cfg.Agent.Model))
@@ -1196,6 +1310,27 @@ func (s *State) GetSurfaceSystemPrompt() string {
 	return s.surfaceSystemPrompt
 }
 
+// SetTurnWake records that the current turn was started by finished background
+// tasks rather than by somebody typing. The agent takes it once, when it turns
+// the prompt into the turn's first message (TakeTurnWake); the manager clears
+// whatever is left when the turn is released. Nil clears it.
+func (s *State) SetTurnWake(wake *llm.BackgroundWake) {
+	s.mu.Lock()
+	s.turnWake = wake
+	s.mu.Unlock()
+}
+
+// TakeTurnWake returns the wake the current turn was started for and forgets
+// it, so a continuation of the same admitted turn (a queued follow-up) is not
+// marked a second time. Nil for a turn somebody typed.
+func (s *State) TakeTurnWake() *llm.BackgroundWake {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wake := s.turnWake
+	s.turnWake = nil
+	return wake
+}
+
 // SetTurnSender records where the running turn publishes its session updates.
 //
 // Most updates are sent by the turn's own goroutine, which holds the sender
@@ -1395,6 +1530,7 @@ func (s *State) GetPlan() []acp.PlanEntry {
 func (s *State) SetPlan(entries []acp.PlanEntry) {
 	s.mu.Lock()
 	s.Plan = entries
+	s.sidecarRev.plan++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1449,14 +1585,14 @@ func (s *State) ReplaceMessagesAndPersist(msgs []llm.Message) {
 	s.touchPersist()
 }
 
-// RestoreMetaWithoutPersist restores mode, model/reasoning/memory, and permission mode from disk (no persistence callback).
-func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory, permissionMode string) {
+// RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk.
+// The permission-mode override lasts only as long as this process.
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory string) {
 	s.mu.Lock()
 	s.Mode = mode
 	s.SelectedModelID = selectedModelID
 	s.SelectedReasoning = selectedReasoning
 	s.AgentMemory = agentMemory
-	s.PermissionMode = permissionMode
 	s.mu.Unlock()
 }
 
@@ -1532,6 +1668,24 @@ func (s *State) SetUserCancelledTurn() {
 	s.mu.Lock()
 	s.userCancelledTurn = true
 	s.mu.Unlock()
+}
+
+// SetTurnStopNotice records why the running turn stopped before its answer,
+// in words for the user.
+func (s *State) SetTurnStopNotice(msg string) {
+	s.mu.Lock()
+	s.turnStopNotice = msg
+	s.mu.Unlock()
+}
+
+// TakeTurnStopNotice returns the notice SetTurnStopNotice recorded and clears
+// it, so it belongs to one turn.
+func (s *State) TakeTurnStopNotice() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msg := s.turnStopNotice
+	s.turnStopNotice = ""
+	return msg
 }
 
 // IsUserCancelledTurn reports whether the current turn was explicitly cancelled by the user.
@@ -1659,6 +1813,7 @@ func (s *State) AddHTTPGrantIfNew(key string) {
 		}
 	}
 	s.PermissionHTTPGrants = append(s.PermissionHTTPGrants, key)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1677,6 +1832,7 @@ func (s *State) AddCommandGrantIfNew(cmd string) {
 		}
 	}
 	s.PermissionCommandGrants = append(s.PermissionCommandGrants, cmd)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -1695,6 +1851,7 @@ func (s *State) AddWriteGrantIfNew(key string) {
 		}
 	}
 	s.PermissionWriteGrants = append(s.PermissionWriteGrants, key)
+	s.sidecarRev.grants++
 	s.mu.Unlock()
 	s.touchPersist()
 }

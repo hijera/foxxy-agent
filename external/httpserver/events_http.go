@@ -38,11 +38,40 @@ func (s *Server) foxxycodeEventsStream(w http.ResponseWriter, r *http.Request) {
 	// rather than lost; a repeated turn_started is idempotent for every consumer.
 	_, _ = io.WriteString(w, "retry: 3000\n\n")
 	for _, id := range s.mgr.ActiveTurnSessionIDs() {
+		// The turn's own start, not the moment this client connected: a console
+		// reconnecting mid-turn counts the turn's clock from "at". A turn that
+		// ended between the two reads is announced as just started, and its
+		// turn_ended follows on the subscription taken above.
+		at, ok := s.mgr.TurnStartedAt(id)
+		if !ok {
+			at = time.Now().UTC()
+		}
 		_, _ = w.Write(turnEventFrame(session.TurnEvent{
 			SessionID: id,
 			Phase:     session.TurnPhaseStarted,
-			At:        time.Now().UTC(),
+			At:        at,
 		}))
+		// A turn finished background tasks started says so again, dated at
+		// the same start: a client that follows only its own turns and the
+		// woken ones - a console over --remote that has just reconnected -
+		// finds it here, and knows it from a turn it already followed.
+		if wake := s.mgr.TurnWake(id); wake != nil {
+			_, _ = w.Write(turnEventFrame(session.TurnEvent{
+				SessionID: id,
+				Phase:     session.TurnPhaseWoken,
+				At:        at,
+				Wake:      wake,
+			}))
+		}
+	}
+	// A subagent already waiting for an answer is part of the snapshot too: a
+	// console attached after it asked has no other way to find the prompt. A
+	// prompt settled in between is announced as settled after the snapshot,
+	// which a client handles like any other settled prompt.
+	for _, dto := range waitingDetachedPrompts() {
+		if frame := subagentPermissionFrame(detachedPromptAsked, dto); frame != nil {
+			_, _ = w.Write(frame)
+		}
 	}
 	// The snapshot is what makes a client connecting mid-turn see the turn at all, and
 	// "ready" is how it knows the snapshot is complete rather than still arriving.

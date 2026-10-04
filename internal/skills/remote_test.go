@@ -255,6 +255,11 @@ func TestSyncFromLocalMarketplaceGit(t *testing.T) {
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
+	// This test exercises the local repository. The system marketplace would
+	// make the result depend on network access and add unrelated failures.
+	previousSystemSources := SystemSources
+	SystemSources = nil
+	defer func() { SystemSources = previousSystemSources }()
 	// Build a marketplace monorepo: manifest points at ./plugins/demo, whose
 	// skill lives nested at plugins/demo/skills/demo/SKILL.md (polyakov layout).
 	repo := t.TempDir()

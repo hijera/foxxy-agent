@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-09-27
+## Unreleased — 2026-09-30
 
 **A review window for what a session changed.**
 The bottom of every session now shows how many files the agent changed and by how many lines,
@@ -39,6 +39,77 @@ A few-line edit in a large file could look like a rewrite of the whole file: the
 gave up on large files. Now the counts match `git diff` file for file. The working-copy scopes
 understand both git and Subversion - which one to ask is decided by the folder itself. Files
 marked as ignored (`.gitignore`, `svn:ignore`) are never read.
+
+**Project directories can be dropped into chat.**
+A directory is inserted as `@path/` with the trailing slash; **Add to FoxxyCode** in the Project menu now does the same.
+
+**Code suggestions can be requested before opening the panel.**
+**Suggest Code at Caret** starts FoxxyCode on demand and is available in the editor menu. When Autocomplete is off, the action explains where to enable it; `Alt+\` can be reassigned in Keymap for your keyboard layout.
+
+**Memory runs as a background agent.**
+It gathers context for the current turn in a separate task, with progress visible in Tasks. Existing notes and memory settings continue to work.
+
+**A provider can bypass the proxy.**
+Provider and Telegram settings offer inherited proxy, no proxy, or a custom URL. The Windows system proxy and saved URLs with passwords still work.
+
+**Background tasks are visible during a reply.**
+The chat shows turn duration, token use, and task status. When a task with notifications finishes, the agent can continue with its result; a busy session waits for its current turn to finish.
+
+**Mentions and documentation are available in chat.**
+Use `@` to attach a file, directory, line range, session, rule, or documentation page. `/docs` opens the built-in reader; select documentation mode through Mode or `/mode docs`.
+
+**Session settings stay in sync across windows.**
+Mode and permission changes appear in other connected clients. A permission mode selected for an ordinary session lasts until restart, when the configured mode takes effect again.
+
+**Devin is available as a provider.**
+Sign in through a browser or Devin CLI to use its models and streaming replies.
+
+## 0.3.24 — 2026-09-29
+
+**Background subagent permissions remain available after the turn ends.**
+If a subagent asks for access after the main agent has answered, the request appears in the chat
+and Tasks, where it can be approved or denied without starting another turn. Subagent settings
+show the definitions for the current project and their limits; project definitions can be
+approved or revoked there.
+
+**Scheduled jobs have a separate run history.**
+Each run is saved as a child session of its job. The scheduler panel shows its status, lets you
+stop it, and opens a read-only transcript. Existing `sched_` runs remain in the history, and
+existing jobs continue to work.
+
+## 0.3.23 — 2026-09-28
+
+**A cut answer is carried on instead of lost.**
+When the provider goes silent in the middle of an answer, cuts it with a 5xx error or the
+connection drops, the text already shown is kept, the turn waits a pause and asks the model to
+continue from where it stopped, instead of ending. A line cut halfway does not appear twice: the
+model writes it again once. The switch, the number of continuations per turn and the pauses are
+in **Settings → ReAct agent** (`llm_continue`, `llm_continue_max`,
+`llm_continue_stall_delays_ms`, `llm_continue_error_delays_ms`,
+`llm_continue_retry_after_max_ms`); turn the switch off to have the turn end at the cut as
+before. The stalled-stream guard is now named `llm_stream_idle_timeout_ms`, as in coddy-agent
+(the old name `llm_stall_timeout_ms` is still read and is replaced when the settings are
+saved), no longer takes a gateway's keep-alive comments for a sign of life, and also guards
+context compaction, the session title, memory and direct model calls.
+
+**A turn stopped by its step limit says so.**
+When a turn stops at `agent.max_turns`, the answer ends with a notice naming the limit and how
+to go on - as it already did for the model's token limit.
+
+**One session in the panel and in Telegram.**
+The Telegram bot learned `/resume`: it brings a chat back to any session the server keeps,
+including one open in the IDE panel. When two processes work on one session, each turn re-reads
+the other's messages and settings, and saving a plan no longer overwrites the other's turn.
+In admin-isolated groups, other members cannot use `/resume` buttons.
+
+## 0.3.22 — 2026-09-27
+
+**A turn behind a proxy no longer hangs on "Provider is not responding".**
+Requests to a provider share one HTTP/2 connection. When a proxy lost a tunnel without closing
+it, every later request, retries included, went out on that same dead connection, and a turn could
+wait for hours. Now a connection that has received nothing for 15 seconds is pinged and closed
+when the ping goes unanswered for another 15; the request cut with it is repeated on a new
+connection, and the turn carries on within about half a minute.
 
 ## 0.3.21 — 2026-09-27
 

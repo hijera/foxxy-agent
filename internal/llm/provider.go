@@ -3,7 +3,6 @@ package llm
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -68,6 +67,10 @@ type Message struct {
 	// client re-attaching to the turn uses it to tell the prompt the turn started from apart
 	// from the follow-ups the turn's own stream will replay.
 	Queued bool `json:"queued,omitempty"`
+	// BackgroundWake marks a user-role message no person typed: the one a
+	// finished notify_on_finish task started a turn with (excluded from what
+	// the provider is sent; the Content still is).
+	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -172,7 +175,7 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
-	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
+	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
@@ -208,6 +211,13 @@ type ProviderInput struct {
 	// streamed body read (providers[].timeout_ms). Zero means no client
 	// timeout; the turn context stays the only bound.
 	Timeout time.Duration
+	// StreamIdleTimeout, when positive, is how long a streamed response may
+	// deliver nothing after its first chunk before the stream is cut as
+	// stalled (agent.llm_stream_idle_timeout_ms): the call then fails with an
+	// error IsStreamStalled recognises, next to whatever was delivered. Zero
+	// means no such guard. A blocking answer (stream: false) arrives in one
+	// piece and is never guarded.
+	StreamIdleTimeout time.Duration
 	// Stop lists sequences at which generation halts; the matched sequence is
 	// not part of the returned text. Inline completion uses it to stop at the
 	// line the caret's suffix already holds instead of spending the token budget
@@ -258,15 +268,12 @@ func neuralDeepEffectiveKey(explicit, authPath string) string {
 
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(p ProviderInput) (Provider, error) {
-	hc, err := HTTPClientForOptionalProxy(p.ProxyURL)
+	// The shared transport for the proxy setting (transport.go), never the SDK
+	// default client: the proxy is honoured either way, the environment's or the
+	// system's when none is set.
+	hc, err := providerHTTPClient(p.ProxyURL, p.Timeout)
 	if err != nil {
 		return nil, err
-	}
-	if p.Timeout > 0 {
-		if hc == nil {
-			hc = &http.Client{}
-		}
-		hc.Timeout = p.Timeout
 	}
 	var inner Provider
 	switch p.Type {
@@ -287,6 +294,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through FOXXYCODE_CODEX_BASE_URL.
 		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+	case "devin":
+		// A Devin session token reaches the Devin API server only: api_base is
+		// ignored, and FOXXYCODE_DEVIN_API_SERVER_URL moves the process as a whole.
+		inner = newDevinProvider(p, hc)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}
@@ -295,9 +306,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// emitted nothing yet, instead of replaying deltas a caller already consumed.
 		inner = newBlockingProvider(inner)
 	}
-	// Outside the resilient wrap: retry classification reads the untouched
-	// upstream error, and only what leaves for the caller carries the label.
-	return labelProvider(applyResilientWrap(inner, p), p), nil
+	// The stall guard sits outside the resilient wrap, so its clock spans a
+	// replayed attempt (stream_idle_guard.go); the label outside both, so
+	// retry classification reads the untouched upstream error, and only what
+	// leaves for the caller carries the label.
+	return labelProvider(WithStreamIdleGuard(applyResilientWrap(inner, p), p.StreamIdleTimeout), p), nil
 }
 
 // UnsupportedProviderError is returned when the provider type is unknown.

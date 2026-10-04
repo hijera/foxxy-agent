@@ -25,6 +25,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/proxytest"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -38,9 +39,11 @@ type neuralDeepBDDState struct {
 	// different key so a login can be traced back to the hub that issued it.
 	hubMirror *httptest.Server
 	api       *httptest.Server
-	server    *Server
-	ts        *httptest.Server
-	loginID   string
+	// proxy is the provider row's own proxy, when the scenario names one.
+	proxy   *proxytest.Proxy
+	server  *Server
+	ts      *httptest.Server
+	loginID string
 
 	mu       sync.Mutex
 	apiAuths []string
@@ -144,6 +147,10 @@ func (s *neuralDeepBDDState) close() {
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
+	}
+	if s.proxy != nil {
+		s.proxy.Close()
+		s.proxy = nil
 	}
 	if s.server != nil {
 		s.server.Drain()
@@ -317,9 +324,18 @@ func (s *neuralDeepBDDState) configGainedProviderAndModels() error {
 // --- @http scenario ----------------------------------------------------------
 
 func (s *neuralDeepBDDState) startServerWithProvider() error {
+	return s.startServerWith(config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"})
+}
+
+func (s *neuralDeepBDDState) startServerWithProxiedProvider() error {
+	s.proxy = proxytest.New()
+	return s.startServerWith(config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep", Proxy: s.proxy.URL()})
+}
+
+func (s *neuralDeepBDDState) startServerWith(prov config.ProviderConfig) error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.home, ConfigPath: filepath.Join(s.home, "config.yaml")},
-		Providers: []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep"}},
+		Providers: []config.ProviderConfig{prov},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return "", nil
@@ -331,6 +347,14 @@ func (s *neuralDeepBDDState) startServerWithProvider() error {
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), dir, nil)
 	s.server = New(cfg, mgr, slog.Default(), filepath.Dir(dir))
 	s.ts = httptest.NewServer(s.server.Handler())
+	return nil
+}
+
+func (s *neuralDeepBDDState) signInBypassedProxyForLoopbackHub() error {
+	carried := s.proxy.Carried()
+	if len(carried) != 0 {
+		return fmt.Errorf("the loopback sign-in went through the proxy: %v", carried)
+	}
 	return nil
 }
 
@@ -644,6 +668,8 @@ func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the config gains the neuraldeep provider and its tier models$`, s.configGainedProviderAndModels)
 
 	sc.Step(`^a foxxycode HTTP server with a neuraldeep provider and a stand-in hub$`, s.startServerWithProvider)
+	sc.Step(`^a foxxycode HTTP server with a neuraldeep provider that names a proxy of its own, and a stand-in hub$`, s.startServerWithProxiedProvider)
+	sc.Step(`^the loopback sign-in bypassed that proxy$`, s.signInBypassedProxyForLoopbackHub)
 	sc.Step(`^I sign in to NeuralDeep through the device flow over REST$`, s.signInThroughRESTDeviceFlow)
 	sc.Step(`^the neuraldeep provider reports connected with a masked key$`, s.providerReportsConnectedMasked)
 	sc.Step(`^I sign out of NeuralDeep over REST$`, s.signOutOverREST)

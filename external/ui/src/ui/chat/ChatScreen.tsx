@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,6 +11,7 @@ import {
 import type { HeroAccentVerb } from "./heroTitleWords";
 import { finishedToolCalls } from "../changes/toolActivity";
 import type { PermissionResolvedState } from "./permissionTypes";
+import type { TurnOverride } from "./sessionSettings";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -18,12 +20,14 @@ import { ChatHeader } from "./ChatHeader";
 import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
-import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { SessionChangesCard } from "../changes/SessionChangesCard";
+import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
+import type { TurnProgress } from "./turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
 import {
@@ -76,10 +80,18 @@ export function ChatScreen(props: {
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
+  /** The session's permission mode chip and the settings armed for the next
+   *  turns (chat/sessionSettings.ts); passed through to the composer. */
+  permissionMode?: string;
+  configuredPermissionMode?: string;
+  onPermissionModeChange?: ((mode: string) => void) | undefined;
+  settingsOverrides?: TurnOverride[];
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
   /** Pass-through to Composer: captured paste-chip literals (see Composer). */
   onPasteChipCaptured?: (key: string, literal: string) => void;
+  /** `/docs [page or words]` typed in the composer opens the documentation reader. */
+  onDocsCommand?: (arg: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -113,18 +125,25 @@ export function ChatScreen(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  /** Every background task of this chat, for the opener under the transcript. */
+  /** Every background task of this chat, for the header control and the live line. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
   /** Opens the session diff viewer from the changed-files card under the transcript. */
   onOpenSessionChanges?: (path?: string) => void;
   /** Opens the full-screen review window from the card summary. */
   onOpenChangesViewer?: () => void;
+  /** The Tasks panel is showing, for the header control's expanded state. */
+  backgroundTasksOpen?: boolean;
+  onCloseBackgroundTasks?: () => void;
+  /** Re-read the task rows: a background subagent's prompt was answered here. */
+  onBackgroundTasksChanged?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -153,9 +172,15 @@ export function ChatScreen(props: {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
+  // One count for the live line and the header control.
+  const runningTasks = useMemo(
+    () => countRunningTasks(props.backgroundTasks ?? []),
+    [props.backgroundTasks],
+  );
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
+  const prevPermissionsForScrollRef = useRef(new Set<string>());
   // The scroll-tail reserve is written straight to this element, never held as
   // state: see the effect below for why React must stay out of this loop.
   const chatStackRef = useRef<HTMLDivElement | null>(null);
@@ -341,7 +366,24 @@ export function ChatScreen(props: {
     if (isEmpty) return;
     const prev = prevItemsForScrollRef.current;
     prevItemsForScrollRef.current = props.items;
-    if (!transcriptItemsAffectAutoScroll(prev, props.items)) {
+    // Polling replaces task rows even when nothing changed. Only a newly
+    // waiting call should follow the reader, never an elapsed-time update.
+    const permissions = new Set(
+      (props.backgroundTasks ?? [])
+        .filter(isAwaitingPermission)
+        .map((task) =>
+          JSON.stringify([
+            task.id,
+            task.pending_permission?.sessionId,
+            task.pending_permission?.toolCall.toolCallId,
+          ]),
+        ),
+    );
+    const newPermission = [...permissions].some(
+      (key) => !prevPermissionsForScrollRef.current.has(key),
+    );
+    prevPermissionsForScrollRef.current = permissions;
+    if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
       return;
     }
     // A jump already chases the end of a growing transcript; a hard scroll here
@@ -365,6 +407,7 @@ export function ChatScreen(props: {
     follow();
   }, [
     props.items,
+    props.backgroundTasks,
     isEmpty,
     mobileDocScroll,
     syncTranscriptPosition,
@@ -524,12 +567,27 @@ export function ChatScreen(props: {
                     }
                   : {})}
                 onModeChange={props.onModeChange}
+                {...(props.permissionMode !== undefined
+                  ? { permissionMode: props.permissionMode }
+                  : {})}
+                {...(props.configuredPermissionMode !== undefined
+                  ? { configuredPermissionMode: props.configuredPermissionMode }
+                  : {})}
+                {...(props.onPermissionModeChange
+                  ? { onPermissionModeChange: props.onPermissionModeChange }
+                  : {})}
+                {...(props.settingsOverrides
+                  ? { settingsOverrides: props.settingsOverrides }
+                  : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
                 {...(props.onPasteChipCaptured
                   ? { onPasteChipCaptured: props.onPasteChipCaptured }
                   : {})}
-                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                {...(props.onContextRingOpen
+                  ? { onContextRingOpen: props.onContextRingOpen }
+                  : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
@@ -587,6 +645,19 @@ export function ChatScreen(props: {
                         ),
                       }
                     : {})}
+                  {...(props.onOpenBackgroundTasks
+                    ? {
+                        tasks: props.backgroundTasks ?? [],
+                        // The header control is where the panel was opened
+                        // from, so a second click puts it away again.
+                        onOpenTasks:
+                          props.backgroundTasksOpen === true &&
+                          props.onCloseBackgroundTasks
+                            ? props.onCloseBackgroundTasks
+                            : props.onOpenBackgroundTasks,
+                        tasksOpen: props.backgroundTasksOpen === true,
+                      }
+                    : {})}
                 />
               </div>
             </div>
@@ -603,6 +674,13 @@ export function ChatScreen(props: {
                   : {})}
                 {...(props.onOpenSession
                   ? { onOpenSubagentTranscript: props.onOpenSession }
+                  : {})}
+                {...(props.turnProgress
+                  ? { turnProgress: props.turnProgress }
+                  : {})}
+                {...(runningTasks > 0 ? { runningTasks } : {})}
+                {...(props.onOpenBackgroundTasks
+                  ? { onOpenTasks: props.onOpenBackgroundTasks }
                   : {})}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
@@ -646,10 +724,10 @@ export function ChatScreen(props: {
                   ? { onStopBackgroundTask: props.onStopBackgroundTask }
                   : {})}
               />
-              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
-                <BackgroundTasksChip
+              {props.backgroundTasks ? (
+                <SubagentPermissionCards
                   tasks={props.backgroundTasks}
-                  onOpen={props.onOpenBackgroundTasks}
+                  onAnswered={() => props.onBackgroundTasksChanged?.()}
                 />
               ) : null}
               {props.onOpenSessionChanges &&
@@ -728,12 +806,27 @@ export function ChatScreen(props: {
                       }
                     : {})}
                   onModeChange={props.onModeChange}
+                  {...(props.permissionMode !== undefined
+                    ? { permissionMode: props.permissionMode }
+                    : {})}
+                  {...(props.configuredPermissionMode !== undefined
+                    ? { configuredPermissionMode: props.configuredPermissionMode }
+                    : {})}
+                  {...(props.onPermissionModeChange
+                    ? { onPermissionModeChange: props.onPermissionModeChange }
+                    : {})}
+                  {...(props.settingsOverrides
+                    ? { settingsOverrides: props.settingsOverrides }
+                    : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
                   {...(props.onPasteChipCaptured
                     ? { onPasteChipCaptured: props.onPasteChipCaptured }
                     : {})}
-                  {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                  {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                  {...(props.onContextRingOpen
+                    ? { onContextRingOpen: props.onContextRingOpen }
+                    : {})}
                   {...(props.generating === true && props.onStop !== undefined
                     ? { generating: true, onStop: props.onStop }
                     : {})}

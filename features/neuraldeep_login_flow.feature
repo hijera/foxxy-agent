@@ -30,3 +30,15 @@ Feature: Terminal sign-in to NeuralDeep works on a machine with no browser
     And this machine has a local browser
     When I run the terminal sign-in to NeuralDeep with --browser
     Then the stored key is the one the browser callback issued
+
+  @cli
+  Scenario: A local stand-in hub bypasses the provider proxy
+    Loopback traffic stays direct even when a provider row names a proxy.
+    The device flow and catalog still complete through the stand-in hub.
+
+    Given a stand-in NeuralDeep hub that serves both sign-in flows
+    And the neuraldeep provider in config.yaml names a proxy of its own
+    And this machine has no local browser
+    When I run the terminal sign-in to NeuralDeep
+    Then the stored key is the one the device flow issued
+    And the local hub was reached directly without using that proxy

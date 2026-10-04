@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/hijera/foxxycode-agent/internal/netx"
 )
 
 // TelegramBotTokenEnvVar is the environment variable consulted for the bot token
@@ -50,8 +48,8 @@ type TelegramGatewayConfig struct {
 	Enabled bool   `yaml:"enable"`
 	Token   string `yaml:"token"`
 
-	// Proxy is an optional outbound proxy for Telegram API requests.
-	// Supported schemes: http, https, socks5, socks5h.
+	// Proxy selects inherit (including an empty value), none, or an outbound
+	// HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram API requests.
 	// Example: "socks5h://127.0.0.1:1080" or "http://proxy.example.com:3128"
 	Proxy string `yaml:"proxy"`
 
@@ -95,7 +93,7 @@ type TelegramChatConfig struct {
 // Normalize trims whitespace in string fields.
 func (t *TelegramGatewayConfig) Normalize() {
 	t.Token = strings.TrimSpace(t.Token)
-	t.Proxy = strings.TrimSpace(t.Proxy)
+	t.Proxy = normalizeProxySetting(t.Proxy)
 	t.DefaultAccess = AccessLevel(strings.TrimSpace(string(t.DefaultAccess)))
 	t.DefaultIsolation = IsolationMode(strings.TrimSpace(string(t.DefaultIsolation)))
 }
@@ -127,10 +125,8 @@ func (t *TelegramGatewayConfig) Validate() error {
 	if !t.Enabled {
 		return nil
 	}
-	if strings.TrimSpace(t.Proxy) != "" {
-		if _, err := netx.ParseProxyURL(t.Proxy); err != nil {
-			return fmt.Errorf("gateways.telegram.proxy: %w", err)
-		}
+	if err := validateProxySetting(t.Proxy); err != nil {
+		return fmt.Errorf("gateways.telegram.%w", err)
 	}
 	return nil
 }

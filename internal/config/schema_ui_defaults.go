@@ -1,6 +1,7 @@
 package config
 
 func boolPtr(v bool) *bool { return &v }
+func intPtr(v int) *int    { return &v }
 
 // SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
@@ -34,7 +35,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	waitForLimitResetMaxMS := AgentDefaultWaitForLimitResetMaxMS
 	llmRetryMax := AgentDefaultLLMRetryMax
 	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
-	llmStallTimeoutMS := AgentDefaultLLMStallTimeoutMS
+	llmStreamIdleTimeoutMS := AgentDefaultLLMStreamIdleTimeoutMS
+	llmContinue := true
+	llmContinueMax := AgentDefaultLLMContinueMax
+	llmContinueRetryAfterMaxMS := AgentDefaultLLMContinueRetryAfterMaxMS
 	llmStallRetry := true
 	llmStallRetryMaxWaitMS := AgentDefaultLLMStallRetryMaxWaitMS
 	return &ConfigJSON{
@@ -50,23 +54,28 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			},
 		},
 		Agent: AgentJSON{
-			Model:                  "openai/gpt-5.6-terra",
-			MaxTurns:               AgentDefaultMaxTurns,
-			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
-			LLMRetryMax:            &llmRetryMax,
-			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
-			LLMFirstTokenTimeoutMS: &llmFirstTokenTimeoutMS,
-			LLMStallTimeoutMS:      &llmStallTimeoutMS,
-			LLMStallRetry:          &llmStallRetry,
-			LLMStallRetryDelaysMS:  append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
-			LLMStallRetryMaxWaitMS: &llmStallRetryMaxWaitMS,
-			LoopGuard:              &loopGuard,
-			LoopToolRepeatLimit:    &loopToolRepeatLimit,
-			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
-			LoopToolCycleRepeats:   &loopToolCycleRepeats,
-			LoopStuckAction:        AgentDefaultLoopStuckAction,
-			LoopNudgeMax:           &loopNudgeMax,
-			WaitForLimitResetMaxMS: &waitForLimitResetMaxMS,
+			Model:                      "openai/gpt-5.6-terra",
+			MaxTurns:                   AgentDefaultMaxTurns,
+			MaxTokensPerTurn:           AgentDefaultMaxTokensPerTurn,
+			LLMRetryMax:                &llmRetryMax,
+			LLMRetryBaseMS:             AgentDefaultLLMRetryBaseMS,
+			LLMFirstTokenTimeoutMS:     &llmFirstTokenTimeoutMS,
+			LLMStreamIdleTimeoutMS:     &llmStreamIdleTimeoutMS,
+			LLMStallRetry:              &llmStallRetry,
+			LLMStallRetryDelaysMS:      append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
+			LLMStallRetryMaxWaitMS:     &llmStallRetryMaxWaitMS,
+			LLMContinue:                &llmContinue,
+			LLMContinueMax:             &llmContinueMax,
+			LLMContinueStallDelaysMS:   append([]int(nil), agentDefaultLLMContinueStallDelaysMS...),
+			LLMContinueErrorDelaysMS:   append([]int(nil), agentDefaultLLMContinueErrorDelaysMS...),
+			LLMContinueRetryAfterMaxMS: &llmContinueRetryAfterMaxMS,
+			LoopGuard:                  &loopGuard,
+			LoopToolRepeatLimit:        &loopToolRepeatLimit,
+			LoopStreamRepeatCycles:     &loopStreamRepeatCycles,
+			LoopToolCycleRepeats:       &loopToolCycleRepeats,
+			LoopStuckAction:            AgentDefaultLoopStuckAction,
+			LoopNudgeMax:               &loopNudgeMax,
+			WaitForLimitResetMaxMS:     &waitForLimitResetMaxMS,
 		},
 		Autocomplete: AutocompleteJSON{
 			Enabled:        &autocompleteEnabled,
@@ -129,6 +138,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Enabled:          false,
 			Model:            "",
 			Dir:              "",
+			WaitSeconds:      intPtr(MemoryDefaultWaitSeconds),
+			TimeoutSeconds:   MemoryDefaultTimeoutSeconds,
+			KeepRuns:         intPtr(MemoryDefaultKeepRuns),
 			RecallMaxTurns:   6,
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,

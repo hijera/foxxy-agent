@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -162,6 +163,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/workspace/folders", s.foxxycodeWorkspaceFoldersPost)
 	s.mux.HandleFunc("GET /foxxycode/workspace/file", s.foxxycodeWorkspaceFileGet)
 	s.mux.HandleFunc("POST /foxxycode/workspace/relativize", s.foxxycodeWorkspaceRelativizePost)
+	s.mux.HandleFunc("GET /foxxycode/mentions", s.foxxycodeMentionsGet)
+	s.mux.HandleFunc("POST /foxxycode/mentions/check", s.foxxycodeMentionsCheckPost)
 	s.mux.HandleFunc("GET /foxxycode/slash-commands", s.foxxycodeSlashCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/commands", s.foxxycodeCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions", s.foxxycodeSessionsList)
@@ -208,6 +211,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerQueueRoutes()
 	s.registerSubagentRoutes()
 	s.registerHookRoutes()
+	s.registerDocsRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerChangesRoutes()
@@ -1079,8 +1083,41 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 	if st := s.mgr.SessionByID(id); st != nil {
 		out["messageSeq"] = st.MessageCount()
 	}
+	s.addTurnProgress(out, id)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// addTurnProgress puts the clock and the token count of the turn id is running in this
+// process into an activity answer. A client that joins the turn late reads them here: the
+// composer relay does not replay a turn_progress frame the client's transcript snapshot
+// already covers. A turn held by another process leaves the fields out.
+func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
+	startedAt, ok := s.mgr.TurnStartedAt(id)
+	if !ok {
+		return
+	}
+	out["turnStartedAt"] = startedAt.UTC().Format(time.RFC3339Nano)
+	// The age is taken before the count is read, and the loop dates a frame after it
+	// stored the count (agent/turn_progress.go): a client that orders the two by age
+	// never takes an answer that saw the older count for the newer one.
+	elapsed := time.Since(startedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	out["turnElapsedMs"] = elapsed.Milliseconds()
+	// A turn finished background tasks started carries the tasks, in the shape
+	// of the background_wake frame: a client resuming the session mid-turn
+	// learns that nobody typed it, and a console over --remote follows it.
+	if wake := s.mgr.TurnWake(id); wake != nil {
+		out["backgroundWake"] = map[string]interface{}{"tasks": session.BackgroundWakeUpdate(wake).Tasks}
+	}
+	if st := s.mgr.SessionByID(id); st != nil {
+		if progress, running := st.TurnProgress(); running {
+			out["turnOutputTokens"] = progress.OutputTokens
+			out["turnTokensEstimated"] = progress.Estimated
+		}
+	}
 }
 
 func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
@@ -1127,7 +1164,7 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []
 		}
 		// Compaction markers so the SPA renders the summary row as its own
 		// CompactionMessage foldout and hides messages folded away by the
-		// opencode engine. The coddy engine sets compaction_summary; the
+		// opencode engine. The foxxycode engine sets compaction_summary; the
 		// opencode engine additionally sets compacted on the folded head.
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
@@ -1139,6 +1176,10 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []
 		// running turn can find the prompt the turn started from.
 		if m.Queued && m.Role == llm.RoleUser {
 			item["queued"] = true
+		}
+		if m.Role == llm.RoleUser && m.BackgroundWake != nil {
+			// Nobody typed this message: a woken turn opened with it.
+			item["background_wake"] = m.BackgroundWake
 		}
 		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
@@ -1266,10 +1307,15 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 		"messagesRev": rev,
 	}
 	// A child session is a read-only transcript: the SPA drops the composer
-	// and links back to the parent chat and to the task in its drawer.
+	// and links back to the parent chat and to the task in its drawer, or to
+	// the job's runs for a scheduled run. The session of a scheduler job is
+	// read-only too, and names its job.
 	if meta := st.Subagent(); meta != nil {
 		out["readOnly"] = true
-		out["subagent"] = subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
+		out["subagent"] = subagentMetaLink(meta)
+	} else if st.IsSchedulerJob() {
+		out["readOnly"] = true
+		out["schedulerJob"] = map[string]interface{}{"jobId": st.GetSchedulerJobID()}
 	}
 	// An archived session is where the composer learns it must not offer a
 	// prompt. It cannot be read off the session listing: that skips the archive,
@@ -1284,6 +1330,11 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 		// The session profile, so a remote client restores it on load instead of
 		// dropping every reopened session back to agent.
 		out["mode"] = string(st.GetMode())
+		// The whole snapshot, versioned: what the composer mirrors and what
+		// it names in metadata.settingsVersion when it sends.
+		if snap, err := s.mgr.SessionSettings(id); err == nil {
+			out["settings"] = snap
+		}
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
@@ -1297,11 +1348,6 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 			})
 		}
 		out["uiLog"] = rows
-	}
-	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
-		if env, err := session.ReadMemoryTrace(sd); err == nil && env != nil && len(env.Turns) > 0 {
-			out["memoryTurns"] = env.Turns
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
@@ -1320,14 +1366,19 @@ func (s *Server) foxxycodeSessionPatch(w http.ResponseWriter, r *http.Request) {
 		// pinned title of its own, so a name the operator or the model wrote
 		// during that first turn is not overwritten seconds later by an answer
 		// that was already in flight.
-		TitleIfUnpinned   bool      `json:"titleIfUnpinned"`
-		MarkActivityRead  bool      `json:"markActivityRead"`
-		SelectedModelID   *string   `json:"selectedModelId"`
-		SelectedReasoning *string   `json:"selectedReasoning"`
-		Mode              *string   `json:"mode"`
-		Tags              *[]string `json:"tags"`
-		Archived          *bool     `json:"archived"`
-		Pinned            *bool     `json:"pinned"`
+		TitleIfUnpinned   bool    `json:"titleIfUnpinned"`
+		MarkActivityRead  bool    `json:"markActivityRead"`
+		SelectedModelID   *string `json:"selectedModelId"`
+		SelectedReasoning *string `json:"selectedReasoning"`
+		// Mode and PermissionMode are the operating mode and the permission
+		// mode; Turns > 0 changes the settings of this request for that many
+		// turns instead of for the session (the --count of a command).
+		Mode           *string   `json:"mode"`
+		PermissionMode *string   `json:"permissionMode"`
+		Turns          int       `json:"turns"`
+		Tags           *[]string `json:"tags"`
+		Archived       *bool     `json:"archived"`
+		Pinned         *bool     `json:"pinned"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -1353,37 +1404,71 @@ func (s *Server) foxxycodeSessionPatch(w http.ResponseWriter, r *http.Request) {
 		"id":     id,
 	}
 	did := false
-	// The session profile, so the composer's Mode survives a reload even when
-	// the user switched it without sending a turn. A turn writes it too
-	// (POST /v1/responses carries the profile as its top-level model), but that
-	// leaves the gap between picking a mode and using it.
-	if patchMode != "" {
-		st.SetMode(patchMode)
-		did = true
-		resp["mode"] = string(st.GetMode())
-	}
+	// The settings go through the manager's setter, like every other
+	// surface's, so the change is validated once, logged, and mirrored by
+	// every client watching the session (event: session_settings).
+	change := session.SettingsChange{Source: "web", Turns: body.Turns}
+	clearModel := false
 	if body.SelectedModelID != nil {
-		if err := applySessionYAMLModel(s.activeCfg(), st, *body.SelectedModelID); err != nil {
-			if errors.Is(err, ErrUnknownMetadataModel) {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
-				return
-			}
-			http.Error(w, `{"error":{"message":"invalid selectedModelId"}}`, http.StatusBadRequest)
+		mid := strings.TrimSpace(*body.SelectedModelID)
+		switch {
+		case mid == "":
+			// Clearing the selection goes back to the configured agent model.
+			clearModel = true
+		case s.activeCfg() == nil || s.activeCfg().FindModelEntry(mid) == nil:
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, ErrUnknownMetadataModel.Error()), http.StatusBadRequest)
 			return
-		}
-		did = true
-		resp["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
-		if s.activeCfg() != nil {
-			resp["model"] = effectiveYAMLModel(s.activeCfg(), st)
+		default:
+			change.Model = &mid
 		}
 	}
 	if body.SelectedReasoning != nil {
-		if err := applySessionReasoning(s.activeCfg(), st, *body.SelectedReasoning); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		level := strings.TrimSpace(*body.SelectedReasoning)
+		if change.Model == nil {
+			if err := applySessionReasoning(s.activeCfg(), st, level); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+		}
+		change.Reasoning = &level
+	}
+	change.Mode = body.Mode
+	change.PermissionMode = body.PermissionMode
+	if clearModel {
+		if body.Turns > 0 {
+			http.Error(w, `{"error":{"message":"selectedModelId cannot be cleared for a number of turns"}}`, http.StatusBadRequest)
+			return
+		}
+		st.SetSelectedModelID("")
+		st.ClearTurnOverride(session.SettingModel)
+	}
+	if !change.Empty() || clearModel {
+		var snap acp.SessionSettings
+		var err error
+		if change.Empty() {
+			snap = s.mgr.PublishSessionSettings(id, st, "", "web")
+		} else {
+			snap, err = s.mgr.ApplySessionSettings(r.Context(), id, change)
+		}
+		if err != nil {
+			code := http.StatusBadRequest
+			if isSubagentReadOnly(err) {
+				code = http.StatusConflict
+			}
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
 			return
 		}
 		did = true
-		resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+		resp["settings"] = snap
+		if body.SelectedModelID != nil {
+			resp["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
+			if s.activeCfg() != nil {
+				resp["model"] = effectiveYAMLModel(s.activeCfg(), st)
+			}
+		}
+		if body.SelectedReasoning != nil {
+			resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+		}
 	}
 	if body.MarkActivityRead {
 		st.MarkActivityReadSynced()

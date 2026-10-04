@@ -159,7 +159,11 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
     case "glob":
       return stringArg(args, "pattern");
     case "websearch":
+    case "foxxycode_docs_search":
       return stringArg(args, "query");
+    case "foxxycode_docs_read":
+      // A page of the documentation built into the binary, with its section.
+      return stringArg(args, "page");
     case "http_request": {
       // The method is half of what a request does; the url alone reads like a fetch.
       const method = stringArg(args, "method").toUpperCase();
@@ -215,6 +219,9 @@ export function toolCallTargetIsPath(
     case "glob":
     case "websearch":
     case "webfetch":
+    case "http_request":
+    case "foxxycode_docs_search":
+    case "foxxycode_docs_read":
     case "spawn_agent":
     case "load_skill":
     case "question":

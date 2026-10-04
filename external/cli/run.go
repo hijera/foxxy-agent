@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -217,6 +219,7 @@ func Run(args []string, deps CommandDeps) error {
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
+		startScheduler(ctx, cfg, mgr, log)
 		return PrintPrompt(ctx, mgr, popts)
 	}
 
@@ -279,7 +282,26 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
+	// A task the model started with notify_on_finish begins its own turn in
+	// this console when it ends. A console attached to a remote server does
+	// not attach one (buildRemoteApp): the server's pool runs its tasks and
+	// the server wakes the agent.
+	app.attachBackgroundWaker(bgtask.Default())
+	startScheduler(context.Background(), cfg, mgr, log)
 	return app
+}
+
+// startScheduler runs the cron daemon in this console process when the
+// configuration (or --scheduler) asks for it. A scheduled run is a child of
+// its job session through the manager, which is why it starts only once the
+// manager exists; a binary built without the scheduler tag does nothing here.
+func startScheduler(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *slog.Logger) {
+	if cfg == nil || mgr == nil || !cfg.SchedulerEffectiveEnabled() {
+		return
+	}
+	scheduler.Start(ctx, scheduler.Options{
+		Cfg: mgr.Cfg, Log: log, ProcessCWD: cfg.Paths.CWD, Mgr: mgr, Pool: bgtask.Default(),
+	})
 }
 
 // newTurnAgent builds the ReAct agent for one local console turn on the
@@ -291,6 +313,15 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 // model catalog, footer, and header follow the file.
 func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.UpdateSender, log *slog.Logger) *agent.Agent {
 	loop := agent.NewAgent(mgr.Cfg(), st, snd, log)
+	// The manager owns child sessions, so a turn on this surface can spawn
+	// subagents like every other surface.
+	loop.SetSubagentRuntime(mgr)
+	// A background subagent outlives this turn; while the console is open it
+	// asks through the same modal. One-shot print mode exits with its turn and
+	// has no console, so its detached children are refused with a reason.
+	if app != nil {
+		loop.SetDetachedPermissionBroker(app)
+	}
 	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := mgr.ReloadConfigForSession(ctx, st)
 		if err == nil && app != nil {
@@ -426,7 +457,15 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		app.populateHeader()
 	}
 
-	return app.Run(ctx)
+	runErr := app.Run(ctx)
+	// The console does not drain the pool: a memory run still persisting
+	// would die with the process. Give it the drain grace, as foxxycode serve
+	// does before it stops the pool.
+	if agent.MemoryRunsInFlight() > 0 {
+		_, _ = fmt.Fprintln(os.Stderr, "finishing the memory subagent of the last turn...")
+		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
+	}
+	return runErr
 }
 
 // isolatedLogger forces log output away from the terminal: exactly one file

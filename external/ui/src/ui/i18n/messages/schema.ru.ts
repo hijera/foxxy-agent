@@ -28,8 +28,8 @@ export const schemaTextRu: Record<string, string> = {
   "Wire protocol for this provider entry.":
     "Протокол обмена для этой записи провайдера.",
   "API base URL": "Базовый URL API",
-  "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.":
-    "Необязательная замена базового URL API. Для neuraldeep выбирает площадку — https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первой. Игнорируется для codex: он использует фиксированный официальный адрес.",
+  "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex and devin, which use their official endpoints.":
+    "Необязательная замена базового URL API. Для neuraldeep выбирает площадку — https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первой. Игнорируется для codex и devin: они используют свои официальные адреса.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -166,9 +166,9 @@ export const schemaTextRu: Record<string, string> = {
   "LLM first token timeout ms": "Таймаут первого токена LLM (мс)",
   "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).":
     "Сколько потоковый вызов LLM может молчать, прежде чем ход его отменит (явный 0 отключает защиту).",
-  "LLM stall timeout ms": "Таймаут обрыва потока LLM (мс)",
-  "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).":
-    "Сколько потоковый вызов LLM, уже выдавший часть ответа, может не подавать признаков жизни, прежде чем ход оборвёт его и сохранит начатый ответ (явный 0 отключает защиту).",
+  "LLM stream idle timeout ms": "Таймаут простоя потока LLM (мс)",
+  "How long a streamed LLM call that has already delivered something may deliver nothing more before the stream is cut as stalled; the partial answer is kept. Keep-alive comments do not count as delivery (an explicit 0 disables the guard).":
+    "Сколько потоковый вызов LLM, уже выдавший часть ответа, может больше ничего не присылать, прежде чем поток будет оборван как зависший; начатый ответ сохраняется. Keep-alive-комментарии не считаются (явный 0 отключает защиту).",
   "Retry a failed provider call": "Повторять неудавшийся запрос к провайдеру",
   "When a model call fails without producing any output - silence, a dropped connection, a provider timeout, a 5xx - wait and send the same request again instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so nothing can be duplicated. Off restores the immediate error.":
     "Если вызов модели упал, не выдав ничего — молчание, обрыв соединения, таймаут провайдера, 5xx — подождать и отправить тот же запрос снова, вместо того чтобы завалить ход. Запрос, отвергнутый сервером (4xx), не повторяется, равно как и вызов, успевший что-то выдать, — так что текст не задваивается. Выключено — сразу ошибка, как раньше.",
@@ -178,6 +178,21 @@ export const schemaTextRu: Record<string, string> = {
   "Retry budget ms": "Бюджет повторов (мс)",
   "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.":
     "Сколько всего времени можно потратить на паузы между повторами одного вызова, прежде чем ход сдастся и покажет ошибку. Явный 0 — повторять, пока модель не ответит или пока вы не нажмёте «Стоп».",
+  "Continue a cut answer": "Продолжать оборванный ответ",
+  "When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.":
+    "Если провайдер оборвал ответ, в котором уже есть текст (поток завис, прервался или вернул 5xx), текст сохраняется, и модель просят продолжить с места обрыва. Выключено — ход завершается на обрыве, сохраняет текст и объясняет причину.",
+  "Continuation limit": "Лимит продолжений",
+  "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).":
+    "Сколько раз за один ход можно продолжить оборванный ответ, прежде чем ход завершится с уведомлением (0 — завершать ход при первом обрыве).",
+  "Continuation delays after an error ms": "Паузы перед продолжением после ошибки (мс)",
+  "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.":
+    "Пауза перед каждым продолжением после того, как сбой провайдера оборвал ответ (5xx, обрыв потока), в миллисекундах. Последнее значение повторяется.",
+  "Longest Retry-After ms": "Предел Retry-After (мс)",
+  "Longest pause a provider may ask for (Retry-After) before a cut answer is carried on (an explicit 0 ignores Retry-After).":
+    "Самая длинная пауза, которую провайдер может запросить (Retry-After) перед продолжением оборванного ответа (явный 0 — не учитывать Retry-After).",
+  "Continuation delays ms": "Паузы перед продолжением (мс)",
+  "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.":
+    "Пауза перед каждым продолжением после зависания, в миллисекундах. Последнее значение повторяется; по умолчанию 0 — продолжать сразу, потому что защита уже выждала тишину.",
   "Loop guard": "Защита от зацикливания",
   "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.":
     "Останавливать ответ, выродившийся в повтор самого себя, блокировать инструмент, который вызывают снова и снова с теми же аргументами, и блокировать последовательность вызовов, которую модель крутит по кругу.",
@@ -316,25 +331,40 @@ export const schemaTextRu: Record<string, string> = {
 
   // Memory
   "Long-term memory": "Долговременная память",
-  "Optional memory copilot (requires memory build tag and provider).":
-    "Необязательный копилот памяти (требует сборки с тегом memory и провайдера).",
-  "Turns on the memory copilot for eligible builds.":
-    "Включает копилот памяти для поддерживаемых сборок.",
+  "Optional memory subagent (requires the memory build tag and a provider).":
+    "Необязательный агент памяти (требует сборки с тегом memory и провайдера).",
+  "Runs the memory subagent on every user turn (memory build tag).":
+    "Запускает агента памяти на каждом ходе пользователя (требуется тег memory).",
   "Memory model": "Модель памяти",
-  "Logical model override for memory LLM calls; empty uses agent model.":
-    "Замена логической модели для вызовов LLM памяти; пусто — используется модель агента.",
+  "Logical model the memory subagent runs on; empty uses the session's model.":
+    "Логическая модель агента памяти; если поле пусто, используется модель сессии.",
   "Memory root": "Корень памяти",
   "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory.":
     "Корневой каталог файловой системы для markdown памяти; пусто — ${FOXXYCODE_HOME}/memory.",
   "Recall max turns": "Макс. шагов извлечения",
-  "Bounds recall-side LLM rounds in the memory loop.":
-    "Ограничивает раунды LLM на стороне извлечения в цикле памяти.",
+  "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two.":
+    "Ограничивает шаги агента памяти вместе с persist_max_turns; действует большее из двух значений.",
   "Persist max turns": "Макс. шагов сохранения",
-  "Bounds persist-side LLM rounds in the memory loop.":
-    "Ограничивает раунды LLM на стороне сохранения в цикле памяти.",
-  "Copilot max tokens": "Макс. токенов копилота",
-  "Completion token cap for memory copilot calls.":
-    "Лимит токенов ответа для вызовов копилота памяти.",
+  "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two.":
+    "Ограничивает шаги агента памяти вместе с recall_max_turns; действует большее из двух значений.",
+  "Max tokens per call": "Макс. токенов на вызов",
+  "Completion token cap for the memory model's calls.":
+    "Лимит токенов ответа для вызовов модели памяти.",
+  "Wait for the report (seconds)": "Ожидание отчёта (с)",
+  "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).":
+    "Сколько ход ждёт отчёта агента памяти перед первым вызовом модели; 0 — не ждать (по умолчанию 20).",
+  "Run timeout (seconds)": "Лимит времени запуска (с)",
+  "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300).":
+    "Жёсткий лимит одного запуска памяти с учётом tools.background.max_timeout_seconds (по умолчанию 300).",
+  "Runs kept per session": "Запусков на сессию",
+  "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20).":
+    "Число завершённых запусков памяти в панели задач на сессию вместе с журналами и дочерними транскриптами; 0 сохраняет все (по умолчанию 20).",
+  "Additional instructions": "Дополнительные инструкции",
+  "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.":
+    "Ваши инструкции для агента памяти в его системном запросе; основной агент их не видит.",
+  "Additional instructions cap (characters)": "Лимит дополнительных инструкций (символы)",
+  "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap.":
+    "Более длинные инструкции обрезаются до указанного числа символов с предупреждением в журнале; 0 снимает лимит.",
   "Max search hits": "Макс. результатов поиска",
   "Maximum snippets returned by memory search tools.":
     "Максимальное число фрагментов, возвращаемых инструментами поиска по памяти.",
@@ -355,8 +385,8 @@ export const schemaTextRu: Record<string, string> = {
   "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.":
     "Модели сводки, которые пробуются по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
   "Fallback memory models": "Запасные модели памяти",
-  "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.":
-    "Модели, которые копилот памяти пробует по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
+  "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.":
+    "Модели, которые агент памяти пробует по порядку при сбое до начала ответа. Модель сессии остаётся последним вариантом, даже если её нет в списке.",
   "Threshold percent": "Порог, %",
   "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
     "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
@@ -396,22 +426,22 @@ export const schemaTextRu: Record<string, string> = {
 
   // Scheduler
   Scheduler: "Планировщик",
-  "Cron-style scheduled jobs (requires scheduler build tag).":
-    "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler).",
+  "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.":
+    "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler). Каждый запуск — фоновая агентная задача в постоянной сессии задания, где хранится история запусков.",
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
     "Каталог с markdown-описаниями задач.",
   "Max queue": "Макс. очередь",
-  "Maximum concurrent scheduled agent runs.":
-    "Максимальное число одновременных запусков агента по расписанию.",
-  "Job timeout": "Таймаут задачи",
-  "Per-job wall-clock limit, e.g. 30m or 1h30m.":
-    "Ограничение реального времени на задачу, например 30m или 1h30m.",
-  "Retain sessions": "Хранить сессии",
-  "How many completed scheduler session folders to keep per job id.":
-    "Сколько папок завершённых сессий планировщика хранить на каждый id задачи.",
+  "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.":
+    "Максимум одновременных запусков всех заданий. Превышающий лимит запуск по расписанию пропускается, а ручной отклоняется.",
+  "Run timeout": "Таймаут запуска",
+  "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds).":
+    "Ограничение времени одного запуска, например 30m или 1h30m (с учётом предела tools.background.max_timeout_seconds).",
+  "Retain runs": "Хранить запуски",
+  "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes.":
+    "Число завершённых запусков на каждое задание (записи задач и транскрипты). Более старые удаляются при завершении нового запуска.",
 
   // Prompts
   Prompts: "Промпты",
@@ -671,6 +701,11 @@ export const schemaTextRu: Record<string, string> = {
   "Allowlist": "Список разрешённых",
   "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.":
     "Назначения, к которым обращаются без вопроса: хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/); «*» разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат; для прокси нужна своя запись, а сохранение ответа в файл подчиняется политике записи.",
+  "Proxy URL": "URL прокси",
+  "Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.":
+    "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для провайдера. URL заменяет унаследованный прокси; NO_PROXY и локальные адреса обходят его. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую. Редактор URL защищает учётные данные.",
+  "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.":
+    "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для Telegram. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую.",
 };
 
 /**
@@ -684,6 +719,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   anthropic: "Anthropic",
   neuraldeep: "NeuralDeep",
   codex: "Codex",
+  devin: "Devin",
   // tools.permission_mode / mcp.project_trust / subagents.project_trust
   ask: "Спрашивать",
   allow: "Разрешать",

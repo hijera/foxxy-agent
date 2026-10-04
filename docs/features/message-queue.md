@@ -6,7 +6,7 @@ A message written **during** a turn is therefore queued on the session instead o
 
 ## What the agent sees
 
-A queued message becomes an ordinary user message in the conversation, at the point where it was read. Nothing tells the model it was queued: it is a person talking in the middle of the work, which is what it is. The stored message carries a `queued` flag that only clients read - a client re-attaching to the running turn uses it to tell the prompt the turn started from apart from the follow-ups the turn's stream replays. Several messages written during the same step are read together, in the order they were written.
+A queued message becomes an ordinary user message in the conversation at the point where it was read. The model sees its `@` mentions and `/skill` invocations resolved as for any prompt; it is not told that the message was queued ([Mentions](mentions.md)). The stored message carries a `queued` flag for clients reconnecting to the running turn. Several messages written during one step are read together in order.
 
 The read happens at two places in the turn, and both are the same idea — the earliest moment the model can act on it:
 
@@ -94,6 +94,8 @@ The fork's turn lock fails fast instead of queueing, so a prompt the console pos
 | `DELETE /foxxycode/sessions/{id}/queue` | Drop everything waiting. |
 
 A session with no turn running answers **409** with code `no_active_turn`; a full queue answers **409** with `queue_full`; a child session answers **409** with `subagent_read_only`; a turn running in another FoxxyCode process over the same home answers **409** with `session_busy`. The refusal codes are what a client branches on — the SPA turns `no_active_turn` into an ordinary `POST /v1/responses`, so a turn that ends between the keystroke and the request never loses what was typed.
+
+Settings commands at the start of a queued text (`/model x`, `/permissions bypass`) apply at once and only the remaining text is queued. A message containing only settings commands queues nothing. A turn-scoped command with text answers **409** with `turn_scoped_follow_up`, since a queued message has no turn of its own ([Session settings](session-settings.md#what-happens-when-you-send-one)).
 
 Every change is published as `event: message_queue` with the full list and its version, on the turn's stream and on `GET /foxxycode/events` alike; a message the agent reads arrives on the turn's stream as `event: user_message`, at the point it entered the conversation. Full shapes: [HTTP API](../reference/http-api.md).
 

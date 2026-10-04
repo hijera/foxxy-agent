@@ -139,6 +139,8 @@ func displayBase(prov *config.ProviderConfig) string {
 		return llm.NeuralDeepDefaultAPIBase()
 	case "codex":
 		return "the Codex backend"
+	case "devin":
+		return llm.DevinAPIServerURL()
 	default:
 		return llm.OpenAIDefaultAPIBase()
 	}
@@ -166,8 +168,8 @@ func classifyProviderError(prov *config.ProviderConfig, base string, err error) 
 		return fmt.Sprintf("%s answered HTTP 404 to the model list", base), fix
 	case "":
 		fix := "check api_base and that the server is running"
-		if strings.TrimSpace(prov.Proxy) != "" {
-			fix += "; the request went through proxy " + netx.RedactProxyURL(strings.TrimSpace(prov.Proxy))
+		if route := providerRoute(prov, base); route != "" {
+			fix += "; " + route
 		}
 		return fmt.Sprintf("cannot reach %s: %s", base, shortErr(err)), fix
 	default:
@@ -175,11 +177,36 @@ func classifyProviderError(prov *config.ProviderConfig, base string, err error) 
 	}
 }
 
+// providerRoute explains the selected route without exposing proxy credentials.
+func providerRoute(prov *config.ProviderConfig, base string) string {
+	mode, configured, err := config.ParseProxySetting(prov.Proxy)
+	if err != nil {
+		return ""
+	}
+	switch mode {
+	case config.ProxyModeNone:
+		return "the request went direct (proxy: none)"
+	case config.ProxyModeURL:
+		return "configured proxy " + netx.RedactProxyURL(configured.String()) + " (NO_PROXY or loopback may bypass it)"
+	}
+	target, err := url.Parse(base)
+	if err != nil || target.Host == "" {
+		return ""
+	}
+	route, err := netx.EnvironmentProxyResolver()(target)
+	if err != nil || route.Proxy == nil {
+		return ""
+	}
+	return "the request used the environment or system proxy " + netx.RedactProxyURL(route.Proxy.String()) + "; set proxy: none to connect directly"
+}
+
 // credentialFix names the credential a provider type actually uses.
 func credentialFix(prov *config.ProviderConfig) string {
 	switch prov.Type {
 	case "codex":
 		return fmt.Sprintf("run `foxxycode providers login %s` to sign in again", prov.Name)
+	case "devin":
+		return fmt.Sprintf("run `foxxycode providers login %s` to sign in again (or `devin auth login`), or check api_key if you set one", prov.Name)
 	case "neuraldeep":
 		return fmt.Sprintf("run `foxxycode providers login %s` again, or check api_key if you set one", prov.Name)
 	default:

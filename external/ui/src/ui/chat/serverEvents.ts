@@ -1,5 +1,9 @@
 import { parseSSEBlocks } from "./sse";
 import type { ProviderUsage } from "./providerUsage";
+import {
+  sessionSettingsEventOf,
+  type SessionSettingsEvent,
+} from "./sessionSettings";
 
 /** What a caller does with the events of `GET /foxxycode/events`. */
 export type ServerEventHandlers = {
@@ -23,6 +27,15 @@ export type ServerEventHandlers = {
    *  the set when this arrives rather than when the stream ends, which the capture
    *  can still be racing. */
   onSessionChanges?: (sessionId: string) => void;
+  /** A session's settings changed - model, reasoning, mode, permission mode,
+   *  the overrides for the next turns - from any surface. Carries the whole
+   *  versioned snapshot and a notice of what changed. */
+  onSessionSettings?: (event: SessionSettingsEvent) => void;
+  /** A background subagent of this parent session started waiting for a
+   *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
+   *  run ended). The prompt itself waits on the subagent's task row, so the
+   *  chat of that session re-reads its tasks. */
+  onSubagentPermission?: (parentSessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -48,7 +61,9 @@ export type ServerEvent =
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
   | { type: "session_changes"; sessionId: string }
+  | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "config_reloaded" }
+  | { type: "subagent_permission"; parentSessionId: string }
   | { type: "ready" };
 
 /** One session's message queue as the server event carries it. */
@@ -120,6 +135,17 @@ function sessionIdOf(data: string): string {
   }
 }
 
+function parentSessionIdOf(data: string): string {
+  try {
+    const parsed = JSON.parse(data) as { parentSessionId?: unknown };
+    return typeof parsed.parentSessionId === "string"
+      ? parsed.parentSessionId.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 /** parseServerEvent reads one SSE block of the stream; null for anything a client ignores. */
 export function parseServerEvent(ev: {
   event: string;
@@ -136,9 +162,20 @@ export function parseServerEvent(ev: {
       const parsed = messageQueueOf(ev.data);
       return parsed ? { type: "message_queue", ...parsed } : null;
     }
+    case "session_settings": {
+      const parsed = sessionSettingsEventOf(ev.data);
+      return parsed ? { type: "session_settings", event: parsed } : null;
+    }
     case "config_reloaded":
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
+    case "subagent_permission": {
+      // A frame naming no parent belongs to no chat.
+      const parent = parentSessionIdOf(ev.data);
+      return parent
+        ? { type: "subagent_permission", parentSessionId: parent }
+        : null;
+    }
     case "turn_started":
     case "turn_ended":
     case "session_changes": {
@@ -168,8 +205,14 @@ export function dispatchServerEvent(
     case "session_changes":
       h.onSessionChanges?.(event.sessionId);
       return;
+    case "session_settings":
+      h.onSessionSettings?.(event.event);
+      return;
     case "config_reloaded":
       h.onConfigReloaded?.();
+      return;
+    case "subagent_permission":
+      h.onSubagentPermission?.(event.parentSessionId);
       return;
     case "turn_started":
       h.onTurnStarted(event.sessionId);

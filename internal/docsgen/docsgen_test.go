@@ -356,7 +356,7 @@ func TestCheckLinksAcceptsExplicitHTMLAnchors(t *testing.T) {
 func TestHelpScreensDoNotCarryTheMachine(t *testing.T) {
 	out := "Usage of C:\\tmp\\docsgen-1\\foxxycode.exe:\r\n  -home string\r\n    \tstate directory (default \"C:\\Temp\")\r\n"
 	got := normalizeHelp(out, "C:\\tmp\\docsgen-1\\foxxycode.exe", "C:\\Temp")
-	want := "Usage of foxxycode:\n  -home string\n    \tstate directory (default \"~/.foxxycode\")"
+	want := "Usage of foxxycode:\n  -home string\n        state directory (default \"~/.foxxycode\")"
 	if got != want {
 		t.Fatalf("normalizeHelp =\n%q\nwant\n%q", got, want)
 	}

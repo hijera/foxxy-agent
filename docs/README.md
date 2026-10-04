@@ -1,6 +1,6 @@
 # FoxxyCode documentation
 
-FoxxyCode is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, the IntelliJ and VS Code plugins, a desktop window on Windows, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.foxxycode`. FoxxyCode is a fork of [coddy-agent](https://github.com/coddy-project/coddy-agent); what it adds is in [FoxxyCode and coddy-agent](getting-started/foxxycode-and-coddy.md).
+FoxxyCode is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, the IntelliJ and VS Code plugins, a desktop window on Windows, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.foxxycode`. FoxxyCode is a fork of [foxxy-agent](https://github.com/hijera/foxxy-agent); what it adds is in [FoxxyCode and foxxy-agent](getting-started/foxxycode-and-coddy.md).
 
 New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds <https://hijera.github.io/foxxy-agent/llms.txt> and <https://hijera.github.io/foxxy-agent/llms-full.txt> for agents that read documentation, built on every website run and published from there rather than kept here. How the pages are organised and what a change to FoxxyCode must carry into them is in [Writing documentation](contributing/documentation.md).
 
@@ -10,7 +10,7 @@ New here? Read [Quickstart](getting-started/quickstart.md), then the page of the
 Install FoxxyCode, give it a model, run it for the first time and keep it updated.
 
 - [Quickstart](getting-started/quickstart.md) - From a fresh install to the first answer in five minutes, on the console, in the browser and from an editor.
-- [FoxxyCode and coddy-agent](getting-started/foxxycode-and-coddy.md) - What this fork adds over upstream coddy-agent - the IDE plugins, the desktop window, the browser tool and the rest - and how it follows upstream.
+- [FoxxyCode and foxxy-agent](getting-started/foxxycode-and-coddy.md) - What this fork adds over upstream foxxy-agent - the IDE plugins, the desktop window, the browser tool and the rest - and how it follows upstream.
 - [Install](getting-started/install.md) - Release archives, Linux .deb and .rpm packages, Homebrew, the IntelliJ and VS Code plugins, Windows paths, manual placement.
 - [Configuration](getting-started/configuration.md) - Where config.yaml lives, how to check it with -t and --dry-run, providers and models, SSH remote execution, the .env file.
 - [Update](getting-started/update.md) - foxxycode update, release assets, installations owned by a package manager, the report of what changed.
@@ -34,7 +34,7 @@ Running FoxxyCode as a service, reaching it from elsewhere and bounding what it 
 - [foxxycode serve and the daemon](operate/serve.md) - One process for every enabled subsystem, --daemon with status, stop and restart, how a configuration change reaches a running process.
 - [Remote mode](operate/remote.md) - Driving a remote foxxycode serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment chip.
 - [Swarm](operate/swarm.md) - Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
-- [Scheduler](operate/scheduler.md) - Cron job files, UTC firing rules, run sessions, the scheduler tools and REST.
+- [Scheduler](operate/scheduler.md) - Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.
 - [Security and trust](operate/security.md) - What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed.
 - [Working behind a proxy](operate/proxy.md) - Where FoxxyCode takes its proxy from - the provider field, the environment, the Windows system proxy with PAC and WPAD - and how to enter a password with special characters.
 - [Diagnostics](operate/debugging.md) - The opt-in debug layer - raw LLM capture, the per-session trace and the loop events - and how to read them when a turn goes wrong.
@@ -44,6 +44,7 @@ Running FoxxyCode as a service, reaching it from elsewhere and bounding what it 
 What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
+- [Session settings](features/session-settings.md) - Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
 - [Rules and instructions](features/rules.md) - Rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
@@ -51,12 +52,15 @@ What the agent can do and how each capability is configured.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
 - [Browser tool](features/browser-tool.md) - The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+- [Devin](features/devin.md) - Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.
 - [Web search](features/web-search.md) - The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
 - [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+- [Mentions](features/mentions.md) - Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
+- [Built-in documentation](features/built-in-docs.md) - This documentation inside the binary - the web UI's reader, F1 in the console, foxxycode docs, the agent's foxxycode_docs tools and @foxxycode:<page> mentions - searched with BM25, with no site involved.
 - [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
-- [Long-term memory](features/memory.md) - The memory copilot, what it recalls and saves, the storage layout, configuration and cost.
+- [Long-term memory](features/memory.md) - The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
 - [Session export](features/session-export.md) - /export and foxxycode sessions export, formats, path rules, trimming options, the JSON document.
 
 ## Reference

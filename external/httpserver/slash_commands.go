@@ -151,11 +151,19 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":{"message":"failed to load skills"}}`, http.StatusInternalServerError)
 		return
 	}
-	// Built-in slash commands (e.g. /compact) lead the catalog so the composer
-	// menu surfaces them above skills.
+	// The fork's unified catalog puts settings and deterministic actions ahead
+	// of skills so every client sees the same commands in one slash menu.
 	cfg := s.activeCfg()
-	builtins := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
-	sums = append(append([]skills.SkillSummary(nil), builtins...), sums...)
+	var st *session.State
+	if sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); sid != "" {
+		st = s.mgr.SessionByID(sid)
+	}
+	builtins := session.BuiltinCommandRows(cfg, st, session.ActionCommandRows(cfg))
+	rows := make([]skills.SkillSummary, 0, len(builtins)+len(sums))
+	for _, row := range builtins {
+		rows = append(rows, skills.SkillSummary{Name: row.Name, Description: row.Description, Hint: row.Hint})
+	}
+	sums = append(rows, sums...)
 	prefix := strings.TrimSpace(q.Get("prefix"))
 	filtered := skills.FilterSummariesByPrefix(sums, prefix)
 	pageItems, total, hasMore := skills.PaginateSkillSummaries(filtered, page, pageSize)
@@ -171,19 +179,28 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// foxxycodeCommandsGet lists the deterministic built-in slash commands (/compact,
-// /export, /plugin) on their own, so a client can surface a "Commands" group without paging
-// through the skills catalogue. They run without an LLM turn. compact appears only
-// while compaction is enabled (either engine answers it), matching the slash catalogue.
+// foxxycodeCommandsGet lists settings commands with session-specific choices
+// and deterministic actions. The unified slash catalog also contains these
+// commands ahead of skill rows.
 func (s *Server) foxxycodeCommandsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	cfg := s.activeCfg()
-	items := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
-	if prefix := strings.TrimSpace(r.URL.Query().Get("prefix")); prefix != "" {
-		items = skills.FilterSummariesByPrefix(items, prefix)
+	var st *session.State
+	if sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); sid != "" {
+		st = s.mgr.SessionByID(sid)
+	}
+	items := session.BuiltinCommandRows(cfg, st, session.ActionCommandRows(cfg))
+	if prefix := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(r.URL.Query().Get("prefix")), "/")); prefix != "" {
+		filtered := items[:0:0]
+		for _, it := range items {
+			if strings.HasPrefix(it.Name, prefix) {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

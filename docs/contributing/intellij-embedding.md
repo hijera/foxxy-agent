@@ -227,7 +227,7 @@ What the two ids share and where they differ:
 | --- | --- | --- |
 | Flat composer chrome (above) | yes | yes |
 | Hide the folder chip, reopen the last project session, History scoped to the project, Enter sends on narrow panels (`isEditorEmbed()`) | yes | yes |
-| File drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
+| File and directory drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths; directories become `@path/` | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
 | Host → SPA `@`-mention channel | `window.foxxycodeUi.insertFileMention` via `executeJavaScript` | `postMessage` `{ type: "foxxycode:insertFileMention", paths }` from the parent frame (`embedHostBridge.ts`) |
 | Ctrl+S / Cmd+S (changed-files card) | the panel registers it as a component shortcut, so it beats Save All while focus is inside (off-screen JCEF hands keys to the IDE first), and calls `window.foxxycodeUi.toggleSessionChanges()` | nothing to do: keys typed in the SPA's cross-origin iframe never reach VS Code, and the page takes the key itself |
 | Visual effects (infinite animations, frosted glass) default | off (`data-effects="reduced"`) | on (`data-effects="full"`) |

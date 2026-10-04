@@ -43,6 +43,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [ui-verification.mdc](../.cursor/rules/ui-verification.mdc) | UI verification and screenshots | `external/ui/**/*` |
 | [release-changelog.mdc](../.cursor/rules/release-changelog.mdc) | Post-merge version and the user-facing changelogs (IntelliJ + VS Code) | `editors/**`, `**/CHANGELOG.md`, `**/CHANGELOG.en.md` |
 | [site.mdc](../.cursor/rules/site.mdc) | The website: copy in both languages, baked data, real screenshots, the `docs/` overlay | `site/**`, `.github/workflows/site.yaml` |
+| [upstream-divergences.mdc](../.cursor/rules/upstream-divergences.mdc) | Registry of the decisions where FoxxyCode keeps its own behaviour over upstream coddy-agent; `fork(<id>)` markers | `internal/llm`, `internal/agent`, `internal/config`, `internal/session`, `internal/remote`, `external/httpserver`, `external/gateway`, `external/cli`, `external/memory`, `UPSTREAM_SYNC.md` |
 
 ## Operating rule
 

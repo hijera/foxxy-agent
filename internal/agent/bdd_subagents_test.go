@@ -233,6 +233,10 @@ type recordingClient struct {
 	inFlight    int
 	maxInFlight int
 	answer      string // allow | allow_always | reject
+	// hold keeps every prompt open until the relay withdraws it, the way a
+	// person who has not answered yet does: the scenario about a turn ending
+	// with a prompt still on screen needs the prompt to outlive the turn.
+	hold bool
 }
 
 func (c *recordingClient) SendSessionUpdate(_ string, u interface{}) error {
@@ -242,7 +246,7 @@ func (c *recordingClient) SendSessionUpdate(_ string, u interface{}) error {
 	return nil
 }
 
-func (c *recordingClient) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+func (c *recordingClient) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	c.mu.Lock()
 	c.inFlight++
 	if c.inFlight > c.maxInFlight {
@@ -250,7 +254,15 @@ func (c *recordingClient) RequestPermission(_ context.Context, params acp.Permis
 	}
 	c.perms = append(c.perms, params)
 	answer := c.answer
+	hold := c.hold
 	c.mu.Unlock()
+	if hold {
+		<-ctx.Done()
+		c.mu.Lock()
+		c.inFlight--
+		c.mu.Unlock()
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
 	// Hold the prompt open until a second child is queued on the parent's
 	// arbiter (or briefly, when no other child is coming), so the overlap the
 	// serialisation scenario checks is a fact, not a matter of timing.
@@ -554,6 +566,55 @@ func (s *subagentsFeatureState) spawnForeground(agent, answer string) error {
 	return s.spawnWith(agent, false)
 }
 
+// spawnForegroundCounted is a foreground spawn whose child answers in one call the
+// provider reports usage for.
+func (s *subagentsFeatureState) spawnForegroundCounted(agent, answer string, input, output int) error {
+	s.mu.Lock()
+	s.childSteps = func() []scriptStep {
+		return []scriptStep{func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+			onChunk(llm.StreamChunk{TextDelta: answer})
+			return &llm.Response{Content: answer, StopReason: "end_turn", InputTokens: input, OutputTokens: output}
+		}}
+	}
+	s.mu.Unlock()
+	return s.spawnWith(agent, false)
+}
+
+func (s *subagentsFeatureState) lastAgentTask() (bgtask.Snapshot, error) {
+	var found *bgtask.Snapshot
+	for _, t := range bgtask.Default().List(s.parent.ID) {
+		if t.Kind == bgtask.KindAgent && t.Agent != nil {
+			found = &t
+		}
+	}
+	if found == nil {
+		return bgtask.Snapshot{}, fmt.Errorf("no agent task for the parent session")
+	}
+	return *found, nil
+}
+
+func (s *subagentsFeatureState) agentTaskNamesModel(model string) error {
+	t, err := s.lastAgentTask()
+	if err != nil {
+		return err
+	}
+	if t.Agent.Model != model {
+		return fmt.Errorf("agent task names model %q, want %q", t.Agent.Model, model)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) agentTaskRecordsTokens(input, output int) error {
+	t, err := s.lastAgentTask()
+	if err != nil {
+		return err
+	}
+	if t.Agent.InputTokens != input || t.Agent.OutputTokens != output {
+		return fmt.Errorf("agent task records %d input and %d output tokens, want %d and %d", t.Agent.InputTokens, t.Agent.OutputTokens, input, output)
+	}
+	return nil
+}
+
 func (s *subagentsFeatureState) spawnBackground(agent, answer string) error {
 	s.setChildAnswer(answer)
 	return s.spawnWith(agent, true)
@@ -605,6 +666,56 @@ func (s *subagentsFeatureState) spawnBackgroundCommandLater(agent, answer string
 	}
 	s.mu.Unlock()
 	return s.spawnWith(agent, true)
+}
+
+func (s *subagentsFeatureState) clientHoldsPrompts() error {
+	s.client.mu.Lock()
+	s.client.hold = true
+	s.client.mu.Unlock()
+	return nil
+}
+
+// spawnBackgroundAskingDuringTurn spawns a detached child that asks for its
+// command at once, and ends the parent turn only when that prompt is on the
+// parent's client - the order a background child usually produces, made a fact
+// here rather than a race - then waits for the child to settle.
+func (s *subagentsFeatureState) spawnBackgroundAskingDuringTurn(agent, answer string) error {
+	s.mu.Lock()
+	s.childSteps = func() []scriptStep {
+		return []scriptStep{toolStep(commandCall("call_cmd", "echo bdd-subagent-command", false)), answerStep(answer)}
+	}
+	s.mu.Unlock()
+	untilChildAsks := func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		deadline := time.Now().Add(testWait)
+		for len(s.client.permissions()) == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		return answerStep("parent done")(messages, defs, onChunk)
+	}
+	results, err := s.runParentTurn(toolStep(spawnCall("call_spawn", agent, true)), untilChildAsks)
+	if err != nil {
+		return err
+	}
+	res, ok := results["call_spawn"]
+	if !ok {
+		return fmt.Errorf("spawn_agent produced no tool result")
+	}
+	s.spawnResults = append(s.spawnResults, res)
+	s.noteLastAgentTask()
+	return s.waitForAgentTasksToSettle()
+}
+
+// waitForAgentTasksToSettle waits for every agent task of the parent to end.
+func (s *subagentsFeatureState) waitForAgentTasksToSettle() error {
+	for _, t := range bgtask.Default().List(s.parent.ID) {
+		if t.Kind != bgtask.KindAgent {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, _ = bgtask.Default().Wait(ctx, s.parent.ID, t.ID, 30*time.Second)
+		cancel()
+	}
+	return nil
 }
 
 func (s *subagentsFeatureState) spawnForegroundLeavingBackgroundCommand(agent, answer string) error {
@@ -1090,6 +1201,9 @@ func (s *subagentsFeatureState) detachedPromptPublished() error {
 			if strings.TrimSpace(req.TaskID) == "" {
 				return fmt.Errorf("the detached prompt names no task: %+v", req)
 			}
+			if req.ParentSessionID != s.parent.ID {
+				return fmt.Errorf("the detached prompt names parent %q, want %q", req.ParentSessionID, s.parent.ID)
+			}
 			return nil
 		}
 	}
@@ -1205,11 +1319,16 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the parent model receives its first request$`, s.parentFirstRequest)
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child answers "([^"]*)"$`, s.spawnForeground)
 	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child answers "([^"]*)"$`, s.spawnBackground)
+	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child answers "([^"]*)" after reading (\d+) tokens and writing (\d+)$`, s.spawnForegroundCounted)
+	sc.Step(`^the agent task of the parent session names the model "([^"]*)"$`, s.agentTaskNamesModel)
+	sc.Step(`^the agent task of the parent session records (\d+) input and (\d+) output tokens$`, s.agentTaskRecordsTokens)
 	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child waits to be released$`, s.spawnBackgroundWaiting)
 	sc.Step(`^the parent model spawns "([^"]*)" again in the background$`, s.spawnBackgroundAgain)
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child runs a command before answering "([^"]*)"$`, s.spawnForegroundCommand)
 	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child runs a command before answering "([^"]*)"$`, s.spawnBackgroundCommandLater)
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child starts a background command before answering "([^"]*)"$`, s.spawnForegroundLeavingBackgroundCommand)
+	sc.Step(`^the parent's client holds every prompt open until it is withdrawn$`, s.clientHoldsPrompts)
+	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child asks to run a command before the parent turn ends, answering "([^"]*)"$`, s.spawnBackgroundAskingDuringTurn)
 	sc.Step(`^the parent model spawns two "([^"]*)" children that each run a command before answering$`, s.spawnTwoWithCommands)
 	sc.Step(`^in a new turn the parent model spawns "([^"]*)" in the foreground and the child runs a command before answering "([^"]*)"$`, s.laterTurnSpawnsCommand)
 	sc.Step(`^the parent waits for that task with background_wait$`, s.waitForLastTask)

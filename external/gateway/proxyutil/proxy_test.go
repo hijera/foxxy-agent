@@ -35,10 +35,16 @@ func get(t *testing.T, c *http.Client, target string) int {
 	return resp.StatusCode
 }
 
-func TestEmptyProxyIsTheDefaultClient(t *testing.T) {
-	c, err := BuildHTTPClient("  ")
-	if err != nil || c != http.DefaultClient {
-		t.Fatalf("BuildHTTPClient(blank) = %v, %v; want http.DefaultClient", c, err)
+func TestProxyModesSelectTransport(t *testing.T) {
+	for _, setting := range []string{"  ", "Inherit", "none"} {
+		c, err := BuildHTTPClient(setting)
+		if err != nil || c == nil || c.Transport == nil {
+			t.Fatalf("BuildHTTPClient(%q) = %v, %v; want a configured transport", setting, c, err)
+		}
+	}
+	direct, _ := BuildHTTPClient("none")
+	if direct.Transport.(*http.Transport).Proxy != nil {
+		t.Fatal("none must not consult a proxy resolver")
 	}
 }
 

@@ -34,11 +34,11 @@ class ProjectRelativePathsTest {
     }
 
     @Test
-    fun `drops directories`() {
-        val dir = File(tmp.root, "src").also { it.mkdirs() }
+    fun `relativizes directories alongside files`() {
+        val dir = File(tmp.root, "src/main").also { it.mkdirs() }
         val f = file("src", "App.kt")
         assertEquals(
-            listOf("src/App.kt"),
+            listOf("src/main/", "src/App.kt"),
             ProjectRelativePaths.relativize(tmp.root.path, listOf(dir, f)),
         )
     }
@@ -52,6 +52,17 @@ class ProjectRelativePathsTest {
         assertEquals(
             listOf("In.kt"),
             ProjectRelativePaths.relativize(root.path, listOf(outside, inside, insideProject)),
+        )
+    }
+
+    @Test
+    fun `drops directories outside the project root and the project root itself`() {
+        val root = File(tmp.root, "project").also { it.mkdirs() }
+        val inside = File(root, "src").also { it.mkdirs() }
+        val outside = File(tmp.root, "elsewhere").also { it.mkdirs() }
+        assertEquals(
+            listOf("src/"),
+            ProjectRelativePaths.relativize(root.path, listOf(outside, root, inside)),
         )
     }
 

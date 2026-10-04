@@ -9,6 +9,7 @@ package httpserver
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -48,6 +50,7 @@ type wakeStreamState struct {
 	parkNext atomic.Bool
 
 	wakeDone  chan error
+	wakePool  *bgtask.Pool
 	userDone  chan struct{}
 	userRelay *composerStreamRelay
 
@@ -111,6 +114,7 @@ func (s *wakeStreamState) reset() error {
 	s.sessionID = ""
 	s.streamBody = ""
 	s.wakeDone = nil
+	s.wakePool = nil
 	s.userDone = nil
 	s.userRelay = nil
 	s.hold = make(chan struct{})
@@ -238,10 +242,17 @@ func (s *wakeStreamState) aUserTurnIsStreaming() error {
 
 func (s *wakeStreamState) aFinishedTaskWakesTheSession() error {
 	s.wakeDone = make(chan error, 1)
-	go func() {
-		s.wakeDone <- s.srv.runWakeTurn(context.Background(), s.sessionID,
-			"A background task you asked to be notified about has finished.")
-	}()
+	s.wakePool = bgtask.New(bgtask.Config{})
+	waker := agent.NewBackgroundWaker(slog.Default(), func(ctx context.Context, wake agent.Wake) error {
+		_, err := s.srv.RunBackgroundWake(ctx, wake)
+		if !errors.Is(err, session.ErrSessionTurnBusy) {
+			s.wakeDone <- err
+		}
+		return err
+	})
+	waker.Attach(s.wakePool)
+	waker.OnSnapshot(bgtask.Snapshot{ID: "bg_stream", SessionID: s.sessionID,
+		Status: bgtask.StatusSucceeded, NotifyOnFinish: true})
 	return nil
 }
 

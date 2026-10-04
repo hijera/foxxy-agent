@@ -40,6 +40,14 @@ Feature: The agent delegates bounded work to subagents
     When the parent waits for that task with background_wait
     Then the background_wait result contains "REPORT: done"
 
+  Scenario: An agent task names the child's model and the tokens its calls spent
+    Given a workspace with a subagent definition "reviewer" under .foxxycode/agents
+    And a parent agent session in that workspace
+    And the workspace definition "reviewer" is approved for that workspace
+    When the parent model spawns "reviewer" in the foreground and the child answers "REPORT: done" after reading 1200 tokens and writing 80
+    Then the agent task of the parent session names the model "fake/model"
+    And the agent task of the parent session records 1200 input and 80 output tokens
+
   Scenario: Child updates never reach the parent's client
     Given a workspace with a subagent definition "reviewer" under .foxxycode/agents
     And a parent agent session in that workspace
@@ -124,6 +132,19 @@ Feature: The agent delegates bounded work to subagents
     When the parent model spawns "writer" in the background and the child runs a command before answering "REPORT: late"
     And the parent turn ends before the child asks
     Then the detached prompt was published for the child session
+    And the detached prompt is titled for subagent "writer"
+    And the child's command ran after the detached prompt was allowed
+    And the parent's client was not asked about the command
+
+  Scenario: A child's prompt still on the parent's screen when the turn ends moves to the surface that can still ask
+    Given a workspace with a subagent definition "writer" under .foxxycode/agents
+    And a parent agent session in that workspace with permission mode "ask"
+    And the workspace definition "writer" is approved for that workspace
+    And a surface that can answer a detached subagent's prompt
+    And the parent's client holds every prompt open until it is withdrawn
+    When the parent model spawns "writer" in the background and the child asks to run a command before the parent turn ends, answering "REPORT: late"
+    Then the parent's client was asked to approve the command on behalf of subagent "writer"
+    And the detached prompt was published for the child session
     And the detached prompt is titled for subagent "writer"
     And the child's command ran after the detached prompt was allowed
 

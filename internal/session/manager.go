@@ -51,6 +51,10 @@ type Manager struct {
 	defaultCWD string
 	store      *FileStore
 
+	// mentionSessions keeps the session listing "@session:" completion reads
+	// (mention_search.go).
+	mentionSessions mentionSessionCache
+
 	// preferredNewSessionID, when non-empty before session/new is handled, selects the id for the next new session (--session-id).
 	preferredNewSessionID string
 	// newSessionMu makes pinning preferredNewSessionID and consuming it in session/new one
@@ -71,6 +75,12 @@ type Manager struct {
 	// See turn_active.go for why it is a count rather than a set.
 	activeTurnMu sync.Mutex
 	activeTurns  map[string]int
+	// turnStarted is when each of those sessions went from no turn to one. A
+	// client that joins a turn late counts its clock from here.
+	turnStarted map[string]time.Time
+	// turnWakes is the wake of each of those turns that finished background
+	// tasks started, for a client that joins it after TurnPhaseWoken went out.
+	turnWakes map[string]*llm.BackgroundWake
 
 	// turnObservers receive the started/ended edges of activeTurns (see turn_events.go).
 	turnObserverMu  sync.Mutex
@@ -81,6 +91,9 @@ type Manager struct {
 	queueObserverMu  sync.Mutex
 	queueObservers   map[int]func(acp.MessageQueueUpdate)
 	queueObserverSeq int
+	// settingsObs fans every change of a session's settings out the same way
+	// (settings.go).
+	settingsObs settingsObservers
 
 	// deleting counts the DeleteSessionTree calls currently covering a
 	// session, so a turn racing the delete is refused instead of recreating
@@ -468,6 +481,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	// Timed: a cold panel used to spend minutes here without any way to see it from the log.
 	startedAt := time.Now()
 
+	// Stat before the read (disk_refresh.go): a write racing it then reads as
+	// a change at the next turn instead of being stamped as already seen.
+	diskDir := m.store.SessionPath(params.SessionID)
+	diskFile, metaFile := statMessages(diskDir), statMeta(diskDir)
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -501,7 +518,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	jobSession := false
 	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
 		// and the parent link, the role and tool set are not needed any more.
@@ -510,41 +528,41 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			ParentSessionID: snap.Meta.ParentSessionID,
 			TaskID:          snap.Meta.SubagentTaskID,
 			Depth:           snap.Meta.SubagentDepth,
+			Scheduler:       schedulerRunMetaFromSnapshot(snap.Meta),
 		})
+	} else if snap.Meta.SchedulerRun {
+		// The session of a scheduler job: the guard and the job name are all
+		// it carries, and nothing below (skills, hooks, MCP) is for it, since
+		// no turn ever runs on it.
+		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
+		jobSession = true
 	}
-	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
-	st.SetTagsWithoutPersist(snap.Meta.Tags)
-	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
-	st.SetOriginWithoutPersist(snap.Meta.Origin)
-	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
-	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
-	st.SetTitleAutoWithoutPersist(snap.Meta.TitleAuto)
-	st.ReplaceMessagesWithoutPersist(snap.Messages)
-	st.SetPlanWithoutPersist(snap.Plan)
-	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys, snap.PermissionHTTPKeys)
-	st.RestoreUILogWithoutPersist(snap.UILog)
+	restorePersistedFields(st, snap)
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
+	st.stampCurrentDisk(diskFile, metaFile)
 	restoreContextBreakdown(st)
 
-	active := m.activeCfg()
-	loadedSkills, err := m.loadSkills(cwd, active)
-	if err != nil {
-		m.log.Warn("failed to load skills on session load", "error", err)
-	}
-	st.ReplaceSkills(loadedSkills)
-	st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
-
 	st.SetPersistHook(m.makePersist(st))
-	m.runSessionStartHooks(ctx, st, hookSourceResume)
-
-	m.connectConfiguredMCPServers(ctx, st)
-
-	for _, srv := range params.MCPServers {
-		cfgSrv := acpMCPServerToConfig(srv)
-		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
-			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
+	if !jobSession {
+		active := m.activeCfg()
+		loadedSkills, err := m.loadSkills(cwd, active)
+		if err != nil {
+			m.log.Warn("failed to load skills on session load", "error", err)
 		}
-		st.RememberSessionMCPDeclaration(cfgSrv)
+		st.ReplaceSkills(loadedSkills)
+		st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
+
+		m.runSessionStartHooks(ctx, st, hookSourceResume)
+
+		m.connectConfiguredMCPServers(ctx, st)
+
+		for _, srv := range params.MCPServers {
+			cfgSrv := acpMCPServerToConfig(srv)
+			if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
+				m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
+			}
+			st.RememberSessionMCPDeclaration(cfgSrv)
+		}
 	}
 
 	m.mu.Lock()
@@ -681,6 +699,21 @@ type PromptRunOpts struct {
 	// costs that turn its cached prefix, deliberately.
 	SurfaceSystemPrompt string
 
+	// BackgroundWake says the prompt was not typed by anybody: finished
+	// background tasks the model asked to be notified about started this
+	// turn, and the prompt is the instruction that reports them. The turn's
+	// first message is persisted with the marker, the agent tells the clients
+	// before it (acp.BackgroundWakeUpdate), and the turn observers hear a
+	// TurnPhaseWoken event once the turn holds the session.
+	BackgroundWake *llm.BackgroundWake
+
+	// SettingsTaken says the caller already took the settings commands off
+	// the start of the prompt (TakeSettingsCommands) - the HTTP server does,
+	// before it takes the turn lock - and TurnSettings are the turn-scoped
+	// changes it found, applied once this turn is admitted.
+	SettingsTaken bool
+	TurnSettings  []SettingsChange
+
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
 	// is refused with ErrSubagentReadOnly (see RunSubagentTurn).
@@ -791,12 +824,19 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	// Before the lock, not after: a turn queued behind another one is already
 	// active as far as a client watching the session is concerned.
 	clearActive := m.markTurnActive(sessionID)
+	// The turn's clock starts where the registry says the session became busy,
+	// so the progress the loop reports and the turn_started event agree.
+	turnStartedAt, _ := m.TurnStartedAt(sessionID)
+	state.BeginTurnProgress(turnStartedAt)
 	unlock := func() {}
 	if !adm.skipLock {
 		var err error
 		unlock, err = m.acquireTurnLockWithReloadDrain(sessionID, state)
 		if err != nil {
 			clearActive()
+			if !m.SessionTurnActiveInProcess(sessionID) {
+				state.EndTurnProgress(turnStartedAt)
+			}
 			return nil, nil, err
 		}
 	}
@@ -816,6 +856,13 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	markedCtx, ran := withTurnRanMarker(ctx)
 	turnCtx, cancel := context.WithCancel(markedCtx)
 	state.SetCancel(cancel)
+	if !adm.noQueue {
+		// A follow-up is typed by the operator, like the prompt it follows:
+		// its references resolve with the operator's scope, bound to the turn.
+		state.SetQueuedMentionResolver(func(blocks []acp.ContentBlock) []acp.ContentBlock {
+			return m.ResolvePromptMentions(turnCtx, state, blocks, m.mentionScope(state, false, state.GetMode() == string(ModeAsk)))
+		})
+	}
 	var finishOnce sync.Once
 	finish := func() {
 		finishOnce.Do(func() {
@@ -832,6 +879,7 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 						"session_id", sessionID, "messages", len(left))
 				}
 				state.SetQueueNotifier(nil)
+				state.SetQueuedMentionResolver(nil)
 				state.SetTurnSender(nil)
 			}
 			// The usage refresh is reserved before the turn is released: a
@@ -842,6 +890,11 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			}
 			unlock()
 			clearActive()
+			// Only the outer release ends the turn; an inner one (RunPlan)
+			// leaves the session busy and the progress standing.
+			if !m.SessionTurnActiveInProcess(sessionID) {
+				state.EndTurnProgress(turnStartedAt)
+			}
 		})
 	}
 	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
@@ -892,10 +945,20 @@ func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptR
 	if state == nil {
 		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	if state.IsSubagentRun() {
-		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	if err := readOnlyRefusal(state, sessionID); err != nil {
+		return nil, nil, err
 	}
-	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
+	turnCtx, finish, err := m.beginTurn(ctx, sessionID, state, admissionFor(opts))
+	if err != nil {
+		return nil, nil, err
+	}
+	// The resume continues the turn that stopped on the prompt: it runs with
+	// the settings that turn held and consumes nothing.
+	state.ResumeTurnSettings()
+	return turnCtx, func() {
+		state.EndTurnSettings()
+		finish()
+	}, nil
 }
 
 // BeginSessionWork admits work that holds a session the way a turn does
@@ -911,8 +974,8 @@ func (m *Manager) BeginSessionWork(ctx context.Context, sessionID string) (conte
 	if state == nil {
 		return nil, nil, fmt.Errorf("%w: %s", ErrSessionGone, sessionID)
 	}
-	if state.IsSubagentRun() {
-		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	if err := readOnlyRefusal(state, sessionID); err != nil {
+		return nil, nil, err
 	}
 	return m.beginTurn(ctx, sessionID, state, turnAdmission{publishUsage: true, noQueue: true})
 }
@@ -926,14 +989,38 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
-	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
-		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
+	if opts == nil || !opts.subagentTurn {
+		if err := readOnlyRefusal(state, params.SessionID); err != nil {
+			return nil, err
+		}
 	}
 
 	// Stage timings for the turn. A panel that sits on "waiting for the model" cannot tell a
 	// slow model from a turn stuck before the model was ever called; these numbers can.
 	turnStart := time.Now()
 	var lockWait, mcpWait time.Duration
+
+	// A turn an operator started: not a child's task, not a wake's report.
+	// Only such a turn reads settings commands and consumes the settings
+	// armed for the next turns (settings.go).
+	operatorTurn := opts == nil || (!opts.subagentTurn && opts.BackgroundWake == nil)
+	var turnSettings []SettingsChange
+	if operatorTurn {
+		if opts != nil && opts.SettingsTaken {
+			turnSettings = opts.TurnSettings
+		} else {
+			taken, err := m.TakeSettingsCommands(ctx, params.SessionID, params.Prompt, "command")
+			if err != nil {
+				return nil, err
+			}
+			if taken.Handled {
+				AnnounceSettingsNotice(sender, params.SessionID, taken.Notice)
+				return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn, SettingsNotice: taken.Notice}, nil
+			}
+			params.Prompt = taken.Prompt
+			turnSettings = taken.TurnChanges
+		}
+	}
 
 	turnBase := ctx
 	if opts != nil && opts.DetachFromRequest {
@@ -949,11 +1036,35 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	defer finish()
 
+	if operatorTurn {
+		// Installed under the turn lock, so the turn this prompt starts is the
+		// one that takes them; then this turn consumes one of every override.
+		for _, ch := range turnSettings {
+			if _, err := m.ApplySessionSettings(turnCtx, params.SessionID, ch); err != nil {
+				return nil, err
+			}
+		}
+		if m.beginOperatorTurnSettings(params.SessionID, state) {
+			defer m.endTurnSettings(params.SessionID, state)
+		} else {
+			defer state.EndTurnSettings()
+		}
+	}
+
 	// What the surface wants the model to know lasts exactly this turn: set
 	// under the turn lock, cleared before it is released, never persisted.
 	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
+	}
+	// A turn no person started says so, the same way: held for this turn
+	// only, taken by the agent for the first message, and announced to the
+	// observers once the turn holds the session.
+	if opts != nil && opts.BackgroundWake != nil {
+		state.SetTurnWake(opts.BackgroundWake)
+		defer state.SetTurnWake(nil)
+		defer m.holdTurnWake(params.SessionID, opts.BackgroundWake)()
+		m.publishWokenTurn(params.SessionID, opts.BackgroundWake)
 	}
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
@@ -1018,18 +1129,20 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, fmt.Errorf("session cwd: %w", err)
 	}
-	hydrated, err := HydratePromptContentBlocks(cwdAbs, params.Prompt)
+	hydrated, err := hydrateClientResources(cwdAbs, params.Prompt)
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn {
-		hydrated, err = HydrateSessionPlanMentions(sd, hydrated)
-		if err != nil {
-			return nil, err
-		}
-		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" && !askMode {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode {
+		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
 			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
+	}
+	// The "@" references of the prompt are resolved once, here, into
+	// attachments of this message (mentions.go). A woken turn's prompt is
+	// FoxxyCode's own report of finished tasks, not text anybody typed.
+	if opts == nil || opts.BackgroundWake == nil {
+		hydrated = m.ResolvePromptMentions(turnCtx, state, hydrated, m.mentionScope(state, subagentTurn, askMode))
 	}
 
 	var ranRunner bool
@@ -1043,6 +1156,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	MarkTurnRan(turnCtx)
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
+		state.TakeTurnStopNotice()
 		if !errors.Is(err, context.Canceled) {
 			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 		}
@@ -1075,7 +1189,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if !more {
 			break
 		}
-		prompt := QueuedPromptBlocks(queued)
+		prompt := state.ResolveQueuedMentions(QueuedPromptBlocks(queued))
 		// The clients watching this turn see the follow-up enter the
 		// conversation where it was read, as they do for one the loop reads
 		// between two steps, and its recorded prompt carries the same marker.
@@ -1089,6 +1203,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		stopReason, err = m.runner(turnCtx, state, prompt, sender)
 		state.ClearNextPromptQueued()
 		if err != nil {
+			state.TakeTurnStopNotice()
 			if !errors.Is(err, context.Canceled) {
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 			}
@@ -1096,7 +1211,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 
-	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
+	// A turn that stopped before its answer - its step limit, the model's
+	// output limit - says why (upstream 1.2.9, issue #255). The agent already
+	// streamed the notice into the answer and stored it in the transcript
+	// (fork(stop-notice-transcript)), so it is handed to the caller only, not
+	// written to the UI log a second time.
+	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason), StopNotice: state.TakeTurnStopNotice()}, nil
 }
 
 // maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by
@@ -1109,108 +1229,42 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 // Stop drops it: the alternative is a session no other surface can ever enter.
 const maxQueuedFollowUpRuns = 8
 
-func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetModeParams) error {
-	state := m.getSession(params.SessionID)
-	if state == nil {
-		return fmt.Errorf("session not found: %s", params.SessionID)
-	}
-	// A child transcript is read-only: its mode was fixed at spawn time and
-	// nothing may rewrite it afterwards.
-	if state.IsSubagentRun() {
-		return fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
-	}
-
-	if !IsValidMode(params.ModeID) {
-		return fmt.Errorf("unknown mode: %s", params.ModeID)
-	}
-
-	state.SetMode(params.ModeID)
-
-	if err := m.server.SendSessionUpdate(params.SessionID, acp.ModeUpdate{
-		SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
-		CurrentModeID: params.ModeID,
-	}); err != nil {
-		m.log.Warn("failed to send mode update", "error", err)
-	}
-
-	m.sendConfigOptionUpdate(params.SessionID, state)
-
-	m.log.Info("mode changed", "session", params.SessionID, "mode", params.ModeID)
-	return nil
+func (m *Manager) HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error {
+	mode := params.ModeID
+	_, err := m.ApplySessionSettings(ctx, params.SessionID, SettingsChange{Mode: &mode, Source: "acp"})
+	return err
 }
 
-// HandleSessionSetConfigOption implements session/set_config_option (ACP Session Config Options).
-func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
-	state := m.getSession(params.SessionID)
-	if state == nil {
-		return nil, fmt.Errorf("session not found: %s", params.SessionID)
-	}
-	// A child transcript is read-only: mode, model and permission mode were
-	// fixed at spawn time.
-	if state.IsSubagentRun() {
-		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
-	}
+// HandleSessionSetConfigOption implements session/set_config_option (ACP
+// Session Config Options). Every option is a session setting and goes through
+// ApplySessionSettings, whichever surface calls it.
+func (m *Manager) HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
+	return m.SetConfigOptionFrom(ctx, params, "acp")
+}
 
+// SetConfigOptionFrom is HandleSessionSetConfigOption with the source named,
+// for a surface that reaches the manager in process (the console, the
+// Telegram bot).
+func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSetConfigOptionParams, source string) (*acp.SessionSetConfigOptionResult, error) {
+	value := params.Value
+	ch := SettingsChange{Source: source}
 	switch params.ConfigID {
 	case "mode":
-		if !IsValidMode(params.Value) {
-			return nil, fmt.Errorf("invalid mode value: %q", params.Value)
-		}
-		state.SetMode(params.Value)
-		if err := m.server.SendSessionUpdate(params.SessionID, acp.ModeUpdate{
-			SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
-			CurrentModeID: params.Value,
-		}); err != nil {
-			m.log.Warn("failed to send mode update", "error", err)
-		}
+		ch.Mode = &value
 	case "model":
-		if len(m.activeCfg().Models) == 0 {
-			return nil, fmt.Errorf("no models configured")
-		}
-		found := false
-		for i := range m.activeCfg().Models {
-			if m.activeCfg().Models[i].Model == params.Value {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("unknown model value: %q", params.Value)
-		}
-		state.SetSelectedModelID(params.Value)
+		ch.Model = &value
 	case "reasoning":
-		level := strings.TrimSpace(params.Value)
-		if level != "" {
-			ent := m.activeCfg().FindModelEntry(state.EffectiveModelID(m.activeCfg()))
-			valid := false
-			if ent != nil {
-				for _, candidate := range m.activeCfg().ReasoningLevelsFor(ent) {
-					if candidate == level {
-						valid = true
-						break
-					}
-				}
-			}
-			if !valid {
-				return nil, fmt.Errorf("invalid reasoning value: %q", params.Value)
-			}
-		}
-		state.SetSelectedReasoning(level)
+		ch.Reasoning = &value
 	case "permission_mode":
-		switch params.Value {
-		case config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass:
-		default:
-			return nil, fmt.Errorf("invalid permission_mode value: %q", params.Value)
-		}
-		state.SetPermissionMode(params.Value)
+		ch.PermissionMode = &value
 	default:
 		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
 	}
-
-	opts := BuildACPConfigOptions(m.activeCfg(), state)
-	m.sendConfigOptionUpdate(params.SessionID, state)
-
-	return &acp.SessionSetConfigOptionResult{ConfigOptions: opts}, nil
+	if _, err := m.ApplySessionSettings(ctx, params.SessionID, ch); err != nil {
+		return nil, err
+	}
+	state := m.getSession(params.SessionID)
+	return &acp.SessionSetConfigOptionResult{ConfigOptions: BuildACPConfigOptions(m.activeCfg(), state)}, nil
 }
 
 func (m *Manager) sendConfigOptionUpdate(sessionID string, state *State) {
@@ -1284,13 +1338,28 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 		return
 	}
 	sums := skills.ListSkills(st.GetSkills())
-	cfg := m.activeCfg()
-	builtins := skills.BuiltinCommands(cfg.Compaction.IsEnabled())
+	builtins := BuiltinCommandRows(m.activeCfg(), st, ActionCommandRows(m.activeCfg()))
 	cmds := make([]acp.AvailableCommand, 0, len(sums)+len(builtins))
 	for _, b := range builtins {
-		cmds = append(cmds, acp.AvailableCommand{Name: b.Name, Description: b.Description})
+		cmd := acp.AvailableCommand{Name: b.Name, Description: b.Description}
+		if b.Hint != "" {
+			cmd.Input = &acp.AvailableCommandInput{Hint: b.Hint}
+		}
+		cmds = append(cmds, cmd)
+	}
+	// A built-in wins over a skill of the same name (the prompt path takes
+	// the built-in first), so the skill is not listed twice.
+	taken := make(map[string]bool, len(builtins))
+	for _, b := range builtins {
+		taken[b.Name] = true
+		for _, a := range b.Aliases {
+			taken[a] = true
+		}
 	}
 	for _, s := range sums {
+		if taken[s.Name] {
+			continue
+		}
 		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
 	}
 	_ = m.server.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{
@@ -1512,6 +1581,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 	if err != nil {
 		return nil, err
 	}
+	// fork(session-disk-refresh): under the lock another process holding the
+	// same bundle is not in a turn, so what it wrote is complete.
+	m.refreshFromDiskIfChanged(st)
 	return func() {
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)

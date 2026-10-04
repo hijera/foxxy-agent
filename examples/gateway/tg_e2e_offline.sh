@@ -63,10 +63,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The scripted model echoes what it is told, except for the background wake
+# step at the end: "start the tests" makes it run a failing command in the
+# background with notify_on_finish, and the turn that wakes it gets an answer.
+RULES="$TMP/rules.json"
+cat >"$RULES" <<'EOF_RULES'
+[
+  {"match": "start the tests",
+   "tool": {"name": "run_command", "arguments": {"command": "echo 'tests failed' >&2; exit 2", "background": true, "notify_on_finish": true, "expected_seconds": 1}},
+   "answer": "Started the tests in the background."},
+  {"match": "background task you asked to be notified about", "answer": "The tests failed with exit 2."}
+]
+EOF_RULES
+
 # Built rather than `go run`: on Windows a kill of the go run parent leaves
 # the child listening.
 go build -o "$TMP/tgfake$EXE" ./cmd/tgfake
-"$TMP/tgfake$EXE" --addr "127.0.0.1:$TG_PORT" --llm --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
+"$TMP/tgfake$EXE" --addr "127.0.0.1:$TG_PORT" --llm --llm-script "$(hostpath "$RULES")" --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
 TGFAKE_PID=$!
 for _ in $(seq 1 40); do
   if curl -sf -o /dev/null "$ORIGIN/bot1/getMe"; then break; fi
@@ -136,5 +149,48 @@ final="sendMessage"
 [[ "$RICH_MESSAGES" == "true" ]] && final="sendRichMessage"
 curl -sf "$ORIGIN/sim/outbox/count?method=$final" | grep -Eq '"count":[1-9]' \
   || { echo "no $final in the outbox" >&2; exit 1; }
+
+# /resume: the chat leaves its session with /clear, comes back to it from the
+# keyboard, and the next message lands in the bundle it came back to.
+say() {
+  curl -sf -X POST -H 'Content-Type: application/json' \
+    -d "{\"chat_id\":4242,\"user_id\":4242,\"username\":\"alice\",\"text\":\"$1\"}" \
+    "$ORIGIN/sim/message" >/dev/null
+}
+wait_chat() {
+  for _ in $(seq 1 120); do
+    if curl -sf "$ORIGIN/sim/chat/4242?format=text" | grep -qF -- "$1"; then return 0; fi
+    sleep 0.25
+  done
+  echo "the chat never showed: $1" >&2
+  curl -s "$ORIGIN/sim/chat/4242?format=text" >&2 || true
+  return 1
+}
+first="$(grep -o '"tg:user:4242":"[^"]*"' "$HOME_DIR/sessions/gateway_sessions.json" | cut -d'"' -f4)"
+[[ -n "$first" ]] || { echo "no session mapped for the chat in gateway_sessions.json" >&2; exit 1; }
+say "/clear"
+wait_chat "New session started"
+say "/resume"
+wait_chat "Resume a session"
+curl -sf -X POST -H 'Content-Type: application/json' \
+  -d "{\"chat_id\":4242,\"user_id\":4242,\"data\":\"resume:s:$first\"}" \
+  "$ORIGIN/sim/callback" >/dev/null
+wait_chat "Resumed:"
+say "back again"
+wait_chat "bot: You said: back again"
+grep -qF "back again" "$HOME_DIR/sessions/$first/messages.json" \
+  || { echo "the message after /resume did not land in $first" >&2; exit 1; }
+
+# A background wake: the chat's agent starts a failing command in the
+# background and ends its turn; when the command ends, the woken turn comes
+# back to the chat - the note first, then the answer - with no HTTP server in
+# the process.
+say "start the tests"
+# With Rich Messages the answer opens with the tool call's block, so only the
+# words are looked for.
+wait_chat "Started the tests in the background."
+wait_chat "Woken by a finished background task: bg_1"
+wait_chat "failed, exit 2"
+wait_chat "bot: The tests failed with exit 2."
 
 echo "ok telegram offline stand"

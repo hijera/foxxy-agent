@@ -410,9 +410,18 @@ type SessionMeta struct {
 	// moment it was started is not recoverable, so it stays empty rather than
 	// being invented from a later write.
 	CreatedAt string `json:"createdAt,omitempty"`
-	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
-	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
-	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
+	// SchedulerRun marks the session of a scheduler job: the parent every run
+	// of that job is a child of, hidden from the working list and never
+	// prompted. SchedulerJobID names the job; on a run bundle (a child, see
+	// below) it names the job the run belongs to, with SchedulerTrigger
+	// ("cron" or "manual") and SchedulerFireSlot (the committed UTC minute of
+	// a cron fire, RFC3339) saying how the run started.
+	SchedulerRun      bool   `json:"schedulerRun,omitempty"`
+	SchedulerJobID    string `json:"schedulerJobId,omitempty"`
+	SchedulerTrigger  string `json:"schedulerTrigger,omitempty"`
+	SchedulerFireSlot string `json:"schedulerFireSlot,omitempty"`
+	// Legacy top-level sched_ run fields remain readable after the job-session
+	// migration. New runs use background task records instead.
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
@@ -428,7 +437,11 @@ type SessionMeta struct {
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
 	ReadActivitySeq uint64 `json:"readActivitySeq,omitempty"`
-	// PermissionMode is the session-level override for tools.permission_mode.
+	// PermissionMode records the mode a subagent child ran with, narrowed from
+	// its parent's: part of the child's record, never read back. An ordinary
+	// session's override is not written - it lasts as long as the process and
+	// a restart returns to tools.permission_mode (#292) - and a key an older
+	// version wrote for one is ignored.
 	PermissionMode string `json:"permissionMode,omitempty"`
 }
 
@@ -481,6 +494,35 @@ type LoadedSnapshot struct {
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	return f.readSnapshotAt(f.SessionPath(sessionID), sessionID)
+}
+
+// ReadMeta reads a bundle's session.json alone, for a caller that wants what
+// the session is - a child's parent and origin, a job's marker - without
+// paying for its transcript. The layout rule ReadSnapshot applies to a nested
+// bundle applies here too.
+func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
+	if f == nil || f.Root == "" {
+		return SessionMeta{}, fmt.Errorf("session store unavailable")
+	}
+	dir := f.SessionPath(sessionID)
+	metaBytes, err := readFileWithRetry(filepath.Join(dir, sessionMetaFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return SessionMeta{}, fmt.Errorf("session not found on disk: %s", sessionID)
+		}
+		return SessionMeta{}, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
+	}
+	if parent, ok := f.childBundleParent(dir); ok {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = parent
+		}
+	}
+	return meta, nil
 }
 
 // readSnapshotAt reads a bundle from an explicit directory, which is how a
@@ -559,15 +601,6 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 	}, nil
 }
 
-// ReadMeta reads session.json only, skipping messages and the rest of the
-// snapshot. Use it when a caller just needs metadata such as cwd or title.
-func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
-	if f == nil || f.Root == "" {
-		return SessionMeta{}, fmt.Errorf("session store unavailable")
-	}
-	return f.readMetaAt(f.SessionPath(sessionID))
-}
-
 // readMetaAt reads session.json from an explicit bundle directory and applies
 // the rule readSnapshotAt applies: a bundle inside another session's
 // ChildSessionsDirName is a spawned run even before its session.json says so.
@@ -637,7 +670,8 @@ type SessionListEntry struct {
 type ListOptions struct {
 	// CWD keeps only sessions saved with this working directory when non-empty.
 	CWD string
-	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
+	// IncludeSchedulerRuns adds the sessions of scheduler jobs (schedulerRun in
+	// session.json), and the bundles the old scheduler wrote under sched_ ids.
 	IncludeSchedulerRuns bool
 	// IncludeSubagents descends into the sessions spawned by spawn_agent,
 	// which are stored inside the bundle of the session that spawned them.
@@ -891,6 +925,16 @@ func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q st
 	return out, nil
 }
 
+// sameSessionMetaContents ignores timestamps and activity counters, which can
+// advance in another process without this State changing its metadata.
+func sameSessionMetaContents(a, b SessionMeta) bool {
+	a.UpdatedAt, b.UpdatedAt = "", ""
+	a.CreatedAt, b.CreatedAt = "", ""
+	a.ActivitySeq, b.ActivitySeq = 0, 0
+	a.ReadActivitySeq, b.ReadActivitySeq = 0, 0
+	return reflect.DeepEqual(a, b)
+}
+
 // Save persists session state into the directory named by state.ID.
 func (f *FileStore) Save(state *State) error {
 	if f == nil || f.Root == "" || state == nil {
@@ -923,6 +967,20 @@ func (f *FileStore) Save(state *State) error {
 
 	newActivitySeq := state.GetActivitySeq()
 	newReadSeq := state.GetReadActivitySeq()
+	// The counters only grow. Another process over the same bundle may have
+	// moved them on since this State read them, and writing the older value
+	// back would mark its turn as never having happened.
+	if metaExisted {
+		newActivitySeq = max(newActivitySeq, prevMeta.ActivitySeq)
+		newReadSeq = max(newReadSeq, prevMeta.ReadActivitySeq)
+	}
+
+	// fork(session-disk-refresh): a State whose history has not moved since it
+	// last saw messages.json, while the file has, is older than the file:
+	// another process ran a turn over this bundle. Its save still writes the
+	// meta, but leaves the transcript side to the newer writer; the next turn
+	// here re-reads it (disk_refresh.go).
+	stale := state.staleAgainstDisk(dir, msgs, msgRev, msgEditRev)
 
 	// What was last written is remembered rather than read back and compared:
 	// the old code encoded the history a second time only to diff it against
@@ -936,7 +994,7 @@ func (f *FileStore) Save(state *State) error {
 	usable := cached != nil && cached.owner == stateID && cached.matchesFile(msgPath)
 
 	var pending []byte
-	messagesUnchanged := usable && cached.rev == msgRev
+	messagesUnchanged := stale || (usable && cached.rev == msgRev)
 	if !messagesUnchanged {
 		// Only a history that grew purely at the end can be spliced onto what
 		// was written last; an edit or a replacement re-encodes everything.
@@ -1007,12 +1065,18 @@ func (f *FileStore) Save(state *State) error {
 		PinnedAt:          strings.TrimSpace(pinnedAt),
 		PinnedRank:        pinnedRank,
 	}
-	if state.GetSchedulerRun() {
+	if state.IsSchedulerJob() {
 		meta.SchedulerRun = true
 		meta.SchedulerJobID = strings.TrimSpace(state.GetSchedulerJobID())
-		meta.SchedulerStartedAt = strings.TrimSpace(state.GetSchedulerStartedAt())
-		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
-		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
+		if strings.HasPrefix(state.ID, "sched_") {
+			// Keep the old run timestamps and outcome when its transcript or
+			// session metadata is saved by a newer binary.
+			if prior, err := f.readMetaAt(dir); err == nil {
+				meta.SchedulerStartedAt = prior.SchedulerStartedAt
+				meta.SchedulerEndedAt = prior.SchedulerEndedAt
+				meta.SchedulerStopStatus = prior.SchedulerStopStatus
+			}
+		}
 	}
 	if sub := state.Subagent(); sub != nil {
 		meta.SubagentRun = true
@@ -1020,11 +1084,29 @@ func (f *FileStore) Save(state *State) error {
 		meta.SubagentName = strings.TrimSpace(sub.Name)
 		meta.SubagentTaskID = strings.TrimSpace(sub.TaskID)
 		meta.SubagentDepth = sub.Depth
+		if sub.Scheduler != nil {
+			meta.SchedulerJobID = strings.TrimSpace(sub.Scheduler.JobID)
+			meta.SchedulerTrigger = strings.TrimSpace(sub.Scheduler.Trigger)
+			if !sub.Scheduler.FireSlot.IsZero() {
+				meta.SchedulerFireSlot = sub.Scheduler.FireSlot.UTC().Format(time.RFC3339)
+			}
+		}
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
-	meta.PermissionMode = state.GetPermissionMode()
-
+	if state.IsSubagentRun() {
+		meta.PermissionMode = state.GetPermissionMode()
+	}
+	// A sidecar-only save must leave newer session.json changes from another
+	// process intact, even if neither process added a message. A local mode or
+	// model switch still writes its change.
+	skipMeta := false
+	if messagesUnchanged && metaExisted {
+		if saved, ok := state.lastPersistedMeta(); ok {
+			skipMeta = sameSessionMetaContents(meta, saved) &&
+				newActivitySeq == prevMeta.ActivitySeq && newReadSeq == prevMeta.ReadActivitySeq
+		}
+	}
 	// The stamp stands only when this save puts nothing new anywhere - not the
 	// history, and not a field of the meta either.
 	//
@@ -1060,8 +1142,11 @@ func (f *FileStore) Save(state *State) error {
 	}
 	meta.UpdatedAt, meta.CreatedAt = updatedAt, createdAt
 
-	if err := writeJSONAtomic(metaPath, meta); err != nil {
-		return err
+	if !skipMeta {
+		if err := writeJSONAtomic(metaPath, meta); err != nil {
+			return err
+		}
+		state.recordPersistedMeta(meta)
 	}
 	switch {
 	case pending != nil:
@@ -1081,23 +1166,54 @@ func (f *FileStore) Save(state *State) error {
 		moved.rev, moved.editRev, moved.count = msgRev, msgEditRev, len(msgs)
 		f.rememberMessages(msgPath, &moved)
 	}
-	uiWrap := uiLogFileData{
-		Version: uiLogLayout,
-		Entries: state.GetUILog(),
+	// A stale State may still have changed a sidecar in this process: the HTTP
+	// plan endpoint, a UI notice or an approval saves outside the turn lock.
+	// Write only those local changes. Rewriting an untouched sidecar from the
+	// stale State would replace what the newer process saved there.
+	revs, savedRevs := state.sidecarVersions()
+	writeUILog := !stale || revs.uiLog != savedRevs.uiLog
+	writeGrants := !stale || revs.grants != savedRevs.grants
+	writePlan := !stale || revs.plan != savedRevs.plan
+	if writeUILog {
+		uiWrap := uiLogFileData{Version: uiLogLayout, Entries: state.GetUILog()}
+		if err := writeJSONAtomic(filepath.Join(dir, uiLogFile), uiWrap); err != nil {
+			return err
+		}
 	}
-	if err := writeJSONAtomic(filepath.Join(dir, uiLogFile), uiWrap); err != nil {
-		return err
+	if writeGrants {
+		pg := permissionGrantsFileData{
+			Version:  permissionGrantsVer,
+			Commands: state.GetPermissionCommandGrants(),
+			Writes:   state.GetPermissionWriteGrants(),
+			HTTP:     state.GetPermissionHTTPGrants(),
+		}
+		if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
+			return err
+		}
 	}
-	pg := permissionGrantsFileData{
-		Version:  permissionGrantsVer,
-		Commands: state.GetPermissionCommandGrants(),
-		Writes:   state.GetPermissionWriteGrants(),
-		HTTP:     state.GetPermissionHTTPGrants(),
+	if writePlan {
+		if err := SyncActiveTodoFile(dir, state.GetPlan()); err != nil {
+			return err
+		}
 	}
-	if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
-		return err
+	state.markSidecarsSaved(revs, writePlan, writeUILog, writeGrants)
+	if stale {
+		// The transcript still belongs to the other process. Its next turn
+		// here must refresh; only metadata written above can be stamped as seen.
+		if !skipMeta {
+			state.stampCurrentMeta(statMeta(dir))
+		}
+		return nil
 	}
-	return SyncActiveTodoFile(dir, state.GetPlan())
+	if skipMeta {
+		// Keep the old meta stamp: a turn must still see a mode or model
+		// changed by another process since this State last read it.
+		state.stampCurrentMessages(statMessages(dir), msgRev, msgEditRev)
+		return nil
+	}
+	// Both persisted files now describe this State.
+	state.setDiskStamp(statMessages(dir), statMeta(dir), msgRev, msgEditRev)
+	return nil
 }
 
 // PatchSessionMetaActivitySync writes only activitySeq and readActivitySeq into session.json,

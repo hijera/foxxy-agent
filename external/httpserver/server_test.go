@@ -32,6 +32,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -395,7 +396,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -2277,10 +2278,9 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	// The two skills written above plus the standard delivery, and ahead of them
-	// the built-in compact, export and plugin commands, which lead the catalog.
-	wantTotal := 2 + len(skills.Bundled()) + 3
-	if r1.StatusCode != http.StatusOK || page1.Total != wantTotal || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
+	// Settings and deterministic actions lead the catalog ahead of skills.
+	wantTotal := 2 + len(skills.Bundled()) + len(session.BuiltinCommandRows(cfg, nil, session.ActionCommandRows(cfg)))
+	if r1.StatusCode != http.StatusOK || page1.Total != wantTotal || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "model" {
 		t.Fatalf("page1: status=%d want total %d, got %+v", r1.StatusCode, wantTotal, page1)
 	}
 
@@ -2298,6 +2298,78 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 	_ = rp.Body.Close()
 	if rp.StatusCode != http.StatusOK || pref.Total != 1 || len(pref.Items) != 1 || pref.Items[0]["name"] != "zebra" {
 		t.Fatalf("prefix: status=%d %+v", rp.StatusCode, pref)
+	}
+}
+
+// TestFoxxyCodeCommandsEndpoint verifies /foxxycode/commands surfaces the built-in
+// deterministic commands (compact, export, plugin) for the composer's "Commands" group.
+func TestFoxxyCodeCommandsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	for _, d := range []string{filepath.Join(home, "memory"), defaultCWD} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	enabled := true
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: home, CWD: defaultCWD},
+		Compaction: config.CompactionConfig{Enabled: &enabled},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(url string) (int, string, []map[string]interface{}) {
+		res, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Object string                   `json:"object"`
+			Items  []map[string]interface{} `json:"items"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode, body.Object, body.Items
+	}
+
+	code, obj, items := get("/foxxycode/commands")
+	if code != http.StatusOK || obj != "foxxycode.commands" {
+		t.Fatalf("status=%d object=%q", code, obj)
+	}
+	var names []string
+	for _, it := range items {
+		names = append(names, fmt.Sprint(it["name"]))
+	}
+	want := "model reasoning think nothink agent plan ask debug permissions compact export plugin"
+	if strings.Join(names, " ") != want {
+		t.Fatalf("commands = %v, want %s", names, want)
+	}
+	if items[0]["kind"] != "setting" || items[len(items)-1]["kind"] != "action" {
+		t.Fatalf("kinds = %v / %v", items[0]["kind"], items[len(items)-1]["kind"])
+	}
+	if items[0]["hint"] != "<model id> [--once|--count=N]" {
+		t.Fatalf("model hint = %v", items[0]["hint"])
+	}
+	for _, it := range items {
+		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {
+			t.Fatalf("command %q missing description", it["name"])
+		}
+	}
+
+	_, _, pl := get("/foxxycode/commands?prefix=plug")
+	if len(pl) != 1 || pl[0]["name"] != "plugin" {
+		t.Fatalf("prefix filter = %+v, want only plugin", pl)
 	}
 }
 
@@ -3019,6 +3091,42 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	}
 }
 
+// ---- HTTP bearer auth (Phase 1a of the Remote Control roadmap) ----
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
+	}
+}
+
 func TestHTTPAuthProtectsAPIAndAllowsSPA(t *testing.T) {
 	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
 	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
@@ -3257,39 +3365,6 @@ func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 	}
 }
 
-func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
-	t.Helper()
-	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
-		return "", nil
-	}
-	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
-	srv := New(cfg, mgr, slog.Default(), "/tmp")
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	return srv, ts
-}
-
-func authGET(t *testing.T, rawURL, token string) int {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = res.Body.Close() }()
-	return res.StatusCode
-}
-
-func cfgWithAuth(token string) *config.Config {
-	return &config.Config{
-		Agent:      config.Agent{Model: "openai/gpt-4o"},
-		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
-		HTTPServer: config.HTTPServerConfig{AuthToken: token},
-	}
-}
 func cfgWithCORS(origins ...string) *config.Config {
 	c := cfgWithAuth("")
 	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowedOrigins: origins}
@@ -4112,6 +4187,10 @@ func TestBackgroundWakeSurvivesATurnStillInFlight(t *testing.T) {
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: sessRoot})
 	srv := New(cfg, mgr, slog.Default(), root)
 	defer srv.Drain()
+	// Nothing else in this test owns a waker; `foxxycode serve` hands the server's
+	// wake path to its runtime instead.
+	srv.AttachBackgroundWaker()
+	defer bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
 
 	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
 	if err != nil {
@@ -4867,5 +4946,72 @@ func TestChatCompletionsDirectCodexFinishReasons(t *testing.T) {
 	}
 	if !strings.Contains(sse, "stream truncated") {
 		t.Fatalf("cut (stream): the truncation never reached the client:\n%s", sse)
+	}
+}
+
+// A wake that lands while a turn holds the session is refused as busy - the
+// waker asks again - and must leave that turn's relay alone: its watchers keep
+// their stream, and a watcher that arrives later can still attach to it.
+func TestBackgroundWakeOnABusySessionLeavesTheRunningRelay(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), root)
+	defer srv.Drain()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+
+	// A composer turn in flight: it holds the lock and publishes to its relay.
+	unlock, err := mgr.AcquireComposerTurnLock(res.SessionID, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := srv.beginComposerRelay(res.SessionID)
+	defer func() {
+		unlock()
+		srv.endComposerRelay(res.SessionID, running)
+	}()
+
+	end := time.Now()
+	handled, err := srv.RunBackgroundWake(context.Background(), agent.Wake{SessionID: res.SessionID, Tasks: []bgtask.Snapshot{{
+		ID: "bg_1", SessionID: res.SessionID, Status: bgtask.StatusFailed, StartedAt: end.Add(-time.Second), FinishedAt: &end,
+	}}})
+	if !handled || !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("wake on a busy session = %v, %v; want handled and ErrSessionTurnBusy", handled, err)
+	}
+	if srv.peekComposerRelay(res.SessionID) != running {
+		t.Fatal("the refused wake evicted the running turn's relay")
+	}
+}
+
+// Only the first message of a woken turn carries the marker in the transcript
+// a reloaded tab reads; a message somebody typed carries none.
+func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
+	two := 2
+	rows := llmMsgsToFoxxyCodeOpenAIForSession("sess_x", []llm.Message{
+		{Role: llm.RoleUser, Content: "start the tests"},
+		{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
+			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},
+		}},
+	})
+	if _, ok := rows[0]["background_wake"]; ok {
+		t.Fatalf("a typed message is marked as a wake: %+v", rows[0])
+	}
+	raw, err := json.Marshal(rows[1]["background_wake"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"id":"bg_1"`) || !strings.Contains(string(raw), `"exit_code":2`) || !strings.Contains(string(raw), `"duration_ms":1200`) {
+		t.Fatalf("background_wake = %s", raw)
 	}
 }

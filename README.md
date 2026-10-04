@@ -23,11 +23,11 @@
   <a href="https://hijera.github.io/foxxy-agent/?lang=ru"><strong>Сайт</strong></a> - загрузки, скриншоты, <a href="https://hijera.github.io/foxxy-agent/compare/?lang=ru">сравнение</a>, <a href="https://hijera.github.io/foxxy-agent/changelog/?lang=ru">изменения</a>
 </p>
 
-> **Foxxy Agent основан на [coddy-agent](https://github.com/coddy-project/coddy-agent)** проекта Coddy (MIT).
+> **Foxxy Agent основан на [foxxy-agent](https://github.com/hijera/foxxy-agent)** проекта FoxxyCode (MIT).
 > Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
 > оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.
 
-**Что FoxxyCode добавляет к coddy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
+**Что FoxxyCode добавляет к foxxy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
 
 - **Нативное настольное окно (WebView2)** с системными уведомлениями, звуковым сигналом и пошаговым знакомством при первом запуске
 - **Глубокая интеграция с IDE** — контекст открытых файлов (`<foxxycode_ide_context>`), отслеживание терминала (`@terminal`), упоминание файлов перетаскиванием, выбор папки проекта, метаданные проекта из `.vscode`/`.idea` и нативные встроенные diff в IntelliJ
@@ -80,6 +80,7 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Интеграция MCP-серверов** — подключение любого MCP-сервера для доступа к дополнительным инструментам
 - **Вход в веб-интерфейс** — сервер в сети закрывается паролем для браузера (**`foxxycode serve set-password`** или **`FOXXYCODE_HTTP_USER`** / **`FOXXYCODE_HTTP_PASSWORD`** в **`~/.foxxycode/.env`**) и bearer-токеном для API-клиентов; панели плагинов и окно desktop на той же машине формы не видят ([Удалённый режим](docs/operate/remote.md#the-sign-in-form))
 - **Несколько LLM-провайдеров** — OpenAI, Anthropic, Ollama и любой OpenAI-совместимый API; сам **`POST /v1/chat/completions`** отдаёт строгий OpenAI-поток, поэтому FoxxyCode можно подключить моделью в VS Code Copilot ([туториал](docs/tutorials/foxxycode-as-a-model-in-vs-code.md))
+- **Devin** — вход в аккаунт через браузер или существующий `devin auth login`, модели семейств и уровни рассуждения; см. [руководство](docs/features/devin.md).
 - **Работа за корпоративным прокси** — если прокси не задан ни у провайдера, ни в окружении, берётся системный прокси Windows, включая PAC-скрипт и автоопределение (WPAD); поле прокси в настройках прячет пароль, а кнопка **…** собирает адрес из хоста, порта, логина и пароля с любыми символами — см. [Работа за прокси](docs/operate/proxy.md)
 - **Мультимодальность и вложения** — изображения и файлы можно прикреплять через поле ввода (📎), если в настройках модели указано `multimodal: true`; файлы сохраняются в `~/.foxxycode/sessions/<id>/assets/`, передаются в контекст агента и отображаются в сообщении пользователя
 - **Экспорт диалога** — любую сессию можно выгрузить в **PDF**, **DOCX**, **HTML** или **JSON**. Markdown в сообщениях отрисовывается по-настоящему: таблицы, подсветка синтаксиса, вложенные списки и чек-листы, цитаты, ссылки с рабочими аннотациями и картинки из `assets/` сессии; удалённые `http(s)`-картинки при экспорте намеренно не загружаются. Панелям IDE, которые не умеют принимать загрузку, служит отдельный маршрут, записывающий документ на диск и подсвечивающий его в файловом менеджере; подробнее в [HTTP API](docs/reference/http-api.md)
@@ -607,7 +608,8 @@ LLM  Инструменты Навыки  MCP
 
 ## Документация
 
-- [Отличия FoxxyCode от coddy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
+- [Встроенная документация](docs/features/built-in-docs.md) — страницы внутри бинарника, поиск и чтение через веб-интерфейс, консоль, CLI и инструменты агента
+- [Отличия FoxxyCode от foxxy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
 - [Дорожная карта](ROADMAP.md) — планы по версиям 0.3.x–0.6.x и что из них уже вышло
 - [Сборка из исходников](docs/contributing/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**
 - [Обновление FoxxyCode](docs/getting-started/update.md) — **`foxxycode update`**, артефакты релизов, **`PATH`** и **`make install`**

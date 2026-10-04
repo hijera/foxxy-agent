@@ -19,8 +19,8 @@ func jobCreateTool(cfg *config.Config) *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: toolJobCreate,
 			Description: "Creates a new flat scheduler job markdown file (.md directly under scheduler.dir). " +
-				"Provide job_id plus YAML fields description, schedule (5-field cron UTC line), optional cwd/model/mode/paused, " +
-				"and markdown instruction body. Validates cron before writing. Conflict if job_id exists. Requires permission.",
+				"Provide job_id plus YAML fields description, schedule (5-field cron UTC line), optional cwd/model/mode/paused, optional agent (a subagent definition name) and permission_mode (ask, accept_edits, bypass; empty is bypass), " +
+				"and markdown instruction body. Validates cron, the permission mode and the agent name before writing. Conflict if job_id exists. Requires permission.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

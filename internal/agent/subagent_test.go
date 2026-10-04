@@ -249,6 +249,8 @@ type stubBroker struct {
 	requests []DetachedPermissionRequest
 	asked    chan struct{}
 	release  chan *acp.PermissionResult
+	// err is answered instead of waiting when set.
+	err error
 }
 
 func newStubBroker() *stubBroker {
@@ -260,6 +262,9 @@ func (b *stubBroker) RequestDetachedPermission(ctx context.Context, req Detached
 	b.requests = append(b.requests, req)
 	b.mu.Unlock()
 	b.asked <- struct{}{}
+	if b.err != nil {
+		return nil, b.err
+	}
 	select {
 	case res := <-b.release:
 		return res, nil
@@ -315,6 +320,12 @@ func TestPermissionRelayRoutesToTheBrokerOnceTheTurnEnded(t *testing.T) {
 	// and a sibling's live prompt would be stuck behind it.
 	if n := arbiterWaiters(parentID); n != 0 {
 		t.Fatalf("detached wait queued %d relays on the arbiter slot", n)
+	}
+	select {
+	case relay.arbiter.slot <- struct{}{}:
+		<-relay.arbiter.slot
+	default:
+		t.Fatal("the detached wait holds the parent's arbiter slot")
 	}
 	if parent.calls() != 0 {
 		t.Fatalf("the finished turn's transport was touched %d times", parent.calls())
@@ -567,6 +578,9 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 			Content: acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: "thinking hard"}},
 		text("hello wor"),
 		text("ld\nsecond"),
+		// The pending row streamed with the name, then the complete call: one
+		// announcement in the log.
+		start("c1", "read"),
 		start("c1", "read"),
 		status("c1", "in_progress"),
 		status("c1", "completed"),
@@ -602,6 +616,47 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 	s.Flush()
 	if got := out.String(); got != want {
 		t.Fatalf("second Flush changed the sink:\n%q", got)
+	}
+}
+
+// The child's calls are counted as they come: the input every call sent, summed, and
+// the output its turns have generated, the call in flight included through
+// turn_progress. A second turn (a Stop hook follow-up) adds to the first, and every
+// change reaches the task row.
+func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
+	var buf bytes.Buffer
+	s := newSubagentSender(&buf, nil)
+	type usage struct{ in, out int }
+	var seen []usage
+	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+
+	first := "2026-09-18T10:00:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 45, Estimated: true})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1200, OutputTokens: 40, TotalTokens: 1240})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 40})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1300, OutputTokens: 60, TotalTokens: 2600})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 100})
+
+	second := "2026-09-18T10:01:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1500, OutputTokens: 20, TotalTokens: 1520})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 20})
+
+	if len(seen) == 0 {
+		t.Fatal("the task row never heard of the child's usage")
+	}
+	if got := seen[len(seen)-1]; got != (usage{4000, 120}) {
+		t.Fatalf("last usage = %+v, want 4000 in and 120 out", got)
+	}
+	// The opening frame of a turn carries nothing new and is not reported; the
+	// estimate of the call in flight is, while it streams.
+	if seen[0] != (usage{0, 45}) {
+		t.Fatalf("usage while streaming = %+v, want the estimate", seen[0])
+	}
+	// Nothing is written to the task's log for it.
+	if strings.Contains(buf.String(), "1200") {
+		t.Fatalf("usage leaked into the task log: %q", buf.String())
 	}
 }
 
@@ -1105,6 +1160,25 @@ func (r *subagentRig) childBundles() []string {
 
 // assertRetired checks the child left the live map (later reads come from the
 // bundle) while its bundle stayed on disk with the link to parentID.
+// childTasks lists a child's tasks the way the HTTP surface does: what the
+// pool still holds plus the records the child's bundle kept. A retired child
+// is released from the pool's memory, so after its run the records are what
+// says what it left behind and how that ended.
+func (r *subagentRig) childTasks(childID string) []bgtask.Snapshot {
+	live := bgtask.Default().List(childID)
+	seen := make(map[string]bool, len(live))
+	out := append([]bgtask.Snapshot(nil), live...)
+	for _, s := range live {
+		seen[s.ID] = true
+	}
+	for _, s := range bgtask.LoadPersisted(r.store.SessionPath(childID)) {
+		if !seen[s.ID] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (r *subagentRig) assertRetired(childID, parentID string) {
 	r.t.Helper()
 	if r.mgr.SessionByID(childID) != nil {
@@ -1218,7 +1292,11 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	}
 
 	// Control: a detached spawn from a root session keeps the flag, so the
-	// foreground case is a decision and not a dropped field.
+	// foreground case is a decision and not a dropped field. The wake is only
+	// promised where something is subscribed to deliver it, which on a surface
+	// is its BackgroundWaker.
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	t.Cleanup(func() { bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil) })
 	bg := spawnReq("reviewer")
 	bg.Background = true
 	bg.NotifyOnFinish = true
@@ -1232,6 +1310,31 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	final := rig.waitTask(rig.lastAgentTask().ID)
 	if !final.NotifyOnFinish {
 		t.Fatalf("background task %s lost notify_on_finish", final.ID)
+	}
+}
+
+// Where nothing is subscribed to wake the agent (foxxycode -p), a detached spawn
+// that asks for notify_on_finish still runs, but the result says nobody will
+// wake the model and the task does not claim a wake it will not get.
+func TestSpawnSubagentWithoutAWakerDoesNotPromiseAWake(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: quiet")) })
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+
+	req := spawnReq("reviewer")
+	req.Background = true
+	req.NotifyOnFinish = true
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatalf("background spawn: %v", err)
+	}
+	if strings.Contains(res, "You will be woken") || !strings.Contains(res, "Nothing will wake you") {
+		t.Fatalf("a spawn with no waker promised a wake:\n%s", res)
+	}
+	final := rig.waitTask(rig.lastAgentTask().ID)
+	if final.NotifyOnFinish {
+		t.Fatalf("task %s claims a wake nothing will deliver", final.ID)
 	}
 }
 
@@ -1306,7 +1409,7 @@ func TestSpawnSubagentDepthGateRemovesSpawnAgentAtTheLimit(t *testing.T) {
 	}
 	// The grandchild's task lives under the middle child's session and settled.
 	var nested []bgtask.Snapshot
-	for _, s := range bgtask.Default().List(middle.ID) {
+	for _, s := range rig.childTasks(middle.ID) {
 		if s.Kind == bgtask.KindAgent {
 			nested = append(nested, s)
 		}
@@ -1559,7 +1662,7 @@ func TestSpawnSubagentChildBackgroundWorkSettlesBeforeRetirement(t *testing.T) {
 		t.Fatalf("envelope = %+v", env)
 	}
 	child := rig.childByDepth(1)
-	left := bgtask.Default().List(child.ID)
+	left := rig.childTasks(child.ID)
 	if len(left) != 1 || left[0].Kind != bgtask.KindCommand || left[0].Command != "sleep 30" {
 		t.Fatalf("child tasks = %+v, want the one sleep", left)
 	}
@@ -1589,7 +1692,7 @@ func TestSpawnSubagentChildBackgroundCommandNeverNotifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := rig.childByDepth(1)
-	left := bgtask.Default().List(child.ID)
+	left := rig.childTasks(child.ID)
 	if len(left) != 1 {
 		t.Fatalf("child tasks = %+v, want one", left)
 	}
@@ -1655,7 +1758,7 @@ func TestSpawnSubagentChildSpawnNeverNotifies(t *testing.T) {
 	}
 	middle := rig.childByDepth(1)
 	var nested []bgtask.Snapshot
-	for _, s := range bgtask.Default().List(middle.ID) {
+	for _, s := range rig.childTasks(middle.ID) {
 		if s.Kind == bgtask.KindAgent {
 			nested = append(nested, s)
 		}

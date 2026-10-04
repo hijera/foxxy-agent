@@ -80,9 +80,9 @@ For access from other machines bind wider and require a token: `foxxycode serve 
 
 **Symptom.** `foxxycode serve` refuses to start with `<key> is true but this binary has no <surface> support (rebuild with -tags <tag>)`; bare `foxxycode` prints the usage instead of opening the console and `foxxycode cli` answers `interactive console is not built in`; `foxxycode serve` with nothing enabled says `no subsystem is enabled`.
 
-**Cause.** The console, the HTTP API, the web UI, the scheduler, the memory copilot, the messenger gateway and the swarm relay are Go build tags. A plain `make build` (or `go build`, or `go install ...@latest`) produces the lean ACP binary without them. `foxxycode serve` treats an enabled subsystem the binary cannot run as an error rather than a warning, so a bot that would otherwise be silently offline is refused by name.
+**Cause.** The console, the HTTP API, the web UI, the scheduler, the memory subagent, the messenger gateway and the swarm relay are Go build tags. A plain `make build` (or `go build`, or `go install ...@latest`) produces the lean ACP binary without them. `foxxycode serve` treats an enabled subsystem the binary cannot run as an error rather than a warning, so a bot that would otherwise be silently offline is refused by name.
 
-**Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory copilot, the console and the gateway - or build it yourself:
+**Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
 
 ```bash
 make build TAGS="http ui scheduler memory cli gateway swarm"
@@ -116,7 +116,7 @@ foxxycode --dry-run              # resolves stdio commands in PATH, contacts rem
 
 ## The Telegram bot is silent
 
-**Symptom.** The bot never answers, or a `/model` or `/mode` tap changes nothing.
+**Symptom.** The bot never answers, or a `/model` or `/resume` tap changes nothing.
 
 **Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only. Text answered but taps ignored, with nothing at `debug`, was the subscription: Telegram remembers the last `allowed_updates` a bot asked for, and a token that once ran under another framework may be subscribed to messages alone. FoxxyCode asks for `message` and `callback_query` on every poll since it hit this itself; `curl https://api.telegram.org/bot<token>/getWebhookInfo` shows what is in force.
 
@@ -145,7 +145,7 @@ foxxycode agents list [--cwd DIR]
 foxxycode agents trust <name>
 ```
 
-Both `trust` commands print what they are about to approve and record the receipt (`~/.foxxycode/hooks-trust.json`, `~/.foxxycode/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+Both `trust` commands print what they are about to approve and record the receipt (`~/.foxxycode/hooks-trust.json`, `~/.foxxycode/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and marks the ones awaiting approval, but records none. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
 
 ## A turn stops with a usage limit
 
@@ -167,7 +167,7 @@ A top-level turn then waits for the reset, reports `Usage limit reached · resum
 
 **Symptom.** A turn ends with `LLM error: provider "<name>" (<address>): ...` and the message closes with `net/http: TLS handshake timeout`, `dial tcp ...: i/o timeout`, `connect: no route to host` or `connection reset by peer`.
 
-**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so FoxxyCode repeats it up to `agent.llm_retry_max` times (3 by default) with a backoff that starts at `agent.llm_retry_base_ms` and doubles. The error reaches the turn only when every attempt failed. Two failures of the same family are not repeated: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than weather, and a stream cut after text was already shown, since a replay would show that text twice.
+**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so FoxxyCode repeats it up to `agent.llm_retry_max` times (3 by default) with a backoff that starts at `agent.llm_retry_base_ms` and doubles. The error reaches the turn only when every attempt failed. Two failures of the same family are not repeated: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than weather, and a stream cut after text was already shown, since a replay would show that text twice - that one is carried on instead (see the next-but-one section).
 
 **Fix.** Check that the address in the error is the one you mean, then whether it answers from this machine:
 
@@ -187,6 +187,56 @@ providers:
     api_base: https://llm.example.com/v1
     proxy: socks5h://127.0.0.1:1080
 ```
+
+The opposite case is as common: the machine names a proxy in `HTTPS_PROXY` - a corporate one, a local forwarder, a variable left over from another setup - and that proxy stalls or breaks the handshake while the provider itself is reachable directly. Every row follows that variable unless it says otherwise, so set `proxy: none` on the row that should go direct; the other rows keep the proxy. `foxxycode --dry-run` names the proxy the environment chose when a provider cannot be reached. More in [Provider proxy](configuration.md#provider-proxy).
+
+```yaml
+providers:
+  - name: local
+    type: openai
+    api_base: http://192.168.1.20:8000/v1
+    proxy: none
+```
+
+Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## A turn behind a proxy waits on "Provider is not responding" and never recovers
+
+**Symptom.** Behind a proxy, a turn sits on **Provider is not responding, retrying** for as long as the retry schedule runs (with the defaults about an hour and a half), and every retry fails the same way. With `debug.enable` on, the connection trace shows the retries on one connection: `llm net: conn reused=true` with the same `local` port each time, then `no activity phase=awaiting_response`.
+
+**Cause.** Requests to a provider share one pooled HTTP/2 connection. When a proxy loses the state of a tunnel without closing it, the connection to the proxy stays up but nothing arrives on it any more, and every new request, every retry included, was sent on that same dead connection.
+
+**Fix.** Since this release FoxxyCode pings a connection that has received nothing for 15 seconds and closes it when the ping goes unanswered for another 15. The request that was waiting on it is repeated on a new connection, so such a turn recovers within about half a minute. If it still hangs, the trace shows which step the new connection is stuck in; see [Diagnostics](../operate/debugging.md).
+
+## A turn stops mid-answer, or ends with `stream stalled`
+
+**Symptom.** The model starts answering and the text stops mid-sentence. After a while the live label says the answer is being continued and the text goes on, or the turn ends with `stopped: the provider stopped sending data mid-answer (no progress for 5m0s) ...`, with the text that did arrive kept in the transcript. Or a one-shot run (`foxxycode -p`) sits for a long time with no output at all, and when it is killed the session log says `generation was interrupted before producing a response (the model had been silent for 25m0s)`.
+
+**Cause.** The provider took the request and stopped sending, or cut the answer with a server error. Nothing on the wire says whether it is still working: a stuck worker behind a gateway, a proxy or a VPN tunnel that lost the far side without closing the connection, a request the gateway forgot. FoxxyCode bounds that wait in three places:
+
+- the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member - then waits the provider out on the `agent.llm_stall_retry` ladder (1, 3, then 5 minutes);
+- the stall guard, `agent.llm_stream_idle_timeout_ms` (5 min; `llm_stall_timeout_ms` is its old name), cuts a streamed answer that delivered nothing for that long after its first chunk. Keep-alive comments a gateway sends do not count as delivery, so a dead model behind a chatty gateway is still cut;
+- the HTTP/2 health check closes a connection whose peer stops answering pings (see the previous section).
+
+What happens to an answer that was cut after text was shown - by the stall guard, a dropped stream or a 5xx the retries could not ride out - is set by `agent.llm_continue` (on by default): the text is kept, the turn pauses (`llm_continue_stall_delays_ms` after a stall, `llm_continue_error_delays_ms` after a failure, a longer `Retry-After` of the provider up to `llm_continue_retry_after_max_ms`) and asks the model to go on from where it stopped, up to `llm_continue_max` times per turn. When the model starts the same answer over instead of continuing it, it is told so, and after that asked for an answer with the tools withheld. With `llm_continue: false` the turn ends at the cut, keeps the text and names the reason.
+
+None of the guards applies to a model configured with `stream: false`: its answer arrives in one piece, so the only bound on that call is `providers[].timeout_ms`, and a run killed from outside reports how long the model had been silent.
+
+**Fix.** A guard that fires on a healthy but slow model is a value to raise, not a bug: a large brief on a small server can spend minutes in prompt processing before the first token, and a long answer can pause for a while when the server is preempting requests. Set the guard to what the deployment needs, or to `0` to turn it off, and give a blocking model a request bound instead:
+
+```yaml
+agent:
+  llm_first_token_timeout_ms: 600000   # ten minutes before the first token
+  llm_stream_idle_timeout_ms: 600000   # ten minutes of silence mid-answer
+  llm_continue_max: 5                  # carry a cut answer on up to five times per turn
+providers:
+  - name: slow-hub
+    type: openai
+    api_base: https://llm.example.com/v1
+    timeout_ms: 3600000                # one hour for a stream: false model's whole request
+```
+
+With `debug.enable` the log carries one `llm call finished` line per model call, with its duration, the time to the first chunk, how the answer ended and which guard cut it (`cut_by`), which is where a slow deployment and a dead one part ways ([Diagnostics](../operate/debugging.md)).
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
 

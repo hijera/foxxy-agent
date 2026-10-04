@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/gateway/proxyutil"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -32,8 +33,10 @@ type SessionRunner interface {
 	EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
 	HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
 	ForgetLiveSession(sessionID string)
-	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+	// HandleSessionList lists the sessions the server keeps, the most
+	// recently updated first; /resume offers them to the chat.
+	HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
 	Cfg() *config.Config
 }
 
@@ -71,6 +74,18 @@ type Bot struct {
 	// conversation on a browser's screen as it happens; on its own the bot
 	// runs against a mirror that hands the sender straight back.
 	mirror session.TurnMirror
+
+	// asks holds the subagent permission requests waiting for a tap
+	// (permission.go); promptSurfaces is where the bot offers to ask about
+	// detached subagents, and api the connected client they are asked through.
+	asks           *chatPermissions
+	promptSurfaces PromptSurfaces
+	apiMu          sync.Mutex
+	api            *tgbotapi.BotAPI
+
+	// wakeSurfaces is where the bot offers to run the woken turns of its
+	// chats' sessions (wake.go).
+	wakeSurfaces agent.WakeSurfaces
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
@@ -88,6 +103,7 @@ func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, lo
 		store:   store,
 		workers: make(map[string]chan workerJob),
 		mirror:  mirror,
+		asks:    newChatPermissions(),
 	}
 	return b
 }
@@ -99,7 +115,8 @@ func (b *Bot) Name() string { return "telegram" }
 func (b *Bot) Start(ctx context.Context) error {
 	httpClient, err := proxyutil.BuildHTTPClient(b.cfg.Proxy)
 	if err != nil {
-		return fmt.Errorf("telegram: proxy: %w", err)
+		// The error names the proxy itself ("proxy: unknown value; ...").
+		return fmt.Errorf("telegram: %w", err)
 	}
 	token := b.cfg.EffectiveToken()
 	if token == "" {
@@ -120,12 +137,32 @@ func (b *Bot) Start(ctx context.Context) error {
 	b.botName = bot.Self.UserName
 	b.log.Info("telegram bot connected", "username", b.botName)
 
+	// From here on a background subagent of one of these chats can be asked
+	// about in the chat. A stopped bot receives no taps, so on the way out it
+	// withdraws the offer and every request still waiting.
+	b.setAPI(bot)
+	defer b.setAPI(nil)
+	defer b.asks.stop()
+	if b.promptSurfaces != nil {
+		withdraw := b.promptSurfaces.AddDetachedPermissionApprover(b)
+		defer withdraw()
+	}
+	// A turn a finished background task starts in one of these chats'
+	// sessions runs in that chat, for as long as the bot is connected.
+	if b.wakeSurfaces != nil {
+		withdraw := b.wakeSurfaces.AddWakeSurface(b, agent.WakeOwner)
+		defer withdraw()
+	}
+
 	if _, err := bot.Request(tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "start", Description: "Greeting and quick intro"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
-		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan / ask)"},
 		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
+		tgbotapi.BotCommand{Command: "agent", Description: "Agent mode: every tool (add --once for one message)"},
+		tgbotapi.BotCommand{Command: "plan", Description: "Plan mode: read-only, plans the work"},
+		tgbotapi.BotCommand{Command: "ask", Description: "Ask mode: read-only answers"},
 		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
+		tgbotapi.BotCommand{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
 	)); err != nil {
 		b.log.Warn("telegram: set commands", "err", err)
@@ -322,19 +359,18 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.reply(bot, chatID, msg.MessageID,
 			"*Available commands:*\n\n"+
 				"/start — greeting and quick intro\n"+
-				"/mode — switch session mode (agent / plan / ask)\n"+
-				"/model — switch LLM model\n"+
+				"/model — switch LLM model (/model <id> sets it directly)\n"+
+				"/agent, /plan, /ask — switch the session mode\n"+
+				"/think, /nothink, /reasoning <level> — thinking and reasoning level\n"+
+				"Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n"+
 				"/context — show context window usage\n"+
+				"/resume [id or title] — continue another session\n"+
 				"/clear — start a new session (forgets previous context)\n"+
 				"/help — show this message\n\n"+
 				"In group chats mention me (@"+b.botName+") or reply to my message to talk to me.")
 		return
 	}
-	if isCommand(msg, "mode") {
-		b.handleModeCommand(ctx, bot, msg, key)
-		return
-	}
-	if isCommand(msg, "model") {
+	if isCommand(msg, "model") && strings.TrimSpace(msg.CommandArguments()) == "" {
 		b.handleModelCommand(ctx, bot, msg, key)
 		return
 	}
@@ -342,9 +378,18 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.handleContextCommand(ctx, bot, msg, key)
 		return
 	}
+	if isCommand(msg, "resume") {
+		b.handleResumeCommand(ctx, bot, msg, key)
+		return
+	}
 
 	// --- Skip other commands and empty messages ---
-	if text == "" || msg.IsCommand() {
+	// A settings command (/model x, /think, /plan --once ...) goes to the
+	// session like a message: the manager takes it off the start of the text
+	// and answers with a notice, or applies it to the turn the rest starts.
+	// /permissions is not one of them here: the bot approves its chat agent
+	// itself, and the mode would only change what other surfaces ask.
+	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg)) {
 		return
 	}
 
@@ -396,7 +441,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 
 	// Rich Messages: stream an ephemeral draft preview in private chats (drafts are
 	// private-only); group chats receive the final sendRichMessage without streaming.
-	sender := newSender(bot, chatID, msg.MessageID, b.log, richConfig{
+	sender := b.chatSender(bot, chatID, msg.MessageID, richConfig{
 		enabled:    rich,
 		allowDraft: rich && !isGroup,
 		draftID:    b.draftSeq.Add(1),
@@ -437,12 +482,23 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 }
 
+// chatSender builds the sender of one turn in chatID, able to ask the chat about
+// a subagent's permission request.
+func (b *Bot) chatSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, rich richConfig) *Sender {
+	s := newSender(bot, chatID, replyTo, b.log, rich)
+	s.asks = b.asks
+	return s
+}
+
 // shouldRespond checks whether the bot should process a group message.
 // It responds to: built-in commands, direct @-mentions, and replies to the bot.
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 	if msg.IsCommand() {
 		switch strings.ToLower(msg.Command()) {
-		case "clear", "start", "help", "mode", "model", "context":
+		case "clear", "start", "help", "model", "context", "resume":
+			return true
+		}
+		if isSettingsCommand(msg) {
 			return true
 		}
 	}
@@ -453,6 +509,17 @@ func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 		return true
 	}
 	return false
+}
+
+// isSettingsCommand reports whether msg starts with a settings command the
+// bot hands to the session (session.LookupSettingsCommand), /permissions
+// aside.
+func isSettingsCommand(msg *tgbotapi.Message) bool {
+	if !msg.IsCommand() {
+		return false
+	}
+	cmd, ok := session.LookupSettingsCommand(msg.Command())
+	return ok && cmd.Setting != session.SettingPermissionMode
 }
 
 func isCommand(msg *tgbotapi.Message, cmd string) bool {

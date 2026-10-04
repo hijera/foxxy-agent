@@ -143,6 +143,21 @@ func RenderForVariants(mode string, variants []string, promptsDir, agentFile, pl
 	return strings.TrimSpace(b.String()), nil
 }
 
+// RenderSource renders a template given as text with the same data a mode
+// template gets. A system child with a prompt of its own (the memory
+// subagent) renders through it instead of the mode template.
+func RenderSource(name, src string, data TemplateData) (string, error) {
+	tmpl, err := template.New(name).Parse(src)
+	if err != nil {
+		return "", fmt.Errorf("parse prompt template %q: %w", name, err)
+	}
+	var b strings.Builder
+	if err := tmpl.Execute(&b, data); err != nil {
+		return "", fmt.Errorf("render prompt template %q: %w", name, err)
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
 // RenderWithFallback renders the prompt and returns a safe default on error.
 func RenderWithFallback(mode, promptsDir, agentFile, planFile, docsFile, askFile string, data TemplateData) string {
 	return RenderWithFallbackForVariants(mode, nil, promptsDir, agentFile, planFile, docsFile, askFile, data)

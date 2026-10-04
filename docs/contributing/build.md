@@ -6,7 +6,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 - **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.25**).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
-- **Node.js and npm** - required only when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up.
+- **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
 Optional:
 
@@ -186,6 +186,8 @@ it cannot drift from the Makefile. Locally, reach for a single combination inste
 **`go test -tags=<set> ./...`**. Two of those jobs also start the built binary: `cli` drives the
 console through a real pty (`examples/cli/cli_e2e_startup.py`), `gateway` runs the Telegram bot
 against the offline stand of `cmd/tgfake` (`examples/gateway/tg_e2e_offline.sh`).
+
+**`make test-race`** runs the race detector over every non-UI Go tag in one pass. CI runs it on pull requests; the UI tag only embeds the already built SPA.
 
 ## Desktop (Windows WebView2)
 

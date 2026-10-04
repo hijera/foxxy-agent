@@ -123,9 +123,9 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		emitted = true
 		onChunk(c)
 	}
-	// progress tells the caller the server is still working without counting
-	// as content: it bypasses emit, so a retry of a stream that only ever
-	// reported progress stays safe.
+	// fork(progress-chunks): progress tells the caller the server is still
+	// working without counting as content: it bypasses emit, so a retry of a
+	// stream that only ever reported progress stays safe.
 	progress := func() {
 		if onChunk != nil {
 			onChunk(StreamChunk{Progress: true})
@@ -330,9 +330,11 @@ func (p *codexProvider) decodeReasoningItems(signature string) []json.RawMessage
 
 // codexReasoningEffort maps a foxxycode reasoning level onto a level the Codex
 // backend accepts. Its models advertise none/low/medium/high/xhigh and reject
-// the OpenAI "minimal" tier, which foxxycode offers for every gpt-5 model id.
+// the OpenAI "minimal" tier, which foxxycode offers for every gpt-5 model id, and
+// the "off" pseudo level, which the backend spells none.
 func codexReasoningEffort(level string) string {
-	if strings.EqualFold(strings.TrimSpace(level), "minimal") {
+	// "off" turns thinking off; the backend's lowest tier is the closest it has.
+	if l := strings.ToLower(strings.TrimSpace(level)); l == "minimal" || l == reasoningOff {
 		return "none"
 	}
 	return level

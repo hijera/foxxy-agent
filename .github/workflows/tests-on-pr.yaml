@@ -1,4 +1,5 @@
-# Run the full test matrix (one job per tag combination) and golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination), the race detector and
+# golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -14,7 +15,7 @@ defaults:
 jobs:
   # The tag combinations are written down once, in the Makefile (TEST_TAG_SETS),
   # and read from there so this file cannot drift from `make test-matrix`. The
-  # OpenCode rules plugin test rides along: it needs Node and nothing else.
+  # The OpenCode rules plugin test rides along; it needs Node and nothing else.
   plan:
     name: Test matrix
     runs-on: ubuntu-latest
@@ -29,6 +30,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
 
       - name: Test the OpenCode rules plugin
         run: make test-opencode-rules
@@ -264,8 +267,8 @@ jobs:
   # The suite runs without -race, so a data race in the session manager, the
   # background task pool or the SSE fan-out only ever shows up as a flake in
   # production. -race needs cgo, which is unavailable on some contributor
-  # machines but always present here. The scope is the packages with real
-  # concurrency; widen it as more of the tree is shown to be race-free.
+  # machines but always present here. The full non-UI tag set runs through
+  # make test-race.
   race:
     name: Race detector
     runs-on: ubuntu-latest
@@ -294,9 +297,7 @@ jobs:
       - name: Run tests under the race detector
         env:
           CGO_ENABLED: "1"
-        run: |
-          go test -race -count=1 ./internal/agent/... ./internal/session/... ./internal/bgtask/... ./internal/llm/... ./internal/mcp/...
-          go test -race -count=1 -tags=http,scheduler,memory ./external/httpserver/... ./external/scheduler/...
+        run: make test-race
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `foxxycode` opens on a Terminal.app pty. A hang there was
@@ -386,12 +387,9 @@ jobs:
       - name: Check the generated pages, the links and the assets
         run: make docs-check
 
-  # A build tag hides whole files from the linter, so this job runs the Makefile
-  # targets rather than a bare ./... pass: `make lint` walks every tag set
-  # (cli, browser, gateway, swarm, http+scheduler+memory), `make lint-ui` adds the
-  # embedded-SPA surface, and `make lint-windows` repeats them for GOOS=windows
-  # plus the Windows-only desktop shell. Keeping the tag list in the Makefile
-  # means CI and a local run cannot drift apart.
+  # The Makefile derives lint passes from the full tag list: untagged, all but
+  # ui, and the shipped set. Windows also checks the desktop shell. The SPA
+  # type check runs in make lint.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -431,11 +429,8 @@ jobs:
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Run golangci-lint over every build tag set
+      - name: Lint Go and type-check the SPA
         run: make lint
-
-      - name: Run golangci-lint over the embedded-SPA build
-        run: make lint-ui
 
       - name: Run golangci-lint against the Windows build
         run: make lint-windows

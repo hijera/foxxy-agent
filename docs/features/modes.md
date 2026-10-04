@@ -20,17 +20,18 @@ Made for design documents, specs and the investigation that precedes a change. T
 - `svn_info`, `svn_status`, `svn_diff`, `svn_log` and `svn_list` while `vcs.svn` is on;
 - `load_skill`, and `spawn_agent`, whose child stays in plan mode;
 - `compact_context`, to fold the history a long investigation piled up ([Context compaction](compaction.md#the-model-can-ask-for-it)), and `session_describe`, to file the session under a title and tags of its own ([Sessions](sessions.md#tags-and-the-archive));
+- `foxxycode_docs_search` and `foxxycode_docs_read` for FoxxyCode's own documentation ([Built-in documentation](built-in-docs.md));
 - the tools of connected MCP servers.
 
 No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode.
 
 ### `docs`
 
-Made for writing and maintaining documentation. The model is offered `read`, `keep_result`, `glob`, `grep`, `websearch`, `webfetch` and `question`, plus `docs_write` and `docs_edit`, which create and edit Markdown files only - `README.md`, `AGENTS.md`, `DESIGN.md` and pages under `docs/` - and never source code or prompt templates, and `session_describe` for the session's own title and tags. No shell, no MCP tools, no `spawn_agent`. The system prompt comes from `docs.md` (`prompts.docs_prompt`).
+Made for writing and maintaining documentation. The model is offered `read`, `keep_result`, `glob`, `grep`, `websearch`, `webfetch`, `foxxycode_docs_search`, `foxxycode_docs_read` and `question`, plus `docs_write` and `docs_edit`, which create and edit Markdown files only - `README.md`, `AGENTS.md`, `DESIGN.md` and pages under `docs/` - and never source code or prompt templates, and `session_describe` for the session's own title and tags. No shell, no MCP tools, no `spawn_agent`. The system prompt comes from `docs.md` (`prompts.docs_prompt`).
 
 ### `ask`
 
-Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill` and `session_describe`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. Filing is on that list because it writes the session's own title and tags - a long question earns a name, and a reader of the workspace sees nothing of it. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
+Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`, `foxxycode_docs_search`, `foxxycode_docs_read` and `session_describe`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. Filing writes only the session's title and tags. The same list is enforced again when a call runs, which separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
 
 ### `debug`
 
@@ -63,17 +64,19 @@ Plan mode restricts what the model is offered; ask mode also restricts what may 
 - MCP tool names are refused the same way, since they are never in the list;
 - approving such a pending call with *allow always* records no grant.
 
-The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory copilot recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
+The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory subagent recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
 
 ## Switching on each surface
 
 | Surface | How |
 |---|---|
-| Web UI | the **Mode** pill in the composer, next to **Model**; the choice travels as the top-level `model` of `POST /v1/responses` |
-| Console | `/mode` in the chat (any mode the agent advertises), or `--mode` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode `/mode` picks the profile per turn |
-| ACP | `session/set_config_option` with `configId` `mode` and `value` `agent`, `plan` or `ask` (preferred), or the legacy `session/set_mode` with `modeId`; the agent answers with `current_mode_update` and `config_option_update`, and `session/new` advertises the five in `configOptions` and `modes` |
+| Web UI | the **Mode** pill in the composer, next to **Model**, or `/agent`, `/plan`, `/ask` and `/debug` in the slash menu; the choice is saved for the session and travels as the top-level `model` of `POST /v1/responses`. `/docs` opens the built-in reader; choose `docs` editing mode from the pill |
+| Console | `/mode` in the chat (any mode the agent advertises), `/agent`, `/plan`, `/ask` or `/debug`, or `--mode` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode the choice changes the server session |
+| ACP | `session/set_config_option` with `configId` `mode` and any of the five mode ids (preferred), or the legacy `session/set_mode` with `modeId`; the agent answers with `current_mode_update` and `config_option_update`, and `session/new` advertises all five in `configOptions` and `modes` |
 | HTTP API | `model` set to a mode id on `POST /v1/responses` or `POST /v1/chat/completions`; `GET /v1/models` lists the five with `owned_by` `foxxycode`, and `metadata.model` picks the backend |
 | Telegram | `/mode` opens an inline keyboard with the session modes |
 | Scheduler | `mode:` in the job file frontmatter, `agent` when omitted |
+
+Every command also takes `--once` or `--count=N`, which switches the mode for the next turn or the next N turns and then returns to the session's own: `/plan --once how would you split this package?` plans one answer and leaves the session in agent mode. The commands work the same over ACP and HTTP, sent as the start of the prompt text ([Session settings](session-settings.md)).
 
 A one-shot run picks the mode the same way: `foxxycode --mode ask -p "..."` answers without touching the workspace. Surface guides: [Console (TUI)](../surfaces/console.md), [Web UI](../surfaces/web-ui.md), [ACP protocol](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md), [Telegram gateway](../surfaces/gateway.md), [Scheduler](../operate/scheduler.md).

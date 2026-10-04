@@ -127,6 +127,11 @@ type Env struct {
 	// pretending it filed something.
 	FileSession func(SessionFilingUpdate) (SessionFilingResult, error)
 
+	// SwitchModel changes the model and/or the reasoning level the session's
+	// model requests use, for the switch_model tool. Wired by the agent
+	// runtime; nil for a subagent, whose model its parent chose.
+	SwitchModel func(ctx context.Context, req ModelSwitch) (string, error)
+
 	// SubagentDepth is how deep this session sits in a spawn tree: 0 for an
 	// ordinary session, 1 for its children. The runtime uses it to refuse
 	// spawns past subagents.max_depth.
@@ -136,6 +141,10 @@ type Env struct {
 	// off means background execution is configured away rather than missing, so
 	// the tools can say which of the two it is.
 	BackgroundEnabled bool
+
+	// WakeableSession is false for child and scheduled-run transcripts, which
+	// cannot accept another turn once their run finishes.
+	WakeableSession bool
 
 	// WebSearch is the resolved tools.websearch section the websearch tool
 	// reads its engine list and bounds from. It travels on the environment
@@ -197,6 +206,10 @@ func (e *Env) CommandAllowed(command string) bool {
 type SpawnRequest struct {
 	// Agent is the definition name.
 	Agent string
+	// Model and Reasoning pick the child's model and reasoning level; empty
+	// follows the definition, then the parent's model.
+	Model     string
+	Reasoning string
 	// Prompt is the child's task, self-contained.
 	Prompt string
 	// Description is a short label (3 to 5 words) for the task row and the
@@ -209,6 +222,16 @@ type SpawnRequest struct {
 	ExpectedSeconds int
 	TimeoutSeconds  int
 	NotifyOnFinish  bool
+}
+
+// ModelSwitch is one switch_model call: a model, a reasoning level, or both,
+// for the rest of the turn or for the session.
+type ModelSwitch struct {
+	Model     string
+	Reasoning string
+	// Session keeps the change for the conversation, as the operator's /model
+	// would; false lasts until the current turn ends.
+	Session bool
 }
 
 // SessionFiling is how one conversation is filed: the title it is listed under

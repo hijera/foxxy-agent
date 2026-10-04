@@ -27,6 +27,10 @@ export function permissionOptionLabel(
       return t("prompts.allowAlways");
     case "reject":
       return t("prompts.reject");
+    case "allow_session_bypass":
+      return t("prompts.allowSessionBypass");
+    case "allow_session_accept_edits":
+      return t("prompts.allowSessionAcceptEdits");
     case "allow_always_program": {
       const grant = programGrantFromOptionName(opt.name);
       return grant

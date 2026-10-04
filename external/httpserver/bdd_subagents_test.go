@@ -9,6 +9,7 @@ package httpserver
 // the pool stops it, so the scenarios observe the REST surface without an LLM.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -78,6 +80,14 @@ type subagentsHTTPState struct {
 	body   map[string]interface{}
 	// taskRow is the row the last kind lookup matched.
 	taskRow map[string]interface{}
+	// detachedAnswers carries what a detached subagent's permission wait
+	// returned, keyed by child session id; detachedStops end the waits a
+	// scenario left open.
+	detachedAnswers map[string]chan *acp.PermissionResult
+	detachedStops   []context.CancelFunc
+	// eventFrames carries the frames of the scenario's GET /foxxycode/events
+	// subscription, read by a goroutine so a step can wait with a deadline.
+	eventFrames chan string
 }
 
 func (s *subagentsHTTPState) reset() error {
@@ -95,10 +105,16 @@ func (s *subagentsHTTPState) reset() error {
 	s.status = 0
 	s.body = nil
 	s.taskRow = nil
+	s.detachedAnswers = map[string]chan *acp.PermissionResult{}
+	s.eventFrames = nil
 	return nil
 }
 
 func (s *subagentsHTTPState) close() {
+	for _, stop := range s.detachedStops {
+		stop()
+	}
+	s.detachedStops = nil
 	pool := bgtask.Default()
 	for _, id := range s.children {
 		pool.StopSession(id)
@@ -295,7 +311,148 @@ func (s *subagentsHTTPState) workspaceBoundedDefinition(name string) error {
 	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
 }
 
+// detachedPromptWaiting raises a child's prompt after its parent turn ends.
+func (s *subagentsHTTPState) detachedPromptWaiting(childID string) error {
+	ref, ok := s.tasks[childID]
+	if !ok {
+		return fmt.Errorf("no task was started for %q", childID)
+	}
+	answers := make(chan *acp.PermissionResult, 1)
+	s.detachedAnswers[childID] = answers
+	req := agent.DetachedPermissionRequest{
+		ParentSessionID: ref.parentID,
+		ChildSessionID:  childID,
+		TaskID:          ref.taskID,
+		AgentName:       "worker",
+		Params: acp.PermissionRequestParams{
+			SessionID: childID,
+			ToolCall: acp.PermissionToolCall{
+				ToolCallID: "call_bdd_detached",
+				Title:      "[subagent worker] Run: run_command",
+				Kind:       "execute",
+				Status:     "pending",
+				Content: []acp.ToolCallResultItem{
+					{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: "npm test"}},
+				},
+			},
+			Options: []acp.PermissionOption{
+				{OptionID: "allow", Name: "Allow once", Kind: "allow_once"},
+				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+			},
+			EffectivePermissionMode: config.PermModeAsk,
+		},
+	}
+	runCtx, stop := context.WithCancel(context.Background())
+	s.detachedStops = append(s.detachedStops, stop)
+	go func() {
+		res, _ := s.srv.RequestDetachedPermission(runCtx, req)
+		answers <- res
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for pendingDetachedPermission(childID) == nil {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the prompt of %q was never published", childID)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return nil
+}
+
 // ---- HTTP calls ----
+
+func (s *subagentsHTTPState) subscribeToEvents() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.ts.URL+"/foxxycode/events", nil)
+	if err != nil {
+		cancel()
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if res.StatusCode != http.StatusOK {
+		cancel()
+		_ = res.Body.Close()
+		return fmt.Errorf("events status %d", res.StatusCode)
+	}
+	frames := make(chan string, 64)
+	go func() {
+		defer close(frames)
+		defer func() { _ = res.Body.Close() }()
+		r := bufio.NewReader(res.Body)
+		var frame strings.Builder
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if line != "\n" {
+				frame.WriteString(line)
+				continue
+			}
+			select {
+			case frames <- frame.String():
+			case <-ctx.Done():
+				return
+			}
+			frame.Reset()
+		}
+	}()
+	s.eventFrames = frames
+	s.detachedStops = append(s.detachedStops, cancel)
+	return s.awaitEvent("the ready event", func(f string) bool { return strings.Contains(f, "event: ready") })
+}
+
+func (s *subagentsHTTPState) awaitEvent(what string, match func(string) bool) error {
+	if s.eventFrames == nil {
+		return fmt.Errorf("no client is subscribed to the server events")
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case f, open := <-s.eventFrames:
+			if !open {
+				return fmt.Errorf("the events stream closed before %s", what)
+			}
+			if match(f) {
+				return nil
+			}
+		case <-deadline:
+			return fmt.Errorf("the events stream never carried %s", what)
+		}
+	}
+}
+
+func (s *subagentsHTTPState) eventsAnnouncePrompt(childID string) error {
+	return s.awaitEvent("the prompt of "+childID, func(f string) bool {
+		return strings.Contains(f, "event: subagent_permission") &&
+			strings.Contains(f, `"phase":"asked"`) &&
+			strings.Contains(f, `"childSessionId":"`+childID+`"`) &&
+			strings.Contains(f, `"parentSessionId":"`+s.sessionID+`"`) &&
+			strings.Contains(f, `"agentName":"worker"`)
+	})
+}
+
+func (s *subagentsHTTPState) eventsAnnounceSettled(childID string) error {
+	return s.awaitEvent("the settled prompt of "+childID, func(f string) bool {
+		return strings.Contains(f, "event: subagent_permission") &&
+			strings.Contains(f, `"phase":"settled"`) &&
+			strings.Contains(f, `"childSessionId":"`+childID+`"`)
+	})
+}
+
+func (s *subagentsHTTPState) answerDetachedPrompt(optionID, childID string) error {
+	body := fmt.Sprintf(`{"toolCallId":"call_bdd_detached","optionId":%q}`, optionID)
+	if err := s.do(http.MethodPost, "/foxxycode/sessions/"+childID+"/permission", body); err != nil {
+		return err
+	}
+	if s.status != http.StatusNoContent {
+		return fmt.Errorf("the answer got %d: %v", s.status, s.body)
+	}
+	return nil
+}
 
 func (s *subagentsHTTPState) do(method, path, body string) error {
 	var reader io.Reader
@@ -412,6 +569,59 @@ func (s *subagentsHTTPState) taskRowNames(agent, childID string) error {
 		return fmt.Errorf("agent object is %v, want name %q and session_id %q", info, agent, childID)
 	}
 	return nil
+}
+
+func (s *subagentsHTTPState) taskRowCarriesPendingPermission(childID string) error {
+	if s.taskRow == nil {
+		return fmt.Errorf("no task row matched yet")
+	}
+	pending, ok := s.taskRow["pending_permission"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("task row carries no pending permission: %v", s.taskRow)
+	}
+	// Addressed to the child - the session that is waiting - not the parent the
+	// row belongs to.
+	if pending["sessionId"] != childID {
+		return fmt.Errorf("pending permission is addressed to %v, want %q", pending["sessionId"], childID)
+	}
+	call, _ := pending["toolCall"].(map[string]interface{})
+	if call["toolCallId"] != "call_bdd_detached" {
+		return fmt.Errorf("pending permission names tool call %v", call)
+	}
+	if pending["agent_name"] != "worker" || fmt.Sprint(pending["asked_at"]) == "" {
+		return fmt.Errorf("pending permission lacks the agent or the time it asked: %v", pending)
+	}
+	options, _ := pending["options"].([]interface{})
+	if len(options) == 0 {
+		return fmt.Errorf("pending permission offers no options: %v", pending)
+	}
+	return nil
+}
+
+func (s *subagentsHTTPState) taskRowCarriesNoPendingPermission() error {
+	if s.taskRow == nil {
+		return fmt.Errorf("no task row matched yet")
+	}
+	if pending, ok := s.taskRow["pending_permission"]; ok {
+		return fmt.Errorf("the answered prompt is still on the row: %v", pending)
+	}
+	return nil
+}
+
+func (s *subagentsHTTPState) detachedSubagentReceived(childID, optionID string) error {
+	answers, ok := s.detachedAnswers[childID]
+	if !ok {
+		return fmt.Errorf("no subagent in %q was waiting", childID)
+	}
+	select {
+	case res := <-answers:
+		if res == nil || res.OptionID != optionID {
+			return fmt.Errorf("the subagent received %+v, want %q", res, optionID)
+		}
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("the answer never reached the subagent in %q", childID)
+	}
 }
 
 func (s *subagentsHTTPState) sessionRow(id string) (map[string]interface{}, error) {
@@ -618,6 +828,14 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a live child session "([^"]*)" of "([^"]*)" backed by a running subagent task$`, s.liveChildOfWithTask)
 	sc.Step(`^the server workspace has a subagent definition "([^"]*)" under \.foxxycode/agents$`, s.workspaceDefinition)
 	sc.Step(`^the server workspace has a bounded subagent definition "([^"]*)" under \.foxxycode/agents$`, s.workspaceBoundedDefinition)
+	sc.Step(`^the subagent in "([^"]*)" waits for permission to run a command after its parent turn ended$`, s.detachedPromptWaiting)
+	sc.Step(`^a client is subscribed to the server events$`, s.subscribeToEvents)
+	sc.Step(`^the events stream announces the prompt of child session "([^"]*)" for that session$`, s.eventsAnnouncePrompt)
+	sc.Step(`^the events stream announces that the prompt of "([^"]*)" is settled$`, s.eventsAnnounceSettled)
+	sc.Step(`^I answer "([^"]*)" to that prompt against the child session "([^"]*)"$`, s.answerDetachedPrompt)
+	sc.Step(`^that task row carries the pending permission of child session "([^"]*)"$`, s.taskRowCarriesPendingPermission)
+	sc.Step(`^that task row carries no pending permission$`, s.taskRowCarriesNoPendingPermission)
+	sc.Step(`^the waiting subagent in "([^"]*)" receives "([^"]*)"$`, s.detachedSubagentReceived)
 
 	sc.Step(`^I GET the background tasks of that session$`, s.listTasks)
 	sc.Step(`^I GET the sessions list$`, s.listSessions)

@@ -24,6 +24,8 @@ The messenger gateway lets you drive a FoxxyCode agent directly from a chat appl
   - [3. Implement acp.UpdateSender](#3-implement-acpupdatesender)
   - [4. Add a build tag](#4-add-a-build-tag)
   - [5. Wire into hub.Start()](#5-wire-into-hubstart)
+- [The same session in the chat and in the browser](#the-same-session-in-the-chat-and-in-the-browser)
+- [Woken turns land in the chat](#woken-turns-land-in-the-chat)
 - [Session lifecycle](#session-lifecycle)
 - [Security notes](#security-notes)
 
@@ -40,7 +42,8 @@ Telegram / future messengers
          │
          ▼
   sessionstore               ← maps chat+user context → FoxxyCode session ID
-         │                     /clear command replaces the stored ID
+         │                     /clear replaces the stored ID, /resume binds it
+         │                     to a session chosen from the server's list
          ▼
   session.Manager            ← shared with foxxycode acp / foxxycode http
     HandleSessionPromptWithSender(...)
@@ -142,8 +145,10 @@ gateways:
     # logs a warning and skips the bot instead of failing config validation.
     token: "${TELEGRAM_BOT_TOKEN}"
 
-    # Optional outbound proxy for Telegram API requests.
-    # Supported schemes: http, https, socks5, socks5h.
+    # How the bot reaches the Bot API (see "Proxy" below). Left out, or inherit,
+    # it follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the FoxxyCode process;
+    # none connects directly; a URL (http, https, socks5, socks5h) goes through it.
+    # proxy: none
     # proxy: "socks5h://127.0.0.1:1080"
     # proxy: "http://proxy.example.com:3128"
 
@@ -179,15 +184,20 @@ gateways:
 
 ### Proxy
 
-Set `proxy` to route outbound Telegram API requests through an HTTP or SOCKS5 proxy:
+`proxy` decides how the bot reaches the Bot API, and it reads like a provider's `proxy` ([Provider proxy](../getting-started/configuration.md#provider-proxy)):
+
+- no value, or `inherit` (the default): the proxy the environment of the FoxxyCode process names - `HTTPS_PROXY` for `https://api.telegram.org`, `NO_PROXY` for the hosts that go direct, never for a loopback address; `ALL_PROXY` is not read. An empty field never meant a direct connection: on a machine with `HTTPS_PROXY` set, the bot goes through that proxy;
+- `none`: a direct connection, those variables ignored for the bot;
+- a proxy URL: every Bot API request goes through it.
 
 ```yaml
 gateways:
   telegram:
-    proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
+    proxy: none                       # the machine's proxy cannot reach Telegram
+    # proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
 ```
 
-Supported schemes: `http`, `https`, `socks5`, `socks5h`. `socks5h` resolves hostnames on the proxy side. Leave the field empty (the default) for a direct connection.
+Supported schemes: `http`, `https`, `socks5`, `socks5h`; with either SOCKS scheme the proxy resolves host names. In the web UI the field is the **Ignore system proxy** switch, which writes `none`, above the **Proxy URL** input (**Settings → System**, gateways block). `foxxycode --dry-run` asks `getMe` the way the bot will, through the same route.
 
 ### Rich Messages
 
@@ -312,7 +322,7 @@ To run a **dedicated** gateway service alongside the HTTP one, add a second serv
 ```yaml
 services:
   gateway:
-    image: foxxycode-agent:dev        # built from Dockerfile with the gateway tag
+    image: foxxy-agent:dev        # built from Dockerfile with the gateway tag
     command: ["gateway", "--cwd", "/workspace"]
     working_dir: /workspace
     environment:
@@ -356,7 +366,7 @@ Every record keeps its `component` attribute, so a file that mixes subsystems st
 grep '"component":"gateway.telegram"' /var/log/foxxycode/foxxycode.log
 ```
 
-A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, and `telegram: set model` when the manager refuses the change. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
+A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value, `telegram: session resumed` names the session the chat left and the one it moved to. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, `telegram: callback session unknown` when a resume button names a session deleted since the keyboard was sent, `telegram: resume session` when the chosen bundle cannot be loaded, and `telegram: set model` when the manager refuses the change. At `debug`, `telegram: resume menu` records each page of the picker with the chat's current session and `telegram: resume query` records the words after `/resume` with how many sessions they matched. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
 
 ### Debugging against a fake Bot API
 
@@ -406,19 +416,21 @@ foxxycode serve --dry-run --config stand.yaml               # ok  gateways.teleg
 foxxycode serve --gateway --http=false --config stand.yaml  # telegram: api base override ... telegram bot connected
 ```
 
-Then open `http://127.0.0.1:18790/`, type `hello`, tap a `/mode` button, and
-read the Bot API calls on the right as the log fills on the left.
+Then open `http://127.0.0.1:18790/`, type `hello`, send `/model` and tap a
+model (add a second entry to `models` for the keyboard to offer a choice), try
+a settings command such as `/plan --once What can you do?`, and read the Bot
+API calls on the right as the log fills on the left.
 
-![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /mode keyboard as buttons, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
 
-*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/mode` keyboard with the tap applied, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
 
 The same page is an HTTP API, which is what a script or a coding agent drives:
 
 | Route | Body / answer |
 |-------|---------------|
 | `POST /sim/message` | `{"chat_id": 4242, "user_id": 4242, "username": "alice", "text": "hello"}`; `chat_type: group`, `mention: true` and `reply_to_message_id` for the group paths. A leading `/word` becomes a `bot_command` entity. |
-| `POST /sim/callback` | `{"chat_id": 4242, "label": "Plan"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "mode:plan"}`. |
+| `POST /sim/callback` | `{"chat_id": 4242, "label": "stub/foxxycode-mini"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "model:stub/foxxycode-mini"}`. |
 | `GET /sim/chat/4242` | the transcript: messages, keyboards after every edit, drafts, `typing`; `?format=text` for `grep`. |
 | `GET /sim/outbox?method=sendMessage&since=10` | every Bot API call with its parameters and the answer; `/sim/outbox/count?method=...` for a script. |
 | `POST /sim/fault` | `{"method": "sendMessage", "code": 429, "retry_after": 2, "times": 1}` makes the next `sendMessage` fail like a flood; `"method": "*"` fails everything until `DELETE /sim/fault`; `"contains": "<details>"` narrows the fault to calls whose parameters carry that text, which is Telegram refusing one entity rather than the method. |
@@ -454,14 +466,23 @@ rules.json` matches them by substring (`[{"match": "weather", "answer":
 message, not the `<turn_context>` block FoxxyCode appends to every request. Rules are the
 reliable choice: the title a session derives from its first message is one more
 model call, so a list of answers advances a step earlier than the chat shows.
+A rule can also make the model act: with `"tool": {"name": "run_command",
+"arguments": {...}}` the first request of a matching turn gets that tool call,
+and the request carrying its result gets the rule's `answer` - enough to start
+a background command, or to meet a permission prompt, without a model.
 The streamed answer arrives one word per `--llm-delay`, long enough for the
 live `editMessageText` path, or the draft path with `rich_messages: true`, to
 run.
 
 **`examples/gateway/tg_e2e_offline.sh`** does all of the above in one go -
 builds `tgfake`, writes a temporary home, boots `foxxycode serve` against it, sends
-`hello` and checks the reply - and `TG_E2E_KEEP=1` leaves the stand running
-with the page URL printed. It runs in Git Bash on Windows as well.
+`hello` and checks the reply, then leaves the session with `/clear`, comes back
+to it from the `/resume` keyboard and checks that the next message landed in
+that bundle, and finally asks the agent to "start the tests" - a tool rule
+starts a failing command in the background with `notify_on_finish` - and waits
+for the [woken turn](#woken-turns-land-in-the-chat) to reach the chat, the note
+and then the answer, with no HTTP server in the process - and `TG_E2E_KEEP=1`
+leaves the stand running with the page URL printed. It runs in Git Bash on Windows as well.
 
 The variable is not only for the fake: a self-hosted Bot API server
 (`telegram-bot-api` for large files or a local network) is pointed at the same
@@ -482,7 +503,7 @@ In a group the bot **only responds** when explicitly addressed. It will react to
 
 1. A message that **@mentions** the bot (`@foxxycode_agent_bot hello`)
 2. A **direct reply** to a previous bot message
-3. The `/clear` command
+3. A bot command (`/clear`, `/resume`, `/model`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
 
@@ -495,7 +516,10 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, `docs`, `ask`, and `debug`. |
 | `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
-| `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk). |
+| `/resume [id or title]` | all permitted users | Continues another session. Alone it opens an inline keyboard over the sessions the server keeps, newest first, eight per page, the chat's own session marked; a tap binds the chat to the one chosen. With words after it, the session whose id they are, or whose id starts with them or whose title contains them (those two case-insensitively), is resumed at once; several matches come back as the keyboard, and no match is answered with a message. The session left behind stays loaded. |
+| `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk); `/resume` brings it back. |
+
+The settings commands `/agent`, `/plan`, `/ask` and `/debug` take `--once` or `--count=N` to change a setting for the next messages only, and a message may follow them: `/plan --once how would you split this package?` plans one answer and leaves the chat in its mode. A command alone runs no turn and is answered with a line saying what changed. `/mode` still opens all five modes, including `docs`. `/permissions` is not a bot command: the bot approves its chat agent's tools itself, so the session's permission mode would only change what other surfaces watching the session ask ([Session settings](../features/session-settings.md)).
 
 ---
 
@@ -604,13 +628,13 @@ type SessionRunner interface {
     EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
     HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
     ForgetLiveSession(sessionID string)
-    HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+    HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
 }
 ```
 
-`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetMode` and `HandleSessionSetConfigOption` are needed for `/mode` and `/model` inline keyboard commands; `Cfg()` returns the loaded config (used by `/model` to list available models).
+`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetConfigOption` is what the `/model` inline keyboard calls, and the settings commands (`/agent`, `/model <id> --once`, ...) reach the session as prompt text through `HandleSessionPromptWithSender`, whose manager takes them off the start of the message; `HandleSessionList` is what `/resume` offers to the chat; `Cfg()` returns the loaded config (used by `/model` to list available models).
 
 ### 2. Register in Start()
 
@@ -642,7 +666,7 @@ type UpdateSender interface {
 ```
 
 - `SendSessionUpdate` receives streaming events: `acp.MessageChunkUpdate` carries a text delta in `update.Content.Text`; `acp.ToolCallUpdate` is a tool start notification. Buffer text chunks and send them as a single message in `Flush()` after the agent turn.
-- `RequestPermission` should auto-approve in a gateway context (the admin configured the bot deliberately). Return `&acp.PermissionResult{Outcome: "allow", OptionID: "allow"}`.
+- `RequestPermission` should auto-approve the chat agent's own requests (the admin configured the bot deliberately): return `&acp.PermissionResult{Outcome: "allow", OptionID: "allow"}`. A request stamped with a subagent's own mode below `bypass` (`params.EffectivePermissionMode`) is not the admin's to wave through: ask the chat, as `external/gateway/telegram/permission.go` does, or deny it.
 - `RequestQuestion` can send the question text to the chat and return an empty answer, or implement a proper reply-based flow.
 
 See `external/gateway/telegram/sender.go` for a working reference.
@@ -674,17 +698,23 @@ conversation and the web UI are two views of one session.
   `GET /foxxycode/sessions` lists it beside the sessions started in a terminal or
   a browser tab, and opening one loads the same transcript.
 - **A chat turn streams into the browser while it runs.** The gateway publishes
-  its turn into the session's composer relay - the same mechanism a background
-  task's wake turn uses - so a tab watching that session sees the tokens as
+  its turn into the session's composer relay - the relay the HTTP server's own
+  turns and woken turns use - so a tab watching that session sees the tokens as
   they arrive, not after the fact.
 - **The browser watches; the chat answers.** Session updates fan out to both
   surfaces, but permission requests and questions go only to the chat, because
-  it is the only one with somebody reading. A watcher is a spectator.
+  it is the only one with somebody reading. A watcher is a spectator. The one
+  exception is a background subagent that asks after the turn ended: that
+  prompt is offered to the chat and to the browser at once, and the first
+  answer wins.
 - **Continuing works in either direction.** Reply in the browser and the next
   `/context` in Telegram shows it; reply in Telegram and the browser has it on
   the next load. Only one turn runs at a time: the session's turn lock is a
   file lock, so a message that arrives while a browser turn is in flight is
-  answered with a busy notice instead of interleaving.
+  answered with a busy notice instead of interleaving. When the other side is
+  a separate process - an editor panel's `foxxycode http` over the same home,
+  holding a session the chat resumed - each turn first re-reads what that
+  process wrote ([Sessions](../features/sessions.md#one-store-every-surface)).
 - **A turn already being watched is left alone.** If a browser turn is running
   on the session, an arriving chat message does not take over its stream - the
   chat message gets the busy answer a moment later anyway.
@@ -693,6 +723,33 @@ If a session is deleted from the browser, the chat's mapping in
 `gateway_sessions.json` still points at that id; the next message finds no
 bundle and starts a fresh transcript under it. The conversation resets, which
 is what deleting it meant.
+
+## Woken turns land in the chat
+
+The agent in a chat can start a long command or a subagent in the background
+with `notify_on_finish` and end its turn: when the task ends, the process
+wakes the agent ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+The woken turn belongs to the chat bound to the session, so the bot runs it
+there, through the chat's own sender, exactly like a message the person sent:
+
+- the chat first receives a note of its own, above the answer:
+  `🔔 Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s`
+  (one line per task when several ended together);
+- then the answer streams and is finalized like any other, with the same
+  surface prompt and the same Markdown rendering;
+- a browser watching the session follows it through the composer relay, and
+  the chat's permission rules apply: the chat's agent is allowed what it asks,
+  a subagent is asked about in the chat.
+
+This needs no HTTP server. Under `foxxycode serve` the process owns the waker and
+offers each woken turn first to the surface that owns the conversation - the
+bot, when a chat is bound to the session - and only then to the HTTP server; a
+`foxxycode serve --gateway --http=false` wakes the chat all the same. A session no
+chat is bound to (the chat moved away with `/clear` or `/resume`) is not the
+bot's: it runs in the web UI's relay, or with no surface at all through the
+manager, and the chat hears nothing of it. The bot takes a woken turn only
+while it is connected; a woken turn that finds the chat's own turn still
+running waits for it, as it does on every surface.
 
 ## Session lifecycle
 
@@ -734,13 +791,40 @@ manager.ForgetLiveSession(oldID)   → drops the in-memory session (disk persist
 Next message → EnsureHTTPSession creates a fresh session for the new ID
 ```
 
-The old session files remain on disk under the old ID. Use `foxxycode sessions list` to inspect them.
+The old session files remain on disk under the old ID. Use `foxxycode sessions list` to inspect them, or `/resume` in the chat to come back to one.
+
+**`/resume` flow:**
+
+```
+manager.HandleSessionList(...)     → the sessions the server keeps, newest first
+                                     (no folder filter: a chat has no cwd of its own)
+/resume            → inline keyboard, one button per session: the title, or the
+                     id of a session without one, then its age; the chat's own
+                     session is marked; eight per page with Prev/Next
+/resume <query>    → the session whose id the query is (byte for byte), or
+                     whose id starts with it or whose title contains it (case-
+                     insensitive); one match is resumed at once, several come
+                     back as the keyboard
+manager.EnsureHTTPSession(ctx, chosenID, cwd)   → loads the bundle first, so a
+                                                   bundle that cannot be read is
+                                                   reported here and nothing changes
+store.Bind(key, chosenID)   → replaces the stored id in gateway_sessions.json
+Next message → runs in the resumed session
+```
+
+The session the chat came from stays loaded. `/resume` is a switch, not an
+ending - the chat may come straight back - while `/clear` says a conversation
+is over, and dropping it from memory belongs there. A tap on a keyboard that
+outlived its session - deleted from the web UI since the list was shown - is
+answered with an alert and binds nothing.
 
 ---
 
 ## Security notes
 
 - **Token exposure** — never commit the bot token to version control. Use `"${TELEGRAM_BOT_TOKEN}"` in YAML and export the variable before starting.
-- **Permissions** — the gateway auto-approves all tool permission requests so the agent can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run.
+- **Permissions** — the gateway auto-approves the chat agent's own tool permission requests so it can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run. A subagent whose definition narrowed its permission mode below `bypass` is not waved through: the bot asks in the chat with **Allow** / **Reject** buttons naming the subagent - during the turn, and after it ended for a background subagent - and only the person whose session asked can answer (in a group with individual sessions another member's tap is ignored and leaves the owner's buttons available). The message reads *Allowed*, *Denied* or *No longer waiting* once it settles.
 - **Access control** — set `default_access: "admins"` for bots that should only respond to a specific set of users. Open bots (`default_access: "all"`) will respond to any Telegram user who can write to the chat.
+- **Admin-isolated groups** — when a group uses `isolation: admin`, only configured admins may use its inline keyboards, including `/resume`, even if `default_access: "all"` lets other members message the bot.
+- **`/resume` lists every session of the server** — the sessions started in a console, a browser or an IDE panel included, and a permitted user can continue any of them from the chat, which puts their transcripts in front of the model. With the defaults - every permission auto-approved, an unrestricted shell - the bundles on disk were within a permitted user's reach already; with a narrowed tool set (`tools.command_allowlist`, `ask` mode) `/resume` is a new path to other people's conversations. Either way, keep `default_access` narrow on a bot that more than one person can write to.
 - **Network** — the gateway uses Telegram long-polling (not webhooks). No inbound port needs to be open.

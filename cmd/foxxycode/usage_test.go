@@ -19,7 +19,7 @@ import (
 // Adding a command means adding it below, which then fails until the usage
 // text, the man page and the completions carry it too.
 var topLevelCommands = []string{
-	"acp", "cli", "http", "desktop", "gateway", "serve", "sessions", "skills", "plugin",
+	"acp", "cli", "http", "desktop", "gateway", "serve", "sessions", "skills", "plugin", "docs",
 	"mcp", "codex", "providers", "rules", "agents", "hooks", "update",
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/httpserver"
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/external/swarm"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/logger"
@@ -421,17 +422,25 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			// settings screen they are typing into.
 			RestartKey: deps.httpListenAddr,
 			Run: func(ctx context.Context) error {
+				// OnServer is called with the live server and then with nil,
+				// both from this instance's goroutine.
+				withdrawPrompts := func() {}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpAddr, ExtraAuthTokens: deps.httpAuthTokens,
-					ExtraLogin: deps.httpLogin,
+					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
+							withdrawPrompts()
 							return
 						}
 						rt.SetTurnMirror(s)
+						// A detached subagent's prompt is shown in the chat of
+						// its parent session, in the browser and in a console
+						// attached over --remote alike.
+						withdrawPrompts = rt.AddDetachedPermissionApprover(s)
 					},
 				})
 			},
@@ -449,7 +458,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Run: func(ctx context.Context) error {
 				return gateway.Serve(ctx, gateway.Options{
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
-					DefaultCWD: rt.Paths.CWD, Mirror: rt,
+					DefaultCWD: rt.Paths.CWD, Mirror: rt, Prompts: rt, Wakes: rt,
 				})
 			},
 		},
@@ -478,7 +487,8 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Fingerprint: schedulerFingerprint,
 			Run: func(ctx context.Context) error {
 				return scheduler.Serve(ctx, scheduler.Options{
-					Cfg: rt.Cfg(), Log: rt.Log, ProcessCWD: rt.Paths.CWD,
+					Cfg: rt.Cfg, Log: rt.Log, ProcessCWD: rt.Paths.CWD,
+					Mgr: rt.Mgr, Pool: bgtask.Default(),
 				})
 			},
 		},

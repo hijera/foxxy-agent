@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/httpx"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
@@ -34,10 +35,12 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	log := opts.Log
 	llm.LogCodexAuthNotices(log, opts.Cfg)
+	llm.LogDevinAuthNotices(log, opts.Cfg)
 	opts.Cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
 
 	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
+	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
 	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
 		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
@@ -53,6 +56,15 @@ func Serve(ctx context.Context, opts Options) error {
 	if opts.OnServer != nil {
 		opts.OnServer(s)
 		defer opts.OnServer(nil)
+	}
+	// A task that asked to be notified wakes the agent. In `foxxycode serve` the
+	// runtime owns the waker and this server is where a woken turn runs when
+	// no chat owns the session; on its own the server attaches a waker itself.
+	if opts.Wakes != nil {
+		withdrawWakes := opts.Wakes.AddWakeSurface(s, agent.WakeHost)
+		defer withdrawWakes()
+	} else {
+		s.AttachBackgroundWaker()
 	}
 
 	tokenOn := len(opts.Cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0

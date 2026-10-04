@@ -1465,11 +1465,11 @@ test("the row spells a path against the worktree it lives in, the tooltip keeps 
       kind="read"
       status="completed"
       pathRoots={[
-        "/storage/Repository/foxxycode/foxxycode-agent",
-        "/storage/Repository/foxxycode/foxxycode-agent/.foxxycode/worktrees/fix-session-stop-queue",
+        "/storage/Repository/foxxycode/foxxy-agent",
+        "/storage/Repository/foxxycode/foxxy-agent/.foxxycode/worktrees/fix-session-stop-queue",
       ]}
       argsText={JSON.stringify({
-        path: "/storage/Repository/foxxycode/foxxycode-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
+        path: "/storage/Repository/foxxycode/foxxy-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
       })}
       resultText="ok"
       durationMs={3}
@@ -1481,7 +1481,7 @@ test("the row spells a path against the worktree it lives in, the tooltip keeps 
   expect(target.textContent).toBe("DESIGN.md");
   expect(target).toHaveAttribute(
     "title",
-    "/storage/Repository/foxxycode/foxxycode-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
+    "/storage/Repository/foxxycode/foxxy-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
   );
 });
 
@@ -1492,16 +1492,16 @@ test("a command is never respelt against the session directory", () => {
       title="run_command"
       kind="run_command"
       status="completed"
-      pathRoots={["/storage/Repository/foxxycode/foxxycode-agent"]}
+      pathRoots={["/storage/Repository/foxxycode/foxxy-agent"]}
       argsText={JSON.stringify({
-        command: "/storage/Repository/foxxycode/foxxycode-agent/scripts/checks.sh",
+        command: "/storage/Repository/foxxycode/foxxy-agent/scripts/checks.sh",
       })}
       resultText="ok"
       durationMs={3}
     />,
   );
   expect(screen.getByTestId("tool-summary-target").textContent).toBe(
-    "/storage/Repository/foxxycode/foxxycode-agent/scripts/checks.sh",
+    "/storage/Repository/foxxycode/foxxy-agent/scripts/checks.sh",
   );
 });
 
@@ -1787,6 +1787,42 @@ test("collapsing a long result returns it to the top", async () => {
 // The web tools used to print their own arguments back as a JSON object and their
 // answer as raw source: a search as a wall of braces, a fetched page as Markdown
 // nobody rendered. Both are documents and both now read as documents.
+// The model looks things up in FoxxyCode's own documentation often enough that the
+// raw ids read like a leak of the tool catalogue into the chat.
+test("the documentation tools say what they do and name the query or the page", () => {
+  const { unmount } = render(
+    <ToolCallMessage
+      toolCallId="tc-docs-search"
+      title="foxxycode_docs_search"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ query: "telegram proxy" })}
+      resultText="1. surfaces/gateway#proxy"
+      durationMs={7}
+    />,
+  );
+  expect(screen.getByText("searching the documentation")).toBeInTheDocument();
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("telegram proxy");
+  expect(screen.queryByText("foxxycode_docs_search")).toBeNull();
+  unmount();
+
+  render(
+    <ToolCallMessage
+      toolCallId="tc-docs-read"
+      title="foxxycode_docs_read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ page: "features/mentions#completion" })}
+      resultText="[FoxxyCode documentation] Mentions > Completion"
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByText("reading the documentation")).toBeInTheDocument();
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "features/mentions#completion",
+  );
+});
+
 test("a web search names its query and lists its hits as links", () => {
   render(
     <ToolCallMessage

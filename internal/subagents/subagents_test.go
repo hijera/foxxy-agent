@@ -273,7 +273,7 @@ func TestBuiltinsHaveTheDocumentedShape(t *testing.T) {
 	if len(general.Tools) != 0 {
 		t.Fatalf("general inherits the parent's tools, got allowlist %v", general.Tools)
 	}
-	want := []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "load_skill", "background_list", "background_output", "background_wait"}
+	want := []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "load_skill", "foxxycode_docs_search", "foxxycode_docs_read", "background_list", "background_output", "background_wait"}
 	if strings.Join(explore.Tools, ",") != strings.Join(want, ",") {
 		t.Fatalf("explore tools = %v, want %v", explore.Tools, want)
 	}
@@ -598,6 +598,15 @@ func TestCatalogCarriesTheDeclaredBounds(t *testing.T) {
 	for _, absent := range []string{"tools", "disallowed_tools", "permission_mode", "timeout_seconds", "max_turns", "background", "role_bytes"} {
 		if strings.Contains(encoded, `"`+absent+`"`) {
 			t.Fatalf("a definition declaring no %s must not serialise one: %s", absent, encoded)
+		}
+	}
+
+	// The entry owns its slices: a caller editing what it was handed must not
+	// reach back into the immutable definition.
+	reviewer.Tools[0] = "run_command"
+	for _, d := range defs {
+		if d.Name == "reviewer" && d.Tools[0] != "read" {
+			t.Fatalf("editing a catalog entry changed the definition: %v", d.Tools)
 		}
 	}
 }

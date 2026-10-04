@@ -122,9 +122,12 @@ round-trips through the footer Save because the whole config doc is PUT back.
   map is gone (draft restored after reload) the backend reads the line range
   from the file instead. Any non-match, error, or timeout degrades to a plain
   text paste. Short single-line pastes (<16 chars) are never classified.
-- **Drop** — a file dropped anywhere on the page still inserts an **`@path`**
+- **Drop** — a file dropped anywhere on the page inserts an **`@path`**
   mention (see the file-drop rule in **`.claude/rules/ui-spa.md`**); it does not
-  attach the file. Use the paste path or the attach button for image uploads.
+  attach the file. An editor embed may also pass a project directory, which
+  inserts **`@path/`** with the trailing slash preserved. Paths containing
+  spaces are quoted, including the slash for directories, as **`@"path with spaces/"`**.
+  Use the paste path or the attach button for image uploads.
 - **Multimodal gate** — chips are always shown, but for a model without
   **`multimodal: true`** they render disabled (dashed, greyed) and are excluded
   from the request; a paste is refused with a transient
@@ -164,6 +167,18 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - The password of the URL (from the first `:` after `scheme://` to the last `@`, the split the Go side makes) shows as dots whether the field is typed in or only displayed; the character just typed stays readable for **3 s** (**`PROXY_REVEAL_MS`**), and blur hides it at once. The masked text is exactly as long as the real one, so **`applyMaskedEdit`** (**`proxyUrl.ts`**) carries each edit over from the selection before it and the caret after it, falling back to a diff when the caret did not follow the edit. Copy and cut take the real characters.
 - The **`…`** button opens **`ProxyEditorDialog`**: protocol, host, port, login and password as separate fields, the resulting address with its password hidden, **No proxy** / **Cancel** / **Apply**. **`buildProxyUrl`** percent-encodes the login and password. The dialog is opaque and sits above the first-run dialog (z-index 130); Escape and Tab are caught on `window` in the capture phase.
 - Automated checks: **`proxyUrl.test.ts`**, **`ProxyUrlField.test.tsx`**, **`SchemaForm.secret.test.tsx`**, **`ProviderPickerDialog.test.tsx`**. User guide: [Working behind a proxy](../operate/proxy.md).
+
+## Settings: provider proxy
+
+![A provider row set to connect directly, its proxy URL field disabled](../assets/settings-provider-proxy-dark-1280.png)
+
+*A provider row set to connect directly, its proxy URL field disabled*
+
+- Every row in **Settings → LLM Providers**, codex included, carries an **Ignore system proxy** switch above the **Proxy URL** field (**`ProxySettingField`**). Both edit **`providers[].proxy`**, the route of every request of the row: its completions, its model list, its account usage and its sign-in ([Provider proxy](../getting-started/configuration.md#provider-proxy)). The Telegram bot's **`gateways.telegram.proxy`** reads the same way and has the same pair in **Settings → System**, under the gateways block ([Telegram gateway](gateway.md#proxy)).
+- The switch writes **`none`**: the row connects directly and ignores **`HTTPS_PROXY`**, **`HTTP_PROXY`** and **`NO_PROXY`** of the FoxxyCode process. While it is on, the URL field is disabled and reads **Direct connection**.
+- With the switch off, a URL in the field sends every request of the row through that proxy, and an empty field (or a stored **`inherit`**) reads **Follows the system proxy**, the default route.
+- Turning the switch off brings back what the row held before it went on, for as long as the form is open. The document keeps one value, so after **Save** a row set to **`none`** no longer remembers the URL it replaced.
+- The value travels through **`GET`** / **`PUT /foxxycode/config`** as written. A value that is neither a keyword nor a proxy URL is refused on **Save**, and the error names the accepted ones.
 
 ## Settings: boolean switch fields
 
@@ -282,6 +297,40 @@ Session title
 - UI shows the session title in the chat header.
 - When the title is missing, UI shows `New chat`.
 - Title is editable inline. On blur the UI saves via `PATCH /foxxycode/sessions/{id}`.
+
+### Per-session model
+
+![The stream switch of a model row in Settings](../assets/settings-model-stream-toggle-dark-1280.png)
+
+*The stream switch of a model row in Settings*
+
+- **New chat** defaults **Model** from cookie **`foxxycode_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
+- **Opening a session** restores **Model** from **`GET /foxxycode/sessions/{id}/messages`** field **`model`** (session override on disk) and its **`settings`** snapshot, not from the cookie.
+- Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
+- **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
+- **Mobile sheet** — on narrow/mobile shells (the **`max-width: 1199px`** shell-stack breakpoint) the **Mode** / **Model** / **Reasoning** menus open as a **full-width bottom sheet** over a dimmed scrim — the same pattern as the slash (**`/`**) and **`@`** pickers — instead of a cramped anchored dropdown. The filter and grouping still apply inside the sheet. Desktop keeps the anchored dropdown.
+
+### Per-session reasoning level
+
+![The reasoning level dropdown in the composer, levels fetched from the provider](../assets/reasoning-levels-dark-1280.png)
+
+*The reasoning level dropdown in the composer, levels fetched from the provider*
+
+- A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
+- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /foxxycode/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
+- Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
+
+### Session settings: permission chip, turn overrides, live mirror
+
+![The composer after a bypass from the dialog: a red Bypass chip, and "stub/qwen3.8-demo, 2 turns left" next to the model](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
+
+*The composer after the session was switched to bypass from a permission prompt and the model changed for two turns.*
+
+- The composer mirrors the session's settings snapshot ([Session settings](../features/session-settings.md)): **`settings`** on **`GET /foxxycode/sessions/{id}/messages`** and on the **`PATCH /foxxycode/sessions/{id}`** answer, and **`event: session_settings`** on the turn stream and on **`GET /foxxycode/events`**. **`chat/sessionSettings.ts`** parses it; **`App.tsx`** keeps the highest **`version`** per session (**`isNewerSettings`**), so the same change arriving down both connections, or an answer arriving after the event of a later change, is applied once and never rolled back.
+- **Mode**, **Model** and **Reasoning** follow a change made anywhere - a typed command, the permission dialog, the model's **`switch_model`**, a console or an editor on the same session. Every **`POST /v1/responses`** carries **`metadata.settingsVersion`**, the version the tab last applied; the server ignores the tab's **`model`** / **`reasoning`** / mode when a newer snapshot has been published since, so a stale tab cannot undo a change it has not seen.
+- The **permission chip** (**`data-testid="composer-permission"`**) sits after **Mode**: **Ask first**, **Accept edits** or **Bypass**, the last in red with a glow, its tooltip naming the configuration's mode the session returns to after a restart. Its menu calls **`PATCH`** **`permissionMode`**. On a new chat the pick is held and sent as a **`/permissions <mode>`** line ahead of the first message.
+- The **overrides line** (**`data-testid="composer-overrides"`**) lists what is changed for the next turns (**`stub/qwen3.8-demo, 2 turns left`**, **`plan this turn`**), with the full list in its tooltip; it shrinks with an ellipsis on narrow shells rather than pushing the send button off the bar.
+- A prompt of settings commands only runs no turn: the stream ends with **`foxxycode_meta.settings_only`**, the tab drops its optimistic user and assistant rows and re-reads the transcript, where each change is one **SYSTEM** notice row.
 
 ### Settings: reasoning levels for a logical model
 
@@ -553,6 +602,7 @@ Wire and draft
 
 Picker and segmentation
 
+- The **Commands** group lists the built-ins from the unified **`GET /foxxycode/slash-commands`** catalog with their argument hint (**`.slash-row-hint`**). Picking **`/model`**, **`/reasoning`** or **`/permissions`** opens that composer selector instead of inserting text, and picking **`/agent`**, **`/plan`**, **`/ask`** or **`/debug`** switches the mode. **`/docs`** opens the built-in documentation reader; use the Mode selector for docs mode. A settings command typed out with its value is sent as prompt text and applied by the server.
 - Menu visibility and **`prefix`** derive from **`slashMenuDraftAtCaret`** in **`external/ui/src/ui/skills/draftSlash.ts`** (line-start or whitespace before **`/`**, optional suffix, not inside fences or blockquotes).
 - Mirror highlighting uses **`segmentComposerSlashSpans`** in **`external/ui/src/ui/skills/segmentComposerSlashSpans.ts`** (mid-line **`/`** supported; **`x/foo`** is not a command token).
 
@@ -582,29 +632,34 @@ Verification use cases
 | UC8 | Live **`foxxycode http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
 | UC9 | User bubble hides **`foxxycode_attachment`** bodies, shows **`@path`** only | **`UserMessage.test.tsx`**, **`stripFoxxyCodeAttachments.test.ts`** |
 
-## Composer **`@`** workspace files
+## Composer **`@`** mentions
 
-- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFileRefsFromText`** (**`internal/session/at_paths_extract.go`**; **`ExtractAtFilePathsFromText`** keeps the range-free contract for **`@plans/...`** mentions) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
-- **`@`** menu uses **`GET /foxxycode/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
-- Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-FoxxyCode-Session-ID`**).
-- Fenced code blocks and Markdown blockquote lines suppress **`@`** menu parity with **`draftSlash`** ( **`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`** ).
-- Mirror **`@`** styling uses **`segmentComposerMirrorSpans`** (**`composer-at-chip-inline`**, **`data-testid="composer-at-chip"`**). **`listAtPathSpans`** (**`draftAt.ts`**) chips every completed **`@path`** atom even when prose follows (**`draftAt`** parity with **`extractAtFileAttachments`**), while text after the caret that is still inside **`MENU_PATH`** stays on the active token until the **`atMenuDraftAtCaret`** lexer breaks out.
-- **`@`** search with zero matches keeps the picker open (**`No files`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
-- Stacked-shell viewports (**`(max-width: 1199px)`**) render workspace and slash pickers as a **`slash-menu--sheet`** with **`slash-sheet-backdrop`** so the panel is usable on phones.
-- Picker subtitle uses **`workspacePickRowSubtitle`** - second column shows **`parent/`** only when **`path_rel`** is nested, root entries omit it (empty string).
+- **`textarea#composer`** keeps plain **`input`** including every literal **`@`** mention, and **`POST /v1/responses`** sends that text as typed: the server resolves the mentions when the message is sent (**`internal/session/mentions.go`**, the grammar in **`internal/mention`**), the same resolver the console, ACP editors and the Telegram bot use. The composer sends explicit **`attachments`** only for pasted IDE file fragments whose captured literal remains in memory; ordinary mentions resolve on the server. **`extractAtFileAttachments`** (**`external/ui/src/ui/skills/draftAt.ts`**) also feeds the recent picks. What a mention attaches and its limits: [Mentions](../features/mentions.md).
+- The **`@`** menu asks **`GET /foxxycode/mentions`** (**`q`** = the text after **`@`**, **`limit=50`**; the first query after the picker opens adds **`refresh=1`**, so a file written a moment ago is offered). Rows are **`MentionRow`**s (**`external/ui/src/ui/skills/mentionRows.ts`**): **`kind`** (**`file`**, **`directory`**, **`session`**, **`rule`**, **`agent`**, **`plan`**, **`scheme`**), **`insert`** (the text that replaces **`@`** plus the query), **`label`**, **`detail`** and **`continue`**. Each row leads with a kind label (**`.mention-kind`**, the meta kinds on the accent); a **`scheme`** row is **`@session:`**, **`@rule:`** or **`@agent:`** and narrows the search to that kind.
+- Choosing a row replaces **`@`** plus the query with **`insert`**. A **`continue`** row (a folder, a scheme hint) adds no space and keeps the picker open on its new query - **`@src/`** lists what **`src/`** holds; any other row ends the mention with a space, quoted (**`@"my notes.md"`**) when the path holds one. A quoted folder (**`@"my notes/`**) closes its quote ahead of the caret, so the draft names the folder even if no file follows, and the next quoted pick takes that quote over (**`applyMentionRow`** in **`mentionRows.ts`**). A second answer for the same draft - the server's rows after the recent picks, a retry while the index builds - keeps the row the arrows moved to. **`Composer`** defers two **`updatePickerMenus`** ticks after a finished pick so the dropdown does not immediately reopen on the trailing space.
+- **ArrowDown** / **ArrowUp** move the highlight (**`is-active`**, **`aria-selected`**, scrolled into view); **Enter** and **Tab** take the highlighted row. The picker works while a turn runs, so a queued follow-up can mention a file too.
+- A query starting with **`/`**, **`~`**, **`./`** or **`../`** browses that folder on the server, anywhere on disk; a scheme-less query ranks the session's workspace (file name first, then path segments, then letters in order) and merges in the rules, subagents and plans whose names match. When the server matched more than the list holds, **`.mention-more`** (**`data-testid="mention-more"`**) says **`50 of 1204, type to narrow`** on the title row, which stays on screen however far the list scrolls; while the first index of the workspace is still being built the picker asks again every 400 ms, up to five times.
+- An empty **`@`** prefix (caret right after **`@`**) shows the recent picks from **`localStorage`** (**`workspaceAtRecents`**) first, keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), then the server's answer to an empty query: the three scheme hints and the top of the workspace. Recent entries come from file and folder picks and from **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-FoxxyCode-Session-ID`**).
+- The draft lexer (**`atMenuDraftAtCaret`**) opens the menu on an **`@`** at line start or after whitespace, an opening bracket or a quote; it accepts **`~`** and **`+`**, a quoted prefix (**`@"my no`**, spaces allowed until the quote closes) and **`:`** right after **`session`**, **`rule`** or **`agent`**. Fenced code blocks, inline code spans and Markdown blockquote lines suppress it, in parity with **`draftSlash`** (**`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`**).
+- Mirror **`@`** styling uses **`segmentComposerMirrorSpans`** (**`composer-at-chip-inline`**, **`data-testid="composer-at-chip"`**). **`listAtPathSpans`** (**`draftAt.ts`**, built on **`parseMentions`**, the twin of **`internal/mention`**'s **`Parse`**) finds the tokens - a path, a folder, **`@session:<id>`**, **`@rule:<name>`**, **`@agent:<name>`**, a quoted path, a web page - and a token is chipped only when the server has said sending would attach it: 150 ms after typing stops the composer posts the draft to **`POST /foxxycode/mentions/check`**, which runs the resolver dry (nothing read, listed or fetched) and answers per token with the part that resolves (**`typed`**) and what it names. So **`@google/genai`** in **`npm install @google/genai`** stays text, **`compare @src/a.go b.go`** chips **`@src/a.go`** alone, and a token not answered for yet stays text; a row picked in the picker is chipped at once. The draft at the caret keeps its chip while the picker is open on it; text after the caret that is still inside the draft stays on the active token until the **`atMenuDraftAtCaret`** lexer breaks out. **`draftAt.test.ts`** reads **`internal/mention/testdata/grammar_cases.json`**, the cases the Go grammar is tested against.
+- A query with zero matches keeps the picker open (**`Nothing matches`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
+- Stacked-shell viewports (**`(max-width: 1199px)`**) render the mention and slash pickers as a **`slash-menu--sheet`** with **`slash-sheet-backdrop`** so the panel is usable on phones.
+- The IDE **`@terminal[:name]`** picker entries refer to the editor's terminal buffer. The agent expands these references from editor state; the file resolver leaves them alone, even if a file named `terminal` exists. The mirror chips them and paste-to-chip can insert them.
+- A dropped workspace file inserts its `@path` mention. Stacked-shell viewports render the mention picker as a sheet.
+- The user bubble collapses every **`<foxxycode_attachment>`** the message was sent with (**`stripFoxxyCodeAttachmentsForUserDisplay`**, the twin of **`mention.ForDisplay`**): back to the mention that brought it (the **`mention`** attribute, else **`path`**), or to nothing when the text already carries that mention; the body of a **`/skill`** and a rule a mentioned path pulled in show nothing. The scan walks CDATA sections, so a file that contains **`</foxxycode_attachment>`** cannot leak its tail into the bubble.
 
 ### Line ranges (**`@path:N-M`**)
 
-- A mention may narrow a file to a **1-based inclusive** line range: **`@Dockerfile:21-31`**. **`listAtPathSpans`** absorbs the suffix, so the mirror chips the whole token as one **`composer-at-chip-inline`**; the range must end the token (**`:21-31x`** stays prose) and **`1 <= start <= end`**. **`internal/session/at_paths_extract.go`** carries the same grammar for prompts hydrated server-side (**`ExtractAtFileRefsFromText`**), and the two test suites share their literals.
-- Only those lines reach the model. The range rides **`acp.Resource.URI`** as a **`#L<start>-<end>`** fragment (**`lineRangeURI`** / **`sliceLines`** in **`internal/session/promptfiles.go`**) and **`resourceBlockToXMLAttachment`** turns it into **`<foxxycode_attachment path="..." name="..." lines="21-31">`**. An end past the last line clamps. A range the file cannot honour (zero, inverted, or starting past the last line) is never widened into the whole file: an explicit **`attachments[]`** range or a client **`resource`** with such a **`#L`** fragment is refused (**`ErrLineRange`**, HTTP **400**), and a range typed into the prompt text stays prose and attaches nothing, like any other unresolvable **`@`** token. The **`lines`** label is written only for a body that really is the slice; a **`source.literal`** or byte-offset (**`source.start`** / **`end`**) body travels without it. The picker preview is a snapshot taken when the panel opened; the lines that reach the model are read from disk at send time, and a session switch drops the preview. **`stripFoxxyCodeAttachmentsForUserDisplay`** collapses such a block back to **`@path:N-M`**; a plain mention never covers a ranged one of the same path, nor the other way round.
-- Typing the **`:`** closes the file picker on its own (**`:`** is no **`MENU_PATH_CHAR`**) and opens the **line-range picker** in its place: **`atRangeDraftAtCaret`** / **`replaceAtRangeSuffix`** / **`highlightedRange`** in **`external/ui/src/ui/skills/draftAtRange.ts`**, panel **`data-testid="at-range-picker"`** rendered through the same portal / **`slash-menu--sheet`** chrome as the **`@`** menu. It previews the file (**`GET /foxxycode/workspace/file`**, one fetch per path) and highlights **`at-range-line--sel`** as the digits are typed; a start without an end highlights that one line.
+- A mention may narrow a file to a **1-based inclusive** line range: **`@Dockerfile:21-31`**, or in the forms editors and code hosts write, **`#L21-31`**, **`#L21-L31`**, **`#L21`**, **`#21-31`**. **`listAtPathSpans`** absorbs the suffix, so the mirror chips the whole token as one **`composer-at-chip-inline`**; the range must end the token (**`:21-31x`** stays prose) and **`1 <= start <= end`**. **`internal/mention/grammar.go`** carries the same grammar server-side, and the two test suites share their literals (**`internal/mention/testdata/grammar_cases.json`**).
+- Only those lines reach the model. The range rides **`acp.Resource.URI`** as a **`#L<start>-<end>`** fragment (**`lineRangeURI`** / **`sliceLines`** in **`internal/session/promptfiles.go`**) and **`resourceAttachmentXML`** (**`internal/agent/mentions.go`**, over **`mention.Attachment`**) turns it into **`<foxxycode_attachment path="..." name="..." lines="21-31">`**. An end past the last line clamps. A range the file cannot honour (zero, inverted, or starting past the last line) is never widened into the whole file: an explicit **`attachments[]`** range or a client **`resource`** with such a **`#L`** fragment is refused (**`ErrLineRange`**, HTTP **400**), and a range typed into the prompt text attaches a note naming how many lines the file has. The **`lines`** label is written only for a body that really is the slice; a **`source.literal`** or byte-offset (**`source.start`** / **`end`**) body travels without it. The picker preview is a snapshot taken when the panel opened; the lines that reach the model are read from disk at send time, and a session switch drops the preview. **`stripFoxxyCodeAttachmentsForUserDisplay`** collapses such a block back to **`@path:N-M`**; a plain mention never covers a ranged one of the same path, nor the other way round.
+- Typing the **`:`** after a path closes the mention picker on its own (**`:`** is no **`MENU_PATH_CHAR`** outside the scheme hints) and opens the **line-range picker** in its place: **`atRangeDraftAtCaret`** / **`replaceAtRangeSuffix`** / **`highlightedRange`** in **`external/ui/src/ui/skills/draftAtRange.ts`**, panel **`data-testid="at-range-picker"`** rendered through the same portal / **`slash-menu--sheet`** chrome as the **`@`** menu. It previews the file (**`GET /foxxycode/workspace/file`**, one fetch per path, workspace files only: a range typed after an absolute path still reaches the model, without a preview) and highlights **`at-range-line--sel`** as the digits are typed; a start without an end highlights that one line.
 - The composer text stays the only input - there are no number fields. On desktop the rows are buttons: **`mousedown`** anchors the range, dragging over rows extends it, and each step rewrites the suffix through **`replaceAtRangeSuffix`** (**`preventDefault`** keeps focus in the textarea). On **`isMobileShell`** the rows render as plain **`div`**s with no pointer handlers - a phone has no mouse to drag with, so the range is typed.
 - A path that does not resolve leaves the panel closed, so **`@user:1-2`** in prose never opens an empty panel; the settled path is remembered so the next digit refetches nothing. **`Escape`** dismisses the panel and suppresses it for that mention until the draft moves on; **`Enter`** is left alone and still sends.
 
 | Case | Expected | Automated check |
 | --- | --- | --- |
-| AR1 | **`@f.go:21-31`** chips as one token and attaches only those lines | **`draftAt.test.ts`**, **`at_line_range_test.go`**, **`features/at_line_range_mention.feature`** |
-| AR2 | **`:21`**, **`:21-31x`**, **`:31-21`**, **`:0-5`** are not ranges | **`draftAt.test.ts`**, **`at_line_range_test.go`** |
+| AR1 | **`@f.go:21-31`** chips as one token and attaches only those lines | **`draftAt.test.ts`**, **`internal/mention/mention_test.go`** (shared **`grammar_cases.json`**), **`features/at_line_range_mention.feature`** |
+| AR2 | **`:21`**, **`:21-31x`**, **`:31-21`**, **`:0-5`** are not ranges | **`draftAt.test.ts`**, **`internal/mention/mention_test.go`** |
 | AR3 | Colon opens the picker; digits move the highlight | **`Composer.test.tsx`**, **`draftAtRange.test.ts`** |
 | AR4 | Desktop drag writes the range; mobile rows are not buttons | **`Composer.test.tsx`** |
 | AR5 | Unresolvable path keeps the panel closed | **`Composer.test.tsx`** |
@@ -612,11 +667,11 @@ Verification use cases
 
 | Case | Expected | Automated check |
 | --- | --- | --- |
-| AT1 | Spaces inside paths ( **`readme copy.md`** ) work in picker draft and hydrate when attached | **`draftAt.test.ts`**, **`session/promptfiles_test.go`** (**`hello world.txt`**) |
-| AT2 | **Prefix** substring filter (**case-insensitive**), empty **prefix** returns empty **`items`** on server | **`TestFoxxyCodeWorkspaceFilesGetPagingAndPrefixes`** |
-| AT3 | Prose **`see @note.txt`** does not merge **`and`** into the path segment | **`draftAt.test.ts`** (**`extractAtFileAttachments`** connector words) |
-| AT4 | **`@`** inside **`session/prompt`** text alone still hydrates (no duplicate when **`attachments`** or **`resource`** already has body text) | **`TestHydratePromptContentBlocksExpandsAtInText`**, **`at_paths_extract_test.go`** |
-| AT5 | Picker second column shows **`parent/`** for nested **`path_rel`**, empty at workspace root (**`workspacePickRowSubtitle`**) | **`workspacePickRowSubtitle.test.ts`** |
+| AT1 | Spaces inside paths ( **`readme copy.md`**, **`@"my notes.md"`** ) work in the picker draft and resolve server-side | **`draftAt.test.ts`**, **`features/mentions.feature`** |
+| AT2 | The picker asks **`GET /foxxycode/mentions`** (**`refresh=1`** on open), names each kind and says how many matched | **`Composer.test.tsx`**, **`TestFoxxyCodeMentionsGet`** |
+| AT3 | Arrow keys move the highlight; **Enter** inserts it with a space, also while a turn runs; a folder keeps the picker open | **`Composer.test.tsx`** |
+| AT4 | **`@`** inside **`session/prompt`** text alone resolves (no duplicate when **`attachments`** or **`resource`** already has body text) | **`TestHydratePromptContentBlocksExpandsAtInText`**, **`features/mentions.feature`** |
+| AT5 | The bubble collapses attachments back to the mentions that brought them, CDATA-aware | **`stripFoxxyCodeAttachments.test.ts`**, **`internal/mention/mention_test.go`** |
 
 ## Transcript message types
 
@@ -624,6 +679,9 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 
 - `user_message`
   - Plain user input text (**no Markdown**; **`pre-wrap`** preserves line breaks).
+- `background_wake`
+  - The first row of a turn nobody typed: background tasks the model started with **`notify_on_finish`** ended and the server woke the agent ([Background tasks](../features/background-tasks.md#what-the-woken-turn-looks-like)). It renders as **nothing**, neither a user bubble nor a note: the agent's answer follows the previous turn as the work carrying on, and the bell on the task's card in the Tasks panel says what woke it (*Woke the agent when it ended*).
+  - Built from the **`background_wake`** frame of the relay while the turn streams and from the **`background_wake`** field of the message after a reload (**`parseBackgroundWakeTasks`** in **`chat/backgroundWake.ts`** reads both shapes). It opens a turn like a user message: the live status line counts from it, the next edit and the branch navigator count it the way the server counts user messages, and a failed woken turn offers no retry - nothing typed to send again.
 - `thinking`
   - Renders model reasoning as a lightweight disclosure row.
   - Status `in_progress` shows label `thinking...` and a spinner.
@@ -639,6 +697,22 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - A **failed** call says so on its summary row - **`.tool-failed-marker`** (**`data-testid="tool-failed-marker"`**) renders **(failed)** / **(ошибка)** in the theme's deletion red between the target and the duration - so the failure reads while the row is still collapsed, instead of being a coloured dot inside the expanded body.
   - Browser and SVN rows put their icon first inside **`.thinking-head`** and keep their operation label (**Open page**, **SVN · Update working copy**). An SVN row reports a failure with its own **`.svn-summary-error`** pill, which also catches an **`error:`** result delivered as completed; a browser call whose result starts with **`error:`** gets the failure marker. A **`spawn_agent`** row whose background chip already names the agent shows no target.
   - Details reuse the permission card's tool-specific preview without approval actions. **read**, **grep**, **glob**, and **print_tree** receive compact structured argument previews; unknown tools keep a styled monospace fallback. **run_command** / **ssh_run_command** put the command in an inset block inside the card behind a **`$`** prompt, under a header that names the server's own interpreter for a local call (**`shell`** from **`GET /foxxycode/workspace/context`**, kept in **`chat/hostShell.ts`**; the generic label when the server reports none, and for the remote **ssh_run_command**), with the copy control on that same line (**`data-testid="tool-preview-copy"`** in the transcript, **`permission-prompt-copy`** on a permission card) rather than in the card header. A call that takes **no arguments** has no input to preview: instead of an empty **`{}`** body it renders the shared bar alone (**`data-testid="tool-action-preview"`**) - the action label, the todo status mark, and **Done** / **Running…** / **Failed** / **Cancelled** - so it reads as a sibling of the plan cards. **load_skill** shows no argument card at all, because the summary row already names the skill. Large **`write`** / **`write_file`** code previews and **`apply_patch`** / **`edit`** diffs use the shared measured viewport: **More…** appears only for real overflow, preserves the card height while enabling internal scrolling, and **Less** clips the body again and returns it to the top. The returned body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, there is no result overflow toggle or fixed-height result viewport. **load_skill** is the one exception to the plain-text rule: a **completed** call returns a skill's markdown, so it renders through the Markdown component - the instructions are the card. A **failed** one returned an error, not a skill, and keeps the raw monospace panel. If truncated (19 content lines plus **`...`**), apply the capped result viewport (~20 lines) with **overflow-y** hidden until **More…**; **More…** (**`data-testid="tool-result-more"`**) performs **GET `/foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, then enables **overflow-y auto** at the same height and becomes **Less** (**`data-testid="tool-result-less"`**); **Less** restores the clipped preview without a second GET while **fullResultText** stays in memory. Both preview and result controls use the shared left-aligned **`tool-overflow-toggle`** tab button.
+
+## Live status next to the typing dots
+
+For the whole of a running turn, streaming text included, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
+
+![A running turn: 29s, 415 tokens, 1 running task, Writing the answer](../assets/turn-progress-live-line-dark-1280.png)
+
+*The live line of a running turn: the turn clock, the generated tokens, the running background task and what the agent is doing*
+
+- The turn's own numbers lead the line: how long the turn has been running, how many tokens the model has generated in it, how many background tasks are running right now (`15m 08s · 13.5k tokens · 1 running task · Thinking…`). Before the first token the line is the clock and the phrase alone (`57s · Waiting for the model`), and the tasks segment appears only while something runs. It is a button: it opens the [Tasks panel](../features/background-tasks.md#ui).
+- The clock and the tokens are the server's: the agent publishes `turn_progress` on the turn stream ([HTTP API](../reference/http-api.md)) and keeps the same numbers behind `GET /foxxycode/sessions/{id}/activity`, which a reloaded tab reads, so the clock carries on where it was. `chat/turnProgress.ts` folds the two sources: a reading names its turn by the server's `startedAt` and is dated by the turn's age on the server's clock, so the newer reading wins whichever way it came - an activity answer read before the stream's last frame and delivered after it is dropped, and an answer a throttled tab handles seconds late is still the same turn. The tab drops the numbers when the turn ends and on any activity read that finds the session idle, so the next turn never opens on the previous turn's clock. A server that predates `turn_progress` leaves the clock counting from the turn's user message, without tokens.
+- Verb + target for the current step, and a step counter when the step runs something other than the model - a tool call, the memory run (`2m 05s · 1.2k tokens · Running make test · 45s`). Waiting, thinking and writing are covered by the turn clock. Only the target ellipsizes when space runs out. On a phone the line takes two rows: the phrase next to the dots, the turn's numbers under it as a caption.
+- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking (`Thinking…`) → a memory run in flight (`Working with memory`, from the `memory_run` events of the stream; the run itself is an invisible `memory_run` item of the turn, nothing renders it) → answer text as the turn's newest row (`Writing the answer`) → waiting on the model. The line always carries a phrase; it is never three bare dots.
+- The two prompt states render **no** step counter: nothing is running while the operator decides. The turn clock keeps counting.
+- A plain wait escalates with time: `Waiting for the model` → `The model is taking longer than usual` (15 s, `typing-dots-status--slow`) → `Still no response from the server` (60 s).
+- Derivation scans back to the last `user_message`, so a stale `in_progress` row from a finished turn never drives the label. The console twin of the phrase table lives in `external/cli/status.go`.
 
 ## Tool call card (bundled SPA, current)
 
@@ -713,29 +787,62 @@ Automated checks:
 
 ## Background tasks panel
 
-The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. On `min-width: 1200px` the chat column yields only what the panel actually covers, so opening the panel on a wide window leaves the transcript and composer where they were. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/foxxycode/sessions/{id}/background-tasks*` (see `docs/features/background-tasks.md`).
+Screenshot: `docs/assets/screenshot-fullhd-tasks.png`.
+
+The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. On `min-width: 1200px` the chat column yields only what the panel actually covers, so opening the panel on a wide window leaves the transcript and composer where they were. The route is `#/s/<sessionId>/tasks`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. A link that names a task (`#/s/<sessionId>/tasks/<task_id>`) still opens that card, and the address then drops the id. Backed by `/foxxycode/sessions/{id}/background-tasks*` (see `docs/features/background-tasks.md`).
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
-- **Running tasks** are cards at the top of the panel, under no heading of their own (status dot, command, elapsed against the estimate, Stop): everything above the **Finished N** counter is running. A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label. Its timing line shows no exit code (the pool's code for an agent run is synthetic; the status already says how it ended), and the same `taskTimingLine` feeds the detail pane and the transcript chip.
-- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk; agent rows keep the badge. **Clear** drops the finished history for the session.
+- **Every task is one card** (`TaskCard`): status dot, a tag (`taskTag`: `shell`, the agent's name, `memory`), the title (`taskTitle`: the command, or the description of an agent run without the `agent <name>:` prefix the pool writes) and a meta line (`taskMetaLine`: elapsed against the estimate while it runs, `20s · 12:50` afterwards - the outcome is the dot's colour, and in words only in the open card's foot). An agent run carries the model and the tokens its calls spent at the right of the meta line (`agentUsage`: `agent.model` by its short name, `agent.input_tokens` plus `agent.output_tokens`), dropping under the status whole when the two do not fit; the full model id and the input / output split are the opener's `title`. Running cards stand at the top under no heading of their own - everything above the **Finished N** counter is running - and add Stop, a **bell** after the title (`.bgtask-notify`, `data-testid="bgtask-notify-<id>"`, `title` and accessible name *Wakes the agent when it ends*) when the task carries `notify_on_finish`, and, only when the model supplied `expected_seconds`, a progress bar. A finished card keeps the bell when the row carries `woke_agent` - its end started a turn - with *Woke the agent when it ended*: the woken turn shows nothing in the transcript, so the card is where the web UI says what woke the agent.
+- **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (an agent run shows **Show transcript** instead), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome, the exit code and the duration (`Failed · Exit code 2 · Duration 10s`; no exit code for an agent run: the pool's code for it is synthetic). Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) or **Open in Tasks** on a transcript row opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
+- **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so **Open in Tasks** on an early row of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
-- On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
-- A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read in the detail pane of this panel, which **Open in Tasks** opens. Expanding the row gives **Open in Tasks** and, while running, **Stop**: tab buttons attached to the bottom edge of the card above them. Driven by the same poll.
-- The **detail pane** of an agent task shows the subagent name instead of a command and an **Open transcript** button (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
+- The **opener** is the **Tasks** control at the right edge of the sticky chat header (`chat-header-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-expanded`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
+- On `max-width: 1199px` the panel takes the screen, the cards take more padding, Stop grows to 30px and the output box to 46vh.
+- A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel, which **Open in Tasks** opens. Expanding the row gives **Open in Tasks** and, while running, **Stop**: tab buttons attached to the bottom edge of the card above them. Driven by the same poll.
+- The **open card** of an agent task shows a **Show transcript** button in place of a command (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
 
 Automated checks:
 
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
-- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, agent badge and Open transcript, empty and error states)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
-- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the header control: present in an empty chat, `running / total` without system tasks, `aria-expanded`) and **ChatScreen.test.tsx** (the toggle, nothing under the transcript)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
+
+### Subagent definitions
+
+**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /foxxycode/subagents` for the workspace of the session on screen (`workspaceCtx.path` from `App.tsx`; without one the server answers for its default workspace), with that workspace printed above the list.
+
+- Each row reuses the MCP list chrome: the name, a scope badge (`built in` / `yours` / `from the project`), `hidden`, the description as plain text and the file.
+- A project definition awaiting a receipt under `project_trust: ask` carries an amber `needs approval` badge and an approval control. Its description stays hidden until approval. The control calls `POST /foxxycode/subagents/{name}/trust` for the workspace on screen; an approved project definition can also be untrusted here.
+- **Declared bounds** (`subagentDeclaredFacts` in `settings/subagentCatalog.ts`) show model, mode, permissions, tools, denies, timeout, max turns, detached execution and instructions size. The approval note also shows the definition's digest, so the operator can see what the receipt binds to. Long paths and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
+
+![Settings Subagents catalog](../assets/subagents/settings-subagents-catalog-dark-1280.png)
+
+A background subagent that needs a permission after the turn that spawned it has ended asks in the chat of its parent session: the prompt waits at the end of the conversation in the same card an inline prompt uses, the subagent named in its head (`SubagentPermissionCards`, `chat/SubagentPermissionCard.tsx`). The chat reads it from `pending_permission` on the session's background task rows, re-reads those rows on the `subagent_permission` event of `GET /foxxycode/events` (the task poll is the fallback), and answers against the **child** session with `POST /foxxycode/sessions/{child}/permission`. A prompt answered elsewhere first - a console attached over `--remote`, a Telegram chat - leaves the chat on the next read. See `docs/features/subagents.md` (Detached runs). A prompt the child raised while the parent was still replying shows first as an inline card of that turn; when the turn ends before it is answered, the relay withdraws that copy and raises the prompt again at the end of the chat, so the inline card is retired with its stream and the card at the end is the one that answers.
+
+Multiple requests keep the transcript's 10px spacing. A new request scrolls into view when you are following the end of the chat; reading older messages keeps your position. Routine task refreshes do not move the viewport.
+
+![Two background permission cards with the standard transcript spacing](../assets/subagents/chat-permissions-spaced-dark-1280.png)
+
+*The real ChatScreen rendered with two deterministic pending task rows, Dark theme, 1280px wide.*
+
+Automated checks:
+
+- **external/ui/src/ui/settings/subagentCatalog.test.ts** (inherited and declared facts, formatting, scope badge keys)
+- **external/ui/src/ui/settings/subagentsApi.test.ts** (workspace in the query, normalised catalog, server error messages, offline)
+- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows with scope, description and file, no control on any row, the passive needs-approval badge, declared bounds behind a disclosure, failed load, Russian copy)
+- **external/ui/src/ui/settings/subagentsCatalogCss.test.ts** (the catalog cannot outgrow the panel, facts label column, amber badge)
+- **external/ui/src/ui/settings/SettingsSection.test.tsx** (the subagents kind keeps its form and asks about the session workspace)
+- **external/ui/src/ui/chat/SubagentPermissionCard.test.tsx** (answered against the child session, only waiting tasks and oldest first, nothing while none waits, title prefix, Russian copy)
+- **external/ui/src/ui/chat/ChatScreen.test.tsx** (the prompt waits at the end of the parent chat and answering re-reads the tasks)
+- **external/ui/src/ui/chat/serverEvents.test.ts** (a `subagent_permission` frame names the chat it belongs to)
+- **external/ui/src/ui/chat/relayedPermissionPrompts.test.ts** (the unresolved prompts a finished turn relayed for its subagents are retired with its stream; the parent's own prompts stay)
 
 ### Hooks
 
-**Settings > Hooks** is a schema-driven object tab like Subagents (`settings-tab-hooks`): the `hooks` config section (`enabled`, `files`, `project_trust`, `default_timeout_seconds`, `stop_loop_limit`, `max_output_chars`) with localized labels and blurbs (`settings.section.hooks.*`, `settings.schema.hooks.*`) and the defaults of `SchemaExampleConfigJSON` as placeholders. Definitions themselves live in JSON files (`docs/features/hooks.md`); the tab edits where they are read from and how project files are trusted.
+**Settings > Hooks** is a schema-driven object tab (`settings-tab-hooks`): the `hooks` config section (`enabled`, `files`, `project_trust`, `default_timeout_seconds`, `stop_loop_limit`, `max_output_chars`) with localized labels and blurbs (`settings.section.hooks.*`, `settings.schema.hooks.*`) and the defaults of `SchemaExampleConfigJSON` as placeholders. Definitions themselves live in JSON files (`docs/features/hooks.md`); the tab edits where they are read from and how project files are trusted.
 
 ![Settings Hooks tab](../assets/screenshot-fullhd-settings-hooks.png)
 
@@ -875,7 +982,7 @@ Automated checks:
 - **external/ui/src/ui/chat/PlanDocumentSection.test.tsx** (a card without action handlers has no footer, a read-only editor and no autosave)
 - **external/ui/src/ui/messages/MessageList.test.tsx** (plan card on a read-only transcript renders without Run plan and Discard)
 - **external/ui/src/ui/i18n/messagesParity.test.ts** (new keys exist in every dictionary)
-- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `subagents` config tab)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `subagents` config tab, which is a hybrid tab keeping its schema key)
 
 ## Live token usage
 
@@ -1110,11 +1217,83 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   browser cannot dial. Matching sessions appear as rows under the map only while
   there is a query; a row opens that session on its node. Nodes that did not
   answer are listed as warnings above the map rather than dropped.
+- On a phone (below 1200 px) the screen opens under the top bar and above the
+  dimmed backdrop, so taps reach the map, the search and the nodes; tapping the
+  top bar's own entries still leaves it.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
 - The environment selector in the map header opens **downward**, because on a
   relay the chip sits at the top of the window rather than in the composer at
   the foot.
+
+## Documentation screen
+
+![The documentation reader at 1280 px](../assets/built-in-docs/reader-page-dark-1280.png)
+
+*The documentation reader: contents, the page, the sections of the page*
+
+Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documentation screen**).
+
+- **Docs** in the rail (above Settings), **F1** anywhere in the app, or an address
+  **`#/docs/<page>#<section>`** opens the reader (**`ui/docs/DocsView.tsx`**) in the
+  same glass dock the swarm screen uses. The rail entry reopens the page the
+  reader was left on; **`#/docs`** alone settles on the first page of the
+  contents with **`replaceState`**, so Back does not return to an empty reader.
+  **F1** again or the **×** control closes it and returns to where it was opened
+  from (a chat, the swarm screen, the scheduler); a click on the backdrop closes it too.
+- **`/docs [words or page]`** in the composer is the console's command, run in the
+  browser (**`ui/docs/docsCommand.ts`**, **`Composer`** **`onDocsCommand`**): the
+  draft is cleared and nothing is sent, while a turn runs as well. Alone it
+  reopens the book; an argument with a **`/`**, **`#`** or scheme, or the exact title
+  of the page **`GET /foxxycode/docs/page`** resolves it to, opens that page at its
+  section; any other words open the reader with the search typed in and its hits
+  open (**`searchSeed`**). The Commands group of the slash menu lists **`/docs`**
+  beside the server's commands.
+- The data comes from **`GET /foxxycode/docs`** (contents), **`GET /foxxycode/docs/page`**
+  (one page with its headings and neighbours) and **`GET /foxxycode/docs/search`**
+  (**`ui/docs/api.ts`**), through the environment shim like every other route, so
+  a remote environment shows the documentation of the binary it talks to.
+- Every page, section, hit and neighbour is a real **`href`**: following one adds
+  a history entry (Back and Forward move between pages read), a middle click opens
+  a new tab, and the **`#`** after a section heading is that section's address. A
+  **`foxxycode:<page>#<section>`** link in any rendered Markdown - a page, or an answer
+  of the agent - becomes **`#/docs/<page>#<section>`** (**`docsHrefFromFoxxyCodeLink`**
+  in **`scheduler/hashRoute.ts`**, used by **`markdown/Markdown.tsx`**). A malformed
+  escape in a pasted address is kept as typed rather than taking the router down.
+- Headings get the anchors the server computed, paired by level and text
+  (**`assignHeadingIds`** in **`ui/docs/docsReader.ts`**), then the reader scrolls to
+  the section the address names. **On this page** follows the section being read as
+  the page scrolls; below 1280 px it is left out, below 1200 px the contents fold
+  into a **Contents** button above the page.
+- The header sits on the columns of the page: the title over the contents, the
+  search box over the text, **Ask the agent** and the close control over the
+  outline. The header does not scroll: the page scrolls in the body under it
+  (**`.docs-body`**), so its scrollbar starts below the search box. The reader
+  grows no wider than its three columns (1350 px) and stays centred, so the
+  outline keeps to the text on a wide window.
+- The search box (**`/`** focuses it; the reader opens with the keyboard on the
+  page, so the arrow and page keys scroll it) searches as it is typed, 120 ms after
+  the last key, and drops the hits under itself while the contents stay: page ›
+  section, and the snippet with the matched words marked. It is a combobox: Up and
+  Down move the selection (**`aria-activedescendant`**), Enter opens the selected
+  hit and folds the list away, Escape clears.
+- A click on an image of the page opens it over everything (**`ui/docs/ImageLightbox.tsx`**,
+  rendered into the body): fitted first, **`+`** / **`-`** / the buttons zoom from
+  100% to 300%, a click on the image toggles fitted and 200%, **`0`** fits again,
+  a zoomed image scrolls, Escape or the close control closes it. A video of a page
+  (a Markdown image whose file is **`.mp4`**, **`.webm`** or **`.mov`**, which is
+  what the server makes of a GitHub attachment line) plays in a **`<video>`**
+  fetched from GitHub at the release.
+- **`@foxxycode:<page>#<section>`** is a link to the reader in a sent message
+  (**`UserMessage.tsx`**) and in an answer (**`markdown/remarkDocMentions.ts`**),
+  read with the grammar of mentions (**`ui/docs/docMentions.ts`**); code stays code.
+- **Ask the agent** starts a new chat (**`askAboutDocs`** in
+  **`App.tsx`**) whose draft mentions the page, or the section being read; with
+  text selected on the page it quotes the selection and mentions the section the
+  selection sits in (**`askDraftFor`**, **`sectionAnchorAt`**). The button keeps
+  the selection by not taking focus on mouse down, and is disabled while the next
+  page loads; the page on screen stays, dimmed, until it arrives. On a relay, where
+  there is no chat, the button is not shown.
 
 ## Swagger
 
@@ -1203,8 +1382,8 @@ both processes with headroom under a 45-second outer timeout.
 - Memory copilot row (Playwright MCP)
   - Given **`memory.enable: true`** on the **`foxxycode http`** process and at least one Markdown file under global or workspace memory so recall can run
   - When the user sends a chat message that completes a full ReAct turn
-  - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
-  - When the user opens the details element
-  - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `foxxycode_memory_save`)
+  - Then the transcript shows no memory row, and while the run is in flight the live status line reads **Working with memory**
+  - When the user opens the Tasks drawer
+  - Then a task labelled **`memory: <first line of the message>`** carries the **memory** tag (**`bgtask-tag-<id>`**), its open card shows the child's log ending with **`=== subagent report ===`** and the delivery line, and **Open transcript** opens the child session read-only
 
 For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

@@ -2,7 +2,7 @@
 
 // Package sessionstore maps stable messenger chat/user keys to FoxxyCode session IDs.
 // Each unique (gateway, chatID, userID, isolation) combination yields a single session ID
-// that is replaced when the user sends /clear.
+// that is replaced when the user sends /clear, or bound to an existing one by /resume.
 //
 // When a save path is supplied via NewPersisted, the map is written atomically to disk on
 // every mutation so the bot can resume existing conversations after a restart.
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -99,6 +100,62 @@ func (s *Store) Reset(key string) (string, error) {
 	s.data[key] = id
 	s.saveUnlocked()
 	return id, nil
+}
+
+// KeyFor returns the key that maps to sessionID. A background subagent asks
+// about its parent session, not about a chat, and this is how the bot finds the
+// conversation that session belongs to - after a restart too, since the map is
+// persisted.
+func (s *Store) KeyFor(sessionID string) (string, bool) {
+	if sessionID == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, id := range s.data {
+		if id == sessionID {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+// ChatID returns the chat a session key addresses. A private conversation is
+// keyed by the user, and Telegram gives a private chat the id of that user.
+func ChatID(key string) (int64, bool) {
+	parts := strings.Split(key, ":")
+	if len(parts) < 3 {
+		return 0, false
+	}
+	switch parts[1] {
+	case "user", "chat":
+	default:
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+// Bind maps key to a session that already exists - the /resume command, where
+// a chat continues a session it did not start or left with /clear - and
+// persists the mapping like every other mutation. An empty id is ignored:
+// nothing may map a chat to no session, because Get would then answer ""
+// instead of minting one.
+func (s *Store) Bind(key, id string) {
+	id = strings.TrimSpace(id)
+	if key == "" || id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data[key] == id {
+		return
+	}
+	s.data[key] = id
+	s.saveUnlocked()
 }
 
 // KnownIDs returns all session IDs currently held in the store.

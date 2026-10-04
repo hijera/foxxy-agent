@@ -17,50 +17,6 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
-// ── /mode ────────────────────────────────────────────────────────────────────
-
-func (b *Bot) handleModeCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
-	st, err := b.ensureSession(ctx, key)
-	if err != nil {
-		b.reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
-		return
-	}
-	b.log.Debug("telegram: mode menu", "session", st.GetID(), "current", st.GetMode())
-	kb := buildModeKeyboard(st.GetMode())
-	m := tgbotapi.NewMessage(msg.Chat.ID, modeMenuText(st.GetMode()))
-	m.ReplyToMessageID = msg.MessageID
-	m.ReplyMarkup = kb
-	if _, err := bot.Send(m); err != nil {
-		b.log.Warn("telegram: send mode menu", "err", err)
-	}
-}
-
-func modeMenuText(current string) string {
-	desc := map[string]string{
-		string(session.ModeAgent): "executes tasks with full tool access",
-		string(session.ModePlan):  "designs and plans without code execution",
-		string(session.ModeAsk):   "answers questions with read-only research tools",
-	}
-	return fmt.Sprintf("*Session mode*\n\nCurrent: *%s* — %s\n\nSelect a new mode:", current, desc[current])
-}
-
-func buildModeKeyboard(current string) tgbotapi.InlineKeyboardMarkup {
-	modes := []struct{ id, label string }{
-		{string(session.ModeAgent), "Agent"},
-		{string(session.ModePlan), "Plan"},
-		{string(session.ModeAsk), "Ask"},
-	}
-	row := make([]tgbotapi.InlineKeyboardButton, 0, len(modes))
-	for _, m := range modes {
-		label := m.label
-		if m.id == current {
-			label = "✓ " + label
-		}
-		row = append(row, tgbotapi.NewInlineKeyboardButtonData(label, "mode:"+m.id))
-	}
-	return tgbotapi.NewInlineKeyboardMarkup(row)
-}
-
 // ── /model ───────────────────────────────────────────────────────────────────
 
 func (b *Bot) handleModelCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
@@ -110,26 +66,33 @@ func buildModelKeyboard(models []config.ModelEntry, current string) tgbotapi.Inl
 // ── Callback payloads ────────────────────────────────────────────────────────
 
 const (
-	callbackActionMode  = "mode"
 	callbackActionModel = "model"
 
 	// telegramCallbackDataMax is Telegram's hard limit on callback_data.
 	telegramCallbackDataMax = 64
-	// modelDigestMarker prefixes the short form used for a model id that does
-	// not fit that limit.
-	modelDigestMarker = "#"
+	// callbackDigestMarker prefixes the short form used for a value that does
+	// not fit that limit. A session id cannot carry it (ValidateFolderSessionID
+	// admits letters, digits, underscore and hyphen), so the two forms never
+	// collide there.
+	callbackDigestMarker = "#"
 )
 
-// modelCallbackValue returns the payload carried by a model button. An id that
-// fits travels as itself; a longer one travels as a digest, because truncating
-// it would send back a name nothing is configured under - the tap would be
-// rejected and the keyboard would look broken with nothing to explain it.
-func modelCallbackValue(model string) string {
-	if len(callbackActionModel)+1+len(model) <= telegramCallbackDataMax {
-		return model
+// callbackValue returns the payload a button carries for value, next to a
+// prefix of prefixLen bytes ("model:", "resume:s:"). A value that fits travels
+// as itself; a longer one travels as a digest, because truncating it would send
+// back a name nothing is stored under - the tap would be rejected and the
+// keyboard would look broken with nothing to explain it.
+func callbackValue(prefixLen int, value string) string {
+	if prefixLen+len(value) <= telegramCallbackDataMax {
+		return value
 	}
-	sum := sha256.Sum256([]byte(model))
-	return modelDigestMarker + hex.EncodeToString(sum[:8])
+	sum := sha256.Sum256([]byte(value))
+	return callbackDigestMarker + hex.EncodeToString(sum[:8])
+}
+
+// modelCallbackValue returns the payload carried by a model button.
+func modelCallbackValue(model string) string {
+	return callbackValue(len(callbackActionModel)+1, model)
 }
 
 // resolveModelCallback maps a payload back to a configured model id. A model
@@ -141,7 +104,7 @@ func resolveModelCallback(models []config.ModelEntry, payload string) (string, b
 			return payload, true
 		}
 	}
-	if !strings.HasPrefix(payload, modelDigestMarker) {
+	if !strings.HasPrefix(payload, callbackDigestMarker) {
 		return "", false
 	}
 	for i := range models {
@@ -228,14 +191,32 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	}
 
 	action, payload, split := strings.Cut(cbq.Data, ":")
-	if !split || payload == "" || (action != callbackActionMode && action != callbackActionModel) {
+	if split && action == callbackActionPermission {
+		// A permission button answers a request that is already waiting; it
+		// configures nothing, so no session is loaded for it.
+		b.answerPermissionTap(bot, cbq, payload)
+		return
+	}
+	if !split || payload == "" || !knownCallbackAction(action) {
 		b.log.Debug("telegram: callback ignored", "reason", "unrecognised payload",
 			"data", cbq.Data, "user", userID, "chat", chatID)
 		return
 	}
 
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
+	if isGroup && isolation == config.IsolationAdmin && !b.cfg.IsAdmin(userID) {
+		b.log.Debug("telegram: callback ignored", "reason", "admin-only chat", "user", userID, "chat", chatID)
+		return
+	}
 	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
+
+	// A resume tap names the session the chat moves to, so the chat's current
+	// session is not loaded first: for a chat that never spoke, that would
+	// mint a session only to leave it a moment later.
+	if action == callbackActionResume {
+		b.handleResumeCallback(ctx, bot, cbq, key, payload)
+		return
+	}
 
 	// The keyboard outlives the process that sent it: a chat keeps showing the
 	// buttons long after a restart, and a tap then addresses a session that is
@@ -268,36 +249,18 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 		"chat", chatID,
 	)
 
-	switch action {
-	case callbackActionMode:
-		b.applyMode(ctx, bot, cbq, sessionID, value)
-	case callbackActionModel:
+	if action == callbackActionModel {
 		b.applyModel(ctx, bot, cbq, sessionID, value)
 	}
 }
 
-func (b *Bot) applyMode(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery, sessionID, newMode string) {
-	err := b.runner.HandleSessionSetMode(ctx, acp.SessionSetModeParams{
-		SessionID: sessionID,
-		ModeID:    newMode,
-	})
-	if err != nil {
-		b.log.Warn("telegram: set mode", "err", err, "session", sessionID, "mode", newMode)
-		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ "+err.Error()))
-		return
+// knownCallbackAction reports whether action names a keyboard this bot sends.
+func knownCallbackAction(action string) bool {
+	switch action {
+	case callbackActionModel, callbackActionResume:
+		return true
 	}
-	b.log.Info("telegram: mode applied", "session", sessionID, "mode", newMode)
-	// Update the keyboard in-place so the user sees the new selection immediately.
-	edit := tgbotapi.NewEditMessageTextAndMarkup(
-		cbq.Message.Chat.ID,
-		cbq.Message.MessageID,
-		modeMenuText(newMode),
-		buildModeKeyboard(newMode),
-	)
-	edit.ParseMode = tgbotapi.ModeMarkdown
-	if _, err := bot.Request(edit); err != nil {
-		b.log.Debug("telegram: edit mode message", "err", err)
-	}
+	return false
 }
 
 func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery, sessionID, newModel string) {

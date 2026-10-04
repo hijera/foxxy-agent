@@ -6,7 +6,7 @@
 #
 # Knobs (env vars) so the gate has one shared policy:
 #
-#   FOXXYCODE_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint)
+#   FOXXYCODE_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint over every build, then the SPA type check)
 #
 #   FOXXYCODE_HOOK_TESTS  off|fast|full|matrix  (default: off) additionally run tests:
 #       off     no tests (lint only — the quick default)

@@ -33,6 +33,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`FOXXYCODE_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 - **`CODEX_HOME`** - Codex CLI state directory read by `type: codex` providers when no FoxxyCode-managed credential exists. Default **`~/.codex`**.
 - **`FOXXYCODE_CODEX_BASE_URL`** - process-level Codex backend override. The default is the official backend; `providers[].api_base` is intentionally ignored for Codex.
+- **`FOXXYCODE_DEVIN_CLI_CREDENTIALS`** - Devin CLI `credentials.toml` used when no FoxxyCode-managed login exists. The default is `~/.local/share/devin/credentials.toml` or the equivalent under `$XDG_DATA_HOME`. `FOXXYCODE_DEVIN_API_SERVER_URL`, `FOXXYCODE_DEVIN_WEBAPP_URL` and `FOXXYCODE_DEVIN_API_URL` override Devin endpoints for the whole process; see [Devin](../features/devin.md).
 
 If no **`--config`** is given, the loader uses **`$FOXXYCODE_HOME/config.yaml`** (default home **`~/.foxxycode`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -66,12 +67,13 @@ A file that does not parse at all is placed differently from one whose values ar
 
 What an editor leaves in the file is not part of the configuration. A file written on Windows ends its lines with a carriage return and a line feed and may carry a byte order mark in front of the first one; both are dropped on the way in, so the `# yaml-language-server:` header behind a mark is still found and a finding still names the line the editor shows, and a save puts the file's own line endings back. A file saved as UTF-16 - Notepad's "Unicode", and what a `>` redirect writes in Windows PowerShell 5.1 - is decoded on the way in too; the check names it in a warning, because a save from the settings screen writes the file back as UTF-8.
 
-Every on/off switch is spelled `enable` (`httpserver.enable`, `memory.enable`, `gateways.telegram.enable`, `compaction.enable`, ...), the way [coddy-agent](https://github.com/coddy-project/coddy-agent) spells it, so a configuration written for either agent is read by the other. FoxxyCode called the key `enabled` until 0.3.x, and a file that still says so keeps working: the loader takes `enabled` as `enable` in every section that has the switch, and `config_get` answers for the `enable` path either way. The check names each old key in a warning, because the schema marks it deprecated and editors offer only `enable`; when a section sets both, `enable` wins and the `enabled` line has no effect. Loading never rewrites the file: the next write - a save from the settings screen, a `config_commit`, `foxxycode serve set-password` - renders the key as `enable`, with the comment that stood above it. A key called `enabled` that is not a switch, such as a swarm label, keeps its name.
+Every on/off switch is spelled `enable` (`httpserver.enable`, `memory.enable`, `gateways.telegram.enable`, `compaction.enable`, ...), the way [foxxy-agent](https://github.com/hijera/foxxy-agent) spells it, so a configuration written for either agent is read by the other. FoxxyCode called the key `enabled` until 0.3.x, and a file that still says so keeps working: the loader takes `enabled` as `enable` in every section that has the switch, and `config_get` answers for the `enable` path either way. The check names each old key in a warning, because the schema marks it deprecated and editors offer only `enable`; when a section sets both, `enable` wins and the `enabled` line has no effect. Loading never rewrites the file: the next write - a save from the settings screen, a `config_commit`, `foxxycode serve set-password` - renders the key as `enable`, with the comment that stood above it. A key called `enabled` that is not a switch, such as a swarm label, keeps its name.
 
 ## Dry run: probing what the file points at
 
 `--dry-run` looks at the world the file describes, after the same check `--test-config` performs. Every command that takes `-t` takes it too: `foxxycode --dry-run`, `foxxycode cli --dry-run`, `foxxycode acp --dry-run`, `foxxycode http --dry-run`, `foxxycode serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
 
+- **memory** - `memory.additional_prompt` longer than `memory.additional_prompt_max_chars` is a warning at the key: the memory subagent reads the cut text;
 - **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
 - **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`foxxycode providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
 - **MCP servers** from `config.yaml` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.foxxycode/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
@@ -162,7 +164,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"
     # api_base: ""                    # optional override for OpenAI-compatible base URL
     # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
-    # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
+    # proxy: none                     # inherit (default), none, or a proxy URL
     # timeout_ms: 300000               # optional bound on each LLM request incl. streamed read (0 = no client timeout)
 
   - name: "anthropic"
@@ -183,6 +185,12 @@ providers:
   # $FOXXYCODE_HOME/providers/codex/, not in config.yaml.
   - name: "codex"
     type: "codex"
+
+  # `foxxycode providers login devin` signs in through the browser, or
+  # --devin-cli reuses the Devin CLI login. The token is stored under
+  # $FOXXYCODE_HOME/providers/devin/ rather than in config.yaml.
+  - name: "devin"
+    type: "devin"
 
 # Logical models (Go: []config.ModelEntry, internal/config/models.go).
 # Each model value is "provider_name/api_model_id". The first path segment must match providers[].name.
@@ -214,6 +222,10 @@ models:
   - model: "codex/gpt-5.6-sol"
     max_tokens: 8192
 
+  - model: "devin/claude-sonnet-5"
+    reasoning_levels: [low, medium, high, xhigh, max]
+    reasoning_default: medium
+
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
@@ -227,8 +239,14 @@ agent:
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard);
                                      # a reasoning model given a large tool result can need most of it
-  llm_stall_timeout_ms: 300000 # cut a stream that has already produced output but stopped sending data
-                               # (0 disables); the partial answer is kept and the model asked to continue
+  llm_stream_idle_timeout_ms: 300000 # cut a stream that has already delivered something but stopped sending
+                               # data (0 disables); keep-alive comments do not count, and the old name
+                               # llm_stall_timeout_ms is still read. The partial answer is kept
+  llm_continue: true           # ...and the model asked to carry on from it (off: the turn ends at the cut)
+  llm_continue_max: 3          # continuations per turn before it ends with a notice (0 = end at the first cut)
+  llm_continue_stall_delays_ms: [0]  # pause before each continuation after a stall; the last entry repeats
+  llm_continue_error_delays_ms: [5000, 20000]  # ...and after a 5xx or a stream that dropped mid-answer
+  llm_continue_retry_after_max_ms: 120000      # a longer Retry-After is honoured up to this (0 ignores it)
   llm_stall_retry: true        # wait and re-issue a call that failed without producing output
                                # (silence, unexpected EOF, Client.Timeout, 5xx); a refused 4xx is not retried
   llm_stall_retry_delays_ms: [60000, 180000, 300000]  # pause before each retry; the last entry
@@ -250,10 +268,10 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until foxxycode todo tools update state)
-  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
+  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
+  # Built-in templates order: Tools, Skills, Memory (session notes).
   # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
   # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
   # FoxxyCode sends the clock, the checklist and the rules a tool call activated after the history instead,
@@ -280,7 +298,7 @@ sessions:
   # Empty = default $FOXXYCODE_HOME/sessions. Supports ${FOXXYCODE_HOME} and ~ in path.
   dir: ""
 
-# Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
+# Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enable.
 memory:
   enable: false
@@ -288,10 +306,15 @@ memory:
   # Example: "rpa/gpt-oss:120b". Empty means fall back to agent.model / session override.
   model: ""
   dir: "" # long-term memory root; empty = $FOXXYCODE_HOME/memory. Supports ${FOXXYCODE_HOME} and ~ when set.
-  recall_max_turns: 6
+  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
+  timeout_seconds: 300  # hard limit of one memory run
+  keep_runs: 20         # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+  recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
   max_search_hits: 8
+  additional_prompt: ""          # your own instructions for the memory subagent only; the main agent never sees them
+  additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Skills directories (Go: config.Skills, internal/config/skills.go)
 skills:
@@ -340,7 +363,8 @@ tools:
   # ask          - always prompt for commands and file writes (default)
   # accept_edits - auto-approve file writes; prompt for shell commands
   # bypass       - never ask for permission (use only in trusted environments)
-  # Overridable per session via ACP session/set_config_option with configId "permission_mode".
+  # Overridable per session (ACP session/set_config_option "permission_mode", /permissions,
+  # the web composer chip); the override lives in memory, a restart comes back to this value.
   permission_mode: ask
 
   # How long a permission prompt may wait for the operator before the tool
@@ -491,7 +515,7 @@ The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.
 
 Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent`, `plan`, `docs`, `ask`, or `debug`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
-**`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
+**`retain_sessions`** (default **5**) caps how many **finished** runs are kept per **`job_id`** (their task records and transcripts, under the job session); older runs are removed when a run finishes. **`max_queue`** caps the runs in flight across all jobs and **`timeout`** is a run's hard limit (the background task pool still caps it at **`tools.background.max_timeout_seconds`**).
 
 When the scheduler is effectively enabled, **`foxxycode_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`foxxycode_scheduler_jobs_list`**, **`foxxycode_scheduler_job_get`**, **`foxxycode_scheduler_job_create`**, **`foxxycode_scheduler_job_replace`**, **`foxxycode_scheduler_job_patch`**, **`foxxycode_scheduler_job_delete`**, **`foxxycode_scheduler_job_pause`**, **`foxxycode_scheduler_job_resume`**, **`foxxycode_scheduler_job_run`**, **`foxxycode_scheduler_job_cancel`**, **`foxxycode_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/foxxycode/scheduler`** (see **`docs/reference/http-api.md`**).
 
@@ -550,7 +574,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enable: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enable: true`. `proxy` is optional (empty follows the environment or system proxy; `none` connects directly). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/surfaces/gateway.md](../surfaces/gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
@@ -628,12 +652,22 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
 
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (for `neuraldeep` it selects one of the two official deployments; ignored for the fixed-endpoint `codex` provider), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
 - **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (the context window the web UI context ring, the console context percentage and automatic compaction measure against; **`0`** reads it from the provider's model listing when the provider reports one, else 128000 - see [Context compaction](../features/compaction.md#the-context-window)), optional **`multimodal`**, optional **`reasoning_levels`** (omitted: auto-detected from the API model id — **`gpt-5*`** → **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, ...) and Claude extended-thinking models → **`low,medium,high`**), and optional **`reasoning_default`**. For **`qwen3*`** models on OpenAI-compatible providers a selected level also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`**, because Qwen thinking is a chat-template switch rather than an effort tier. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
+
+### Provider proxy
+
+`providers[].proxy` selects the route for every request made by a provider row: completions, model lists, account usage and sign-in.
+
+- Empty or `inherit` follows `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, or the operating system proxy when no environment proxy is configured. Loopback stays direct.
+- `none` connects directly, ignoring environment and system proxy settings.
+- An `http://`, `https://`, `socks5://` or `socks5h://` URL selects that proxy. FoxxyCode still applies `NO_PROXY` and the loopback bypass to this route. The URL editor masks credentials and percent-encodes special characters.
+
+The setting belongs to its provider row, so one provider can use a proxy while another connects directly. `gateways.telegram.proxy` accepts the same values. The **Ignore system proxy** switch in Settings writes `none`; turning it off restores the URL previously entered while the form is open. Changes to environment proxy variables require a process restart. See [Working behind a proxy](../operate/proxy.md) and [Web UI](../surfaces/web-ui.md#settings-provider-proxy).
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.
@@ -647,6 +681,10 @@ Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic AP
 
 ### `neuraldeep`
 NeuralDeep hub (**`https://hub.neuraldeep.ru`**). It speaks the OpenAI wire protocol, so requests are handled by the OpenAI client. The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`foxxycode providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; FoxxyCode warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`FOXXYCODE_NEURALDEEP_BASE_URL`** and **`FOXXYCODE_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Provider needs only **`api_key`** — a literal key, a **`"${NEURALDEEP_API_KEY}"`** reference, or empty to read **`NEURALDEEP_API_KEY`** at call time when the provider is named **`neuraldeep`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/gpt-oss-120b`**, plus **`max_tokens`**, **`temperature`**.
+
+### `devin`
+
+Devin (Cognition) account models use a browser login via `foxxycode providers login devin`, or the existing Devin CLI login with `--devin-cli`. The managed session token is stored under `$FOXXYCODE_HOME/providers/<name>/devin-auth.json`. Without it the provider reads the CLI's `credentials.toml`; an explicit `api_key`, `api_key_command` or `DEVIN_API_KEY` wins over both logins. Login adds one model per family, such as `devin/claude-opus-5`, with family variants exposed as reasoning levels. `api_base` is ignored; the optional `proxy` routes sign-in, catalog and chat. See [Devin](../features/devin.md).
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

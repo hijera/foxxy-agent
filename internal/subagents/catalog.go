@@ -17,6 +17,7 @@ type CatalogEntry struct {
 	Path        string     `json:"path,omitempty"`
 	Digest      string     `json:"digest,omitempty"`
 	Model       string     `json:"model,omitempty"`
+	Reasoning   string     `json:"reasoning,omitempty"`
 	Mode        string     `json:"mode,omitempty"`
 	Builtin     bool       `json:"builtin"`
 	Hidden      bool       `json:"hidden"`
@@ -59,6 +60,7 @@ func BuildCatalog(defs []*Definition, policy, workspace string, store *TrustStor
 			Path:          d.Path,
 			Digest:        d.Digest,
 			Model:         d.Model,
+			Reasoning:     d.Reasoning,
 			Mode:          d.Mode,
 			Builtin:       d.Builtin,
 			Hidden:        d.Hidden,
@@ -125,6 +127,9 @@ func WriteListing(w io.Writer, entries []CatalogEntry) {
 		}
 		if e.Model != "" {
 			flags = append(flags, "model="+e.Model)
+		}
+		if e.Reasoning != "" {
+			flags = append(flags, "reasoning="+e.Reasoning)
 		}
 		if e.Mode != "" {
 			flags = append(flags, "mode="+e.Mode)

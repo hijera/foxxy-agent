@@ -25,6 +25,7 @@ var AllowedLLMProviderTypes = map[string]struct{}{
 	"anthropic":  {},
 	"neuraldeep": {},
 	"codex":      {},
+	"devin":      {},
 }
 
 // ProviderConfig is one entry under YAML key providers.
@@ -39,9 +40,8 @@ type ProviderConfig struct {
 	// provider fetch short-lived or login-issued keys without storing a static secret
 	// in the config. On failure resolution falls back to the conventional env var.
 	APIKeyCommand string `yaml:"api_key_command"`
-	// Proxy is an optional HTTP, HTTPS, SOCKS5, or SOCKS5h proxy URL for outbound LLM requests for this
-	// provider only. It overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g.
-	// forwarded by the IDE plugin); when empty, that environment proxy is used instead.
+	// Proxy selects inherit (including empty), none, or an HTTP, HTTPS,
+	// SOCKS5 or SOCKS5h URL for every request of this provider.
 	Proxy string `yaml:"proxy"`
 	// TimeoutMS, when positive, bounds each LLM HTTP request to this provider,
 	// including the streamed body read. 0 (the default) sets no client timeout,
@@ -158,7 +158,7 @@ func (p *ProviderConfig) Normalize() {
 	p.APIBase = strings.TrimSpace(p.APIBase)
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
-	p.Proxy = strings.TrimSpace(p.Proxy)
+	p.Proxy = normalizeProxySetting(p.Proxy)
 }
 
 // Validate checks a single provider after Normalize.

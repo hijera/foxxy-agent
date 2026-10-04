@@ -27,7 +27,7 @@ func TestModelCallbackValueSwitchesToADigestAtTheLimit(t *testing.T) {
 	if got == over {
 		t.Fatal("id over the limit travelled verbatim")
 	}
-	if !strings.HasPrefix(got, modelDigestMarker) {
+	if !strings.HasPrefix(got, callbackDigestMarker) {
 		t.Fatalf("digest form %q does not carry the marker", got)
 	}
 	if prefix+len(got) > telegramCallbackDataMax {
@@ -103,24 +103,6 @@ func TestModelKeyboardButtonsRoundTrip(t *testing.T) {
 	}
 	if seen != len(models) {
 		t.Fatalf("keyboard offered %d buttons, want %d", seen, len(models))
-	}
-}
-
-// The mode keyboard shares the callback parser, so its payloads must stay
-// inside the same limit and keep their action prefix.
-func TestModeKeyboardPayloadsAreWellFormed(t *testing.T) {
-	kb := buildModeKeyboard("agent")
-	for _, row := range kb.InlineKeyboard {
-		for _, btn := range row {
-			data := *btn.CallbackData
-			if len(data) > telegramCallbackDataMax {
-				t.Fatalf("callback_data is %d bytes: %q", len(data), data)
-			}
-			action, payload, ok := strings.Cut(data, ":")
-			if !ok || action != callbackActionMode || payload == "" {
-				t.Fatalf("unexpected callback data %q", data)
-			}
-		}
 	}
 }
 
