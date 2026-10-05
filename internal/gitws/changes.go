@@ -194,6 +194,9 @@ func UncommittedChangeFor(dir, path string) (*WorkChange, error) {
 		if err != nil {
 			return nil, err
 		}
+		if isLineEndingChurn(rec.code, change) {
+			return nil, nil
+		}
 		return &change, nil
 	}
 	return nil, nil
@@ -222,9 +225,24 @@ func trackedChanges(dir string) ([]WorkChange, error) {
 		if err != nil {
 			return nil, err
 		}
+		if isLineEndingChurn(rec.code, change) {
+			continue
+		}
 		changes = append(changes, change)
 	}
 	return changes, nil
+}
+
+// isLineEndingChurn reports a plain modification whose two sides read the same
+// once CRLF is levelled to LF: git lists such a file when the repository has no
+// text attribute and core.autocrlf is off (a default Linux checkout), and the
+// viewer would render an empty diff for it, so it is not a change at all. A
+// rename or copy keeps its record even with unchanged content - the move
+// itself is the change.
+func isLineEndingChurn(code byte, change WorkChange) bool {
+	return code == 'M' &&
+		change.Before != nil && change.After != nil &&
+		bytes.Equal(change.Before, change.After)
 }
 
 // changedRecords lists what changed without reading any file content.
