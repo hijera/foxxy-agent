@@ -7,9 +7,9 @@ import (
 
 func TestStat(t *testing.T) {
 	tests := []struct {
-		name            string
-		before, after   string
-		added, deleted  int
+		name           string
+		before, after  string
+		added, deleted int
 	}{
 		{"identical", "a\nb\nc\n", "a\nb\nc\n", 0, 0},
 		{"empty both", "", "", 0, 0},

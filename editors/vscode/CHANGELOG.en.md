@@ -10,6 +10,37 @@
 
 ## Unreleased — 2026-09-30
 
+**A review window for what a session changed.**
+The bottom of every session now shows how many files the agent changed and by how many lines,
+with the list of files. Clicking a file row opens that file's diff; the "Review" button opens
+a separate window with every diff in one list. At the top of the window a switch picks "All
+edits / Last turn / Uncommitted / All changed files" and shows the counts for that scope, next
+to buttons to collapse all differences, go to a file, switch between unified and split view,
+and show the file tree. Hovering a file lets you collapse its diffs or copy its path. The card
+also has "Undo": one button puts every file of the session back the way it was, after asking
+first. The card can be switched off in FoxxyCode settings → General. Tool bookkeeping stays
+out of the list - neither the IDE's settings (`.idea`, `.vscode`) nor the version control
+folders (`.git`, `.svn`). The editor rewrites its settings on its own schedule, and a single
+`svn` command rewrites `wc.db` and a binary copy of every file it touched, which buried a
+three-line edit under a hundred `.svn-base` blobs. This holds for sessions recorded by earlier
+versions of the plugin too, and for "Undo": rolling back no longer touches those files, which
+would have broken the very working copy it was asked to clean up.
+While the agent works the card is hidden, and it appears by itself as soon as the turn's
+changes are recorded. Ctrl+S shows or hides it at any time: mid-turn it lists the earlier
+turns plus what the current one has already changed, and it updates after every tool call. In
+IntelliJ, while focus is in the FoxxyCode panel, Ctrl+S toggles the card instead of Save All.
+Edits made by a turn that failed with an error now reach the card and the rollback too.
+
+**Syntax highlighting in diffs.**
+Code is coloured by the file's language, with the same engine as the code blocks in the
+agent's answers. A file with an unfamiliar extension is shown as plain text.
+
+**Line counts now match git, and Subversion works.**
+A few-line edit in a large file could look like a rewrite of the whole file: the comparison
+gave up on large files. Now the counts match `git diff` file for file. The working-copy scopes
+understand both git and Subversion - which one to ask is decided by the folder itself. Files
+marked as ignored (`.gitignore`, `svn:ignore`) are never read.
+
 **Memory runs as a background agent.**
 It gathers context for the current turn in a separate task, with progress visible in Tasks. Existing notes and memory settings continue to work.
 
@@ -74,39 +105,6 @@ it, every later request, retries included, went out on that same dead connection
 wait for hours. Now a connection that has received nothing for 15 seconds is pinged and closed
 when the ping goes unanswered for another 15; the request cut with it is repeated on a new
 connection, and the turn carries on within about half a minute.
-
-## 0.3.21 — 2026-09-27
-
-**A review window for what a session changed.**
-The bottom of every session now shows how many files the agent changed and by how many lines,
-with the list of files. Clicking a file row opens that file's diff; the "Review" button opens
-a separate window with every diff in one list. At the top of the window a switch picks "All
-edits / Last turn / Uncommitted / All changed files" and shows the counts for that scope, next
-to buttons to collapse all differences, go to a file, switch between unified and split view,
-and show the file tree. Hovering a file lets you collapse its diffs or copy its path. The card
-also has "Undo": one button puts every file of the session back the way it was, after asking
-first. The card can be switched off in FoxxyCode settings → General. Tool bookkeeping stays
-out of the list - neither the IDE's settings (`.idea`, `.vscode`) nor the version control
-folders (`.git`, `.svn`). The editor rewrites its settings on its own schedule, and a single
-`svn` command rewrites `wc.db` and a binary copy of every file it touched, which buried a
-three-line edit under a hundred `.svn-base` blobs. This holds for sessions recorded by earlier
-versions of the plugin too, and for "Undo": rolling back no longer touches those files, which
-would have broken the very working copy it was asked to clean up.
-While the agent works the card is hidden, and it appears by itself as soon as the turn's
-changes are recorded. Ctrl+S shows or hides it at any time: mid-turn it lists the earlier
-turns plus what the current one has already changed, and it updates after every tool call. In
-IntelliJ, while focus is in the FoxxyCode panel, Ctrl+S toggles the card instead of Save All.
-Edits made by a turn that failed with an error now reach the card and the rollback too.
-
-**Syntax highlighting in diffs.**
-Code is coloured by the file's language, with the same engine as the code blocks in the
-agent's answers. A file with an unfamiliar extension is shown as plain text.
-
-**Line counts now match git, and Subversion works.**
-A few-line edit in a large file could look like a rewrite of the whole file: the comparison
-gave up on large files. Now the counts match `git diff` file for file. The working-copy scopes
-understand both git and Subversion - which one to ask is decided by the folder itself. Files
-marked as ignored (`.gitignore`, `svn:ignore`) are never read.
 
 ## 0.3.21 — 2026-09-27
 
