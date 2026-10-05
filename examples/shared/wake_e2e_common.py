@@ -20,6 +20,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -28,8 +29,18 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-FAIL_COMMAND = "echo 'tests failed' >&2; exit 2"
-FIX_COMMAND = "touch fixed.txt"
+# The commands the scripted model runs must behave the same under POSIX shells
+# and under the Windows one (PowerShell: `echo ... >&2` is a parse error that
+# reports exit 1, and there is no `touch`). The fail command starts with `echo`,
+# the one program the stand's allowlist permits, and must exit 2 so the wake
+# names a failed task; the fix command must create the file while staying
+# outside the allowlist, so the woken turn has to ask before running it.
+if sys.platform == "win32":
+    FAIL_COMMAND = "echo tests failed; exit 2"
+    FIX_COMMAND = "New-Item -ItemType File fixed.txt"
+else:
+    FAIL_COMMAND = "echo 'tests failed' >&2; exit 2"
+    FIX_COMMAND = "touch fixed.txt"
 START_PROMPT = "start the tests"
 ANSWER_STARTED = "Started the tests in the background."
 ANSWER_WOKEN = "The tests failed with exit 2."
