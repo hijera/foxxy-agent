@@ -428,10 +428,14 @@ func (s *Server) foxxycodeSessionChangeFile(w http.ResponseWriter, r *http.Reque
 	// The change set is the only thing consulted; nothing is resolved on disk,
 	// so a traversing path simply names no changed file. Separators are levelled
 	// because the session scope reports OS-shaped paths while a caller may well
-	// send the same file with forward slashes.
-	want := filepath.FromSlash(path)
+	// send the same file with the other kind of separator: the change set of a
+	// Windows session carries backslashes and a Linux one slashes, and either
+	// caller must match either set, so both sides are canonicalised to slashes
+	// (filepath.FromSlash alone is a no-op on Linux and leaves a backslash
+	// request unmatched).
+	want := changePathKey(path)
 	for _, change := range changes {
-		if filepath.FromSlash(change.Path) != want {
+		if changePathKey(change.Path) != want {
 			continue
 		}
 		dto := buildChangedFile(change, true, true)
@@ -524,4 +528,11 @@ func (s *Server) foxxycodeSessionChangesOpenInIDE(w http.ResponseWriter, r *http
 		"sessionId": id,
 		"delivered": delivered,
 	})
+}
+
+// changePathKey canonicalises a workspace path for change-set matching: to
+// slash form on every platform, so a request and a recorded change agree
+// whichever separator each of them was shaped with.
+func changePathKey(p string) string {
+	return strings.ReplaceAll(filepath.ToSlash(p), `\`, "/")
 }
