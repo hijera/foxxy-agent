@@ -31,11 +31,25 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tgfake/llmstub"
 )
 
 const wakeWebFailCommand = "echo 'tests failed'; exit 2"
+
+// Use the same shell selection as run_command, without requiring Unix tools
+// to be on PATH when the test runs on Windows.
+func wakeWebFixCommand() string {
+	switch platform.CurrentShell().Kind {
+	case platform.ShellPwsh, platform.ShellPowerShell:
+		return "New-Item -ItemType File fixed.txt"
+	case platform.ShellCmd:
+		return "type nul > fixed.txt"
+	default:
+		return "touch fixed.txt"
+	}
+}
 
 type wakeWebState struct {
 	root  string
@@ -105,9 +119,10 @@ func (s *wakeWebState) startServer(fixes bool) error {
 	})
 	woken := llmstub.Rule{Match: "background task you asked to be notified about", Answer: "The tests failed with exit 2."}
 	if fixes {
+		fix, _ := json.Marshal(map[string]string{"command": wakeWebFixCommand()})
 		woken = llmstub.Rule{
 			Match:  "background task you asked to be notified about",
-			Tool:   &llmstub.ToolCall{Name: "run_command", Arguments: json.RawMessage(`{"command":"touch fixed.txt"}`)},
+			Tool:   &llmstub.ToolCall{Name: "run_command", Arguments: fix},
 			Answer: "Fixed it.",
 		}
 	}
@@ -513,7 +528,9 @@ func initializeWakeWebScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the woken turn's stream carries the answer "([^"]*)"$`, s.relayCarriesAnswer)
 	sc.Step(`^the session messages keep the woken turn's first message as a background wake naming the task$`, s.messagesKeepWake)
 	sc.Step(`^the session's background tasks say the task woke the agent$`, s.taskSaysItWokeTheAgent)
-	sc.Step(`^the woken turn's stream asks permission to run "([^"]*)"$`, s.relayAsksPermission)
+	sc.Step(`^the woken turn's stream asks permission to create the fix file$`, func() error {
+		return s.relayAsksPermission(wakeWebFixCommand())
+	})
 	sc.Step(`^the web UI allows it$`, s.webUIAllows)
 	sc.Step(`^the workspace holds "([^"]*)"$`, s.workspaceHolds)
 }

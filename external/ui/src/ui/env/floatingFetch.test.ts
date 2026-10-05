@@ -62,6 +62,8 @@ describe("floating fetch calls", () => {
     ).toBe(true);
   });
 
+  // This scans every source file; Windows I/O under parallel test load can
+  // exceed the five-second unit-test default without a hung operation.
   it("every `void fetch(...)` in the SPA handles its own rejection", () => {
     const offenders: string[] = [];
     for (const file of sourceFiles(SRC)) {
@@ -75,7 +77,7 @@ describe("floating fetch calls", () => {
       "add `.catch(() => {})` — a fire-and-forget fetch that rejects paints the " +
         "plugin's error overlay over the chat",
     ).toEqual([]);
-  });
+  }, 15_000);
 
   it("recognises an unguarded call", () => {
     const guarded = `      void fetch("/x", { method: "PATCH" }).catch(() => {\n        // ignore\n      });\n`;

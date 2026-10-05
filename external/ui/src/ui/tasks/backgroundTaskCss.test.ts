@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+// Git may check out CRLF on Windows; CSS layout is independent of line endings.
+const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8").replace(/\r\n/g, "\n");
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(selector);

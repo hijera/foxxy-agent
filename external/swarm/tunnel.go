@@ -122,14 +122,19 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	// established and then fails on its first frame.
 	served := swarmdto.SpliceBuffered(conn, brw.Reader)
 
-	tr := &http2.Transport{
-		AllowHTTP: true,
-		// A dead peer that never sends a FIN is indistinguishable from an idle
-		// one until something writes, so the connection is probed.
-		ReadIdleTimeout:            tunnelReadIdleTimeout,
-		PingTimeout:                tunnelPingTimeout,
-		StrictMaxConcurrentStreams: true,
+	// Configure the backing net/http transport before adopting a connection.
+	// On Go 1.27 x/net/http2 delegates NewClientConn to that transport.
+	tr, err := http2.ConfigureTransports(&http.Transport{})
+	if err != nil {
+		s.log.Warn("swarm tunnel transport setup failed", "node", node, "error", err)
+		_ = conn.Close()
+		return
 	}
+	tr.AllowHTTP = true
+	// A dead peer without a FIN needs a ping to distinguish it from an idle one.
+	tr.ReadIdleTimeout = tunnelReadIdleTimeout
+	tr.PingTimeout = tunnelPingTimeout
+	tr.StrictMaxConcurrentStreams = true
 	cc, err := tr.NewClientConn(served)
 	if err != nil {
 		s.log.Warn("swarm tunnel handshake failed", "node", node, "error", err)

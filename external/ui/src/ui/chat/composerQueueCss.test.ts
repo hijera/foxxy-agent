@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8");
+// Match selectors identically in LF and Windows CRLF checkouts.
+const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(/\r\n/g, "\n");
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
