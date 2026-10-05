@@ -4,6 +4,7 @@ import { IdeEventClient } from "./ideEventClient";
 import {
   EditEvent,
   isApplied,
+  isOpenChanges,
   isOpenFile,
   isProposed,
   isRevealFile,
@@ -13,6 +14,7 @@ import { readSettings } from "../settings";
 import { t } from "../i18n/bundle";
 import { LineFragment } from "./lineFragments";
 import { InlineHighlightTracker } from "./inlineHighlights";
+import { afterUri, beforeUri } from "./virtualDocs";
 
 interface DecorationPair {
   added: vscode.TextEditorDecorationType;
@@ -26,6 +28,8 @@ interface DecorationPair {
  *  Revert) decision, plus a Show diff action backed by `vscode.diff`. */
 export class IdeDiffService {
   private client: IdeEventClient | null = null;
+  /** Set by extension.ts so an open_changes event can reach the Changes view. */
+  private onOpenChanges: ((path?: string) => void) | null = null;
   private clientBase: string | null = null;
   /** Active decoration types per absolute (normalized) path. */
   private readonly decorations = new Map<string, DecorationPair>();
@@ -48,6 +52,11 @@ export class IdeDiffService {
     this.client = c;
     this.clientBase = baseUrl;
     c.start();
+  }
+
+  /** Route the Review action on the SPA card to the Changes view. */
+  setOpenChangesHandler(handler: (path?: string) => void): void {
+    this.onOpenChanges = handler;
   }
 
   stop(): void {
@@ -75,6 +84,13 @@ export class IdeDiffService {
     // a download, so it goes to the file manager, not an editor tab.
     if (isRevealFile(ev)) {
       void this.revealFile(ev.path);
+      return;
+    }
+    // Review on the changed-files card: user-initiated and about the whole
+    // session rather than one edit, so it runs before the guards below the same
+    // way open_file does. A row click names its file; the summary sends none.
+    if (isOpenChanges(ev)) {
+      this.onOpenChanges?.(ev.path ? ev.path : undefined);
       return;
     }
     const s = readSettings();
@@ -335,46 +351,15 @@ function fullRange(doc: vscode.TextDocument): vscode.Range {
   return new vscode.Range(0, 0, Math.max(0, last), doc.lineAt(Math.max(0, last)).text.length);
 }
 
-// ---- virtual document providers for the Show diff action --------------------
-
-const BEFORE_SCHEME = "foxxycode-before";
-const AFTER_SCHEME = "foxxycode-after";
-const beforeRegistry = new Map<string, string>();
-const afterRegistry = new Map<string, string>();
-
-let providersRegistered = false;
-
-function ensureProvidersRegistered(): void {
-  if (providersRegistered) return;
-  providersRegistered = true;
-  vscode.workspace.registerTextDocumentContentProvider(BEFORE_SCHEME, {
-    provideTextDocumentContent(uri: vscode.Uri): string {
-      return beforeRegistry.get(uri.path) ?? "";
-    },
-  });
-  vscode.workspace.registerTextDocumentContentProvider(AFTER_SCHEME, {
-    provideTextDocumentContent(uri: vscode.Uri): string {
-      return afterRegistry.get(uri.path) ?? "";
-    },
-  });
-}
+// ---- virtual document sides for the Show diff action ------------------------
 
 function beforeUriFor(ev: EditEvent): vscode.Uri {
-  ensureProvidersRegistered();
-  const key = `${ev.toolCallId}:${ev.path}:before`;
-  beforeRegistry.set(key, ev.before);
-  return vscode.Uri.from({ scheme: BEFORE_SCHEME, path: key });
+  return beforeUri(`${ev.toolCallId}:${ev.path}:before`, ev.before);
 }
 
 function afterUriFor(ev: EditEvent): vscode.Uri {
-  ensureProvidersRegistered();
-  const key = `${ev.toolCallId}:${ev.path}:after`;
-  afterRegistry.set(key, ev.after);
-  return vscode.Uri.from({ scheme: AFTER_SCHEME, path: key });
+  return afterUri(`${ev.toolCallId}:${ev.path}:after`, ev.after);
 }
 
 // re-export for tests
 export { baseName, fullRange };
-export const _internal = { beforeRegistry, afterRegistry };
-export const BEFORE_SCHEME_NAME = BEFORE_SCHEME;
-export const AFTER_SCHEME_NAME = AFTER_SCHEME;

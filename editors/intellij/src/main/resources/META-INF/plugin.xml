@@ -27,6 +27,7 @@
         <applicationService serviceImplementation="dev.foxxycode.intellij.settings.FoxxyCodeSettings"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.process.FoxxyCodeProcessManager"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeSessionChangesService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.clipboard.FoxxyCodeCopyBufferService"/>
@@ -78,6 +79,12 @@
                 class="dev.foxxycode.intellij.ui.FoxxyCodeWelcomeAction"
                 text="Show FoxxyCode Welcome"
                 description="Re-open the FoxxyCode onboarding tour">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="FoxxyCodeSessionChanges"
+                class="dev.foxxycode.intellij.ui.FoxxyCodeSessionChangesAction"
+                text="Show FoxxyCode Changes"
+                description="Open the diffs of everything the current FoxxyCode session changed">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <action id="FoxxyCodeTriggerSuggestion"

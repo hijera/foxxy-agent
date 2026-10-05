@@ -14677,6 +14677,856 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   flex-wrap: wrap;
 }
 
+/* ── Session changed-files card and viewer ─────────────────────────────────
+   The card summarises what the whole session did to the workspace, so it sits
+   at the bottom of the transcript next to the background tasks chip: both
+   describe the chat above them rather than any single message. The viewer is a
+   docked drawer in the same slot as the tasks panel. */
+
+.changes-card {
+  margin: 8px 0 2px;
+  border: 0.5px solid var(--foxxycode-glass-panel-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+  overflow: hidden;
+}
+
+/* Shown by Ctrl+S in a chat that changed nothing: the key still answers. */
+.changes-card-empty {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+.changes-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--foxxycode-glass-panel-border);
+}
+
+.changes-card-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.changes-card-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.changes-card-stat,
+.changes-row-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.changes-add {
+  color: var(--diff-add-no);
+}
+
+.changes-del {
+  color: var(--diff-del-no);
+}
+
+.changes-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.changes-action {
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--foxxycode-glass-panel-border);
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.changes-action:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 24%, var(--foxxycode-blend-base));
+}
+
+.changes-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.changes-action--primary {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.changes-action--danger:hover:not(:disabled) {
+  border-color: var(--diff-del-no);
+  color: var(--diff-del-no);
+}
+
+.changes-confirm-text {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+}
+
+.changes-card-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.changes-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 0;
+  border-top: 0.5px solid
+    color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.changes-card-rows .changes-row:first-child {
+  border-top: 0;
+}
+
+.changes-row:hover,
+.changes-row.is-active {
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.changes-row-path {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.changes-row-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The folder is context, not identity: it yields the space when a row is tight. */
+.changes-row-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.changes-row-binary {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+}
+
+.changes-row--added .changes-row-name {
+  color: var(--diff-add-no);
+}
+
+.changes-row--deleted .changes-row-name {
+  text-decoration: line-through;
+  color: var(--diff-del-no);
+}
+
+.changes-row--more {
+  justify-content: center;
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+/* ── Viewer drawer ──────────────────────────────────────────────────────── */
+
+.changes-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(560px, calc(100vw - 32px));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  overflow: hidden;
+}
+
+/* Same deal as the tasks panel: the chat column gives up the width instead of
+   hiding behind the drawer. */
+@media (min-width: 1200px) {
+  .shell-main.shell-changes-open .chat-bottom,
+  .shell-main.shell-changes-open #messages {
+    padding-right: calc(min(560px, 100vw - 32px) + 28px);
+  }
+}
+
+.changes-panel-head {
+  flex: 0 0 auto;
+}
+
+.changes-panel-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 6px 14px 8px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+}
+
+.changes-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.changes-panel-list {
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow-y: auto;
+  border-top: 0.5px solid var(--foxxycode-glass-panel-border);
+  border-bottom: 0.5px solid var(--foxxycode-glass-panel-border);
+}
+
+.changes-panel-diff {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 14px;
+}
+
+.changes-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+}
+
+.changes-badge {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 0.5px solid var(--foxxycode-glass-panel-border);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.changes-badge--added {
+  color: var(--diff-add-no);
+  border-color: var(--diff-add-no);
+}
+
+.changes-badge--deleted {
+  color: var(--diff-del-no);
+  border-color: var(--diff-del-no);
+}
+
+/* The viewer is the place to read a whole diff, so its body is not clipped the
+   way an inline transcript preview is. */
+.changes-panel-diff .permission-preview-viewport {
+  max-height: none;
+}
+
+@media (max-width: 1199px) {
+  .changes-panel {
+    top: calc(var(--foxxycode-mobile-top-inset) + 6px);
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    width: auto;
+    z-index: 70;
+  }
+
+  .changes-row {
+    min-height: 34px;
+  }
+
+  .changes-action {
+    min-height: 32px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Review window (.dv-*) - every changed file diff in one scrollable document.
+   Chromium 104 baseline: no :has(), no @container, marker classes instead.
+   --------------------------------------------------------------------------- */
+
+.dv-backdrop {
+  position: fixed;
+  inset: 0;
+  /* The modal layer (as .workspace-modal-backdrop uses), not the drawer layer:
+     the nav rail sits at 80 and would otherwise cover the toolbar, which on a
+     narrow shell is the whole top of the window. */
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.dv-window {
+  display: flex;
+  flex-direction: column;
+  width: min(1400px, 100%);
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  overflow: hidden;
+}
+
+.dv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+}
+
+.dv-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.dv-scope {
+  flex: 0 0 auto;
+  max-width: 210px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+}
+
+.dv-totals {
+  display: inline-flex;
+  gap: 8px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dv-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.dv-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--text) 66%, var(--foxxycode-blend-base));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.dv-icon-btn:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.dv-icon-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+/* Go-to-file ---------------------------------------------------------------- */
+
+.dv-goto-host {
+  position: relative;
+  display: inline-flex;
+}
+
+.dv-goto-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 2;
+  width: min(360px, 74vw);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+}
+
+.dv-goto-input {
+  width: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+}
+
+.dv-goto-rows {
+  display: flex;
+  flex-direction: column;
+  max-height: min(320px, 46vh);
+  margin-top: 6px;
+  overflow-y: auto;
+}
+
+.dv-goto-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.dv-goto-row:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+}
+
+.dv-goto-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.dv-goto-dir {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Body: optional tree beside the scrolling diff document -------------------- */
+
+.dv-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dv-tree {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 250px;
+  min-height: 0;
+  padding: 8px;
+  box-sizing: border-box;
+  border-right: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+}
+
+.dv-tree-filter {
+  width: 100%;
+  padding: 5px 8px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+}
+
+.dv-tree-rows {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.dv-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.dv-tree-row:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+}
+
+.dv-tree-row--dir {
+  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+}
+
+.dv-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 14px 20px;
+  overflow-y: auto;
+}
+
+/* Notices ------------------------------------------------------------------- */
+
+.dv-note {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+}
+
+.dv-note--error {
+  color: var(--foxxycode-danger, #e5534b);
+}
+
+.dv-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 74%, var(--foxxycode-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+}
+
+.dv-banner-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* One file ------------------------------------------------------------------ */
+
+.dv-file {
+  margin-bottom: 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--foxxycode-blend-base));
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dv-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 4px;
+  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+}
+
+.dv-file-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.dv-file-badge {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 34%, var(--foxxycode-blend-base));
+}
+
+.dv-file-badge--added {
+  background: var(--diff-add-no);
+}
+
+.dv-file-badge--deleted {
+  background: var(--diff-del-no);
+}
+
+.dv-file-path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dv-file-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-file-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.dv-file-stat {
+  display: inline-flex;
+  gap: 7px;
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dv-file-stat--binary {
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+}
+
+/* Quiet until pointed at: a long list of files should not read as a wall of
+   buttons. Kept visible for keyboard users through :focus-within. */
+.dv-file-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+  opacity: 0;
+}
+
+.dv-file-head:hover .dv-file-actions,
+.dv-file-actions:focus-within {
+  opacity: 1;
+}
+
+.dv-file-body {
+  overflow-x: auto;
+}
+
+/* Diff rows ----------------------------------------------------------------- */
+
+.dv-diff {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.dv-line {
+  display: flex;
+  align-items: baseline;
+}
+
+.dv-line--add {
+  background: var(--diff-add-bg);
+}
+
+.dv-line--del {
+  background: var(--diff-del-bg);
+}
+
+.dv-num {
+  flex: 0 0 auto;
+  min-width: 4ch;
+  padding: 0 6px;
+  text-align: right;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.dv-line--add .dv-num {
+  color: var(--diff-add-no);
+}
+
+.dv-line--del .dv-num {
+  color: var(--diff-del-no);
+}
+
+.dv-code {
+  flex: 1 1 auto;
+  padding: 0 10px 0 6px;
+  white-space: pre;
+}
+
+/* The jump between hunks. Deliberately wordless: the reference UI writes
+   "N unmodified lines" here, which is a number the reader cannot act on. */
+.dv-gap {
+  height: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  border-bottom: 1px dashed color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--foxxycode-blend-base));
+}
+
+/* Unified scrolls sideways the way a terminal diff does. Split cannot: a long
+   line would paint over the other column, so inside a column it wraps instead.
+   The pair stays one flex row, so the two sides stay level however tall it gets. */
+.dv-diff--split {
+  min-width: 0;
+}
+
+.dv-diff--split .dv-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-split-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.dv-side {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+}
+
+.dv-side--add {
+  background: var(--diff-add-bg);
+}
+
+.dv-side--del {
+  background: var(--diff-del-bg);
+}
+
+.dv-side--empty {
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+}
+
+.dv-side--add .dv-num {
+  color: var(--diff-add-no);
+}
+
+.dv-side--del .dv-num {
+  color: var(--diff-del-no);
+}
+
+/* Narrow shells ------------------------------------------------------------- */
+
+@media (max-width: 899px) {
+  .dv-backdrop {
+    padding: 0;
+  }
+
+  /* Full-bleed, so the glass tint has nothing behind it but the app itself:
+     the chat would read straight through the diff. Opaque here instead. */
+  .dv-window {
+    width: 100%;
+    border-radius: 0;
+    border: 0;
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+
+  /* The tree would leave no room for a diff, so it floats over it instead -
+     over, not through: a translucent panel here shows the diff underneath. */
+  .dv-body--tree .dv-tree {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 3;
+    width: min(280px, 82vw);
+    background: var(--bg);
+    border-right: 1px solid color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+    box-shadow: var(--foxxycode-glass-panel-shadow);
+  }
+
+  .dv-body {
+    position: relative;
+  }
+}
+
 /* The Tasks control at the right edge of the sticky header: the opener of the Tasks
    panel and the one place a chat says how much runs in its background. It is there
    from the first message, so the header never jumps when the first task starts. */

@@ -1,0 +1,360 @@
+package gitws
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
+)
+
+// WorkChange is one tracked file that differs between HEAD and the working
+// copy. It deliberately mirrors the shape the session change set uses, so the
+// HTTP layer can render every scope of the diff viewer through one DTO, but it
+// stays a gitws type: nothing below this package may depend on internal/session.
+type WorkChange struct {
+	Path   string // workspace-relative, OS separators
+	Status string // "added" | "modified" | "deleted"
+	Before []byte // nil when the file is new since HEAD
+	After  []byte // nil when the file is gone from the working copy
+}
+
+// runGitRaw returns a command's stdout verbatim.
+//
+// The package's runGit trims its output and folds stderr in, which is right for
+// parsing porcelain but destroys file content: a source file that begins or ends
+// with a blank line would come back altered. Anything reading blobs uses this.
+func runGitRaw(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	platform.HideConsoleWindow(cmd)
+	return cmd.Output()
+}
+
+// UncommittedChanges lists the tracked files of dir that differ from HEAD, and
+// counts the untracked ones without reading them.
+//
+// Untracked files are counted rather than listed on purpose: a workspace with a
+// build directory or a virtualenv holds thousands of them, and pulling those
+// into a review would bury the edits the user came to read. The caller surfaces
+// the count instead.
+//
+// A folder that is not a repository, a repository with no commit yet, or a
+// missing git binary all yield an empty result rather than an error, so the
+// viewer can offer the scope everywhere and simply show nothing.
+func UncommittedChanges(dir string) ([]WorkChange, int, error) {
+	if !GitAvailable() || !Describe(dir).IsGitRepo {
+		return nil, 0, nil
+	}
+	// A fresh repository has no HEAD to diff against.
+	if _, err := runGit(dir, "rev-parse", "--verify", "HEAD"); err != nil {
+		return nil, 0, nil
+	}
+
+	changes, err := trackedChanges(dir)
+	if err != nil {
+		return nil, 0, err
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	return changes, countUntracked(dir), nil
+}
+
+const (
+	// maxUntrackedFiles bounds how many brand-new files the all-files scope
+	// reads. A workspace that just produced hundreds of them is not something
+	// anyone reviews file by file, so past this the scope reports how much it
+	// left out instead of reading the lot.
+	maxUntrackedFiles = 500
+
+	// maxUntrackedBytes skips a single new file too large to diff usefully.
+	maxUntrackedBytes = 2 << 20
+)
+
+// WorktreeChanges reports everything the working copy holds that HEAD does not:
+// the tracked edits UncommittedChanges finds, plus the untracked files it
+// deliberately leaves out.
+//
+// skipped counts untracked files not included, either because the cap was hit
+// or because one was too large to be worth reading. Files git ignores are never
+// considered, so a build directory or a virtualenv stays out on its own.
+func WorktreeChanges(dir string) (changes []WorkChange, skipped int, err error) {
+	tracked, _, err := UncommittedChanges(dir)
+	if err != nil {
+		return nil, 0, err
+	}
+	changes = tracked
+
+	for _, rel := range untrackedPaths(dir) {
+		if len(changes)-len(tracked) >= maxUntrackedFiles {
+			skipped++
+			continue
+		}
+		change, ok := readUntracked(dir, rel)
+		if !ok {
+			skipped++
+			continue
+		}
+		changes = append(changes, change)
+	}
+
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	return changes, skipped, nil
+}
+
+// WorktreeChangeFor resolves one file of the all-files scope, reading only it.
+//
+// An untracked path is only read once git has named it: the path comes from a
+// request, and membership of the untracked list is what keeps this from turning
+// into a way to read any file on the machine.
+func WorktreeChangeFor(dir, path string) (*WorkChange, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	tracked, err := UncommittedChangeFor(dir, path)
+	if err != nil || tracked != nil {
+		return tracked, err
+	}
+	if !GitAvailable() || !Describe(dir).IsGitRepo {
+		return nil, nil
+	}
+	want := filepath.FromSlash(path)
+	for _, rel := range untrackedPaths(dir) {
+		if filepath.FromSlash(rel) != want {
+			continue
+		}
+		change, ok := readUntracked(dir, rel)
+		if !ok {
+			return nil, nil
+		}
+		return &change, nil
+	}
+	return nil, nil
+}
+
+// untrackedPaths lists the files git would add, honouring .gitignore.
+func untrackedPaths(dir string) []string {
+	out, err := runGitRaw(dir, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil
+	}
+	return splitNUL(out)
+}
+
+// readUntracked loads a new file as an addition. It reports false for anything
+// it declines to read, which the caller counts as skipped.
+func readUntracked(dir, rel string) (WorkChange, bool) {
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	info, err := os.Stat(abs)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxUntrackedBytes {
+		return WorkChange{}, false
+	}
+	content, err := os.ReadFile(abs)
+	if err != nil {
+		return WorkChange{}, false
+	}
+	return WorkChange{
+		Path:   filepath.FromSlash(rel),
+		Status: "added",
+		After:  normalizeEOL(content),
+	}, true
+}
+
+// UncommittedChangeFor reports one tracked file, or nil when the working copy
+// did not touch it.
+//
+// Separate from UncommittedChanges because the review window loads patches a
+// file at a time: reading the whole change set per request would spawn a git
+// process per changed file on every one of those requests, which on a large
+// working copy is the difference between a moment and half a minute. Listing
+// the changed paths is cheap; reading blobs is not, so only the wanted one is
+// read.
+func UncommittedChangeFor(dir, path string) (*WorkChange, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	if !GitAvailable() || !Describe(dir).IsGitRepo {
+		return nil, nil
+	}
+	if _, err := runGit(dir, "rev-parse", "--verify", "HEAD"); err != nil {
+		return nil, nil
+	}
+	records, err := changedRecords(dir)
+	if err != nil {
+		return nil, err
+	}
+	want := filepath.FromSlash(path)
+	for _, rec := range records {
+		if filepath.FromSlash(rec.newPath) != want {
+			continue
+		}
+		change, err := buildWorkChange(dir, rec.code, rec.oldPath, rec.newPath)
+		if err != nil {
+			return nil, err
+		}
+		if isLineEndingChurn(rec.code, change) {
+			return nil, nil
+		}
+		return &change, nil
+	}
+	return nil, nil
+}
+
+// changedRecord is one entry of `git diff HEAD --name-status`, before any blob
+// is read.
+type changedRecord struct {
+	code             byte
+	oldPath, newPath string
+}
+
+// trackedChanges parses `git diff HEAD --name-status -z`.
+//
+// The NUL-separated form is the only one safe against paths with spaces or
+// quotes; -M asks git to detect renames so a moved file reads as one change
+// instead of a delete plus an add.
+func trackedChanges(dir string) ([]WorkChange, error) {
+	records, err := changedRecords(dir)
+	if err != nil {
+		return nil, err
+	}
+	changes := make([]WorkChange, 0, len(records))
+	for _, rec := range records {
+		change, err := buildWorkChange(dir, rec.code, rec.oldPath, rec.newPath)
+		if err != nil {
+			return nil, err
+		}
+		if isLineEndingChurn(rec.code, change) {
+			continue
+		}
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
+// isLineEndingChurn reports a plain modification whose two sides read the same
+// once CRLF is levelled to LF: git lists such a file when the repository has no
+// text attribute and core.autocrlf is off (a default Linux checkout), and the
+// viewer would render an empty diff for it, so it is not a change at all. A
+// rename or copy keeps its record even with unchanged content - the move
+// itself is the change.
+func isLineEndingChurn(code byte, change WorkChange) bool {
+	return code == 'M' &&
+		change.Before != nil && change.After != nil &&
+		bytes.Equal(change.Before, change.After)
+}
+
+// changedRecords lists what changed without reading any file content.
+func changedRecords(dir string) ([]changedRecord, error) {
+	out, err := runGitRaw(dir, "diff", "HEAD", "--name-status", "-z", "-M")
+	if err != nil {
+		return nil, err
+	}
+	fields := splitNUL(out)
+
+	var records []changedRecord
+	for i := 0; i < len(fields); {
+		code := fields[i]
+		i++
+		if code == "" {
+			continue
+		}
+		// A rename or copy is followed by two paths: the source and the target.
+		var oldPath, newPath string
+		switch code[0] {
+		case 'R', 'C':
+			if i+1 >= len(fields) {
+				return records, nil // truncated record; nothing sane to report
+			}
+			oldPath, newPath = fields[i], fields[i+1]
+			i += 2
+		default:
+			if i >= len(fields) {
+				return records, nil
+			}
+			oldPath, newPath = fields[i], fields[i]
+			i++
+		}
+		records = append(records, changedRecord{code: code[0], oldPath: oldPath, newPath: newPath})
+	}
+	return records, nil
+}
+
+// buildWorkChange loads both sides of one changed file. The before side comes
+// from HEAD's blob and the after side from the working copy, so a file staged
+// and then edited again reports what is on disk now.
+func buildWorkChange(dir string, code byte, oldPath, newPath string) (WorkChange, error) {
+	change := WorkChange{Path: filepath.FromSlash(newPath), Status: statusForCode(code)}
+
+	if code != 'A' && code != 'C' {
+		before, err := runGitRaw(dir, "show", "HEAD:"+oldPath)
+		if err != nil {
+			// The blob is unreadable (a submodule entry, say). Treat the file as
+			// new rather than failing the whole scope.
+			change.Status = "added"
+		} else {
+			change.Before = normalizeEOL(before)
+		}
+	}
+	if code != 'D' {
+		after, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(newPath)))
+		if err == nil {
+			change.After = normalizeEOL(after)
+		} else if !os.IsNotExist(err) {
+			return change, err
+		} else {
+			// Recorded as changed but gone from disk: it is a deletion.
+			change.Status = "deleted"
+		}
+	}
+	return change, nil
+}
+
+// normalizeEOL strips CR from CRLF pairs.
+//
+// The two sides come from different places: HEAD's blob is whatever git stores
+// (LF, under the usual autocrlf setup) while the working file is what the OS
+// wrote (CRLF on Windows). git applies its line-ending filter when it diffs, so
+// it reports the one line that really changed; comparing the raw bytes does not,
+// and a one-line edit would render as a whole-file rewrite. Both sides are
+// levelled here so the diff describes content rather than platform.
+func normalizeEOL(b []byte) []byte {
+	if !bytes.Contains(b, crlf) {
+		return b
+	}
+	return bytes.ReplaceAll(b, crlf, lf)
+}
+
+var (
+	crlf = []byte("\r\n")
+	lf   = []byte("\n")
+)
+
+func statusForCode(code byte) string {
+	switch code {
+	case 'A':
+		return "added"
+	case 'D':
+		return "deleted"
+	default:
+		// M, R, C, T, U: the file exists on both sides, so it reads as an edit.
+		return "modified"
+	}
+}
+
+// countUntracked counts files git would add, honouring .gitignore.
+func countUntracked(dir string) int {
+	return len(untrackedPaths(dir))
+}
+
+// splitNUL splits NUL-separated git output, dropping the trailing empty field.
+func splitNUL(out []byte) []string {
+	var fields []string
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" {
+			fields = append(fields, f)
+		}
+	}
+	return fields
+}

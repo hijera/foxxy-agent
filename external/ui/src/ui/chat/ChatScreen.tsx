@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
+import { finishedToolCalls } from "../changes/toolActivity";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { TurnOverride } from "./sessionSettings";
 import type { QuestionResolvedState } from "./questionTypes";
@@ -24,6 +25,7 @@ import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
+import { SessionChangesCard } from "../changes/SessionChangesCard";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import type { TurnProgress } from "./turnProgress";
 import { useT } from "../i18n/I18nProvider";
@@ -126,6 +128,10 @@ export function ChatScreen(props: {
   /** Every background task of this chat, for the header control and the live line. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** Opens the session diff viewer from the changed-files card under the transcript. */
+  onOpenSessionChanges?: (path?: string) => void;
+  /** Opens the full-screen review window from the card summary. */
+  onOpenChangesViewer?: () => void;
   /** The Tasks panel is showing, for the header control's expanded state. */
   backgroundTasksOpen?: boolean;
   onCloseBackgroundTasks?: () => void;
@@ -722,6 +728,17 @@ export function ChatScreen(props: {
                 <SubagentPermissionCards
                   tasks={props.backgroundTasks}
                   onAnswered={() => props.onBackgroundTasksChanged?.()}
+                />
+              ) : null}
+              {props.onOpenSessionChanges &&
+              props.onOpenChangesViewer &&
+              props.sessionId ? (
+                <SessionChangesCard
+                  sessionId={props.sessionId}
+                  generating={props.generating === true}
+                  toolActivity={finishedToolCalls(props.items)}
+                  onOpenReview={props.onOpenSessionChanges}
+                  onOpenViewer={props.onOpenChangesViewer}
                 />
               ) : null}
             </div>

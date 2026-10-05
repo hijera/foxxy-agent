@@ -15,15 +15,26 @@ import (
 // captureAndStoreTurnDiff asynchronously computes the workspace diff against the
 // pre-turn snapshot and stores it in the session directory.
 // It runs in a goroutine to avoid blocking the HTTP response.
-func (s *Server) captureAndStoreTurnDiff(st *session.State, before *session.WorkspaceSnapshot) {
+//
+// The turn's live entry is retired only once the diff is on disk, and then the
+// clients are told the change set settled: a card that reads in between still
+// sees the turn through the live entry, and one that reads after the event sees
+// it stored - there is no moment where the turn's edits are in neither place.
+func (s *Server) captureAndStoreTurnDiff(st *session.State, before *session.WorkspaceSnapshot, live *liveTurn) {
+	id := st.GetID()
 	sd := strings.TrimSpace(st.GetPersistedSessionDir())
 	cwd := strings.TrimSpace(st.GetCWD())
 	if sd == "" || cwd == "" {
+		s.endLiveTurn(id, live)
+		s.publishSessionChanges(id)
 		return
 	}
 	s.bgWG.Add(1)
 	go func() {
 		defer s.bgWG.Done()
+		// Deferred calls run last-in first-out: retire, then announce.
+		defer s.publishSessionChanges(id)
+		defer s.endLiveTurn(id, live)
 		turnN := session.TurnNumber(st.GetMessages())
 		diff, err := session.ComputeWorkspaceDiff(cwd, before)
 		if err != nil {

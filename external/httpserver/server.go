@@ -96,6 +96,12 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
+	// liveTurnMu guards liveTurns: the pre-turn snapshot of every turn this
+	// process is running, which the changed-files card reads when it is opened
+	// mid-turn (foxxycode_changes_live.go).
+	liveTurnMu sync.Mutex
+	liveTurns  map[string]*liveTurn
+
 	// detachedPrompts is the broker turns this server builds itself hand their
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
 	detachedPrompts agent.DetachedPermissionBroker
@@ -690,6 +696,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
+		// The changed-files card, opened mid-turn, compares against this snapshot.
+		live := s.beginLiveTurn(sessionID, st.GetCWD(), beforeSnap)
+		turnsBefore := session.TurnNumber(st.GetMessages())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -701,6 +710,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Meta:       sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts)
 		stopKeepalive()
+		s.settleTurnDiff(st, beforeSnap, live, turnsBefore, err)
 		if err != nil {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
@@ -722,7 +732,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if promptRes != nil && promptRes.StopReason != "" {
 			// Remote clients (internal/remote) recover the ACP stop reason
@@ -1305,6 +1314,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
+		live2 := s.beginLiveTurn(sid, st.GetCWD(), beforeSnap2)
+		turnsBefore2 := session.TurnNumber(st.GetMessages())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
@@ -1322,6 +1333,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
 		stopKeepalive()
+		s.settleTurnDiff(st, beforeSnap2, live2, turnsBefore2, err)
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
 			_ = bridge.SendError(err)
@@ -1341,7 +1353,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if promptRes != nil && promptRes.StopReason != "" {
 			// Remote clients (internal/remote) recover the ACP stop reason

@@ -7,6 +7,7 @@ import {
 } from "../i18n/i18n";
 import type { UiLocale } from "../i18n/localeCookie";
 import { emitFileMention } from "../skills/fileMentionBus";
+import { requestChangesToggle } from "../changes/sessionChangesBus";
 
 /**
  * Stable global API for host embeddings (IntelliJ/PhpStorm plugin via JCEF).
@@ -39,6 +40,13 @@ export type FoxxyCodeUiApi = {
    * mounted are queued by the file-mention bus, not dropped.
    */
   insertFileMention(pathRel: string): boolean;
+  /**
+   * Shows or hides the changed-files card, as Ctrl+S / Cmd+S does in the page. The
+   * IntelliJ plugin calls it when it takes the key from Save All while its panel
+   * has focus. Returns false when the request was folded into one just made (the
+   * same press reaching the page too).
+   */
+  toggleSessionChanges(): boolean;
 };
 
 declare global {
@@ -132,6 +140,9 @@ export function installFoxxyCodeUiApi(): void {
       }
       emitFileMention(p);
       return true;
+    },
+    toggleSessionChanges(): boolean {
+      return requestChangesToggle();
     },
   };
 }

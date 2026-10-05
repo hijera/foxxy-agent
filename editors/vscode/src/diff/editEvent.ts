@@ -8,6 +8,7 @@ export interface EditEvent {
     | "edit_applied"
     | "open_file"
     | "reveal_file"
+    | "open_changes"
     | string;
   toolCallId: string;
   sessionId: string;
@@ -40,6 +41,15 @@ export function isOpenFile(ev: EditEvent): boolean {
  *  permission. */
 export function isRevealFile(ev: EditEvent): boolean {
   return ev.type === "reveal_file";
+}
+
+/** User asked to review everything the session changed (Review on the
+ *  changed-files card). Carries only the session id: the plugin reads the change
+ *  set from the HTTP API itself. Like open_file it is user-initiated and about
+ *  more than one edit, so callers must not apply the in-project / native-diff
+ *  filters to it. */
+export function isOpenChanges(ev: EditEvent): boolean {
+  return ev.type === "open_changes";
 }
 
 /** Parse one SSE `data:` payload into an EditEvent, or `null` if the payload

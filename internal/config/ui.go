@@ -29,6 +29,9 @@ type UIConfig struct {
 	// StatusLine toggles the live status label next to the typing dots. A nil pointer means
 	// the default (true). Use IsStatusLineEnabled to read the effective value.
 	StatusLine *bool `yaml:"status_line" json:"status_line,omitempty"`
+	// SessionChanges toggles the changed-files card under the transcript. A nil pointer
+	// means the default (true). Use IsSessionChangesEnabled to read the effective value.
+	SessionChanges *bool `yaml:"session_changes" json:"session_changes,omitempty"`
 	// Effects toggles the web UI's visual effects: the long-lived animations and the
 	// translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings -> Appearance and
 	// shared by every client. A nil pointer means each client's default: off in the IntelliJ
@@ -45,6 +48,12 @@ func (u *UIConfig) IsEnabled() bool {
 // typing dots. Unset (nil) defaults to true.
 func (u *UIConfig) IsStatusLineEnabled() bool {
 	return u.StatusLine == nil || *u.StatusLine
+}
+
+// IsSessionChangesEnabled reports whether the SPA shows the session changed-files card
+// under the transcript. Unset (nil) defaults to true.
+func (u *UIConfig) IsSessionChangesEnabled() bool {
+	return u.SessionChanges == nil || *u.SessionChanges
 }
 
 // Normalize trims locale and normalizes send_mode (empty -> "enter").

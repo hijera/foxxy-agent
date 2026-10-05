@@ -30,8 +30,8 @@ An `error:` result is presented as failed even when the transport completed. Can
 The Settings screen leads with two synthetic client-side tabs before the
 schema-derived config tabs:
 
-- **General** — composer **send mode** and the live **status line** toggle.
-  The default tab.
+- **General** — composer **send mode**, the live **status line** toggle, and
+  the **changed files card** toggle. The default tab.
 - **Appearance** — theme, the app-wide **Language** picker (see below), the
   **Animations and translucency** switch, and the "Restart onboarding" button.
 
@@ -852,6 +852,122 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 - **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
 - **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
+
+## Session changed files card
+
+The card sits at the **end of the transcript**, under the background tasks chip
+(`.changes-card`, `external/ui/src/ui/changes/`). It summarises what the **whole
+session** did to the workspace — `N files changed`, `+A −D`, then a row per file
+with its own counts — because the numbers describe every turn above it together,
+not any single message.
+
+- Data comes from `GET /foxxycode/sessions/{id}/changes`, which collapses the
+  per-turn workspace diffs stored in the session bundle. Those diffs are captured
+  by snapshotting the workspace around each turn, so an edit made by a shell
+  command is listed exactly like one made by the `edit` tool.
+- **While the agent works the card steps aside**; the set is still moving. When the
+  turn ends it waits for **`event: session_changes`** on `GET /foxxycode/events`,
+  which the server sends once the turn's diff is on disk, then reads and shows the
+  set. Reading on the end of the stream instead raced the capture and could show the
+  old set. With no event within 4 s (the stream is down, the turn came through
+  another door) it reads anyway. A failed read keeps the previous set on screen — a
+  restarting server must not look like "nothing changed".
+- **Ctrl+S / Cmd+S shows or hides the card** at any time; the browser's "Save
+  page" never opens. Opened mid-turn it lists the finished turns plus what the
+  running turn has written so far — the server compares the workspace with the
+  turn's pre-turn snapshot — and it re-reads after every finished tool call while
+  it stays open. Hidden, it reads nothing. Opened in a chat that changed nothing,
+  it says so in one line. In the IntelliJ panel the plugin takes the key from Save
+  All while the panel has focus (`window.foxxycodeUi.toggleSessionChanges`).
+- A session that changed nothing renders **no card at all**, and neither does one
+  where every change cancelled out (a file created and removed again, or edited
+  and edited back, is left out of the set).
+- **Review** and the summary open the review window, in an editor panel too.
+  They ask what changed, and only the window shows a change set; handing them to
+  the IDE put one file in front of the reader instead. Each plugin keeps its own
+  toolbar button into the native viewer for when that is what is wanted.
+- **Clicking a file row** asks about one file, so inside an editor panel
+  (`isEditorEmbed()`) it POSTs `.../changes/open-in-ide` with that path and the
+  plugin opens its own diff on it; if no plugin answers (`delivered: false`) it
+  falls back to the in-app drawer.
+- **`.idea`, `.vscode`, `.git` and `.svn` never appear.** An editor rewrites its
+  settings on its own schedule and a VCS client rewrites its administrative area -
+  one `svn` command writes `wc.db` plus a binary pristine copy of every file it
+  touches, which would bury a three-line edit under a hundred `.svn-base` blobs.
+  The rule is `session.IsToolStatePath` and it applies three times over: the
+  workspace snapshot skips those folders, the aggregate drops them when a session
+  recorded by an older build is read back, and the working-copy scopes filter them
+  as well. Matching is on whole path segments, so `docs/idea.md`, `.ideas/plan.md`
+  and `git-notes.txt` are ordinary files.
+- **Undo** asks first, then POSTs `.../changes/revert`, which reverses every turn
+  diff of the session: edited files go back to their pre-session content and
+  created files are removed. Tool state is skipped here too - putting `wc.db` or
+  `.git/index` back would leave the client describing a tree that is no longer
+  there, so a rollback would break the working copy it was asked to clean up. Git is not involved, so the confirmation says plainly
+  that it undoes the whole session.
+- `ui.session_changes: false` (Settings → General) hides the card and stops it
+  fetching. The Changes button in the IntelliJ and VS Code plugins is IDE chrome
+  and is deliberately **not** affected.
+
+Two surfaces read the change set, picked by the question being asked. A **file
+row** asks about one file and opens the drawer on it; the **summary**, **Review**
+and **`+N more`** ask about the whole set and open the review window.
+
+The **viewer** (`.changes-panel`, `SessionChangesPanel.tsx`) is a docked drawer in
+the same slot as the tasks panel: the file list on top, the unified diff of the
+selected file below. The diff body reuses `PermissionToolPreview` — the same
+renderer the permission gate and the transcript foldouts use — fed by
+`diffPreviewFromPatch`, so a diff looks the same everywhere in the app. A binary
+file is listed but has no diff to show.
+
+The **review window** (`.dv-window`, `DiffViewerModal.tsx`) is a modal holding
+every changed file diff in one scrollable document. Its toolbar carries a scope
+select (**All edits** / **Last turn** / **Uncommitted**, with that scope's
+`+A −D` beside it), collapse/expand all, go to file, the unified/split toggle,
+and the file tree. A file section has a sticky header with copy-path and collapse
+on hover. Between hunks sits a wordless separator rather than an
+`N unmodified lines` filler row.
+
+Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
+`rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
+in the stylesheet apply and the viewer never injects markup. The grammar comes
+from the file extension via `diffLanguage.ts`; an unknown extension renders as
+plain text rather than being guessed at.
+
+The scopes come from `?scope=` on the same two routes. `turn` folds only the
+newest stored turn. `uncommitted` leaves the session behind and diffs the
+**tracked** working copy against its base revision, counting untracked files in a
+banner without reading them. `all` is that plus the untracked files themselves,
+for when the question is what is in this folder that the base revision has not —
+capped at 500 files and 2 MB each, with whatever it left out reported in the same
+banner under a different heading. Neither reads what version control is told to
+ignore, so a build directory or a virtualenv stays out on its own.
+
+Both working-copy scopes speak **git** or **Subversion**: `workingCopyVCS` picks
+by the folder (git when it is a git repository, svn when it is a working copy,
+git first when it is both — which is what a git-svn checkout is), then calls
+`internal/gitws.UncommittedChanges`/`WorktreeChanges` or
+`internal/svnws.WorkingCopyChanges`. Under neither the window says so instead of
+showing an empty diff. The response reports `vcs` and `vcsAvailable` so it can.
+
+The detail route reads only the file it was asked for (`UncommittedChangeFor`,
+`WorktreeChangeFor`, `WorkingCopyChangeFor`): the viewer loads one patch at a
+time, and resolving the whole set per request meant a client subprocess per
+changed file on every one of them. An untracked path is only read once the client
+has named it, so the route cannot be pointed at an arbitrary file.
+
+Automated checks:
+
+- **external/ui/src/ui/changes/sessionChangesText.test.ts** (Russian plural buckets, path splitting)
+- **external/ui/src/ui/changes/SessionChangesCard.test.tsx** (counts, empty session, preference off, IDE hand-off and its fallback, undo confirmation, which surface each entry point opens)
+- **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
+- **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
+- **external/ui/src/ui/changes/DiffViewerModal.test.tsx** (scope switching, view toggle, collapse all, go to file, tree, copy path, untracked banner, no-git notice, colouring on and off)
+- **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
+- **internal/linediff** (unified diff and line stats; Myers' O(ND) algorithm in linear space, so a scattered edit in a large file stays a scattered edit - the old LCS table had to be abandoned above a size cap and reported such a file as a whole rewrite. The search is bounded by `snakeBudget`, which only a pair that is both enormous and almost entirely different can exhaust; that pair falls back to a wholesale replacement)
+- **internal/gitws/changes_test.go** (working-copy statuses, untracked counting and inclusion, the read caps, .gitignore, whitespace-preserving blob reads, renames, and that an unlisted path stays unreadable)
+- **internal/svnws/changes_test.go** (the same contract against a real Subversion client: statuses, unversioned counting and inclusion, unversioned directories expanded to their files, line-ending levelling, single-file reads, unlisted paths refused)
+- **features/session_changes.feature** (end to end: a turn edits a file, the card reports it, the viewer reads the diff, the last-turn scope narrows it, undo restores the workspace)
 
 ### Subagent transcripts
 

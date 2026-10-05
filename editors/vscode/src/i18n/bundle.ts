@@ -81,6 +81,13 @@ const en = {
   "diff.action.revert": "Revert",
   "diff.window.before": "Before",
   "diff.window.after": "After",
+  "changes.binary": "binary",
+  "changes.binaryBody": "Binary file: no line diff to show.",
+  "changes.none": "This session has not changed any files.",
+  "changes.openDiff": "Open diff",
+  "changes.status.added": "added",
+  "changes.status.modified": "modified",
+  "changes.status.deleted": "deleted",
 };
 
 type MessageKey = keyof typeof en;
@@ -148,6 +155,13 @@ const ru: Record<MessageKey, string> = {
   "diff.action.revert": "Откатить",
   "diff.window.before": "До",
   "diff.window.after": "После",
+  "changes.binary": "бинарный",
+  "changes.binaryBody": "Бинарный файл: построчного диффа нет.",
+  "changes.none": "Эта сессия не изменила ни одного файла.",
+  "changes.openDiff": "Открыть дифф",
+  "changes.status.added": "добавлен",
+  "changes.status.modified": "изменён",
+  "changes.status.deleted": "удалён",
 };
 
 const messages: Record<Locale, Record<MessageKey, string>> = { en, ru };

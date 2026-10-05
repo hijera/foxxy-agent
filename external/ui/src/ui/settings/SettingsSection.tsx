@@ -2,6 +2,7 @@ import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import {
   GeneralSendModePicker,
   GeneralStatusLinePicker,
+  GeneralSessionChangesPicker,
 } from "./GeneralSection";
 import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
@@ -266,6 +267,7 @@ export function SettingsSection(props: {
       <>
         <GeneralSendModePicker doc={doc} setDoc={setDoc} />
         <GeneralStatusLinePicker doc={doc} setDoc={setDoc} />
+        <GeneralSessionChangesPicker doc={doc} setDoc={setDoc} />
       </>
     );
   }

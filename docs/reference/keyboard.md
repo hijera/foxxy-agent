@@ -99,6 +99,7 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter | question prompt | send the answer, once every question has one; typed in the composer it still belongs to the composer |
 | Escape | question prompt | skip the questions |
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
+| Ctrl+S / Cmd+S | an open chat, composer included | show or hide the changed-files card; the browser's "Save page" never opens. In the IntelliJ panel the plugin takes the key from Save All while the panel has focus |
 | F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
 | / | documentation reader, outside a field | put the cursor in its search box |
 | ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search |

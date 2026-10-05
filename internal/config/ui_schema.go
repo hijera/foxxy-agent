@@ -878,10 +878,11 @@ func UISchemaMap() map[string]interface{} {
 					"description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
-				"status_line": boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
-				"effects":     boolProp("Animations and translucency", "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else."),
+				"status_line":     boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
+				"session_changes": boolProp("Changed files card", "Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Turn off to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available."),
+				"effects":         boolProp("Animations and translucency", "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else."),
 			},
-			[]string{"enable", "locale", "send_mode", "status_line", "effects"},
+			[]string{"enable", "locale", "send_mode", "status_line", "session_changes", "effects"},
 			nil),
 	}
 

@@ -119,6 +119,30 @@
         "icon": "$(output)"
       },
       {
+        "command": "foxxycode.showChanges",
+        "title": "%cmd.showChanges.title%",
+        "category": "FoxxyCode",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "foxxycode.showChanges.ru",
+        "title": "%cmd.showChanges.title.ru%",
+        "category": "FoxxyCode",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "foxxycode.refreshChanges",
+        "title": "%cmd.refreshChanges.title%",
+        "category": "FoxxyCode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "foxxycode.refreshChanges.ru",
+        "title": "%cmd.refreshChanges.title.ru%",
+        "category": "FoxxyCode",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "foxxycode.showWelcome",
         "title": "%cmd.showWelcome.title%",
         "category": "FoxxyCode",
@@ -225,6 +249,11 @@
           "id": "foxxycode.view",
           "name": "%view.name%",
           "type": "webview"
+        },
+        {
+          "id": "foxxycode.changes",
+          "name": "%view.changes.name%",
+          "type": "tree"
         }
       ]
     },
@@ -284,6 +313,22 @@
         },
         {
           "command": "foxxycode.showLogs.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.showChanges",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.showChanges.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.refreshChanges",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.refreshChanges.ru",
           "when": "foxxycode.locale == 'ru'"
         },
         {
@@ -349,6 +394,26 @@
       ],
       "view/title": [
         {
+          "command": "foxxycode.refreshChanges",
+          "when": "view == foxxycode.changes && foxxycode.locale == 'en'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "foxxycode.refreshChanges.ru",
+          "when": "view == foxxycode.changes && foxxycode.locale == 'ru'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "foxxycode.showChanges",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@0"
+        },
+        {
+          "command": "foxxycode.showChanges.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
+          "group": "navigation@0"
+        },
+        {
           "command": "foxxycode.restart",
           "when": "view == foxxycode.view && foxxycode.locale == 'en'",
           "group": "navigation@1"
@@ -410,6 +475,16 @@
         }
       ],
       "webview/title": [
+        {
+          "command": "foxxycode.showChanges",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",
+          "group": "navigation@0"
+        },
+        {
+          "command": "foxxycode.showChanges.ru",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'ru'",
+          "group": "navigation@0"
+        },
         {
           "command": "foxxycode.restart",
           "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",

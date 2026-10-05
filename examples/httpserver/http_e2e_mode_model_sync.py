@@ -117,9 +117,12 @@ def main() -> int:
         print("a posted profile did not reach the session:", code, msgs.get("mode"), file=sys.stderr)
         return 1
 
-    # A mode stored without a turn: this is the composer switching Mode.
+    # A mode stored without a turn: this is the composer switching Mode. The
+    # patch answer carries the versioned settings snapshot (the upstream 1.1.57
+    # session-settings port; `event: session_settings` mirrors it to every
+    # client), so the mode lives under `settings`, not at the top level.
     code, patched = http_json("PATCH", session_url, {"mode": "ask"}, hdr)
-    if code != 200 or patched.get("mode") != "ask":
+    if code != 200 or (patched.get("settings") or {}).get("mode") != "ask":
         print("patch mode want 200/ask, got", code, patched, file=sys.stderr)
         return 1
     code, msgs = http_json("GET", f"{session_url}/messages", None, hdr)

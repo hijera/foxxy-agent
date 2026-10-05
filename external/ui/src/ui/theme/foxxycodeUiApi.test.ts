@@ -3,6 +3,7 @@ import { initLocale } from "../i18n/i18n";
 import { installFoxxyCodeUiApi } from "./foxxycodeUiApi";
 import { UI_THEME_IDS } from "./themeCookie";
 import { subscribeFileMention } from "../skills/fileMentionBus";
+import { onChangesToggle, resetChangesBusForTests } from "../changes/sessionChangesBus";
 
 function clearThemeState() {
   delete window.foxxycodeUi;
@@ -117,5 +118,17 @@ describe("window.foxxycodeUi", () => {
     expect(window.foxxycodeUi!.insertFileMention("   ")).toBe(false);
     expect(seen).toEqual([]);
     off();
+  });
+
+  // The IntelliJ plugin takes Ctrl+S from Save All while its panel has focus
+  // and hands the press to the page through this.
+  it("toggleSessionChanges asks the changed-files card to show or hide", () => {
+    resetChangesBusForTests();
+    let toggles = 0;
+    const off = onChangesToggle(() => (toggles += 1));
+    expect(window.foxxycodeUi!.toggleSessionChanges()).toBe(true);
+    expect(toggles).toBe(1);
+    off();
+    resetChangesBusForTests();
   });
 });

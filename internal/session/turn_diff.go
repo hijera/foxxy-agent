@@ -9,18 +9,53 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 )
 
-// ignoredDirs are skipped when walking the workspace.
+// toolStateDirs are the folders a tool keeps its own bookkeeping in: the
+// editor's settings and the version control client's administrative area.
+//
+// Nothing in them is anyone's edit. An IDE rewrites .idea/workspace.xml when
+// the caret moves; svn rewrites wc.db and a pristine copy of every file it
+// touches, which is why one svn command buries a three-line edit under a
+// hundred binary .svn-base blobs. They are excluded twice over - skipped when
+// the workspace is walked, and dropped again when a recording is read back, so
+// a session recorded before this rule is as clean as one recorded after.
+var toolStateDirs = map[string]bool{
+	".git": true, ".svn": true,
+	".idea": true, ".vscode": true,
+}
+
+// ignoredDirs are skipped when walking the workspace on top of toolStateDirs.
+//
+// These hold generated content rather than bookkeeping: recording them would
+// bury the edits, but a file under them is still a file, so - unlike tool state
+// - they are only skipped at capture time. What a working copy reports under
+// them stays visible.
 var ignoredDirs = map[string]bool{
-	".git": true, ".svn": true, "node_modules": true, "__pycache__": true,
+	"node_modules": true, "__pycache__": true,
 	".venv": true, "venv": true, ".tox": true,
 	"vendor": true, ".vendor": true,
 	"dist": true, "build": true, ".next": true, "out": true,
 	"target": true, ".gradle": true,
 	".cache": true, ".sass-cache": true, ".mypy_cache": true,
+}
+
+// IsToolStatePath reports whether a path lies inside one of the tool state
+// folders, at any depth.
+//
+// Matching whole segments keeps ordinary files - docs/idea.md, .ideas/plan.md,
+// git-notes.txt - out of it. Both separators are levelled because a recording
+// holds OS-shaped paths while a caller may well ask with forward slashes.
+func IsToolStatePath(path string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+		if toolStateDirs[segment] {
+			return true
+		}
+	}
+	return false
 }
 
 const (
@@ -33,6 +68,12 @@ const (
 type WorkspaceFile struct {
 	Content []byte      `json:"content"` // binary content (encoding/json encodes as base64)
 	Mode    fs.FileMode `json:"mode"`
+
+	// size and modTime are the stat the content was read with. They live only in
+	// memory - a stored diff never needs them - and let LiveWorkspaceDiff skip
+	// rereading a file that has not been touched since the snapshot.
+	size    int64
+	modTime time.Time
 }
 
 // WorkspaceChange records what happened to one file during a turn.
@@ -56,8 +97,32 @@ type WorkspaceSnapshot struct {
 // Returns a non-nil snapshot even when cwd is empty (snapshot will be empty).
 func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 	snap := &WorkspaceSnapshot{files: make(map[string]*WorkspaceFile)}
+	walkWorkspace(cwd, func(rel, path string, info fs.FileInfo) bool {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		snap.files[rel] = &WorkspaceFile{
+			Content: content, Mode: info.Mode(),
+			size: info.Size(), modTime: info.ModTime(),
+		}
+		return true
+	})
+	return snap
+}
+
+// walkWorkspace visits every file a snapshot covers, in lexical order and under
+// the snapshot's limits: tool state, generated folders and git worktrees are
+// skipped, files over maxFileSizeBytes are left out, and the walk stops once
+// maxTotalSizeBytes have been taken. visit reports whether it took the file,
+// and only a taken file counts toward that total.
+//
+// The snapshot and the live diff both walk through here, so a file one of them
+// reaches the other reaches too - otherwise a workspace past the size cap would
+// show files beyond it as created the moment the two walks disagreed.
+func walkWorkspace(cwd string, visit func(rel, path string, info fs.FileInfo) bool) {
 	if cwd == "" {
-		return snap
+		return
 	}
 	var totalBytes int64
 	_ = filepath.WalkDir(cwd, func(path string, d fs.DirEntry, err error) error {
@@ -67,7 +132,7 @@ func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 		if d.IsDir() {
 			// The worktrees folder holds whole checkouts of other branches: a
 			// turn here neither reads them nor rolls them back.
-			if ignoredDirs[d.Name()] || gitws.IsWorktreesRoot(path) {
+			if ignoredDirs[d.Name()] || toolStateDirs[d.Name()] || gitws.IsWorktreesRoot(path) {
 				return filepath.SkipDir
 			}
 			rel, _ := filepath.Rel(cwd, path)
@@ -86,16 +151,61 @@ func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 		if totalBytes+info.Size() > maxTotalSizeBytes {
 			return filepath.SkipAll
 		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
 		rel, _ := filepath.Rel(cwd, path)
-		snap.files[rel] = &WorkspaceFile{Content: content, Mode: info.Mode()}
-		totalBytes += info.Size()
+		if visit(rel, path, info) {
+			totalBytes += info.Size()
+		}
 		return nil
 	})
-	return snap
+}
+
+// LiveWorkspaceDiff is ComputeWorkspaceDiff for a turn that is still running.
+//
+// It compares the same way, except that a file whose size, modification time
+// and mode still match the snapshot is taken as unchanged without being read.
+// The changes card, open during a turn, asks after every tool call; reading the
+// whole workspace that often would cost what the end-of-turn diff costs, many
+// times a turn, while a stat walk costs a directory listing. The trade is a
+// same-size rewrite that also restores the old timestamp, which this misses
+// until the turn ends - the stored diff, the one a rollback replays, still
+// compares contents.
+func LiveWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff, error) {
+	beforeFiles := map[string]*WorkspaceFile{}
+	if before != nil {
+		beforeFiles = before.files
+	}
+	var changes []WorkspaceChange
+	seen := make(map[string]bool)
+	walkWorkspace(cwd, func(rel, path string, info fs.FileInfo) bool {
+		bf := beforeFiles[rel]
+		if bf != nil && bf.size == info.Size() && bf.modTime.Equal(info.ModTime()) && bf.Mode == info.Mode() {
+			seen[rel] = true
+			return true
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		seen[rel] = true
+		af := &WorkspaceFile{Content: content, Mode: info.Mode(), size: info.Size(), modTime: info.ModTime()}
+		switch {
+		case bf == nil:
+			changes = append(changes, WorkspaceChange{Path: rel, After: af})
+		case string(bf.Content) != string(af.Content) || bf.Mode != af.Mode:
+			changes = append(changes, WorkspaceChange{Path: rel, Before: bf, After: af})
+		}
+		return true
+	})
+	for rel, bf := range beforeFiles {
+		if !seen[rel] {
+			changes = append(changes, WorkspaceChange{Path: rel, Before: bf})
+		}
+	}
+	if len(changes) == 0 {
+		return nil, nil
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	return &WorkspaceDiff{Changes: changes}, nil
 }
 
 // ComputeWorkspaceDiff compares the current state of cwd against the before snapshot
@@ -221,12 +331,15 @@ func RestoreWorkspaceFiles(cwd, sessionDir string, afterTurn int) (string, error
 			skipped++
 			continue
 		}
-		if err := reverseWorkspaceDiff(cwd, diff); err != nil {
+		restored, err := reverseWorkspaceDiff(cwd, diff)
+		if err != nil {
 			skipped++
 			msgs = append(msgs, fmt.Sprintf("turn %d partial rollback: %v", n, err))
 		} else {
 			applied++
-			msgs = append(msgs, fmt.Sprintf("reversed turn %d (%d file(s))", n, len(diff.Changes)))
+			// Counted from what was written rather than from what was recorded:
+			// tool state is skipped below and never was the user's edit.
+			msgs = append(msgs, fmt.Sprintf("reversed turn %d (%d file(s))", n, restored))
 		}
 	}
 
@@ -236,15 +349,26 @@ func RestoreWorkspaceFiles(cwd, sessionDir string, afterTurn int) (string, error
 	return strings.Join(msgs, "; ") + fmt.Sprintf(" (%d applied, %d skipped)", applied, skipped), nil
 }
 
-// reverseWorkspaceDiff restores each file to its Before state (or removes if Before is nil).
-func reverseWorkspaceDiff(cwd string, diff *WorkspaceDiff) error {
+// reverseWorkspaceDiff restores each file to its Before state (or removes if Before is nil),
+// and reports how many it wrote.
+func reverseWorkspaceDiff(cwd string, diff *WorkspaceDiff) (int, error) {
 	var errs []string
+	restored := 0
 	for _, ch := range diff.Changes {
+		if IsToolStatePath(ch.Path) {
+			// Recorded by an older build. Putting wc.db or .git/index back to
+			// what it held before the session would leave the client describing
+			// a tree that is no longer there - a rollback must not break the
+			// working copy it was asked to clean up.
+			continue
+		}
 		absPath := filepath.Join(cwd, ch.Path)
 		if ch.Before == nil {
 			// File was created during the turn; delete it.
 			if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
 				errs = append(errs, fmt.Sprintf("remove %s: %v", ch.Path, err))
+			} else {
+				restored++
 			}
 		} else {
 			// File was modified or deleted; restore original content.
@@ -258,11 +382,13 @@ func reverseWorkspaceDiff(cwd string, diff *WorkspaceDiff) error {
 			}
 			if err := os.WriteFile(absPath, ch.Before.Content, mode); err != nil {
 				errs = append(errs, fmt.Sprintf("restore %s: %v", ch.Path, err))
+			} else {
+				restored++
 			}
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("%s", strings.Join(errs, "; "))
+		return restored, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
-	return nil
+	return restored, nil
 }

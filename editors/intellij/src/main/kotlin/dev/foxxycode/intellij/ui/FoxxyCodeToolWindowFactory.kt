@@ -40,6 +40,9 @@ class FoxxyCodeToolWindowFactory : ToolWindowFactory, DumbAware {
         // load it on the JCEF-less path too.
         (content as? Disposable)?.let { tab.setDisposer(it) }
         toolWindow.contentManager.addContent(tab)
+        // Reviewing what the session changed is a diff task, so it gets a button
+        // in the IDE chrome rather than living only inside the webview card.
+        toolWindow.setTitleActions(listOf(FoxxyCodeSessionChangesAction()))
     }
 
     private fun jcefMissingPanel(error: Throwable?): JComponent {

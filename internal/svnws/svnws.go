@@ -72,6 +72,34 @@ func Available(o Options) bool {
 	return err == nil
 }
 
+// runRaw executes the svn client and returns its stdout verbatim.
+//
+// run() is right for porcelain: it decodes the client's ANSI chatter and trims
+// the trailing newline. Both are wrong for file content. Trimming drops the last
+// line of a file that ends in a newline, and decoding the bytes as the console
+// code page corrupts any source that is not in it - textenc decides a file's
+// encoding, not this package. Anything that reads a file uses this.
+func runRaw(ctx context.Context, o Options, dir string, args ...string) ([]byte, error) {
+	if !Available(o) {
+		return nil, fmt.Errorf("svn client not found (%s); install Subversion or set vcs.svn.binary", o.binary())
+	}
+	ctx, cancel := context.WithTimeout(ctx, o.timeout())
+	defer cancel()
+
+	full := append([]string{"--non-interactive"}, args...)
+	cmd := exec.CommandContext(ctx, o.binary(), full...)
+	cmd.Dir = dir
+	platform.HideConsoleWindow(cmd)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(platform.DecodeANSIOutput(stderr.Bytes()))
+		return nil, fmt.Errorf("svn %s: %w: %s", strings.Join(args, " "), err, detail)
+	}
+	return stdout.Bytes(), nil
+}
+
 // run executes the svn client in dir and returns its stdout. Every invocation is
 // non-interactive so a missing credential fails fast instead of blocking a turn.
 func run(ctx context.Context, o Options, dir string, args ...string) (string, error) {
