@@ -111,7 +111,7 @@ logger:
   level: debug
   format: text
   outputs: [file]
-  file: "{log_file}"
+  file: "{log_file.as_posix()}"
 """
 
 
