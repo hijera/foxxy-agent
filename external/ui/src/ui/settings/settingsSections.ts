@@ -54,7 +54,7 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 };
 
 /**
- * Section ids that have a curated i18n blurb (`settings.sectionDesc.<id>`) for
+ * Section ids that have a curated i18n blurb (`settings.section.<id>.desc`) for
  * the mobile tile grid. Schema `description` strings are full sentences (or
  * missing), so these short 3–5 word summaries keep the tiles readable; unmapped
  * keys fall back to the schema description.
@@ -66,6 +66,7 @@ const SECTION_DESC_IDS = new Set([
   "providers",
   "models",
   "agent",
+  "compaction",
   "autocomplete",
   "tools",
   "subagents",
@@ -73,15 +74,53 @@ const SECTION_DESC_IDS = new Set([
   "mcp_servers",
   "skills",
   "memory",
+  "title",
+  "browser",
+  "vcs",
+  "debug",
   "system",
 ]);
+
+/**
+ * i18n keys for known section labels (`settings.section.<id>.label`). The
+ * schema `title` is written as a form heading and reads as a sentence, which
+ * does not fit the tab rail or the 2-wide mobile tile grid; these curated
+ * short forms do. Unknown schema sections keep their server-provided title.
+ */
+const SECTION_LABEL_KEYS: Record<string, string> = {
+  general: "settings.section.general.label",
+  appearance: "settings.section.appearance.label",
+  sessions_manager: "settings.section.sessions_manager.label",
+  providers: "settings.section.providers.label",
+  models: "settings.section.models.label",
+  agent: "settings.section.agent.label",
+  compaction: "settings.section.compaction.label",
+  autocomplete: "settings.section.autocomplete.label",
+  tools: "settings.section.tools.label",
+  subagents: "settings.section.subagents.label",
+  hooks: "settings.section.hooks.label",
+  mcp_servers: "settings.section.mcp_servers.label",
+  skills: "settings.section.skills.label",
+  memory: "settings.section.memory.label",
+  title: "settings.section.title.label",
+  browser: "settings.section.browser.label",
+  vcs: "settings.section.vcs.label",
+  debug: "settings.section.debug.label",
+  system: "settings.section.system.label",
+};
 
 /** Resolve a tile blurb: curated i18n summary first, then the schema description. */
 function descFor(id: string, sub?: JsonSchema): string | undefined {
   if (SECTION_DESC_IDS.has(id)) {
-    return t(`settings.sectionDesc.${id}`);
+    return t(`settings.section.${id}.desc`);
   }
   return tSchemaText(sub?.description) || undefined;
+}
+
+/** Resolve a section label: curated short i18n form first, then the schema title. */
+function labelFor(id: string, sub?: JsonSchema): string {
+  const key = SECTION_LABEL_KEYS[id];
+  return key ? t(key) : tSchemaText(sub?.title) || id;
 }
 
 /**
@@ -98,13 +137,13 @@ export function deriveSettingsSections(
 ): SectionDescriptor[] {
   const general: SectionDescriptor = {
     id: "general",
-    label: t("settings.section.general"),
+    label: labelFor("general"),
     description: descFor("general"),
     kind: "general",
   };
   const appearance: SectionDescriptor = {
     id: "appearance",
-    label: t("settings.section.appearance"),
+    label: labelFor("appearance"),
     description: descFor("appearance"),
     kind: "appearance",
   };
@@ -115,7 +154,7 @@ export function deriveSettingsSections(
   // directory), folded into the System tab.
   const sessionsManager: SectionDescriptor = {
     id: "sessions_manager",
-    label: t("settings.section.sessions_manager"),
+    label: labelFor("sessions_manager"),
     description: descFor("sessions_manager"),
     kind: "sessions",
   };
@@ -144,7 +183,7 @@ export function deriveSettingsSections(
       if (!systemEmitted) {
         out.push({
           id: "system",
-          label: t("settings.section.system"),
+          label: labelFor("system"),
           description: descFor("system"),
           kind: "group",
           childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
@@ -156,7 +195,7 @@ export function deriveSettingsSections(
     if (key === "skills") {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "skills",
         schemaKey: key,
@@ -166,7 +205,7 @@ export function deriveSettingsSections(
     if (key === "mcp_servers") {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "mcp",
         schemaKey: key,
@@ -179,7 +218,7 @@ export function deriveSettingsSections(
     if (key === "subagents") {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "subagents",
         schemaKey: key,
@@ -189,7 +228,7 @@ export function deriveSettingsSections(
     if (key in ARRAY_LABEL_FIELDS) {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "array",
         schemaKey: key,
@@ -199,7 +238,7 @@ export function deriveSettingsSections(
     }
     out.push({
       id: key,
-      label: tSchemaText(sub.title) || key,
+      label: labelFor(key, sub),
       description: descFor(key, sub),
       kind: "object",
       schemaKey: key,
