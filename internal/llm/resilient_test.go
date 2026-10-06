@@ -1,13 +1,26 @@
 package llm
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go"
 )
 
 type stubProvider struct {
@@ -43,13 +56,29 @@ func TestIsRetryableLLMError(t *testing.T) {
 	if !isRetryableLLMError(err429Neuraldeep()) {
 		t.Fatal("429 should be retryable")
 	}
-	if isRetryableLLMError(errors.New("openai stream: 400 Bad Request")) {
-		t.Fatal("400 should not be retryable")
+	for name, err := range map[string]error{
+		"400":      errors.New("openai stream: 400 Bad Request"),
+		"cancel":   context.Canceled,
+		"deadline": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if isRetryableLLMError(err) {
+				t.Fatalf("%s should not be retryable", name)
+			}
+		})
 	}
-	if isRetryableLLMError(context.Canceled) {
-		t.Fatal("cancel should not be retryable")
+	if !isRetryableLLMError(timeoutNetError{message: "proxy response headers timed out"}) {
+		t.Fatal("network timeout should be retryable")
 	}
 }
+
+type timeoutNetError struct{ message string }
+
+func (e timeoutNetError) Error() string   { return e.message }
+func (e timeoutNetError) Timeout() bool   { return true }
+func (e timeoutNetError) Temporary() bool { return true }
+
+var _ net.Error = timeoutNetError{}
 
 func TestParseLimitResetDelay(t *testing.T) {
 	resetAt := time.Now().UTC().Add(2 * time.Second).Truncate(time.Second)
@@ -75,8 +104,8 @@ func TestResilientProviderRetries429UntilSuccess(t *testing.T) {
 		},
 	}
 	p := wrapResilient(inner, ResilientOptions{
-		RetryMax:   3,
-		RetryBase:  5 * time.Millisecond,
+		RetryMax:      3,
+		RetryBase:     5 * time.Millisecond,
 		RetryMaxDelay: time.Second,
 	})
 	resp, err := p.Stream(context.Background(), nil, nil, nil)
@@ -88,6 +117,39 @@ func TestResilientProviderRetries429UntilSuccess(t *testing.T) {
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("calls=%d want 3", calls.Load())
+	}
+}
+
+func TestResilientProviderLogsEveryRetryWithExactError(t *testing.T) {
+	var calls atomic.Int32
+	var logs bytes.Buffer
+	retryErr := timeoutNetError{message: "net/http: timeout awaiting response headers from proxy.local:3128"}
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			if calls.Add(1) < 3 {
+				return nil, retryErr
+			}
+			return &Response{Content: "done", StopReason: "end_turn"}, nil
+		},
+	}
+	p := wrapResilient(inner, ResilientOptions{
+		RetryMax:      3,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Second,
+		Logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	if _, err := p.Stream(context.Background(), nil, nil, nil); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	got := logs.String()
+	if strings.Count(got, "LLM request failed; retrying") != 2 {
+		t.Fatalf("retry logs:\n%s", got)
+	}
+	if strings.Count(got, retryErr.Error()) != 2 {
+		t.Fatalf("exact error must be present in every retry log:\n%s", got)
+	}
+	if !strings.Contains(got, "attempt=1") || !strings.Contains(got, "attempt=2") {
+		t.Fatalf("retry attempts missing from logs:\n%s", got)
 	}
 }
 
@@ -158,5 +220,260 @@ func TestProviderInputDefaultsApplyResilientWrap(t *testing.T) {
 func TestErrorStringContains429(t *testing.T) {
 	if !strings.Contains(err429Neuraldeep().Error(), "429") {
 		t.Fatal("fixture should contain 429")
+	}
+}
+
+// retryHTTPError builds a wrapped SDK error carrying real response headers,
+// the shape retryDelayForError sees after a 429/5xx from either provider.
+// Both SDK Error() methods dereference Request and Response, so the fixture
+// populates both.
+func retryHTTPError(t *testing.T, provider string, status int, hdr map[string]string) error {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "https://api.example.test/v1/chat/completions", nil)
+	h := make(http.Header)
+	for k, v := range hdr {
+		h.Set(k, v)
+	}
+	resp := &http.Response{StatusCode: status, Header: h}
+	switch provider {
+	case "openai":
+		return fmt.Errorf("openai complete: %w", &openai.Error{StatusCode: status, Request: req, Response: resp})
+	case "anthropic":
+		return fmt.Errorf("anthropic complete: %w", &anthropic.Error{StatusCode: status, Request: req, Response: resp})
+	}
+	t.Fatalf("unknown provider %q", provider)
+	return nil
+}
+
+func TestRetryDelayHonorsRetryAfterSeconds(t *testing.T) {
+	for _, provider := range []string{"openai", "anthropic"} {
+		t.Run(provider, func(t *testing.T) {
+			err := retryHTTPError(t, provider, 429, map[string]string{"Retry-After": "31"})
+			if d := retryDelayForError(err, 0, time.Second, time.Minute); d != 31*time.Second {
+				t.Fatalf("delay = %v, want 31s", d)
+			}
+		})
+	}
+}
+
+func TestRetryDelayHonorsRetryAfterMs(t *testing.T) {
+	err := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "1500"})
+	if d := retryDelayForError(err, 0, time.Second, time.Minute); d != 1500*time.Millisecond {
+		t.Fatalf("delay = %v, want 1.5s", d)
+	}
+}
+
+func TestRetryDelayMsHeaderBeatsSecondsHeader(t *testing.T) {
+	err := retryHTTPError(t, "openai", 429, map[string]string{
+		"Retry-After-Ms": "1500",
+		"Retry-After":    "10",
+	})
+	if d := retryDelayForError(err, 0, time.Second, time.Minute); d != 1500*time.Millisecond {
+		t.Fatalf("delay = %v, want 1.5s (Retry-After-Ms must win)", d)
+	}
+}
+
+func TestRetryDelayHonorsRetryAfterHTTPDate(t *testing.T) {
+	date := time.Now().UTC().Add(3 * time.Second).Format(http.TimeFormat)
+	err := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After": date})
+	d := retryDelayForError(err, 0, time.Second, time.Minute)
+	// http.TimeFormat has second resolution, so allow one second of slack on
+	// both sides plus the anti-skew pad. The lower bound also proves the
+	// 1s exponential base did not win.
+	if d < 2*time.Second || d > 5*time.Second {
+		t.Fatalf("delay = %v, want ~3s", d)
+	}
+}
+
+func TestRetryDelayHeaderBeatsBodyPhrase(t *testing.T) {
+	// The body names a reset far in the future; the header must still win.
+	inner := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After": "2"})
+	err := fmt.Errorf("Limit resets at: 2199-01-01 00:00:00 UTC: %w", inner)
+	if d := retryDelayForError(err, 0, time.Second, time.Minute); d != 2*time.Second {
+		t.Fatalf("delay = %v, want 2s (header must beat body text)", d)
+	}
+}
+
+func TestRetryDelayCapsHeaderAtMaxDelay(t *testing.T) {
+	err := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After": "120"})
+	if d := retryDelayForError(err, 0, time.Second, time.Minute); d != time.Minute {
+		t.Fatalf("delay = %v, want cap at 1m", d)
+	}
+}
+
+func TestRetryDelayGarbageHeaderFallsBackToExponential(t *testing.T) {
+	for _, bad := range []string{"soon", "0", "-5", ""} {
+		t.Run(fmt.Sprintf("value=%q", bad), func(t *testing.T) {
+			err := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After": bad})
+			if d := retryDelayForError(err, 1, time.Second, time.Minute); d != 2*time.Second {
+				t.Fatalf("delay = %v, want exponential 2s", d)
+			}
+		})
+	}
+}
+
+func TestRetryDelayParsesRetryInBodyPhrase(t *testing.T) {
+	err := fmt.Errorf(`openai stream: POST "https://api.neuraldeep.ru/v1/chat/completions": 429 Too Many Requests {"error":{"message":"qwen3.8-27b rate limit 6/min reached - retry in 31s","type":"rate_limit_error","code":"429"}}`)
+	if d := retryDelayForError(err, 0, time.Second, time.Minute); d != 31*time.Second {
+		t.Fatalf("delay = %v, want 31s from body phrase", d)
+	}
+}
+
+// TestTransientTransportErrorClassification verifies that transport failures
+// carrying no HTTP status (unexpected EOF, connection reset, http2 stream
+// errors, a TLS handshake or a dial that never completed) classify as
+// retryable, while arbitrary failures, an unknown host and the caller's own
+// cancellation or deadline stay final.
+func TestTransientTransportErrorClassification(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"unexpected EOF", fmt.Errorf("openai stream: %w", io.ErrUnexpectedEOF), true},
+		{"connection reset", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "read", Err: os.NewSyscallError("read", syscall.ECONNRESET)}), true},
+		// Winsock numbers: syscall.ECONNRESET does not match them on Windows.
+		{"connection reset (Winsock)", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(10054))}), true},
+		{"connection aborted (Winsock)", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(10053))}), true},
+		// What net/http actually prints for an RST_STREAM from the peer: no
+		// "http2:" prefix (that spelling belongs to GOAWAY and the lost-ping
+		// close), and wrapped in the url.Error of the request it killed.
+		{"http2 stream reset by the peer", fmt.Errorf("openai complete: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("stream error: stream ID 1; INTERNAL_ERROR; received from peer")}), true},
+		{"http2 stream refused", errors.New(`openai stream: POST "https://api.example.test": stream error: stream ID 3; REFUSED_STREAM`), true},
+		{"http2 lost ping", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("http2: client connection lost")}), true},
+		{"stalled stream before any delta", fmt.Errorf("openai stream: %w",
+			&streamTransportError{cause: &streamStalledError{idle: time.Second}}), true},
+		{"plain failure", errors.New("openai stream: boom"), false},
+		// The request never left the client: the handshake or the dial failed.
+		{"TLS handshake timeout", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("net/http: TLS handshake timeout")}), true},
+		{"dial timeout", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: dialTimeout()}), true},
+		{"dial host unreachable", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.EHOSTUNREACH)}), true},
+		{"dial temporary DNS failure", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "server misbehaving", Name: "api.example.test", IsTemporary: true}}), true},
+		{"dial unknown host", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "api.example.test", IsNotFound: true}}), false},
+		{"dial canceled by the caller", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: context.Canceled}), false},
+		{"caller deadline", fmt.Errorf("openai stream: %w", context.DeadlineExceeded), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRetryableLLMError(tc.err); got != tc.want {
+				t.Fatalf("retryable = %v, want %v for %v", got, tc.want, tc.err)
+			}
+		})
+	}
+}
+
+// dialTimeout models net.Dialer's wrapped deadline error without depending on
+// a network route or a Windows firewall's response to a test address.
+func dialTimeout() error {
+	return &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
+}
+
+// TestStreamTransportErrorEmittedBlocksRetry pins the emitted contract for
+// mid-stream transport failures: retry only while nothing reached the
+// caller, and never for deterministic (non-transient) causes.
+func TestStreamTransportErrorEmittedBlocksRetry(t *testing.T) {
+	fresh := fmt.Errorf("openai stream: %w", &streamTransportError{cause: io.ErrUnexpectedEOF})
+	if !isRetryableLLMError(fresh) {
+		t.Fatal("transport cut before any delta must be retryable")
+	}
+	emitted := fmt.Errorf("openai stream: %w", &streamTransportError{cause: io.ErrUnexpectedEOF, emitted: true})
+	if isRetryableLLMError(emitted) {
+		t.Fatal("transport cut after emitted deltas must not be retryable")
+	}
+	odd := fmt.Errorf("openai stream: %w", &streamTransportError{cause: bufio.ErrTooLong})
+	if isRetryableLLMError(odd) {
+		t.Fatal("a deterministic cause must stay non-retryable even before output")
+	}
+	stalled := fmt.Errorf("openai stream: %w", &streamTransportError{cause: &streamStalledError{idle: time.Second}, emitted: true})
+	if isRetryableLLMError(stalled) {
+		t.Fatal("a stream that stalled after emitted deltas must not be retryable")
+	}
+	if !IsStreamStalled(stalled) {
+		t.Fatal("the stall must stay recognisable through the transport wrapper and the provider prefix")
+	}
+}
+
+// TestResilientProviderAppliesMinIntervalBetweenRetries verifies that
+// llm_min_interval_ms paces retry attempts too, not only fresh calls.
+func TestResilientProviderAppliesMinIntervalBetweenRetries(t *testing.T) {
+	const minInterval = 60 * time.Millisecond
+	var calls []time.Time
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			calls = append(calls, time.Now())
+			if len(calls) < 3 {
+				return nil, errors.New("503 Service Unavailable")
+			}
+			return &Response{Content: "done", StopReason: "end_turn"}, nil
+		},
+	}
+	p := wrapResilient(inner, ResilientOptions{
+		RetryMax:      3,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: 2 * time.Millisecond,
+		MinInterval:   minInterval,
+	})
+	if _, err := p.Stream(context.Background(), nil, nil, nil); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("calls = %d, want 3", len(calls))
+	}
+	for i := 1; i < len(calls); i++ {
+		// Allow a small scheduling slack below the configured interval.
+		if gap := calls[i].Sub(calls[i-1]); gap < minInterval-10*time.Millisecond {
+			t.Fatalf("gap %d = %v, want >= %v", i, gap, minInterval)
+		}
+	}
+}
+
+// TestResilientOptionsExplicitZeroDisablesRetries verifies that a
+// config-resolved llm_retry_max of 0 means a single attempt, while the
+// zero-value ProviderInput keeps the default retry budget.
+func TestResilientOptionsExplicitZeroDisablesRetries(t *testing.T) {
+	var calls atomic.Int32
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			calls.Add(1)
+			return nil, errors.New("503 Service Unavailable")
+		},
+	}
+	p := wrapResilient(inner, ResilientOptionsFromAgent(0, 1, 0))
+	if _, err := p.Stream(context.Background(), nil, nil, nil); err == nil {
+		t.Fatal("expected error")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls = %d, want 1 (explicit zero disables retries)", calls.Load())
+	}
+	if got := (ResilientOptions{}).withDefaults().RetryMax; got != defaultLLMRetryMax {
+		t.Fatalf("zero-value RetryMax = %d, want default %d", got, defaultLLMRetryMax)
+	}
+}
+
+func TestStreamTruncationRetryClassification(t *testing.T) {
+	notEmitted := fmt.Errorf("openai stream: %w", &streamTruncatedError{emitted: false})
+	if !isRetryableLLMError(notEmitted) {
+		t.Fatal("truncation before any delta must be retryable")
+	}
+	emitted := fmt.Errorf("openai stream: %w", &streamTruncatedError{emitted: true})
+	if isRetryableLLMError(emitted) {
+		t.Fatal("truncation after emitted deltas must not be retryable")
+	}
+	if !IsStreamTruncated(notEmitted) || !IsStreamTruncated(emitted) {
+		t.Fatal("IsStreamTruncated must match both wrapped variants")
+	}
+	if IsStreamTruncated(errors.New("stream truncated")) {
+		t.Fatal("IsStreamTruncated must not match by message text")
 	}
 }

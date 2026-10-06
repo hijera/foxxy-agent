@@ -5,12 +5,29 @@ import {
   buildPermissionToolPreview,
   type PermissionToolCallContext,
 } from "./permissionToolPreview";
-import { submitPermissionChoice } from "./permissionSubmit";
 import type {
   FoxxyCodePermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
+import { permissionOptionLabel } from "./permissionOptionLabel";
+import { submitPermissionChoice } from "./permissionSubmit";
+import { useT } from "../i18n/I18nProvider";
+
+/**
+ * A choice that switches the whole session (#292) is not one more "allow":
+ * bypass wears the danger tone and accept-edits the amber one, so the button
+ * that stops every later prompt is never picked for the one in front of it.
+ */
+export function sessionSwitchClass(optionId: string): string {
+  if (optionId === "allow_session_bypass") {
+    return "permission-prompt-btn--session-bypass";
+  }
+  if (optionId === "allow_session_accept_edits") {
+    return "permission-prompt-btn--session-edits";
+  }
+  return "";
+}
 
 export type PermissionPromptSectionProps = {
   itemId: string;
@@ -32,12 +49,14 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
 
   const choose = useCallback(
     async (optionId: string, label: string) => {
-      const sid = payload.sessionId.trim();
-      const tcid = payload.toolCall.toolCallId.trim();
       setSubmitting(true);
       try {
         try {
-          await submitPermissionChoice(sid, tcid, optionId);
+          await submitPermissionChoice(
+            payload.sessionId,
+            payload.toolCall.toolCallId,
+            optionId,
+          );
         } catch {
           // still unblock transcript on transient network errors
         }
@@ -79,19 +98,24 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
         <div className="permission-prompt-actions">
           {payload.options.map((opt) => {
             const isReject = opt.optionId === "reject";
+            const label = permissionOptionLabel(opt);
             return (
               <button
                 key={opt.optionId}
                 type="button"
-                className={
+                className={[
+                  "permission-prompt-btn",
                   isReject
-                    ? "permission-prompt-btn permission-prompt-btn--reject"
-                    : "permission-prompt-btn permission-prompt-btn--allow"
-                }
+                    ? "permission-prompt-btn--reject"
+                    : "permission-prompt-btn--allow",
+                  sessionSwitchClass(opt.optionId),
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 disabled={submitting}
-                onClick={() => void choose(opt.optionId, opt.name)}
+                onClick={() => void choose(opt.optionId, label)}
               >
-                {opt.name}
+                {label}
               </button>
             );
           })}

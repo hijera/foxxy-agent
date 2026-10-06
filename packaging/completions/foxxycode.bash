@@ -1,0 +1,81 @@
+# bash completion for foxxycode
+#
+# Keep the command list in sync with printUsage() in cmd/foxxycode/main.go.
+
+_foxxycode() {
+    local cur prev commands
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    commands="cli acp http desktop gateway serve sessions skills plugin mcp codex providers rules agents hooks docs update"
+
+    if [ "${COMP_CWORD}" -eq 1 ]; then
+        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -t --test-config --dry-run -c --continue -p --prompt --resume" -- "${cur}"))
+        return
+    fi
+
+    case "${COMP_WORDS[1]}" in
+        sessions)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list export" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking" -- "${cur}"))
+            ;;
+        skills)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list enable disable add sync remove" -- "${cur}"))
+            ;;
+        plugin)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "marketplace install remove enable disable" -- "${cur}"))
+            [ "${COMP_CWORD}" -eq 3 ] && [ "${prev}" = marketplace ] &&
+                COMPREPLY=($(compgen -W "list add remove sync" -- "${cur}"))
+            ;;
+        mcp)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
+            ;;
+        providers)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list login logout" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--browser --device --devin-cli --no-config --api-base --home" -- "${cur}"))
+            ;;
+        rules)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
+            ;;
+        agents|hooks)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
+            ;;
+        docs)
+            if [ "${COMP_CWORD}" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "list search show" -- "${cur}"))
+            elif [ "${COMP_WORDS[2]}" = show ] && [ "${COMP_CWORD}" -eq 3 ]; then
+                # The pages the binary carries, from the binary itself.
+                COMPREPLY=($(compgen -W "$(foxxycode docs list --slugs 2>/dev/null)" -- "${cur}"))
+            elif [ "${COMP_WORDS[2]}" = search ]; then
+                COMPREPLY=($(compgen -W "--limit" -- "${cur}"))
+            fi
+            ;;
+        update)
+            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
+            ;;
+        cli|acp)
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
+            ;;
+        http)
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --scheduler-enabled --plan-no-self-run --debug --mcp-project-trust" -- "${cur}"))
+            ;;
+        desktop)
+            COMPREPLY=($(compgen -W "--config --home --cwd --sessions-dir --session-id --log-level --scheduler-enabled" -- "${cur}"))
+            ;;
+        gateway)
+            COMPREPLY=($(compgen -W "--config --home --cwd --log-level --log-output --log-file --log-format --debug" -- "${cur}"))
+            ;;
+        codex)
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "login status logout" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--provider --no-config --home" -- "${cur}"))
+            ;;
+        serve)
+            COMPREPLY=($(compgen -W "status stop restart set-password --user -d --daemon -t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
+            ;;
+    esac
+}
+
+complete -F _foxxycode foxxycode

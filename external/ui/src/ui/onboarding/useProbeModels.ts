@@ -3,7 +3,8 @@ import type { FetchedModel } from "../settings/useProviderModels";
 import { t } from "../i18n/i18n";
 
 export type ProbeModelsInput = {
-  type: "openai" | "anthropic" | "neuraldeep";
+  type: "openai" | "anthropic" | "neuraldeep" | "codex";
+  provider_name?: string;
   api_base: string;
   api_key: string;
   proxy: string;
@@ -17,10 +18,11 @@ type ProbeModelsResponse = {
 
 /**
  * useProbeModels fetches the model list for a provider that is not saved in the
- * config yet (onboarding) via POST /foxxycode/providers/models-probe, sending the
- * credentials in the body. On failure it surfaces an error and an empty list so
- * the dialog falls back to manual model entry. Overlapping requests are guarded
- * by a sequence counter: only the latest probe's result is applied.
+ * config yet (onboarding) via POST /foxxycode/providers/models-probe. API-key
+ * providers send their credentials in the body; Codex sends only provider_name
+ * so the server can use its managed OAuth file. On failure it surfaces an error
+ * and an empty list so the dialog falls back to manual model entry. Overlapping
+ * requests are guarded by a sequence counter: only the latest probe is applied.
  */
 export function useProbeModels() {
   const [loading, setLoading] = useState(false);

@@ -6,13 +6,40 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
-func TestBundledIncludesGenerateRules(t *testing.T) {
+// The standard delivery: what the binary carries and hands to a home. The
+// system skill configure-foxxycode is written here; the rpa-* workflow skills are
+// vendored from their own repositories by scripts/vendor-bundled-skills.sh.
+var deliveredSkills = []string{
+	"configure-foxxycode",
+	"rpa-bugfix",
+	"rpa-feat",
+	"rpa-gen-rules",
+	"rpa-init",
+}
+
+func TestBundledCarriesTheDelivery(t *testing.T) {
 	b := skills.Bundled()
-	if len(b) != 1 {
-		t.Fatalf("expected 1 bundled skill, got %d", len(b))
+	found := make(map[string]bool, len(b))
+	for _, skill := range b {
+		found[skills.CanonicalCommandName(skill)] = true
 	}
-	if skills.CanonicalCommandName(b[0]) != "generate-rules" {
-		t.Fatalf("name %q", skills.CanonicalCommandName(b[0]))
+	for _, name := range deliveredSkills {
+		if !found[name] {
+			t.Errorf("delivered skill %q missing from %+v", name, found)
+		}
+	}
+	if len(b) != len(deliveredSkills) {
+		t.Errorf("expected %d delivered skills, got %d: %+v", len(deliveredSkills), len(b), found)
+	}
+}
+
+// Every delivered skill declares a version: it is what decides whether a
+// release replaces the copy in an operator's home.
+func TestBundledSkillsDeclareAVersion(t *testing.T) {
+	for _, e := range skills.BundledEntries() {
+		if e.Version == "" {
+			t.Errorf("delivered skill %q has no version in its SKILL.md frontmatter", e.Name)
+		}
 	}
 }
 
@@ -22,14 +49,13 @@ func TestLoadAllPrependsBundled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	found := map[string]bool{}
 	for _, s := range all {
-		if skills.CanonicalCommandName(s) == "generate-rules" {
-			found = true
-			break
-		}
+		found[skills.CanonicalCommandName(s)] = true
 	}
-	if !found {
-		t.Fatal("bundled skill missing from LoadAll")
+	for _, name := range deliveredSkills {
+		if !found[name] {
+			t.Fatalf("delivered skill %q missing from LoadAll: %+v", name, found)
+		}
 	}
 }

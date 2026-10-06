@@ -5,24 +5,45 @@ import (
 	"strings"
 )
 
+// DefaultContextWindowTokens is the context window assumed for a model whose
+// max_context_tokens is unset and whose provider does not report one in its
+// model listing. The web UI falls back to the same number
+// (external/ui/src/ui/App.tsx), so the context ring it draws and the automatic
+// compaction trigger always measure against one window.
+const DefaultContextWindowTokens = 128000
+
 // ModelEntry is one logical model under YAML key models.
 // Model must be "provider_name/api_model_id" where provider_name matches providers[].name
 // and api_model_id is sent to the LLM API (may contain additional slashes).
 type ModelEntry struct {
-	Model            string  `yaml:"model"`
-	MaxTokens        int     `yaml:"max_tokens"`
-	Temperature      float64 `yaml:"temperature"`
-	MaxContextTokens int     `yaml:"max_context_tokens"`
+	Model       string  `yaml:"model"`
+	MaxTokens   int     `yaml:"max_tokens"`
+	Temperature float64 `yaml:"temperature"`
+	// MaxContextTokens is the model's context window in tokens: what the
+	// composer context ring, usage_update and the automatic compaction trigger
+	// measure against. 0 reads the window from the provider's model listing
+	// when the provider reports one, else DefaultContextWindowTokens
+	// (session.Manager.ContextWindow).
+	MaxContextTokens int `yaml:"max_context_tokens"`
 	// Multimodal declares that this model accepts image/file inputs in addition to text.
 	// When true the UI may offer file attachment for messages sent with this model.
 	Multimodal bool `yaml:"multimodal"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
-	// When nil the levels are auto-detected from the API model id (see ResolvedReasoningLevels).
-	// An explicit empty list disables the reasoning selector even for a reasoning-capable model.
-	ReasoningLevels []string `yaml:"reasoning_levels"`
+	// A nil pointer (key omitted) auto-detects the levels from the API model id (see
+	// ResolvedReasoningLevels); a pointer to an empty list disables the reasoning
+	// selector even for a reasoning-capable model. The pointer keeps those two apart
+	// through a settings round trip: a plain slice with "omitempty" would erase the
+	// explicit opt-out, and one without would write "reasoning_levels: []" for every
+	// auto-detected model and silently turn detection off on the next load.
+	ReasoningLevels *[]string `yaml:"reasoning_levels,omitempty"`
 	// ReasoningDefault is the reasoning level pre-selected for new chats with this model.
 	// Ignored when not one of the resolved levels.
 	ReasoningDefault string `yaml:"reasoning_default"`
+	// Stream selects the transport used to talk to this model. A nil pointer (key
+	// omitted) means streaming, which is the default for every backend. An explicit
+	// false makes the runtime issue one blocking completion request and deliver the
+	// finished answer in one piece, for servers and proxies that handle SSE badly.
+	Stream *bool `yaml:"stream,omitempty"`
 }
 
 // SplitModelRef parses model into provider name and API model id.
@@ -59,4 +80,13 @@ func (m *ModelEntry) ProviderName() string {
 func (m *ModelEntry) APIModel() string {
 	_, api, _ := SplitModelRef(m.Model)
 	return api
+}
+
+// EffectiveStream reports whether this model is talked to over a stream.
+// Only an explicit stream: false turns streaming off.
+func (m *ModelEntry) EffectiveStream() bool {
+	if m == nil || m.Stream == nil {
+		return true
+	}
+	return *m.Stream
 }

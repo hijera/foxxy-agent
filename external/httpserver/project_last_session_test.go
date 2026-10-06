@@ -101,7 +101,7 @@ func (f *lastSessionFixture) getLastSession(t *testing.T) lastSessionDTO {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET last-session status %d", res.StatusCode)
 	}
@@ -124,7 +124,7 @@ func (f *lastSessionFixture) putLastSession(t *testing.T, id string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	return res.StatusCode
 }
 

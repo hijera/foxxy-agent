@@ -1,0 +1,16 @@
+# Checklist item 2: switch the IDE theme with the panel open. The SPA follows the IDE through
+# FoxxyCodeThemeBridge (settings: "Match FoxxyCode UI theme to the IDE theme"), so both the
+# plugin chrome and the chat must flip. Compare the two screenshots: text, code blocks and the
+# context label have to stay readable, and nothing may keep a dark-only colour on light.
+toolwindow FoxxyCode
+sleep 8
+theme dark
+sleep 3
+screenshot theme-dark
+theme light
+sleep 3
+screenshot theme-light
+# Leave the IDE dark — the sandbox default the other scripts assume.
+theme dark
+sleep 1
+screenshot theme-restored

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
@@ -21,6 +22,7 @@ const (
 // printTreeSkipDirs are noise directories omitted from the tree output.
 var printTreeSkipDirs = map[string]struct{}{
 	".git":         {},
+	".svn":         {},
 	"node_modules": {},
 }
 
@@ -31,7 +33,7 @@ func PrintTreeTool() *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: "print_tree",
 			Description: "Print a directory tree (like the `tree` command): files and subdirectories under `path`, " +
-				"indented, up to `depth` levels deep. Skips .git and node_modules. Prefer this over `ls -R` or " +
+				"indented, up to `depth` levels deep. Skips .git, .svn and node_modules. Prefer this over `ls -R` or " +
 				"`run_command` to explore a repository's layout.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -114,6 +116,11 @@ func walkTree(b *strings.Builder, dir, prefix string, depthLeft int, store strin
 		}
 		if e.IsDir() {
 			if _, skip := printTreeSkipDirs[e.Name()]; skip {
+				continue
+			}
+			// The worktrees FoxxyCode keeps are checkouts of other branches;
+			// listing them would repeat the project once per worktree.
+			if gitws.IsWorktreesRoot(full) {
 				continue
 			}
 		}

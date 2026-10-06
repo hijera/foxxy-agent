@@ -1,0 +1,468 @@
+//go:build cli
+
+package cli
+
+import (
+	"context"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
+)
+
+// dispatchSlash intercepts client-side slash commands. Returns true when the
+// text was handled locally; /compact, /plugin, skill commands and settings
+// commands followed by a message fall through to the agent.
+func (a *App) dispatchSlash(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasPrefix(trimmed, "/") {
+		return false
+	}
+	fields := strings.Fields(trimmed)
+	cmd := strings.TrimPrefix(fields[0], "/")
+	if cmd == "mode" {
+		if len(fields) > 1 && a.knownMode(fields[1]) {
+			mode := fields[1]
+			a.applySettings(session.SettingsChange{Mode: &mode})
+		} else {
+			a.openModeSelector()
+		}
+		return true
+	}
+	if a.dispatchSettings(trimmed, fields) {
+		return true
+	}
+	switch cmd {
+	case "resume":
+		a.openResumeSelector()
+		return true
+	case "new":
+		a.newSession()
+		return true
+	case "theme":
+		a.openThemeSelector()
+		return true
+	case "hotkeys":
+		a.showHotkeys()
+		return true
+	case "queue":
+		a.dispatchQueueCommand(strings.Join(fields[1:], " "))
+		return true
+	case "usage":
+		a.showUsage()
+		return true
+	case "tasks":
+		a.openTasksOverlay()
+		return true
+	case "docs", "help":
+		a.openDocsOverlay(strings.Join(fields[1:], " "))
+		return true
+	case "quit", "exit":
+		a.requestQuit(nil)
+		return true
+	}
+	return false
+}
+
+// dispatchSettings handles the settings commands (session.ParseSettingsCommands):
+// /model, /reasoning (/effort), /think, /nothink, /agent, /plan, /ask and
+// /permissions, with --once or --count=N. A bare /model, /reasoning or
+// /permissions opens its picker. Commands followed by a message are not
+// taken here: the prompt goes to the agent, whose manager takes them before
+// the turn that message starts, so both halves land in the same turn.
+func (a *App) dispatchSettings(trimmed string, fields []string) bool {
+	cmd, ok := session.LookupSettingsCommand(fields[0])
+	if !ok {
+		return false
+	}
+	if len(fields) == 1 {
+		switch cmd.Setting {
+		case session.SettingModel:
+			a.openModelSelector()
+			return true
+		case session.SettingReasoning:
+			if cmd.Name == "reasoning" {
+				if a.busyWithLocalShell() {
+					return true
+				}
+				a.openReasoningSelector()
+				return true
+			}
+		case session.SettingPermissionMode:
+			a.openPermissionSelector()
+			return true
+		}
+	}
+	line, err := session.ParseSettingsCommands(trimmed)
+	if err != nil {
+		a.appendStatus(roleWarning, err.Error())
+		return true
+	}
+	if line.Empty() || strings.TrimSpace(line.Rest) != "" {
+		return false
+	}
+	if a.busyWithLocalShell() {
+		return true
+	}
+	changes := make([]session.SettingsChange, 0, 1+len(line.Turns))
+	if !line.Session.Empty() {
+		changes = append(changes, line.Session)
+	}
+	changes = append(changes, line.Turns...)
+	a.applySettings(changes...)
+	return true
+}
+
+// applySettings sends settings changes to the manager in order. The notice
+// comes back as a session_settings update (updates.go), which is where the
+// footer follows the change too.
+func (a *App) applySettings(changes ...session.SettingsChange) {
+	sessionID := a.sessionID
+	// A worker, like the turn: the setter writes the session bundle, and
+	// JoinWorkers lets that write finish before the process exits.
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		for _, ch := range changes {
+			ch.Source = "console"
+			snap, err := a.mgr.ApplySessionSettings(context.Background(), sessionID, ch)
+			if err != nil {
+				_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: err.Error()})
+				return
+			}
+			_ = a.Sender().SendSessionUpdate(sessionID, settingsApplied{settings: snap})
+		}
+	}()
+}
+
+// settingsApplied is an internal update carrying the snapshot a change
+// answered with, so the footer follows it even when no event arrives (a
+// remote server's events stream that is not connected).
+type settingsApplied struct{ settings acp.SessionSettings }
+
+// applySettingsSnapshot adopts a settings snapshot: the model and the
+// reasoning the footer shows, the mode, the permission mode and the turn
+// overrides. A snapshot older than the one already shown is dropped.
+func (a *App) applySettingsSnapshot(snap acp.SessionSettings) {
+	if snap.Version != 0 && snap.Version < a.settingsVersion {
+		return
+	}
+	a.settingsVersion = snap.Version
+	if snap.Model != "" {
+		a.modelID = snap.Model
+	}
+	a.reasoning = snap.Reasoning
+	if snap.Mode != "" {
+		a.modeID = snap.Mode
+		a.foot.SetSession("", a.modeID)
+	}
+	a.foot.SetSettings(snap.PermissionMode, snap.Overrides)
+	a.refreshFooterModel()
+	a.screen.RequestRender()
+}
+
+// openPermissionSelector is the /permissions picker: when tools ask for
+// approval in this session (#292). The session's choice lasts as long as
+// the process; a restart returns to tools.permission_mode.
+func (a *App) openPermissionSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
+	items := []tui.SelectItem{
+		{Value: "ask", Label: "ask", Description: "Ask before commands and file writes"},
+		{Value: "accept_edits", Label: "accept_edits", Description: "File writes pass; commands still ask"},
+		{Value: "bypass", Label: "bypass", Description: "Nothing asks for approval"},
+	}
+	sel := newSelectorModal(a.theme, "Permission mode", items, 4, a.screen.RequestRender)
+	for i, it := range items {
+		if it.Value == a.foot.permission {
+			sel.list.SetSelectedIndex(i)
+			break
+		}
+	}
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		mode := item.Value
+		a.applySettings(session.SettingsChange{PermissionMode: &mode})
+	}
+	a.openModal(sel)
+}
+
+// availableModes follows the modes advertised by the session, including the
+// fork's docs and debug modes.
+func (a *App) availableModes() []acp.SessionMode {
+	if len(a.modes) > 0 {
+		return a.modes
+	}
+	return []acp.SessionMode{
+		{ID: "agent", Name: "Agent", Description: "Full tool access"},
+		{ID: "plan", Name: "Plan", Description: "Read-only planning tools"},
+		{ID: "docs", Name: "Docs", Description: "Documentation editing"},
+		{ID: "ask", Name: "Ask", Description: "Read-only research and answers"},
+		{ID: "debug", Name: "Debug", Description: "Diagnose before changing code"},
+	}
+}
+
+func (a *App) knownMode(id string) bool {
+	for _, mode := range a.availableModes() {
+		if mode.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) openModeSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
+	modes := a.availableModes()
+	items := make([]tui.SelectItem, 0, len(modes))
+	current := 0
+	for i, mode := range modes {
+		desc := mode.Description
+		if desc == "" {
+			desc = mode.Name
+		}
+		items = append(items, tui.SelectItem{Value: mode.ID, Label: mode.ID, Description: desc})
+		if mode.ID == a.modeID {
+			current = i
+		}
+	}
+	sel := newSelectorModal(a.theme, "Select mode", items, len(items)+2, a.screen.RequestRender)
+	sel.list.SetSelectedIndex(current)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		mode := item.Value
+		a.applySettings(session.SettingsChange{Mode: &mode})
+	}
+	a.openModal(sel)
+}
+
+func (a *App) openThemeSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
+	items := []tui.SelectItem{
+		{Value: "dark", Label: "dark", Description: "FoxxyCode dark palette"},
+		{Value: "light", Label: "light", Description: "FoxxyCode light palette"},
+	}
+	sel := newSelectorModal(a.theme, "Select theme", items, 4, a.screen.RequestRender)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item != nil && item.Value != a.themeName {
+			a.switchTheme(item.Value)
+		}
+		a.screen.RequestRender()
+	}
+	a.openModal(sel)
+}
+
+// switchTheme rebuilds themed content in place, preserving the editor text.
+func (a *App) switchTheme(name string) {
+	pendingText := a.editor.Text()
+	a.applyTheme(name)
+	// Rebuild the static chrome; transcript components keep their pre-baked
+	// colors (documented v1 limitation, matches a fresh-session restart).
+	a.header = newHeader(a.theme)
+	a.header.SetExpanded(a.expanded)
+	a.populateHeader()
+	previous := a.foot
+	a.foot = newFooter(a.theme, a.config().Paths.CWD)
+	if previous != nil {
+		// The usage line and the running-task count are state, not chrome: they
+		// survive the theme.
+		a.foot.usages, a.foot.now = previous.usages, previous.now
+		a.foot.runningTasks = previous.runningTasks
+	}
+	a.refreshFooterModel()
+	a.foot.SetSession("", a.modeID)
+	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
+	a.editor.OnChange = a.onEditorChange
+	a.editor.SetAutocomplete(a.newCompletion(), selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 40}, a.screen.RequestRender)
+
+	root := a.screen.Root
+	root.Clear()
+	root.AddChild(a.header)
+	root.AddChild(a.chat)
+	root.AddChild(a.status)
+	root.AddChild(a.plan)
+	// The queue is state like the usage line: the same widget goes back on the
+	// screen, repainted in the new palette. Leaving it out of the rebuilt tree
+	// hid every follow-up waiting for the running turn until the next restart.
+	a.queue.theme = a.theme
+	a.queue.SetRows(a.queue.rows)
+	root.AddChild(a.queue)
+	a.editorWrap = &tui.Container{}
+	a.editorWrap.AddChild(a.editor)
+	root.AddChild(a.editorWrap)
+	root.AddChild(a.foot)
+	if pendingText != "" {
+		a.editor.SetText(pendingText)
+	}
+	a.screen.SetFocus(a.editor)
+	a.screen.Invalidate()
+}
+
+func (a *App) openResumeSelector() {
+	// Refuse before the picker opens, not after a session is chosen.
+	if a.busyWithLocalShell() {
+		return
+	}
+	sessionID := a.sessionID
+	go func() {
+		cwd := a.config().Paths.CWD
+		res, err := a.mgr.HandleSessionList(context.Background(), acp.SessionListParams{CWD: &cwd})
+		if err != nil {
+			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "resume: " + err.Error()})
+			return
+		}
+		select {
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: resumeList{res: res}}:
+		case <-a.closed:
+		}
+	}()
+}
+
+func (a *App) showHotkeys() {
+	lines := []string{
+		"enter send · shift+enter/ctrl+j newline",
+		"escape interrupt · ctrl+c clear/exit · ctrl+d exit",
+		"ctrl+l model selector · ctrl+p cycle models",
+		"shift+tab cycle reasoning · /reasoning [level] · /think · /nothink · ctrl+t thinking · ctrl+o expand",
+		"/agent /plan /ask mode · /permissions ask|accept_edits|bypass · add --once or --count=N for a few turns",
+		"up/down prompt history · / commands · @ file mention",
+		"!!<command> run it here, hidden from the agent",
+		"/usage provider quota, resets and wallet",
+		"/tasks background tasks: enter output · s stop · r refresh · escape back",
+		"F1 or /docs [words] built-in documentation: type to search · enter read · n/p turn pages",
+	}
+	a.appendStatus(roleDim, strings.Join(lines, "\n"))
+}
+
+// resumeList is an internal update carrying the /resume picker data.
+type resumeList struct{ res *acp.SessionListResult }
+
+// openResumePicker shows the /resume selector over the fetched session list.
+func (a *App) openResumePicker(res *acp.SessionListResult) {
+	// The list arrives asynchronously: a command may have started since.
+	if a.busyWithLocalShell() {
+		return
+	}
+	if res == nil || len(res.Sessions) == 0 {
+		a.appendStatus(roleDim, "No sessions to resume in this folder")
+		return
+	}
+	items := make([]tui.SelectItem, 0, len(res.Sessions))
+	for _, s := range res.Sessions {
+		label := s.SessionID
+		if s.Title != nil && *s.Title != "" {
+			label = tui.SanitizeText(*s.Title)
+		}
+		desc := shortSessionID(s.SessionID)
+		if s.UpdatedAt != nil && *s.UpdatedAt != "" {
+			desc = relativeTime(*s.UpdatedAt) + " · " + desc
+		}
+		items = append(items, tui.SelectItem{Value: s.SessionID, Label: label, Description: desc})
+	}
+	sel := newSelectorModal(a.theme, "Resume Session", items, 10, a.screen.RequestRender)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		a.resumeInto(item.Value)
+	}
+	a.openModal(sel)
+}
+
+// resumeInto switches the transcript to an existing session, serialized the
+// same way as /new: never while another switch runs, and only after a live
+// turn has ended.
+func (a *App) resumeInto(id string) {
+	if a.shellActive {
+		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
+		return
+	}
+	if a.switching {
+		a.appendStatus(roleWarning, "A session switch is already in progress")
+		return
+	}
+	a.switching = true
+	a.deferUntilTurnEnd(func() { a.startResumeWorker(a.sessionID, id) })
+}
+
+func (a *App) startResumeWorker(old, id string) {
+	a.resetTranscript()
+	a.sessionID = id
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		cwd := a.config().Paths.CWD
+		res, err := a.mgr.HandleSessionLoad(a.workCtx, acp.SessionLoadParams{SessionID: id, CWD: cwd})
+		if err != nil {
+			_ = a.Sender().SendSessionUpdate(id, statusErr{msg: "resume: " + err.Error(), always: true})
+			return
+		}
+		var modes *acp.ModeState
+		var opts []acp.ConfigOption
+		if res != nil {
+			modes = res.Modes
+			opts = res.ConfigOptions
+		}
+		select {
+		case a.updatesCh <- updateMsg{sessionID: id, update: sessionResumed{id: id, modes: modes, opts: opts}}:
+		case <-a.closed:
+		}
+		if old != "" && old != id {
+			a.mgr.ForgetLiveSession(old)
+		}
+		a.mgr.HandleSessionReady(id)
+	}()
+}
+
+// sessionResumed is an internal update completing /resume.
+type sessionResumed struct {
+	id    string
+	modes *acp.ModeState
+	opts  []acp.ConfigOption
+}
+
+// shortSessionID trims a session id to a readable prefix.
+func shortSessionID(id string) string {
+	if len(id) > 16 {
+		return id[:16]
+	}
+	return id
+}
+
+// relativeTime renders an RFC3339 timestamp as a coarse "Nx ago" label.
+func relativeTime(stamp string) string {
+	t, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return stamp
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m ago"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h ago"
+	default:
+		return strconv.Itoa(int(d.Hours()/24)) + "d ago"
+	}
+}

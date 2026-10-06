@@ -1,0 +1,296 @@
+# Troubleshooting
+
+What to check when a step of the [Quickstart](quickstart.md) does not go as written: the binary is not found, the configuration does not load, a provider rejects the key, a port is busy, a surface is missing from the build, a bot or a hook stays silent. Each section names the symptom, the usual cause and the fix, and the last one lists what to collect before asking for help. The commands are the same on every platform unless a section says otherwise.
+
+## The binary is not found after the install
+
+**Symptom.** `foxxycode: command not found` after unpacking the release archive, or an editor reports that it cannot start `foxxycode acp`.
+
+**Cause.** The directory you put the binary in (`~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\foxxycode` on Windows) is not on `PATH`, or it was added to the rc file or the user `PATH` after the current terminal started, so that terminal does not see it. Editors and other harnesses may spawn the agent through `cmd /c` or `sh -c` without the user `PATH` at all.
+
+**Fix.** Open a new terminal, or refresh the one you have:
+
+```bash
+source ~/.zshrc            # or ~/.bashrc
+export PATH="$HOME/.local/bin:$PATH"
+foxxycode -v
+```
+
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
+foxxycode -v
+```
+
+Give ACP clients the absolute path of the binary instead of relying on `PATH` (`/home/you/.local/bin/foxxycode`, `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`). When several copies exist, `which foxxycode` names the one a shell runs; update that one with `foxxycode update`. `make install` from a clone lands in the same `~/.local/bin` for a non-root user. Details: [Install](install.md).
+
+## The configuration does not load, or `foxxycode -t` reports errors
+
+**Symptom.** A command exits with `load config: ...`, `foxxycode -t` prints lines that start with the file path, or a setting you wrote has no effect.
+
+**Cause.** The loader reads `$FOXXYCODE_HOME/config.yaml` (`~/.foxxycode` by default), falls back to `config.yaml` in the current directory when that file is missing, and runs on built-in defaults when neither exists, so a file edited in the wrong place changes nothing. It decodes leniently: an unknown or misspelled key (`enabled` for `enable`) is ignored rather than rejected, and a value of the wrong shape surfaces later as odd behaviour. A file that fails to parse is recovered from `config.yaml.bak` on a normal load; the check below does not do that, so it reports the file on disk.
+
+**Fix.** Run the check the way the failing command would load the file; `--config PATH` and `--home DIR` select it as for a start:
+
+```bash
+foxxycode -t
+foxxycode serve -t
+```
+
+Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. A syntax error names the line whose arrival stops the file parsing, not the line the parser blames, and a start prints the same line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
+
+```bash
+foxxycode --dry-run                 # the problems and one status line
+foxxycode --dry-run --test-config   # the config report and every probe
+```
+
+`--dry-run` probes what the file names: the directories, each provider's model list, the executables of stdio MCP servers, the Telegram token, and for `foxxycode serve` the listen addresses. Report formats and rules: [Configuration](configuration.md#checking-the-file-from-the-command-line).
+
+## The provider rejects the key or the model id
+
+**Symptom.** A turn ends with an authentication error or an unknown-model error from the provider; `foxxycode --dry-run` reports `providers[<name>]: cannot reach ...` or `models[<id>]: not in the model list of provider <name>`; `foxxycode providers list` prints a line that starts with `!`.
+
+**Cause.** Three things have to line up. The first segment of every `models[].model` must equal a `providers[].name` (letters, digits, hyphen and underscore, starting with a letter), and `agent.model` must be one of the `models` entries; the loader reports `models[...]: unknown provider` otherwise. The key is resolved in a fixed order: a literal `api_key` or a `${VAR}` reference expanded when the file loads, then the stdout of `api_key_command`, then the `NAME_API_KEY` environment variable, `NAME` being the provider name in upper case with hyphens turned into underscores (`my-proxy` reads `MY_PROXY_API_KEY`). A reference to a variable that is not set expands to nothing, and the request leaves without a credential. A `type: openai` row with no `api_base` talks to OpenAI itself; a local or third-party server needs `api_base` with `/v1`, and the model id must be one that server lists.
+
+**Fix.**
+
+```bash
+foxxycode providers list     # every provider with the credential source requests actually use
+foxxycode --dry-run          # asks each provider for its model list, checks every models[] entry
+```
+
+`providers list` warns about an `openai` row aimed at the official endpoint with nothing to present; `--dry-run` names the address it tried and, for a model the server does not list, the ids it does list (a warning, since some servers serve more than they list). Put the key in `~/.foxxycode/.env` (`OPENAI_API_KEY=sk-...`), which is read before the file and never overrides the shell. A NeuralDeep row whose key was rejected is repaired with `foxxycode providers login neuraldeep`, a Codex row with `foxxycode providers login codex`. Field reference: [config.yaml reference](../reference/config.md#providers).
+
+## Port 12345 is busy, or the API is not served
+
+**Symptom.** `foxxycode serve` exits with a bind error, `foxxycode serve --dry-run` reports the `httpserver` address together with the line that set it, or `http://127.0.0.1:12345/` refuses the connection while the process runs.
+
+**Cause.** The address comes from `-H` / `-P`, then `httpserver.host` / `httpserver.port`, then `127.0.0.1:12345`. Another process holds the port - often a `foxxycode serve --daemon` started earlier - or the HTTP API is switched off for this process with `httpserver.enable: false` or `--http=false`. The default bind is loopback, so a browser on another machine is refused by design.
+
+**Fix.**
+
+```bash
+foxxycode serve status            # a daemon already up? then: foxxycode serve stop
+foxxycode serve --dry-run         # binds each listen address once and releases it
+foxxycode serve -P 12346          # or httpserver.port in the file
+```
+
+For access from other machines bind wider and require a token: `foxxycode serve -H 0.0.0.0 --auth-token <secret>` (also `FOXXYCODE_HTTP_TOKEN` or `httpserver.auth_token`); without a token the process warns that it is reachable without authentication. A listen address is the one setting a running process cannot adopt: under `--daemon` the worker restarts on the new address by itself (exit status 75 asks the dispatcher for a replacement), in the foreground restart it yourself. Under `--daemon` a port that is held is reported in the terminal that typed the command and retried until it frees. See [foxxycode serve and the daemon](../operate/serve.md) and [HTTP API](../reference/http-api.md#cli-flags).
+
+## A surface is missing from the build
+
+**Symptom.** `foxxycode serve` refuses to start with `<key> is true but this binary has no <surface> support (rebuild with -tags <tag>)`; bare `foxxycode` prints the usage instead of opening the console and `foxxycode cli` answers `interactive console is not built in`; `foxxycode serve` with nothing enabled says `no subsystem is enabled`.
+
+**Cause.** The console, the HTTP API, the web UI, the scheduler, the memory subagent, the messenger gateway and the swarm relay are Go build tags. A plain `make build` (or `go build`, or `go install ...@latest`) produces the lean ACP binary without them. `foxxycode serve` treats an enabled subsystem the binary cannot run as an error rather than a warning, so a bot that would otherwise be silently offline is refused by name.
+
+**Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
+
+```bash
+make build TAGS="http ui scheduler memory cli gateway swarm"
+```
+
+`ui` needs Node.js and npm (the Makefile runs `ui-build` first). `foxxycode serve --dry-run` reports a surface this binary was not built with without starting anything. Tag reference: [Build from source](../contributing/build.md#build-tags-reference).
+
+## The web UI answers with the API but no page
+
+**Symptom.** `GET /` returns a short plaintext 404 while `/docs/`, `/v1/models` and the rest of the API work.
+
+**Cause.** Either the binary was linked with `http` but without `ui` - the single-page app is embedded at build time from assets that `make ui-build` generates with npm - or `ui.enable: false` runs the server in API-only mode on purpose.
+
+**Fix.** Rebuild with both tags, `make build TAGS="http ui"` at least, with Node.js and npm on `PATH`; check `ui.enable` in the file. After a rebuild a normal browser reload picks up the new assets. Release binaries carry the UI. See [Build from source](../contributing/build.md) and [HTTP API](../reference/http-api.md).
+
+## An MCP server does not start
+
+**Symptom.** The session starts, but a warning names a server as skipped and its tools are missing from the model's list; under **Settings -> MCP servers** the server shows a shield button.
+
+**Cause.** A server declared in `<workspace>/.foxxycode/mcp.json` arrived with the checkout, so under the default policy `mcp.project_trust: ask` it stays cold until you approve that exact declaration for that workspace; the warning names the server, the workspace, the digest and the command that approves it, and rewriting an approved entry withdraws the approval. Servers from `config.yaml` and `~/.foxxycode/mcp.json` are not gated, but their command still has to be on `PATH`, and a server marked `disabled: true` (`"disabled": true` in an mcp.json) is not connected. A server that fails to start never blocks the session: it proceeds with a warning.
+
+**Fix.**
+
+```bash
+foxxycode mcp list               # scope, trust state and the command of every merged server
+foxxycode mcp trust <name>       # prints the declaration, then records the receipt
+foxxycode --dry-run              # resolves stdio commands in PATH, contacts remote servers
+```
+
+`foxxycode mcp list` and `trust` take `--cwd DIR` for another workspace. Over HTTP the same decisions are `POST /foxxycode/mcp/{name}/trust` and the shield in the web UI. `foxxycode serve --mcp-project-trust allow` (or `foxxycode acp`) overrides the policy for one process, which is what a CI job uses. Receipts live in `~/.foxxycode/mcp-trust.json`. Guide: [MCP servers](../features/mcp.md#workspace-trust-for-project-local-servers).
+
+## The Telegram bot is silent
+
+**Symptom.** The bot never answers, or a `/model` or `/resume` tap changes nothing.
+
+**Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only. Text answered but taps ignored, with nothing at `debug`, was the subscription: Telegram remembers the last `allowed_updates` a bot asked for, and a token that once ran under another framework may be subscribed to messages alone. FoxxyCode asks for `message` and `callback_query` on every poll since it hit this itself; `curl https://api.telegram.org/bot<token>/getWebhookInfo` shows what is in force.
+
+**Fix.** `foxxycode --dry-run` checks the token against the Bot API and names the bot. A connected bot logs `telegram bot connected` at `info`. For a dropped update raise that one component:
+
+```bash
+foxxycode serve --log-level "info,gateway.telegram=debug"
+```
+
+or the same in the file under `logger.levels`. At `debug` every update is recorded with the reason it was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full queue). Silence at `warn` and nothing at `debug` means the update never arrived: check the token, the access lists and other pollers. Guide: [Telegram gateway](../surfaces/gateway.md#debugging-a-chat).
+
+To separate Telegram from the bot, run the bot against the fake Bot API of `cmd/tgfake` with `FOXXYCODE_TELEGRAM_API_BASE` set: you send the messages from a page on your machine, every Bot API call is listed, and a fault can be injected on demand. Guide: [Debugging against a fake Bot API](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
+
+## Hooks or subagent definitions are ignored
+
+**Symptom.** A hook in `<workspace>/.foxxycode/hooks.json` (or the Claude Code `.claude/settings.json`) never runs and the transcript shows a notice that a hooks file is held; `spawn_agent` answers that a definition comes from a project file that is not approved for this workspace; `foxxycode hooks list` or `foxxycode agents list` shows `needs_approval`.
+
+**Cause.** Files at or under the session cwd are project scope and follow `hooks.project_trust` and `subagents.project_trust`. Under the default `ask` they are parsed and listed, but nothing runs or spawns until you approve that exact file for that workspace on the machine running FoxxyCode; the receipt is bound to a digest of the file, so editing it asks again. Your own files (`~/.foxxycode/hooks.json`, `${FOXXYCODE_HOME}/agents`) never need approval. `hooks.enable: false` or `subagents.enable: false` switches the feature off entirely, only the `hooks` key of a Claude Code settings file is read, and `spawn_agent` is never offered in ask mode.
+
+**Fix.**
+
+```bash
+foxxycode hooks list [--cwd DIR]
+foxxycode hooks trust <file>        # e.g. .foxxycode/hooks.json
+foxxycode agents list [--cwd DIR]
+foxxycode agents trust <name>
+```
+
+Both `trust` commands print what they are about to approve and record the receipt (`~/.foxxycode/hooks-trust.json`, `~/.foxxycode/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and marks the ones awaiting approval, but records none. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+
+## A turn stops with a usage limit
+
+**Symptom.** The turn ends with the provider's limit error; the console footer reads `limit reached (resets 20:59)` and the transcript says `Usage limit reached`.
+
+**Cause.** A `429` that names a reset further away than the retry budget covers ends the turn by default. `agent.wait_for_limit_reset` is off because a waiting turn keeps the turn lock and the client stream open the whole time.
+
+**Fix.** `/usage` in the console prints the account breakdown: every window with its percent and reset time, the cooldown, the wallet. Wait for the reset or switch models with `/model`. To have the turn wait by itself, set:
+
+```yaml
+agent:
+  wait_for_limit_reset: true
+  # wait_for_limit_reset_max_ms: 14400000   # at most 4 h per turn, the default
+```
+
+A top-level turn then waits for the reset, reports `Usage limit reached · resuming at 20:59` every 20 seconds, and re-issues the same call; Escape stops the wait like any turn. A key the hub rejects reads `key rejected` in the footer and is repaired with `foxxycode providers login neuraldeep`. See [Console (TUI)](../surfaces/console.md) and the [`agent` reference](../reference/config.md#agent).
+
+## A turn fails with a network error before the provider answers
+
+**Symptom.** A turn ends with `LLM error: provider "<name>" (<address>): ...` and the message closes with `net/http: TLS handshake timeout`, `dial tcp ...: i/o timeout`, `connect: no route to host` or `connection reset by peer`.
+
+**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so FoxxyCode repeats it up to `agent.llm_retry_max` times (3 by default) with a backoff that starts at `agent.llm_retry_base_ms` and doubles. The error reaches the turn only when every attempt failed. Two failures of the same family are not repeated: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than weather, and a stream cut after text was already shown, since a replay would show that text twice - that one is carried on instead (see the next-but-one section).
+
+**Fix.** Check that the address in the error is the one you mean, then whether it answers from this machine:
+
+```bash
+foxxycode --dry-run          # asks every provider for its model list at the configured address
+```
+
+When the error still arrives after the retries, the link stayed down longer than the backoff covers. For an unstable link raise the budget; for a provider reachable only through a proxy set `proxy` on its row:
+
+```yaml
+agent:
+  llm_retry_max: 5
+  llm_retry_base_ms: 2000
+providers:
+  - name: my-proxy
+    type: openai
+    api_base: https://llm.example.com/v1
+    proxy: socks5h://127.0.0.1:1080
+```
+
+The opposite case is as common: the machine names a proxy in `HTTPS_PROXY` - a corporate one, a local forwarder, a variable left over from another setup - and that proxy stalls or breaks the handshake while the provider itself is reachable directly. Every row follows that variable unless it says otherwise, so set `proxy: none` on the row that should go direct; the other rows keep the proxy. `foxxycode --dry-run` names the proxy the environment chose when a provider cannot be reached. More in [Provider proxy](configuration.md#provider-proxy).
+
+```yaml
+providers:
+  - name: local
+    type: openai
+    api_base: http://192.168.1.20:8000/v1
+    proxy: none
+```
+
+Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## A turn behind a proxy waits on "Provider is not responding" and never recovers
+
+**Symptom.** Behind a proxy, a turn sits on **Provider is not responding, retrying** for as long as the retry schedule runs (with the defaults about an hour and a half), and every retry fails the same way. With `debug.enable` on, the connection trace shows the retries on one connection: `llm net: conn reused=true` with the same `local` port each time, then `no activity phase=awaiting_response`.
+
+**Cause.** Requests to a provider share one pooled HTTP/2 connection. When a proxy loses the state of a tunnel without closing it, the connection to the proxy stays up but nothing arrives on it any more, and every new request, every retry included, was sent on that same dead connection.
+
+**Fix.** Since this release FoxxyCode pings a connection that has received nothing for 15 seconds and closes it when the ping goes unanswered for another 15. The request that was waiting on it is repeated on a new connection, so such a turn recovers within about half a minute. If it still hangs, the trace shows which step the new connection is stuck in; see [Diagnostics](../operate/debugging.md).
+
+## A turn stops mid-answer, or ends with `stream stalled`
+
+**Symptom.** The model starts answering and the text stops mid-sentence. After a while the live label says the answer is being continued and the text goes on, or the turn ends with `stopped: the provider stopped sending data mid-answer (no progress for 5m0s) ...`, with the text that did arrive kept in the transcript. Or a one-shot run (`foxxycode -p`) sits for a long time with no output at all, and when it is killed the session log says `generation was interrupted before producing a response (the model had been silent for 25m0s)`.
+
+**Cause.** The provider took the request and stopped sending, or cut the answer with a server error. Nothing on the wire says whether it is still working: a stuck worker behind a gateway, a proxy or a VPN tunnel that lost the far side without closing the connection, a request the gateway forgot. FoxxyCode bounds that wait in three places:
+
+- the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member - then waits the provider out on the `agent.llm_stall_retry` ladder (1, 3, then 5 minutes);
+- the stall guard, `agent.llm_stream_idle_timeout_ms` (5 min; `llm_stall_timeout_ms` is its old name), cuts a streamed answer that delivered nothing for that long after its first chunk. Keep-alive comments a gateway sends do not count as delivery, so a dead model behind a chatty gateway is still cut;
+- the HTTP/2 health check closes a connection whose peer stops answering pings (see the previous section).
+
+What happens to an answer that was cut after text was shown - by the stall guard, a dropped stream or a 5xx the retries could not ride out - is set by `agent.llm_continue` (on by default): the text is kept, the turn pauses (`llm_continue_stall_delays_ms` after a stall, `llm_continue_error_delays_ms` after a failure, a longer `Retry-After` of the provider up to `llm_continue_retry_after_max_ms`) and asks the model to go on from where it stopped, up to `llm_continue_max` times per turn. When the model starts the same answer over instead of continuing it, it is told so, and after that asked for an answer with the tools withheld. With `llm_continue: false` the turn ends at the cut, keeps the text and names the reason.
+
+None of the guards applies to a model configured with `stream: false`: its answer arrives in one piece, so the only bound on that call is `providers[].timeout_ms`, and a run killed from outside reports how long the model had been silent.
+
+**Fix.** A guard that fires on a healthy but slow model is a value to raise, not a bug: a large brief on a small server can spend minutes in prompt processing before the first token, and a long answer can pause for a while when the server is preempting requests. Set the guard to what the deployment needs, or to `0` to turn it off, and give a blocking model a request bound instead:
+
+```yaml
+agent:
+  llm_first_token_timeout_ms: 600000   # ten minutes before the first token
+  llm_stream_idle_timeout_ms: 600000   # ten minutes of silence mid-answer
+  llm_continue_max: 5                  # carry a cut answer on up to five times per turn
+providers:
+  - name: slow-hub
+    type: openai
+    api_base: https://llm.example.com/v1
+    timeout_ms: 3600000                # one hour for a stream: false model's whole request
+```
+
+With `debug.enable` the log carries one `llm call finished` line per model call, with its duration, the time to the first chunk, how the answer ended and which guard cut it (`cut_by`), which is where a slow deployment and a dead one part ways ([Diagnostics](../operate/debugging.md)).
+
+Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## `foxxycode update` refuses to overwrite a packaged binary
+
+**Symptom.** `foxxycode update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.
+
+**Cause.** A `foxxycode` that `apt`, `dnf` or Homebrew put on disk is tracked by that tool's database. Overwriting `/usr/bin/foxxycode` in place would leave the database describing a build that is gone, and the next `apt upgrade` would quietly put the old version back. `foxxycode update` asks `dpkg-query -S` and `rpm -qf` who owns the file, and recognises a `Caskroom` or `Cellar` path as Homebrew's.
+
+**Fix.**
+
+```bash
+sudo foxxycode update -y                                    # fetches the .deb or .rpm, verifies it, hands it to the package manager
+sudo apt-get install ./foxxycode_<newer>_linux_amd64.deb    # or: sudo dnf install ./foxxycode_<newer>_linux_amd64.rpm
+brew upgrade --cask foxxycode                               # the cask; a formula install takes: brew upgrade foxxycode
+```
+
+A copy under `~/.local/bin` or a build of your own is untouched by any of this and keeps updating itself. See [Update](update.md#installations-owned-by-a-package-manager).
+
+## Windows notes
+
+- **Paths.** The binary is `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; config and sessions live under `%USERPROFILE%\.foxxycode\`. Use `$env:USERPROFILE`, not `$HOME`, which differs between Windows PowerShell and Git Bash.
+- **Shell.** `run_command`, `api_key_command` and hooks run through `pwsh`, then Windows PowerShell, then `cmd.exe`, in that order of preference; Unix builds pick `bash`, then `sh`. Write commands for PowerShell.
+- **`make`.** The Makefile needs a Unix-like shell: run it from Git Bash (or WSL, MSYS2), not from `cmd` or PowerShell. The `ui` tag also needs Node.js and npm on `PATH`.
+- **`npm --prefix`.** When `make ui-build` fails with `npm error enoent ... open '...\package.json'`, the npm on the machine mishandles `--prefix`. Build the UI inside its directory, then let `make` pick up the prebuilt assets:
+
+  ```bash
+  (cd external/ui && npm install && npm run build:go)
+  make build TAGS="http ui scheduler memory cli gateway swarm"
+  ```
+
+- **Updates from scripts.** `foxxycode update -y --no-restart` installs without starting FoxxyCode again, for a CI step with no console to run in.
+- **Editing `config.yaml`.** Windows line endings and the byte order mark Notepad writes are read and dropped, and a save puts the file's line endings back, so editing the file in any Windows editor is safe. A file saved as **Unicode** (UTF-16), which is also what a `>` redirect writes in Windows PowerShell 5.1, is read as well; `foxxycode -t` warns about it (`the file is UTF-16 LE text; it is read, but a save from the settings screen writes it back as UTF-8`), and the next save from the settings screen does turn it into UTF-8. To convert it yourself, pick the encoding in Notepad's Save As dialog, next to the Save button; most other editors call it "UTF-8 without BOM".
+- **Editors.** Configure ACP clients with the absolute `foxxycode.exe` path (see the first section).
+
+## Collect diagnostics
+
+Before asking for help, gather what a reader needs to reproduce the setup without the secrets:
+
+```bash
+foxxycode -v                          # the version (dev when the build embedded none)
+foxxycode -t                          # the config report; api_key and token values are never echoed
+foxxycode --dry-run --test-config     # every probe, the ones that passed included
+foxxycode providers list              # providers and the credential source each one uses
+foxxycode mcp list                    # MCP servers, scope and trust state
+foxxycode hooks list                  # hook files and their trust state
+foxxycode agents list                 # subagent definitions and their trust state
+foxxycode serve status                # the daemon: pid, config, log and worker
+```
+
+Logs follow the same knobs on every long-running command: `--log-level` takes a bare level (`debug`, `info`, `warn`, `error`) or a spec that raises one component, such as `info,gateway.telegram=debug`; `foxxycode acp` and `foxxycode serve` also take `--log-output stdout|stderr|file|both`, `--log-file` and `--log-format text|json`. The console never logs to the terminal: its records go to `<home>/logs/cli.log` (`--log-file` moves them). A daemon appends to `~/.foxxycode/logs/serve.log`. For a reproduction over the protocol:
+
+```bash
+foxxycode acp --log-level debug
+```
+
+The same settings persist under `logger` in `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Reference: [Configuration](configuration.md), [`logger`](../reference/config.md#logger).

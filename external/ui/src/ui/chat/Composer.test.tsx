@@ -7,9 +7,14 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
 import { setSendMode, DEFAULT_SEND_MODE } from "../i18n/sendModeConfig";
+import { emitFileMention } from "../skills/fileMentionBus";
+import {
+  recordWorkspaceAtRecent,
+  WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+} from "../skills/workspaceAtRecents";
 
 afterEach(() => {
   cleanup();
@@ -72,7 +77,7 @@ test("mode menu renders Ask and applies its mode class", () => {
       value=""
       isEmpty={false}
       mode="agent"
-      modes={["agent", "plan", "docs", "ask"]}
+      modes={["agent", "plan", "docs", "ask", "debug"]}
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={() => {}}
@@ -86,13 +91,42 @@ test("mode menu renders Ask and applies its mode class", () => {
       value=""
       isEmpty={false}
       mode="ask"
-      modes={["agent", "plan", "docs", "ask"]}
+      modes={["agent", "plan", "docs", "ask", "debug"]}
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={() => {}}
     />,
   );
   expect(screen.getByRole("button", { name: "Mode" })).toHaveClass("mode-ask");
+});
+
+test("mode menu renders Debug and applies its mode class", () => {
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "docs", "ask", "debug"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+  expect(screen.getByRole("menuitem", { name: "Debug" })).toBeTruthy();
+
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="debug"
+      modes={["agent", "plan", "docs", "ask", "debug"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Mode" })).toHaveClass("mode-debug");
 });
 
 test("switching session refocuses textarea in active chat", () => {
@@ -277,6 +311,55 @@ test("send_mode off: neither Enter nor Ctrl+Enter sends", () => {
   expect(onSend).not.toHaveBeenCalled();
 });
 
+test("the slash menu lists /docs where the reader can open", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          String(url).includes("/foxxycode/commands")
+            ? { object: "foxxycode.commands", items: [{ name: "compact", description: "Summarize" }] }
+            : { items: [], has_more: false, page: 1 },
+      }),
+    ),
+  );
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+        onDocsCommand={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, { target: { value: "/do", selectionStart: 3, selectionEnd: 3 } });
+  // No skill matches "do", yet the menu stays open on the command.
+  await waitFor(() => {
+      expect(screen.getByTestId("slash-command-row-docs")).toBeTruthy();
+  });
+  expect(screen.getByTestId("slash-command-row-docs").textContent).toContain("documentation");
+  vi.unstubAllGlobals();
+});
+
 test("Tab key selects first slash command from picker", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: true,
@@ -291,7 +374,7 @@ test("Tab key selects first slash command from picker", async () => {
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
-      items: [{ name: "generate-rules", description: "Generate rules" }],
+      items: [{ name: "rpa-gen-rules", description: "Generate project rules" }],
       has_more: false,
       page: 1,
     }),
@@ -325,7 +408,7 @@ test("Tab key selects first slash command from picker", async () => {
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
-    expect(onChange).toHaveBeenCalledWith("/generate-rules ");
+    expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules ");
   });
   expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
   vi.unstubAllGlobals();
@@ -487,6 +570,61 @@ test("opening the @ menu fetches the IDE terminal list", async () => {
   );
 
   vi.unstubAllGlobals();
+});
+
+// /docs is the console's help command; in the web UI it opens the reader
+// instead of going to the agent as a prompt.
+describe("/docs", () => {
+  function renderWith(value: string, extra: Partial<Parameters<typeof Composer>[0]> = {}) {
+    const onSend = vi.fn();
+    const onDocsCommand = vi.fn();
+    const onQueue = vi.fn();
+    render(
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={onSend}
+        onQueue={onQueue}
+        onDocsCommand={onDocsCommand}
+        {...extra}
+      />,
+    );
+    return { onSend, onDocsCommand, onQueue };
+  }
+
+  test("opens the reader with what follows it, and sends nothing", () => {
+    const { onSend, onDocsCommand } = renderWith("  /docs telegram proxy ");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).toHaveBeenCalledWith("telegram proxy");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test("the send button does the same", () => {
+    const { onSend, onDocsCommand } = renderWith("/docs");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onDocsCommand).toHaveBeenCalledWith("");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test("works while a turn runs instead of joining the queue", () => {
+    const { onQueue, onDocsCommand } = renderWith("/docs features/mentions#completion", {
+      generating: true,
+    });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).toHaveBeenCalledWith("features/mentions#completion");
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+
+  test("a word that only starts like it is an ordinary prompt", () => {
+    const { onSend, onDocsCommand } = renderWith("/docsify the readme");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledWith("/docsify the readme");
+  });
 });
 
 test("generating shows stop and calls onStop", () => {
@@ -1073,4 +1211,876 @@ test("enhance button is disabled when draft is empty", () => {
     />,
   );
   expect(screen.getByTestId("composer-enhance-btn")).toBeDisabled();
+});
+
+test("a dropped file lands in the draft as its full relative path and is sent verbatim", async () => {
+  const onSend = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={onSend}
+      />
+    );
+  }
+  render(<Harness />);
+
+  emitFileMention("external/ui/src/ui/chat/Composer.tsx");
+
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(ta.value).toBe("@external/ui/src/ui/chat/Composer.tsx ");
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith("@external/ui/src/ui/chat/Composer.tsx");
+});
+
+test("a dropped directory keeps its trailing slash in the sent mention", async () => {
+  const onSend = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={onSend}
+      />
+    );
+  }
+  render(<Harness />);
+
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  emitFileMention("src/");
+  await waitFor(() => expect(ta.value).toBe("@src/ "));
+  emitFileMention("src/my dir/");
+  await waitFor(() => expect(ta.value).toBe('@src/ @"src/my dir/" '));
+
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith('@src/ @"src/my dir/"');
+});
+
+test("a second dropped file keeps the first mention's full path", async () => {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+
+  emitFileMention("a/foo.ts");
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => expect(ta.value).toBe("@a/foo.ts "));
+  emitFileMention("b/foo.ts");
+  await waitFor(() => expect(ta.value).toBe("@a/foo.ts @b/foo.ts "));
+});
+
+/** Minimal DataTransfer stand-in: jsdom has no constructor for it. */
+function fileDropTransfer(uriList: string): DataTransfer {
+  const data: Record<string, string> = { "text/uri-list": uriList };
+  return {
+    types: ["Files", "text/uri-list"],
+    dropEffect: "none",
+    getData: (type: string) => data[type] ?? "",
+  } as unknown as DataTransfer;
+}
+
+function dispatchDrop(uriList: string): { defaultPrevented: boolean } {
+  const ev = new Event("drop", { bubbles: true, cancelable: true }) as Event & {
+    dataTransfer: DataTransfer;
+  };
+  Object.defineProperty(ev, "dataTransfer", { value: fileDropTransfer(uriList) });
+  document.dispatchEvent(ev);
+  return { defaultPrevented: ev.defaultPrevented };
+}
+
+function renderDropComposer() {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        sessionId="sess_1"
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  return render(<Harness />);
+}
+
+// A file dropped anywhere in the panel — not only on the composer field — has to be claimed.
+// Leaving it to the browser means the embedded webview navigates to the dropped file and the
+// whole UI is replaced by its contents, which is what "the first drag does nothing" was.
+test("a file dropped outside the composer is claimed and becomes a mention", async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ items: [{ path_rel: "src/app/main.ts", ok: true }] }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderDropComposer();
+
+  const { defaultPrevented } = dispatchDrop("file:///C:/project/src/app/main.ts");
+
+  expect(defaultPrevented).toBe(true);
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(ta.value).toBe("@src/app/main.ts ");
+  });
+  vi.unstubAllGlobals();
+});
+
+test("a drag that carries no files is left alone", () => {
+  renderDropComposer();
+  const ev = new Event("drop", { bubbles: true, cancelable: true }) as Event & {
+    dataTransfer: DataTransfer;
+  };
+  Object.defineProperty(ev, "dataTransfer", {
+    value: { types: ["text/plain"], getData: () => "hello" } as unknown as DataTransfer,
+  });
+  document.dispatchEvent(ev);
+  expect(ev.defaultPrevented).toBe(false);
+});
+
+// In the IntelliJ panel the plugin owns the drop: it is the only side that knows the file's
+// path. The page must still claim the event so the webview does not navigate to the file,
+// but a second mention from here would double every drag.
+test("in the IntelliJ embed the drop is claimed but left to the host", async () => {
+  document.documentElement.dataset.embed = "intellij";
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  renderDropComposer();
+
+  const { defaultPrevented } = dispatchDrop("file:///C:/project/src/app/main.ts");
+
+  expect(defaultPrevented).toBe(true);
+  await waitFor(() => {
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  expect(ta.value).toBe("");
+  vi.unstubAllGlobals();
+});
+
+// The VS Code webview shares the intellij flat chrome but not the drop gate: its drops carry
+// a text/uri-list the page can relativize itself, and the extension has no JS bridge into the
+// cross-origin iframe to insert the mention for it.
+test("in the VS Code embed the page resolves the drop itself", async () => {
+  document.documentElement.dataset.embed = "vscode";
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ items: [{ path_rel: "src/app/main.ts", ok: true }] }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderDropComposer();
+
+  const { defaultPrevented } = dispatchDrop("file:///C:/project/src/app/main.ts");
+
+  expect(defaultPrevented).toBe(true);
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(ta.value).toBe("@src/app/main.ts ");
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/foxxycode/workspace/relativize",
+    expect.objectContaining({ method: "POST" }),
+  );
+  vi.unstubAllGlobals();
+});
+
+test("enhance button shares the composer context row with workspace controls", () => {
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const button = screen.getByTestId("composer-enhance-btn");
+  expect(button).toHaveAttribute("title", "Enhance prompt");
+  expect(button.closest(".composer-context-row")).not.toBeNull();
+  expect(button.closest(".composer-field-wrap")).toBeNull();
+  expect(button.closest(".composer-bar")).toBeNull();
+});
+
+// --- @path:N-M line-range picker ---
+
+function stubShell(mobile: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: mobile,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+}
+
+/** Serves the line-range panel's file read; anything else 404s. */
+function stubWorkspaceFileFetch(lines: string[]) {
+  const fetchMock = vi.fn((input: string) =>
+    Promise.resolve(
+      String(input).startsWith("/foxxycode/workspace/file?")
+        ? {
+            ok: true,
+            json: async () => ({
+              lines,
+              total_lines: lines.length,
+              truncated: false,
+            }),
+          }
+        : { ok: false, status: 404, json: async () => ({}) },
+    ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function RangeHarness(props: { initial: string; onChange: (v: string) => void }) {
+  const [value, setValue] = useState(props.initial);
+  return (
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={(v) => {
+        setValue(v);
+        props.onChange(v);
+      }}
+      onSend={() => {}}
+    />
+  );
+}
+
+test("a colon after a file mention opens the line-range picker", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["alpha", "beta", "gamma"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  expect(screen.getByTestId("at-range-lines")).toHaveTextContent("alpha");
+  // The file picker is gone: the colon handed the draft over.
+  expect(screen.queryByTestId("workspace-files-menu")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("typed digits highlight the selected lines", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two", "three", "four"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:2-3", selectionStart: 10, selectionEnd: 10 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("at-range-current")).toHaveTextContent("2-3");
+  });
+  const rows = screen
+    .getByTestId("at-range-lines")
+    .querySelectorAll(".at-range-line--sel");
+  expect(Array.from(rows).map((r) => r.getAttribute("data-line"))).toEqual([
+    "2",
+    "3",
+  ]);
+  vi.unstubAllGlobals();
+});
+
+// A half-typed range still shows where it starts.
+test("a start without an end highlights one line", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two", "three"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:2", selectionStart: 8, selectionEnd: 8 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("at-range-current")).toHaveTextContent("2-2");
+  });
+  vi.unstubAllGlobals();
+});
+
+test("mobile shells render display-only rows with no mouse selection", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  expect(screen.queryByTestId("at-range-line-1")).toBeNull();
+  expect(
+    screen.getByTestId("at-range-lines").querySelectorAll("button"),
+  ).toHaveLength(0);
+  vi.unstubAllGlobals();
+});
+
+test("the picker closes once the mention token ends", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2", selectionStart: 10, selectionEnd: 10 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2 ", selectionStart: 11, selectionEnd: 11 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+  vi.unstubAllGlobals();
+});
+
+test("prose that never resolves to a file leaves the picker closed", async () => {
+  stubShell(true);
+  // Every read 404s, so nothing should open.
+  stubWorkspaceFileFetch([]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve({ ok: false, status: 404, json: async () => ({}) })),
+  );
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@nope.txt:1-2", selectionStart: 13, selectionEnd: 13 },
+  });
+
+  await waitFor(() => {
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+  expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Desktop picker floats next to the field, so it needs a measurable wrapper and a
+ * ResizeObserver; jsdom supplies neither. Returns a restore function.
+ */
+function stubDesktopLayout(): () => void {
+  const realRect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function () {
+    return {
+      x: 0,
+      y: 100,
+      top: 100,
+      left: 0,
+      right: 400,
+      bottom: 160,
+      width: 400,
+      height: 60,
+      toJSON: () => ({}),
+    } as DOMRect;
+  };
+  const realRO = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  return () => {
+    Element.prototype.getBoundingClientRect = realRect;
+    globalThis.ResizeObserver = realRO;
+  };
+}
+
+test("clicking and dragging lines writes the range into the composer", async () => {
+  stubShell(false);
+  const restoreLayout = stubDesktopLayout();
+  stubWorkspaceFileFetch(["one", "two", "three", "four", "five"]);
+  const onChange = vi.fn();
+  render(<RangeHarness initial="" onChange={onChange} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  // Pressing a row starts the selection at that line.
+  fireEvent.mouseDown(screen.getByTestId("at-range-line-3"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:3-3");
+  });
+
+  // Dragging over a later row extends it; the anchor stays put.
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-5"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:3-5");
+  });
+
+  // Once the button is released, hovering no longer changes the range.
+  fireEvent.mouseUp(window);
+  onChange.mockClear();
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-1"));
+  expect(onChange).not.toHaveBeenCalled();
+
+  restoreLayout();
+  vi.unstubAllGlobals();
+});
+
+// Dragging upwards still yields a forward range.
+test("a backwards drag normalizes the range", async () => {
+  stubShell(false);
+  const restoreLayout = stubDesktopLayout();
+  stubWorkspaceFileFetch(["one", "two", "three", "four"]);
+  const onChange = vi.fn();
+  render(<RangeHarness initial="" onChange={onChange} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  fireEvent.mouseDown(screen.getByTestId("at-range-line-4"));
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-2"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:2-4");
+  });
+
+  restoreLayout();
+  vi.unstubAllGlobals();
+});
+
+// The loaded preview is keyed by path only, so a session switch must discard it.
+test("switching sessions closes the range picker and refetches on the next digit", async () => {
+  stubShell(true);
+  const fetchMock = stubWorkspaceFileFetch(["one", "two"]);
+  function SessionHarness(props: { sessionId: string }) {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+        sessionId={props.sessionId}
+      />
+    );
+  }
+  const { rerender } = render(<SessionHarness sessionId="sess_a" />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  const before = fetchMock.mock.calls.length;
+
+  rerender(<SessionHarness sessionId="sess_b" />);
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1", selectionStart: 8, selectionEnd: 8 },
+  });
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
+  });
+  const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+  expect(String(lastCall?.[0]).startsWith("/foxxycode/workspace/file?")).toBe(true);
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  vi.unstubAllGlobals();
+});
+
+// --- "@" mention picker (GET /foxxycode/mentions) ---
+
+type MentionStubRow = {
+  kind: string;
+  insert: string;
+  label: string;
+  detail?: string;
+  continue?: boolean;
+};
+
+/** Answers GET /foxxycode/mentions from a map keyed by the query; records every URL. */
+function stubMentionsFetch(answers: Record<string, { items: MentionStubRow[]; total?: number }>) {
+  const urls: string[] = [];
+  const fetchMock = vi.fn((input: string) => {
+    urls.push(String(input));
+    const u = new URL(String(input), "http://x");
+    if (u.pathname === "/foxxycode/mentions") {
+      const a = answers[u.searchParams.get("q") ?? ""] ?? { items: [] };
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ items: a.items, total: a.total ?? a.items.length }),
+      });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return urls;
+}
+
+function MentionHarness(props: {
+  onChange: (v: string) => void;
+  generating?: boolean;
+}) {
+  const [value, setValue] = useState("");
+  return (
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      generating={props.generating ?? false}
+      onModeChange={() => {}}
+      onChange={(v) => {
+        setValue(v);
+        props.onChange(v);
+      }}
+      onSend={() => {}}
+    />
+  );
+}
+
+function typeDraft(ta: HTMLElement, value: string) {
+  fireEvent.change(ta, {
+    target: { value, selectionStart: value.length, selectionEnd: value.length },
+  });
+}
+
+test("the @ picker asks the server's search and names each candidate's kind", async () => {
+  stubShell(true);
+  const urls = stubMentionsFetch({
+    app: {
+      items: [
+        { kind: "file", insert: "@external/cli/app.go", label: "external/cli/app.go", detail: "external/cli/" },
+        { kind: "session", insert: "@session:sess_1", label: "App refactor", detail: "sess_1" },
+      ],
+      total: 7,
+    },
+  });
+  render(<MentionHarness onChange={() => {}} />);
+  typeDraft(screen.getByRole("textbox", { name: "Message" }), "@app");
+
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-external_cli_app_go")).toBeTruthy();
+  });
+  const first = urls.find((u) => u.startsWith("/foxxycode/mentions?"));
+  expect(first).toContain("q=app");
+  // The picker just opened: the server rebuilds its workspace index.
+  expect(first).toContain("refresh=1");
+  expect(screen.getByTestId("mention-row-session-App_refactor")).toHaveTextContent("session");
+  expect(screen.getByTestId("mention-more")).toHaveTextContent("2 of 7, type to narrow");
+  vi.unstubAllGlobals();
+});
+
+test("arrow keys pick the row that enter inserts, with a space after it", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: {
+      items: [
+        { kind: "file", insert: "@README.md", label: "README.md" },
+        { kind: "file", insert: "@internal/agent/react.go", label: "internal/agent/react.go" },
+      ],
+    },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} generating={true} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "see @rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  await waitFor(() => {
+    expect(
+      screen.getByTestId("mention-row-file-internal_agent_react_go"),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+  // The composer takes input while a turn runs, and so does the picker.
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onChange).toHaveBeenLastCalledWith("see @internal/agent/react.go ");
+  vi.unstubAllGlobals();
+});
+
+test("the server's answer keeps the row the arrows moved to among the recent picks", async () => {
+  stubShell(true);
+  localStorage.clear();
+  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, { path_rel: "b.go", kind: "file" });
+  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, { path_rel: "a.go", kind: "file" });
+  let answer: (v: unknown) => void = () => {};
+  const pending = new Promise((resolve) => {
+    answer = resolve;
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string) =>
+      String(input).startsWith("/foxxycode/mentions?")
+        ? pending.then(() => ({
+            ok: true,
+            json: async () => ({
+              items: [{ kind: "scheme", insert: "@session:", label: "session:", continue: true }],
+              total: 1,
+            }),
+          }))
+        : Promise.resolve({ ok: false, status: 404, json: async () => ({}) }),
+    ),
+  );
+  render(<MentionHarness onChange={() => {}} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-b_go")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute("aria-selected", "true");
+  });
+  answer(null);
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-scheme-session_")).toBeTruthy();
+  });
+  expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute("aria-selected", "true");
+  localStorage.clear();
+  vi.unstubAllGlobals();
+});
+
+test("the composer chips only the mentions the server says a send would attach", async () => {
+  stubShell(true);
+  const checks: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, init?: RequestInit) => {
+      if (String(input) === "/foxxycode/mentions/check") {
+        checks.push(String(init?.body ?? ""));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            object: "foxxycode.mention_check",
+            mentions: [
+              { token: "@google/genai" },
+              { token: "@README.md", typed: "@README.md", kind: "file" },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ items: [], total: 0 }) });
+    }),
+  );
+  render(<MentionHarness onChange={() => {}} />);
+  typeDraft(
+    screen.getByRole("textbox", { name: "Message" }),
+    "npm install @google/genai and read @README.md please",
+  );
+  // A package name is not a file: only the mention that resolves is a chip.
+  await waitFor(() => {
+    expect(
+      screen.getAllByTestId("composer-at-chip").map((el) => el.textContent),
+    ).toEqual(["@README.md"]);
+  });
+  expect(JSON.parse(checks[checks.length - 1] ?? "{}")).toEqual({
+    text: "npm install @google/genai and read @README.md please",
+  });
+  vi.unstubAllGlobals();
+});
+
+test("a folder row keeps the picker open on what it holds", async () => {
+  stubShell(true);
+  const urls = stubMentionsFetch({
+    src: { items: [{ kind: "directory", insert: "@src/", label: "src/", continue: true }] },
+    "src/": { items: [{ kind: "file", insert: "@src/app.go", label: "src/app.go" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@src");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-directory-src_")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).toHaveBeenLastCalledWith("@src/");
+  await waitFor(() => {
+    expect(urls.some((u) => u.includes("q=src%2F"))).toBe(true);
+  });
+  vi.unstubAllGlobals();
+});
+
+test("the permission chip names the session's mode and switches it (#292)", () => {
+  const picked: string[] = [];
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      permissionMode="bypass"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={(m) => picked.push(m)}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-permission");
+  expect(chip.textContent).toBe("Bypass");
+  expect(chip.className).toContain("perm-bypass");
+  expect(chip.getAttribute("title")).toContain("Ask first");
+  fireEvent.click(chip);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Ask first" }));
+  expect(picked).toEqual(["ask"]);
+});
+
+test("the permission chip is not shown without a handler", () => {
+  renderComposer({ isEmpty: false });
+  expect(screen.queryByTestId("composer-permission")).toBeNull();
+});
+
+test("the settings armed for the next turns are shown next to the selectors", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      settingsOverrides={[
+        { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
+        { setting: "reasoning", value: "off", turnsLeft: 1 },
+      ]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-overrides");
+  expect(chip.textContent).toBe("nd/gpt-oss-120b this turn and 2 more +1");
+  expect(chip.getAttribute("title")).toContain("off, 1 turn left");
+});
+
+test("picking /plan in the / menu switches the mode instead of typing it", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn((url: string) => {
+    if (String(url).includes("/foxxycode/slash-commands")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          object: "foxxycode.slash_commands_page",
+          items: [
+            {
+              name: "plan",
+              description: "Plan mode",
+              kind: "setting",
+              hint: "[--once|--count=N]",
+            },
+          ],
+          has_more: false,
+          page: 1,
+        }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ items: [], has_more: false, page: 1 }),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const modes: string[] = [];
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan", "ask"]}
+        onModeChange={(m) => modes.push(m)}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/pl", selectionStart: 3, selectionEnd: 3 },
+  });
+  const row = await screen.findByTestId("slash-command-row-plan");
+  expect(row.textContent).toContain("[--once|--count=N]");
+  fireEvent.mouseDown(row);
+  expect(modes).toEqual(["plan"]);
+  expect(ta.value).toBe("");
+  vi.unstubAllGlobals();
 });

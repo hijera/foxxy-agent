@@ -1,7 +1,7 @@
 package dev.foxxycode.intellij.process
 
 import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.process.OSProcessHandler
+import com.intellij.execution.process.KillableProcessHandler
 import com.intellij.execution.process.ProcessAdapter
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.openapi.Disposable
@@ -12,15 +12,19 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.io.BaseOutputReader
 import com.intellij.util.execution.ParametersListUtil
 import com.google.gson.JsonParser
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
+import dev.foxxycode.intellij.FoxxyCodeNotifications
 import dev.foxxycode.intellij.binary.FoxxyCodeBinaryResolver
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import dev.foxxycode.intellij.ui.FoxxyCodeLanguageListener
 import java.net.HttpURLConnection
 import java.net.URI
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Owns the per-project `foxxycode http` subprocess: launch, readiness polling, restart, shutdown.
@@ -31,7 +35,10 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     private val log = logger<FoxxyCodeProcessManager>()
 
     @Volatile
-    private var handler: OSProcessHandler? = null
+    private var handler: KillableProcessHandler? = null
+
+    /** Backends already told to die, whose exit the next launch waits for. */
+    private val terminating = CopyOnWriteArrayList<KillableProcessHandler>()
 
     @Volatile
     var baseUrl: String? = null
@@ -61,24 +68,44 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     }
 
     fun restart(onReady: (String) -> Unit, onError: (String) -> Unit) {
-        stop()
+        // Signal only: the blocking half runs inside the background task startAndWait owns.
+        signalStop()
         ensureStarted(onReady, onError)
     }
 
     @Synchronized
     private fun startAndWait(indicator: ProgressIndicator): String {
         baseUrl?.let { if (isRunning) return it }
+<<<<<<< HEAD
         val started = System.nanoTime()
         fun stage(name: String) = log.info("[foxxycode] startup stage=$name elapsed_ms=${(System.nanoTime() - started) / 1_000_000}")
         stage("start")
         stopInternal()
+=======
+        signalStop()
+        // A backend still holding the port would make the fresh one die on bind, and on Windows
+        // one still holding its image file would block the next plugin update. This is the
+        // background task, so waiting here is free.
+        awaitTerminated(RESTART_WAIT_MS)
+>>>>>>> origin/main
 
         val settings = FoxxyCodeSettings.getInstance().state
-        val binary = FoxxyCodeBinaryResolver.resolveExisting()
+        // The first launch after a plugin update copies the binary out of the plugin directory,
+        // which takes a moment; say so rather than looking stuck.
+        indicator.text = FoxxyCodeBundle.message("process.indicator.staging")
+        val binary = FoxxyCodeBinaryResolver.resolveForLaunch()
             ?: throw IllegalStateException(FoxxyCodeBundle.message("process.error.binaryNotFound"))
 
         val host = settings.host.ifBlank { "127.0.0.1" }
         val port = PortUtil.pick(settings.fixedPort)
+        // A fixed port can simply be taken - by another IDE window (the port setting is
+        // application-wide while this service is per project) or by the previous backend that
+        // a plugin update is still shutting down. Waiting covers the second case; the first
+        // one has to be told to the user, because the process would otherwise die on bind and
+        // surface as the generic "exited before becoming ready".
+        if (settings.fixedPort in 1..65535 && !PortUtil.awaitAvailable(port, host)) {
+            throw IllegalStateException(FoxxyCodeBundle.message("process.error.portInUse", port.toString()))
+        }
 
         val cmd = GeneralCommandLine(binary.absolutePath)
             .withParameters("http", "-H", host, "-P", port.toString())
@@ -95,21 +122,52 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())
+<<<<<<< HEAD
         stage("process_launch_start")
         val h = OSProcessHandler(cmd)
         stage("process_launch_end")
+=======
+        recentOutput.clear()
+        // The backend is a long-running server that prints almost nothing after startup. The
+        // default reader polls it as if output were imminent, which the IDE itself warns about
+        // ("Process hasn't generated any output for a long time") and which costs CPU for
+        // nothing.
+        val h = object : KillableProcessHandler(cmd) {
+            override fun readerOptions(): BaseOutputReader.Options =
+                BaseOutputReader.Options.forMostlySilentProcess()
+        }
+        // `foxxycode http` blocks in ListenAndServe with no signal handling, so a soft kill would
+        // be reported as delivered and the hard one skipped - leaving the backend alive. With it
+        // off, destroyProcess() goes straight to the recursive kill, which also takes down the
+        // shells and MCP servers the backend spawned.
+        h.setShouldKillProcessSoftly(false)
+>>>>>>> origin/main
         h.addProcessListener(object : ProcessAdapter() {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                log.info("[foxxycode] " + event.text.trimEnd())
+                val line = event.text.trimEnd()
+                log.info("[foxxycode] " + line)
+                rememberOutput(line)
             }
 
             override fun processTerminated(event: ProcessEvent) {
                 log.info("[foxxycode] process terminated, exit=${event.exitCode}")
+                // Read both before they are cleared: `terminating` is this project's record
+                // that the stop was asked for, and a null baseUrl means the backend never
+                // finished starting (waitForReady reports that case itself).
+                val report = shouldReportBackendExit(
+                    deliberate = terminating.contains(h),
+                    reapingAll = FoxxyCodeBackends.isReapingAll,
+                    hadBecomeReady = baseUrl != null,
+                )
                 baseUrl = null
+                terminating.remove(h)
+                FoxxyCodeBackends.unregister(h)
+                if (report) reportUnexpectedExit(event.exitCode)
             }
         })
         h.startNotify()
         handler = h
+        FoxxyCodeBackends.register(h)
 
         val url = "http://$host:$port/"
         stage("readiness_start")
@@ -158,13 +216,57 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         }
     }
 
+    /**
+     * Tell the user the backend died. A balloon, not the panel's own error view: the panel
+     * would swap the whole chat for an error message and throw away the transcript that is
+     * still on screen and still worth reading.
+     */
+    private fun reportUnexpectedExit(exitCode: Int) {
+        val detail = recentOutputText().trim()
+        val body = FoxxyCodeBundle.message("process.error.backendExited", exitCode) +
+            if (detail.isEmpty()) "" else "<br/><br/>" + htmlEscape(detail)
+        ApplicationManager.getApplication().invokeLater {
+            FoxxyCodeNotifications.error(
+                project,
+                FoxxyCodeBundle.message("notification.title.backendExited"),
+                body,
+            )
+        }
+    }
+
+    /** The backend prints plain text; a notification body is rendered as HTML. */
+    private fun htmlEscape(text: String): String =
+        text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br/>")
+
+    /** Last lines the backend printed, kept so a startup failure can quote them to the user. */
+    private val recentOutput = ArrayDeque<String>()
+
+    private fun rememberOutput(line: String) {
+        if (line.isBlank()) return
+        synchronized(recentOutput) {
+            recentOutput.addLast(line)
+            while (recentOutput.size > MAX_REMEMBERED_OUTPUT) recentOutput.removeFirst()
+        }
+    }
+
+    /** The remembered backend output as one block, or "" when it printed nothing. */
+    private fun recentOutputText(): String = synchronized(recentOutput) { recentOutput.joinToString("\n") }
+
     private fun waitForReady(url: String, indicator: ProgressIndicator) {
         val probe = url + "v1/models"
         val deadline = System.currentTimeMillis() + 30_000
         var lastError = "timeout"
         while (System.currentTimeMillis() < deadline) {
             if (!isRunning) {
-                throw IllegalStateException(FoxxyCodeBundle.message("process.error.exitedBeforeReady"))
+                // The backend already said why it died - "bind: address already in use", a bad
+                // config key, a missing provider. Quoting it beats the generic guess.
+                val detail = recentOutputText()
+                val base = FoxxyCodeBundle.message("process.error.exitedBeforeReady")
+                throw IllegalStateException(if (detail.isEmpty()) base else "$base\n\n$detail")
             }
             indicator.checkCanceled()
             try {
@@ -183,16 +285,20 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         throw IllegalStateException(FoxxyCodeBundle.message("process.error.notReady", lastError))
     }
 
-    @Synchronized
-    fun stop() = stopInternal()
-
-    private fun stopInternal() {
+    /**
+     * Tells the backend to terminate and forgets it. Never blocks: this runs on the EDT during
+     * dispose()/plugin unload/restart, where waiting would freeze the whole IDE. The wait lives
+     * in [awaitTerminated], which every caller schedules off the EDT.
+     *
+     * Not `@Synchronized` on purpose: `startAndWait` holds that lock for as long as the readiness
+     * probe runs, and dispose()/restart call this from the EDT.
+     */
+    private fun signalStop() {
         val h = handler
         handler = null
         baseUrl = null
-        // destroyProcess() only signals termination; never block here. stopInternal() runs on the
-        // EDT during dispose()/plugin unload/restart, where waitFor would freeze the whole IDE.
         if (h != null && !h.isProcessTerminated) {
+            terminating.addIfAbsent(h)
             try {
                 h.destroyProcess()
             } catch (e: Exception) {
@@ -201,9 +307,37 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         }
     }
 
-    override fun dispose() = stopInternal()
+    /**
+     * Waits for everything [signalStop] signalled to actually exit, killing whatever is left
+     * along with its children. Blocking; never call from the EDT.
+     */
+    @RequiresBackgroundThread
+    private fun awaitTerminated(budgetMs: Long) {
+        val pending = terminating.toList()
+        if (pending.isEmpty()) return
+        val survivors = ProcessReaper.reapAll(pending.map { FoxxyCodeBackends.asKillable(it) }, budgetMs)
+        if (survivors > 0) log.warn("$survivors FoxxyCode backend(s) still alive after ${budgetMs}ms")
+        terminating.removeAll(pending)
+        for (h in pending) FoxxyCodeBackends.unregister(h)
+    }
+
+    override fun dispose() {
+        signalStop()
+        // Project close and plugin unload both land here on the EDT, so the wait moves to a
+        // pooled thread - but it has to happen: an unwaited backend outlives the IDE on Windows.
+        ApplicationManager.getApplication().executeOnPooledThread { awaitTerminated(DISPOSE_WAIT_MS) }
+    }
 
     companion object {
+        /** Enough backend output to carry a stack-free error message, not enough to flood a balloon. */
+        private const val MAX_REMEMBERED_OUTPUT = 20
+
+        /** How long a relaunch waits for the outgoing backend to release its port. */
+        private const val RESTART_WAIT_MS = 2_500L
+
+        /** How long project close waits for the backend, on a pooled thread. */
+        private const val DISPOSE_WAIT_MS = 3_000L
+
         fun getInstance(project: Project): FoxxyCodeProcessManager =
             project.getService(FoxxyCodeProcessManager::class.java)
     }

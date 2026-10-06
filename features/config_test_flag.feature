@@ -1,0 +1,75 @@
+Feature: Checking config.yaml before anything starts
+  An operator edits ~/.foxxycode/config.yaml by hand and learns about a typo only when a
+  surface misbehaves, because the loader decodes the file leniently: a key it does not
+  know is ignored, and a value of the wrong shape surfaces as a runtime error somewhere
+  else. The -t / --test-config flag of the console, of foxxycode acp, of foxxycode http and of
+  foxxycode serve checks the file the process would load against the published JSON Schema and the loader's own
+  rules, then prints every problem with its line, what is wrong and how to fix it. It starts
+  nothing and touches nothing: the backup recovery a normal load performs never runs.
+  A problem is placed where it is - the parser blames the line its enclosing block began
+  on, which on a commented file is a blank line far above - and a file an editor on Windows
+  wrote reads exactly like one written anywhere else. A switch is spelled `enable`, the way
+  upstream coddy spells it; a file written before that rename says `enabled`, and is read the
+  same way the loader reads it: the switch counts, and the report only warns about the spelling.
+
+  Scenario: a valid config passes and nothing is started or created
+    Given a config.yaml with one provider and one model
+    When I run foxxycode serve with --test-config
+    Then the command succeeds
+    And the report says the config is valid
+    And nothing was created under the home besides config.yaml
+
+  @http
+  Scenario: foxxycode http, the command the editor plugins start, checks the same way
+    Given a config.yaml whose logger.level is "verbose"
+    When I run foxxycode http with -t
+    Then the command fails
+    And the report points at the line of "verbose"
+    And nothing was created under the home besides config.yaml
+
+  Scenario: a misspelled key is reported with its line and the key that was meant
+    Given a config.yaml whose httpserver section says "enbaled: true" on line 3
+    When I run foxxycode with -t
+    Then the command fails
+    And the report points at line 3 of the config file
+    And the report names the unknown key "enbaled" and suggests "enable"
+
+  Scenario: a config written before the switch rename passes, with a warning about its key
+    Given a config.yaml whose httpserver section says "enabled: false" on line 3
+    When I run foxxycode serve with --test-config
+    Then the command succeeds
+    And the report says the config is valid
+    And the report warns at line 3 that "enabled" is read as "enable"
+
+  Scenario: a value outside the allowed set comes with the values that are allowed
+    Given a config.yaml whose logger.level is "verbose"
+    When I run foxxycode serve with --test-config
+    Then the command fails
+    And the report points at the line of "verbose"
+    And the report lists the allowed values "debug, info, warn, warning, error"
+
+  Scenario: a broken line is reported where it is, not where its section began
+    Given a config.yaml whose provider entry loses one space of indentation on line 22
+    When I run foxxycode with -t
+    Then the command fails
+    And the report points at line 22 of the config file
+
+  Scenario: a config saved by a Windows editor reads like any other
+    Given a config.yaml with one provider and one model saved as Windows text
+    When I run foxxycode serve with --test-config
+    Then the command succeeds
+    And the report says the config is valid
+    And the report has nothing else to say
+
+  Scenario: an output cap the provider never sends is reported as bounding nothing
+    Given a config.yaml whose codex model sets max_tokens on line 7
+    When I run foxxycode with -t
+    Then the command succeeds
+    And the report points at line 7 of the config file
+    And the report warns that max_tokens bounds nothing on a codex model
+
+  Scenario: the check never rewrites the file
+    Given a config.yaml with a broken value and a valid config.yaml.bak beside it
+    When I run foxxycode acp with -t
+    Then the command fails
+    And config.yaml still has the broken value

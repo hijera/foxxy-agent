@@ -18,7 +18,8 @@ import (
 
 func TestComposerStreamRelayReplayAndLive(t *testing.T) {
 	r := newComposerStreamRelay()
-	if _, err := r.Write([]byte("alpha")); err != nil {
+	// The relay records whole SSE frames, so the test speaks in frames too.
+	if _, err := r.Write([]byte("data: alpha\n\n")); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
@@ -31,7 +32,7 @@ func TestComposerStreamRelayReplayAndLive(t *testing.T) {
 		}
 	}()
 	time.Sleep(20 * time.Millisecond)
-	if _, err := r.Write([]byte("beta")); err != nil {
+	if _, err := r.Write([]byte("data: beta\n\n")); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -73,7 +74,7 @@ func TestFoxxyCodeSessionComposerStreamDeliversRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)

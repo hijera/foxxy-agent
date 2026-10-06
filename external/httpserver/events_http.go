@@ -1,0 +1,102 @@
+//go:build http
+
+package httpserver
+
+import (
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/session"
+)
+
+// serverEventsKeepalive bounds how long an idle events stream stays silent. Proxies and
+// load balancers drop a connection that says nothing for a few minutes.
+const serverEventsKeepalive = 20 * time.Second
+
+// foxxycodeEventsStream streams session-independent events, currently the turn lifecycle.
+//
+// It exists so a client can be told a turn started in a session it is not driving. Without
+// it the only way to notice is polling GET /foxxycode/sessions, which means the start of every
+// turn in a long-running loop is missed and watched live only from its middle.
+func (s *Server) foxxycodeEventsStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":{"message":"streaming unsupported"}}`, http.StatusInternalServerError)
+		return
+	}
+
+	frames, unsubscribe := s.events.subscribe()
+	defer unsubscribe()
+
+	writeSSEHeaders(w)
+	// Subscribe before the snapshot, so a turn starting in between is delivered twice
+	// rather than lost; a repeated turn_started is idempotent for every consumer.
+	_, _ = io.WriteString(w, "retry: 3000\n\n")
+	for _, id := range s.mgr.ActiveTurnSessionIDs() {
+		// The turn's own start, not the moment this client connected: a console
+		// reconnecting mid-turn counts the turn's clock from "at". A turn that
+		// ended between the two reads is announced as just started, and its
+		// turn_ended follows on the subscription taken above.
+		at, ok := s.mgr.TurnStartedAt(id)
+		if !ok {
+			at = time.Now().UTC()
+		}
+		_, _ = w.Write(turnEventFrame(session.TurnEvent{
+			SessionID: id,
+			Phase:     session.TurnPhaseStarted,
+			At:        at,
+		}))
+		// A turn finished background tasks started says so again, dated at
+		// the same start: a client that follows only its own turns and the
+		// woken ones - a console over --remote that has just reconnected -
+		// finds it here, and knows it from a turn it already followed.
+		if wake := s.mgr.TurnWake(id); wake != nil {
+			_, _ = w.Write(turnEventFrame(session.TurnEvent{
+				SessionID: id,
+				Phase:     session.TurnPhaseWoken,
+				At:        at,
+				Wake:      wake,
+			}))
+		}
+	}
+	// A subagent already waiting for an answer is part of the snapshot too: a
+	// console attached after it asked has no other way to find the prompt. A
+	// prompt settled in between is announced as settled after the snapshot,
+	// which a client handles like any other settled prompt.
+	for _, dto := range waitingDetachedPrompts() {
+		if frame := subagentPermissionFrame(detachedPromptAsked, dto); frame != nil {
+			_, _ = w.Write(frame)
+		}
+	}
+	// The snapshot is what makes a client connecting mid-turn see the turn at all, and
+	// "ready" is how it knows the snapshot is complete rather than still arriving.
+	_, _ = io.WriteString(w, "event: ready\ndata: {\"object\":\"foxxycode.events_ready\"}\n\n")
+	fl.Flush()
+
+	keepalive := time.NewTicker(serverEventsKeepalive)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case frame, open := <-frames:
+			if !open {
+				return
+			}
+			if _, err := w.Write(frame); err != nil {
+				return
+			}
+			fl.Flush()
+		case <-keepalive.C:
+			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			fl.Flush()
+		}
+	}
+}

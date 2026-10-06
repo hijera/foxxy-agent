@@ -8,7 +8,20 @@ WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY external/ui/ ./
-COPY docs/assets/foxxycode-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+# What the SPA build needs from outside external/ui, at /docs/assets because every
+# path above /ui collapses to /: the favicons scripts-sync-to-go.mjs copies into
+# the go:embed set, then the two wordmarks src/ui/auth/SignInScreen.tsx imports
+# (it says there why out of docs/assets and not through the src/assets symlinks)
+# and Vite inlines into the bundle. Those two were missing, so `npm run build:go`
+# stopped at [UNRESOLVED_IMPORT] and 0.2.94 to 0.3.1 published no image.
+# TestDockerBuildContextHoldsWhatTheSPAImports now fails on an import that leaves
+# external/ui without a copy here.
+COPY docs/assets/foxxycode-favicon.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+# A glob rather than a list: COPY carries the src/assets symlinks over as
+# links, so every target has to exist at the same path inside the image.
+# This covers every mark and wordmark the SPA links today, and the next one
+# nobody remembers to add here (TestDockerfileStagesEverySymlinkedAsset).
+COPY docs/assets/foxxycode-logo-*.svg /docs/assets/
 RUN npm run build:go
 
 
@@ -25,7 +38,7 @@ ARG VERSION=dev
 # Default build includes the messenger gateway so the image can run `foxxycode gateway`
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
-ARG BUILD_TAGS=http,scheduler,ui,memory,gateway
+ARG BUILD_TAGS=http,scheduler,ui,memory,gateway,cli,browser,swarm
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
@@ -35,7 +48,7 @@ ENV GOARCH=${TARGETARCH}
 ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
-COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /src/external/ui/
+COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
 
 RUN mkdir -p /out \
 	/out/ssl-certs \
@@ -71,6 +84,11 @@ ENV FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml
 EXPOSE 12345
 
 ENTRYPOINT ["/bin/foxxycode"]
-# Default subcommand. Override to run another mode, e.g. `docker run ... gateway --cwd /workspace`
-# or via compose `command:` / the FOXXYCODE_COMMAND override in docker-compose(.dev).yml.
-CMD ["http","-H","0.0.0.0","-P","12345"]
+# Default subcommand. `serve` starts every subsystem the mounted config.yaml enables -
+# the HTTP API and web UI unless it says otherwise, plus the Telegram gateway, the
+# swarm relay and the cron scheduler when they are turned on - over one set of
+# sessions. The bind address is explicit because a container has to accept
+# connections from outside it, where `serve` on its own would answer on loopback.
+# Override for a single surface, e.g. `docker run ... gateway --cwd /workspace`, or
+# via compose `command:` / the FOXXYCODE_COMMAND override in docker-compose(.dev).yml.
+CMD ["serve","-H","0.0.0.0","-P","12345"]

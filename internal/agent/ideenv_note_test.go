@@ -33,7 +33,7 @@ func TestIdeEnvNoteEmptyWhenNoState(t *testing.T) {
 
 func TestIdeEnvNoteRelativizesToCwd(t *testing.T) {
 	t.Cleanup(ideenv.Reset)
-	ideenv.Set([]string{"/ws/src/a.go", "/ws/src/b.go", "/other/c.go"}, "/ws/src/a.go")
+	ideenv.Set([]string{"/ws/src/a.go", "/ws/src/b.go", "/other/c.go"}, "/ws/src/a.go", nil)
 
 	note := ideEnvNote("/ws")
 	if !strings.HasPrefix(note, "<foxxycode_ide_context>") || !strings.HasSuffix(note, "</foxxycode_ide_context>") {
@@ -53,17 +53,49 @@ func TestIdeEnvNoteRelativizesToCwd(t *testing.T) {
 
 func TestIdeEnvNoteNoneWhenOnlyActiveMissing(t *testing.T) {
 	t.Cleanup(ideenv.Reset)
-	ideenv.Set([]string{"/ws/a.go"}, "")
+	ideenv.Set([]string{"/ws/a.go"}, "", nil)
 	note := ideEnvNote("/ws")
 	if !strings.Contains(note, "# Active File\n(none)") {
 		t.Fatalf("expected (none) active file, got %q", note)
 	}
 }
 
+func TestIdeEnvNoteIncludesSelection(t *testing.T) {
+	t.Cleanup(ideenv.Reset)
+	ideenv.Set([]string{"/ws/src/a.go"}, "/ws/src/a.go", &ideenv.Selection{
+		File: "/ws/src/a.go", StartLine: 21, EndLine: 31, Text: "x := 1\ny := 2",
+	})
+	note := ideEnvNote("/ws")
+	if !strings.Contains(note, "# Selection\nsrc/a.go:21-31\nx := 1\ny := 2\n") {
+		t.Fatalf("selection section missing or wrong: %q", note)
+	}
+}
+
+func TestIdeEnvNoteOmitsSelectionWhenNone(t *testing.T) {
+	t.Cleanup(ideenv.Reset)
+	ideenv.Set([]string{"/ws/a.go"}, "/ws/a.go", nil)
+	if note := ideEnvNote("/ws"); strings.Contains(note, "# Selection") {
+		t.Fatalf("unexpected selection section: %q", note)
+	}
+}
+
+func TestIdeEnvNoteCapsSelectionText(t *testing.T) {
+	t.Cleanup(ideenv.Reset)
+	long := strings.Repeat("z", ideEnvMaxSelectionBytes+500)
+	ideenv.Set(nil, "", &ideenv.Selection{File: "/ws/a.go", StartLine: 1, EndLine: 400, Text: long})
+	note := ideEnvNote("/ws")
+	if !strings.Contains(note, "# Selection") {
+		t.Fatalf("selection section missing: %q", note)
+	}
+	if strings.Count(note, "z") > ideEnvMaxSelectionBytes {
+		t.Fatalf("selection text not capped: %d z's", strings.Count(note, "z"))
+	}
+}
+
 func TestRunInjectsIdeContextIntoUserMessage(t *testing.T) {
 	t.Cleanup(ideenv.Reset)
 	cwd := t.TempDir()
-	ideenv.Set([]string{cwd + "/main.go"}, cwd+"/main.go")
+	ideenv.Set([]string{cwd + "/main.go"}, cwd+"/main.go", nil)
 
 	st := &session.State{
 		ID:         "sess_ide_ctx",
@@ -100,7 +132,7 @@ func TestIdeEnvNoteCapsTabs(t *testing.T) {
 	for i := range many {
 		many[i] = "/ws/f" + strings.Repeat("x", i%3) + string(rune('a'+i%26)) + ".go"
 	}
-	ideenv.Set(many, many[0])
+	ideenv.Set(many, many[0], nil)
 	note := ideEnvNote("/ws")
 	// Count lines in the Open Tabs section.
 	tabsSection := note[strings.Index(note, "# Open Tabs\n")+len("# Open Tabs\n"):]

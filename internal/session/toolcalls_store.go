@@ -1,24 +1,89 @@
 package session
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 const toolCallMetaVersion = 1
 
+// toolCallStampLayout is RFC3339 with milliseconds. A transcript row reports how
+// long a step took by subtracting StartedAt from FinishedAt, and time.RFC3339
+// carries whole seconds only - so a call that finished inside the second it
+// started in was written down as starting and ending at the same instant, and
+// every step faster than a second read "0ms" once the session was reloaded.
+// Bundles written before this keep their second-granular stamps; there is no
+// sub-second reading left in them to recover.
+const toolCallStampLayout = "2006-01-02T15:04:05.000Z07:00"
+
 type ToolCallMeta struct {
-	Version    int    `json:"version"`
-	ToolCallID string `json:"toolCallId"`
-	Name       string `json:"name,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Status     string `json:"status,omitempty"`
-	StartedAt  string `json:"startedAt,omitempty"`
-	FinishedAt string `json:"finishedAt,omitempty"`
+	Version      int             `json:"version"`
+	ToolCallID   string          `json:"toolCallId"`
+	Name         string          `json:"name,omitempty"`
+	Kind         string          `json:"kind,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	StartedAt    string          `json:"startedAt,omitempty"`
+	FinishedAt   string          `json:"finishedAt,omitempty"`
+	PlanSnapshot []acp.PlanEntry `json:"planSnapshot,omitempty"`
+}
+
+// ToolCallDirName maps a tool call id to the name of its folder under
+// tool_calls/. An id that is already a safe single path segment keeps its own
+// name, so every bundle written so far reads back unchanged; anything else - a
+// provider that sends "../x", an id carrying a separator, one longer than a file
+// name may be - is stored under a digest of the id instead of escaping the
+// bundle or losing the record, and meta.json keeps the id itself. A derived name
+// is a safe segment in its turn, so resolving one again is a no-op and a folder
+// name handed back by ListToolCalls addresses the same folder.
+//
+// Before that rule this fork already stored ids with path-unsafe characters -
+// NeuralDeep-hosted models answer with harmony ids such as
+// "functions.foxxycode_todo_plan_replace:0", and ':' is not a legal path
+// character on Windows - under the id rewritten to the safe alphabet plus a short
+// hash suffix. Every id that rewrite still turns into a valid segment keeps that
+// folder name, so those bundles read back unchanged; only what the rewrite cannot
+// make safe (a leading dot, "..", a name past 128 characters) falls through to the
+// digest.
+func ToolCallDirName(toolCallID string) string {
+	id := strings.TrimSpace(toolCallID)
+	if ValidateToolCallID(id) == nil {
+		return id
+	}
+	if legacy := sanitizedToolCallDirName(id); ValidateToolCallID(legacy) == nil {
+		return legacy
+	}
+	sum := sha256.Sum256([]byte(id))
+	return "tc_" + hex.EncodeToString(sum[:16])
+}
+
+// sanitizedToolCallDirName is the fork's original mapping for an id with
+// characters outside [A-Za-z0-9._-]: each such character becomes '_', and a hash
+// of the whole id is appended so distinct ids never share a directory.
+func sanitizedToolCallDirName(id string) string {
+	var b strings.Builder
+	for _, r := range id {
+		if toolCallDirRuneOK(r) {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	sum := sha256.Sum256([]byte(id))
+	return b.String() + "-" + hex.EncodeToString(sum[:4])
+}
+
+func toolCallDirRuneOK(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
 }
 
 func toolCallDir(sessionDir, toolCallID string) (string, error) {
@@ -29,7 +94,7 @@ func toolCallDir(sessionDir, toolCallID string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("toolCallId is empty")
 	}
-	return filepath.Join(sessionDir, toolCallsDirName, id), nil
+	return filepath.Join(sessionDir, toolCallsDirName, ToolCallDirName(id)), nil
 }
 
 func ensureToolCallDir(sessionDir, toolCallID string) (string, error) {
@@ -48,11 +113,15 @@ func WriteToolCallArgs(sessionDir, toolCallID, argsJSON string) error {
 	if err != nil {
 		return err
 	}
-	var tmp any
-	if err := json.Unmarshal([]byte(argsJSON), &tmp); err != nil {
+	// Pretty-print the raw bytes: a round trip through interface{} would
+	// turn integers past 2^53 into rounded floats, and a permission resume
+	// binds to these exact arguments.
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, []byte(argsJSON), "", "  "); err != nil {
 		return writeTextAtomic(filepath.Join(dir, "args.json"), argsJSON)
 	}
-	return writeJSONAtomic(filepath.Join(dir, "args.json"), tmp)
+	pretty.WriteByte('\n')
+	return writeBytesAtomic(filepath.Join(dir, "args.json"), pretty.Bytes())
 }
 
 func WriteToolCallResult(sessionDir, toolCallID, resultMarkdown string) error {
@@ -75,6 +144,42 @@ func WriteToolCallMeta(sessionDir, toolCallID string, meta ToolCallMeta) error {
 		meta.ToolCallID = strings.TrimSpace(toolCallID)
 	}
 	return writeJSONAtomic(filepath.Join(dir, "meta.json"), meta)
+}
+
+// WriteToolCallPlanSnapshot stores the final todo state that a mutating tool call produced.
+// It lets historical tool cards render their original rows after later plan mutations.
+// A call whose meta.json does not exist yet gets a fresh one, so the snapshot may be
+// written before the call is marked started or finished.
+func WriteToolCallPlanSnapshot(sessionDir, toolCallID string, entries []acp.PlanEntry) error {
+	meta, err := ReadToolCallMeta(sessionDir, toolCallID)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		meta = &ToolCallMeta{ToolCallID: strings.TrimSpace(toolCallID)}
+	}
+	meta.PlanSnapshot = append([]acp.PlanEntry(nil), entries...)
+	return WriteToolCallMeta(sessionDir, toolCallID, *meta)
+}
+
+// AttachTodoPlanMeta returns meta with _meta.foxxycode.todoPlan set to entries, creating
+// the envelope when needed and leaving meta untouched when there is nothing to attach.
+// The value stays typed as []acp.PlanEntry: the ACP replay and the SSE bridge rely on
+// that shape, and so do the agent tests that read it back.
+func AttachTodoPlanMeta(meta map[string]interface{}, entries []acp.PlanEntry) map[string]interface{} {
+	if len(entries) == 0 {
+		return meta
+	}
+	if meta == nil {
+		meta = map[string]interface{}{}
+	}
+	foxxycodeMeta, _ := meta["foxxycode"].(map[string]interface{})
+	if foxxycodeMeta == nil {
+		foxxycodeMeta = map[string]interface{}{}
+		meta["foxxycode"] = foxxycodeMeta
+	}
+	foxxycodeMeta["todoPlan"] = append([]acp.PlanEntry(nil), entries...)
+	return meta
 }
 
 func ReadToolCallMeta(sessionDir, toolCallID string) (*ToolCallMeta, error) {
@@ -140,8 +245,10 @@ func ListToolCalls(sessionDir string) ([]string, error) {
 	return out, nil
 }
 
+// MarkToolCallStarted resets meta.json for a new attempt of the call: nothing from an
+// earlier attempt (timestamps, plan snapshot) may survive a restart.
 func MarkToolCallStarted(sessionDir, toolCallID, name, kind, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(toolCallStampLayout)
 	meta := ToolCallMeta{
 		Version:    toolCallMetaVersion,
 		ToolCallID: strings.TrimSpace(toolCallID),
@@ -153,8 +260,10 @@ func MarkToolCallStarted(sessionDir, toolCallID, name, kind, status string) erro
 	return WriteToolCallMeta(sessionDir, toolCallID, meta)
 }
 
+// MarkToolCallFinished stamps the outcome while keeping what the running call already
+// recorded: StartedAt and the plan snapshot a todo tool wrote before finishing.
 func MarkToolCallFinished(sessionDir, toolCallID, name, kind, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(toolCallStampLayout)
 	meta := ToolCallMeta{
 		Version:    toolCallMetaVersion,
 		ToolCallID: strings.TrimSpace(toolCallID),
@@ -176,6 +285,9 @@ func MarkToolCallFinished(sessionDir, toolCallID, name, kind, status string) err
 		if strings.TrimSpace(prev.StartedAt) != "" {
 			meta.StartedAt = prev.StartedAt
 		}
+		if len(prev.PlanSnapshot) > 0 {
+			meta.PlanSnapshot = append([]acp.PlanEntry(nil), prev.PlanSnapshot...)
+		}
 	}
 	return WriteToolCallMeta(sessionDir, toolCallID, meta)
 }
@@ -189,4 +301,38 @@ func writeTextAtomic(path, text string) error {
 		}
 	}
 	return writeBytesAtomic(path, data)
+}
+
+// CopyToolCallStore copies the per-call files (meta.json, args.json, result.md) of
+// toolCallID from srcSessionDir into dstSessionDir. A call with no store in the
+// source is skipped silently: the transcript still carries the call itself.
+func CopyToolCallStore(srcSessionDir, dstSessionDir, toolCallID string) error {
+	srcDir, err := toolCallDir(srcSessionDir, toolCallID)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	dstDir, err := ensureToolCallDir(dstSessionDir, toolCallID)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(srcDir, e.Name()))
+		if err != nil {
+			return err
+		}
+		if err := writeBytesAtomic(filepath.Join(dstDir, e.Name()), data); err != nil {
+			return err
+		}
+	}
+	return nil
 }

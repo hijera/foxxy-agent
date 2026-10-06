@@ -23,6 +23,6 @@ func TestPromptsPerProviderExplicitFalsePreserved(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 	if p.PerProviderEnabled() {
-		t.Error("explicit per_provider.enabled=false must be preserved")
+		t.Error("explicit per_provider.enable=false must be preserved")
 	}
 }

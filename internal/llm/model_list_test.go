@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestListModelsOpenAI(t *testing.T) {
@@ -37,6 +39,50 @@ func TestListModelsOpenAI(t *testing.T) {
 	}
 }
 
+func TestListModelsReadsTheReportedContextWindow(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"hub","limit":{"context":262144,"output":235929}},
+			{"id":"openrouter","context_length":200000},
+			{"id":"vllm","max_model_len":32768},
+			{"id":"lmstudio","max_context_length":"8192"},
+			{"id":"generic","context_window":1000000},
+			{"id":"limit-wins","limit":{"context":4096},"context_length":8192},
+			{"id":"embedding-without-limit","limit":{"output":512}},
+			{"id":"odd-shapes","limit":131072,"context_length":"128k","max_model_len":null},
+			{"id":"non-positive","context_length":0,"max_model_len":-1},
+			{"id":"plain"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	got, err := ListModels(context.Background(), ProviderInput{Type: "openai", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	want := map[string]int{
+		"hub":                     262144,
+		"openrouter":              200000,
+		"vllm":                    32768,
+		"lmstudio":                8192,
+		"generic":                 1000000,
+		"limit-wins":              4096,
+		"embedding-without-limit": 0,
+		"odd-shapes":              0,
+		"non-positive":            0,
+		"plain":                   0,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d models, want %d: %+v", len(got), len(want), got)
+	}
+	for _, m := range got {
+		if m.ContextWindow != want[m.ID] {
+			t.Errorf("%s: ContextWindow = %d, want %d", m.ID, m.ContextWindow, want[m.ID])
+		}
+	}
+}
+
 func TestListModelsAnthropic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -62,6 +108,41 @@ func TestListModelsAnthropic(t *testing.T) {
 	}
 	if got[0].Name != "Claude 3.5 Sonnet" {
 		t.Errorf("display_name not used as name: %q", got[0].Name)
+	}
+}
+
+func TestListModelsNeuralDeepUsesTheSelectedEndpoint(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.8-27b"}]}`))
+	}))
+	defer srv.Close()
+
+	// Stands in for the mirror: api_base is matched against the allowlist, so a
+	// provider can only ever reach a listed deployment.
+	restore := neuralDeepEndpoints
+	neuralDeepEndpoints = []neuralDeepEndpoint{
+		{APIBase: neuralDeepBaseURL, Hub: NeuralDeepHubURL},
+		{APIBase: srv.URL + "/v1", Hub: srv.URL},
+	}
+	t.Cleanup(func() { neuralDeepEndpoints = restore })
+
+	got, err := ListModels(context.Background(), ProviderInput{
+		Type: "neuraldeep", APIKey: "sk-k", BaseURL: srv.URL + "/v1",
+	})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if gotPath != "/v1/models" {
+		t.Errorf("request path = %q, want /v1/models", gotPath)
+	}
+	if gotAuth != "Bearer sk-k" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer sk-k")
+	}
+	if len(got) != 1 || got[0].ID != "qwen3.8-27b" {
+		t.Fatalf("got %+v, want one qwen3.8-27b", got)
 	}
 }
 
@@ -99,5 +180,83 @@ func TestListModelsUnsupportedType(t *testing.T) {
 	var ue *UnsupportedProviderError
 	if !errors.As(err, &ue) {
 		t.Fatalf("want UnsupportedProviderError, got %v", err)
+	}
+}
+
+func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
+	authPath := writeCodexAuth(t, t.TempDir(), codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens: codexTokens{
+			AccessToken: makeJWT(time.Now().Add(time.Hour)),
+			AccountID:   "acct-models",
+		},
+	})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %q, want /models", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("client_version"); got != codexModelsClientVersion {
+			t.Fatalf("client_version = %q, want numeric 0.0.0 fallback", got)
+		}
+		if r.Header.Get("Authorization") == "" || r.Header.Get("chatgpt-account-id") != "acct-models" {
+			t.Fatalf("missing Codex OAuth headers: %v", r.Header)
+		}
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5-codex","display_name":"GPT-5 Codex"}]}`))
+	}))
+	defer upstream.Close()
+
+	entries, err := fetchCodexCatalogOnline(context.Background(), ProviderInput{
+		Type:     "codex",
+		AuthPath: filepath.Clean(authPath),
+	}, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := normalizeCodexModels(entries)
+	if len(got) != 1 || got[0].ID != "gpt-5-codex" || got[0].Name != "GPT-5 Codex" {
+		t.Fatalf("models = %+v", got)
+	}
+}
+
+// TestListModelsVisionCapability pins the two catalog shapes that advertise image
+// input. The hub's own flag is not authoritative (see docs/features/browser-tool.md), so
+// the parsed value only pre-fills a models[].multimodal default the user can
+// override - it never gates a request.
+func TestListModelsVisionCapability(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"a-caps-vision","capabilities":{"vision":true}},
+			{"id":"b-modalities-image","modalities":{"input":["text","image"]}},
+			{"id":"c-text-only","capabilities":{"vision":false},"modalities":{"input":["text"]}},
+			{"id":"d-no-fields"},
+			{"id":"e-odd-shapes","capabilities":["vision"],"modalities":"text"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	got, err := ListModels(context.Background(), ProviderInput{Type: "openai", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	want := map[string]bool{
+		"a-caps-vision":      true,
+		"b-modalities-image": true,
+		"c-text-only":        false,
+		"d-no-fields":        false,
+		// A provider publishing an unexpected shape must not fail the catalog.
+		"e-odd-shapes": false,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d models, want %d: %+v", len(got), len(want), got)
+	}
+	for _, m := range got {
+		w, ok := want[m.ID]
+		if !ok {
+			t.Fatalf("unexpected model %q", m.ID)
+		}
+		if m.Vision != w {
+			t.Errorf("model %q Vision = %v, want %v", m.ID, m.Vision, w)
+		}
 	}
 }

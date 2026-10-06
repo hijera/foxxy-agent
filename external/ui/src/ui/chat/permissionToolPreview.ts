@@ -1,17 +1,27 @@
-import { t } from "../i18n/i18n";
+import { t, tp } from "../i18n/i18n";
+import { svnOperation } from "../messages/svnActionDisplay";
+import {
+  browserActionLabel,
+  isBrowserToolName,
+} from "../messages/browserActionDisplay";
 import {
   flattenDiffLines,
   parseDiffPatch,
   type ParsedDiffLine,
 } from "../messages/parseDiff";
+import { buildTodoToolPreview, type TodoPlanEntry } from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
+import { parseLoadSkillName } from "./loadSkillDisplay";
+import { toolDisplayName } from "../messages/toolDisplayName";
 
 export type PermissionToolCallContext = {
   title?: string | undefined;
   kind?: string | undefined;
   argsText?: string | undefined;
+  /** Final todo state captured when this tool call completed. */
+  todoPlan?: TodoPlanEntry[] | undefined;
 };
 
 type PermissionPreviewBase = {
@@ -23,7 +33,11 @@ type PermissionPreviewBase = {
 };
 
 export type PermissionToolPreview =
+  | (PermissionPreviewBase & { kind: "svn"; argsText: string })
+  | (PermissionPreviewBase & { kind: "browser"; argsText: string })
   | (PermissionPreviewBase & { kind: "code"; text: string })
+  | (PermissionPreviewBase & { kind: "shell"; text: string })
+  | (PermissionPreviewBase & { kind: "action" })
   | (PermissionPreviewBase & { kind: "path" })
   | (PermissionPreviewBase & {
       kind: "move";
@@ -34,7 +48,13 @@ export type PermissionToolPreview =
       kind: "diff";
       lines: ParsedDiffLine[];
       hunkHeaders: Array<{ at: number; text: string }>;
-    });
+    })
+  | (PermissionPreviewBase & {
+      kind: "todo";
+      variant: "item" | "plan";
+      entries: TodoPlanEntry[];
+    })
+  | (PermissionPreviewBase & { kind: "plan_exit" });
 
 function normalizedToolName(value: string | undefined): string {
   return (value || "").replace(/^run:\s*/i, "").trim();
@@ -78,6 +98,16 @@ function stringArg(args: Record<string, unknown>, ...names: string[]): string {
   return "";
 }
 
+/** A repeated string argument, e.g. the uci commands `config_set` stages. */
+function stringListArg(args: Record<string, unknown>, name: string): string[] {
+  const value = args[name];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+}
+
 function boolArg(
   args: Record<string, unknown>,
   name: string,
@@ -95,6 +125,119 @@ function numberArg(
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/**
+ * Short "what is this tool acting on" string: file path, command, or search pattern.
+ * Never localized — the caller renders it verbatim next to a localized verb.
+ *
+ * Deliberately not derived from buildToolCallPreview: that one localizes `header` for
+ * shell/move tools, puts the whole file body in `text` for write, and re-parses diffs on
+ * every call. The live status label recomputes on every transcript change, so it needs a
+ * cheap accessor.
+ *
+ * Returns "" when the arguments have not arrived yet (a `pending` tool call legitimately
+ * has none until its `tool_call_update` frame).
+ */
+export function toolCallTargetText(context: PermissionToolCallContext): string {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  const args = parseArgsText(context.argsText || "");
+  if (!args) {
+    return "";
+  }
+  // Every scheduler tool acts on, or reads, one job.
+  if (toolName.startsWith("foxxycode_scheduler_")) {
+    return stringArg(args, "job_id");
+  }
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+      return stringArg(args, "command");
+    case "grep":
+    case "glob":
+      return stringArg(args, "pattern");
+    case "websearch":
+    case "foxxycode_docs_search":
+      return stringArg(args, "query");
+    case "foxxycode_docs_read":
+      // A page of the documentation built into the binary, with its section.
+      return stringArg(args, "page");
+    case "http_request": {
+      // The method is half of what a request does; the url alone reads like a fetch.
+      const method = stringArg(args, "method").toUpperCase();
+      const url = stringArg(args, "url");
+      return method && url ? method + " " + url : url;
+    }
+    case "mv":
+      return stringArg(args, "src");
+    case "spawn_agent":
+      return stringArg(args, "agent");
+    case "load_skill":
+      // Same spelling as the preview header: no leading slash, however it was called.
+      return parseLoadSkillName(context.argsText);
+    case "question":
+      return "";
+    case "session_describe":
+      // The new name, when the call carries one; filing that only moves tags
+      // has no target worth a row's width.
+      return stringArg(args, "title");
+    case "config_set":
+      // Staged uci commands are what the call is about, the way a command is for
+      // run_command. One row, so they read as a list rather than as lines.
+      return stringListArg(args, "commands").join(", ");
+    default:
+      // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / list_dir /
+      // print_tree / docs_* / plan_* take a path; browser and webfetch take a url; config_get,
+      // config_set and config_revert take a dotted config key.
+      return stringArg(args, "path", "filePath", "file_path", "url", "name");
+  }
+}
+
+/** Argument names whose value is a filesystem path rather than a url or a name. */
+const PATH_ARGS = ["path", "filePath", "file_path", "src"];
+
+/**
+ * Whether the target of this call is a filesystem path, so a row may spell it
+ * relative to the session's directory (see `relativeToolTarget`). A command, a
+ * search pattern, a url, a skill or an agent name is not one, and rewriting it
+ * against a directory would say something the call never meant.
+ */
+export function toolCallTargetIsPath(
+  context: PermissionToolCallContext,
+): boolean {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+    case "grep":
+    case "glob":
+    case "websearch":
+    case "webfetch":
+    case "http_request":
+    case "foxxycode_docs_search":
+    case "foxxycode_docs_read":
+    case "spawn_agent":
+    case "load_skill":
+    case "question":
+    case "config_get":
+    case "config_set":
+    case "config_revert":
+      // A dotted config key looks like nothing on disk; respelling it against the
+      // session directory would say something the call never meant.
+      return false;
+    default: {
+      const args = parseArgsText(context.argsText || "");
+      return !!args && stringArg(args, ...PATH_ARGS) !== "";
+    }
+  }
+}
+
 function questionForTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -104,6 +247,7 @@ function questionForTool(
     case "ssh_run_command":
       return t("prompts.permissionQuestion.runCommand");
     case "write":
+    case "write_file":
       return t("prompts.permissionQuestion.write");
     case "edit":
       return t("prompts.permissionQuestion.edit");
@@ -121,6 +265,8 @@ function questionForTool(
         : t("prompts.permissionQuestion.rm");
     case "rmdir":
       return t("prompts.permissionQuestion.rmdir");
+    case "http_request":
+      return t("prompts.permissionQuestion.httpRequest");
     default:
       return t("prompts.permissionQuestion.fallback");
   }
@@ -193,6 +339,19 @@ function diffMeta(lines: ParsedDiffLine[]): string[] {
   return ["+" + additions, "−" + deletions];
 }
 
+/**
+ * Whether a preview body carries nothing but an empty argument object. Decided on the
+ * parsed value, so `{ }` and a pretty-printed `{\n}` count as empty too, while text that
+ * does not parse - a truncated history preview, an ACP rationale - stays a body worth
+ * showing rather than being mistaken for a call without arguments.
+ */
+function isEmptyArgsText(text: string): boolean {
+  const raw = text.trim();
+  if (raw === "") return true;
+  const parsed = parseArgsText(raw);
+  return parsed !== null && Object.keys(parsed).length === 0;
+}
+
 /** Tool-specific, render-ready preview shared by permission gates and transcript foldouts. */
 export function buildToolCallPreview(
   context: PermissionToolCallContext,
@@ -203,8 +362,95 @@ export function buildToolCallPreview(
     normalizedToolName(context.kind) ||
     "tool";
   const normalized = toolName.toLowerCase();
-  const args = parseArgsText(context.argsText || "") || {};
+  const parsedArgs = parseArgsText(context.argsText || "");
+  const args = parsedArgs || {};
   const title = questionForTool(normalized, args);
+  const svnOp = svnOperation(normalized);
+  if (svnOp) {
+    const argsText = parsedArgs
+      ? JSON.stringify(parsedArgs)
+      : context.argsText || fallback;
+    return {
+      toolName,
+      title,
+      header: t(`messages.svn.operation.${svnOp}`),
+      meta: [],
+      copyText: argsText,
+      kind: "svn",
+      argsText,
+    };
+  }
+  if (isBrowserToolName(normalized)) {
+    const argsText = Object.keys(args).length
+      ? JSON.stringify(args)
+      : context.argsText || fallback;
+    return {
+      toolName,
+      title,
+      header: browserActionLabel(toolName, argsText, "pending", t),
+      meta: [],
+      copyText: argsText,
+      kind: "browser",
+      argsText,
+    };
+  }
+  const todoPreview = buildTodoToolPreview({
+    toolName,
+    argsText: context.argsText,
+    planSnapshot: context.todoPlan,
+  });
+  if (todoPreview) {
+    return {
+      toolName,
+      title,
+      header:
+        todoPreview.variant === "item"
+          ? t("todoPreview.header.item")
+          : t("todoPreview.header.plan"),
+      meta:
+        todoPreview.variant === "item"
+          ? [
+              todoPreview.total > 0
+                ? t("todoPreview.meta.position", {
+                    position: todoPreview.position,
+                    total: todoPreview.total,
+                  })
+                : t("todoPreview.meta.positionOnly", {
+                    position: todoPreview.position,
+                  }),
+            ]
+          : [
+              tp("todoPreview.meta.completed", todoPreview.completed),
+              tp("todoPreview.meta.items", todoPreview.total),
+            ],
+      copyText: "",
+      kind: "todo",
+      variant: todoPreview.variant,
+      // A row rebuilt from the arguments alone has no text of its own.
+      entries: todoPreview.entries.map((entry) =>
+        entry.content
+          ? entry
+          : {
+              ...entry,
+              content: t("todoPreview.item.fallback", {
+                position:
+                  todoPreview.variant === "item" ? todoPreview.position : 0,
+              }),
+            },
+      ),
+    };
+  }
+
+  if (normalized === "plan_exit") {
+    return {
+      toolName,
+      title,
+      header: t("planExit.preview.header"),
+      meta: [],
+      copyText: "",
+      kind: "plan_exit",
+    };
+  }
 
   if (normalized === "run_command" || normalized === "ssh_run_command") {
     const command = stringArg(args, "command") || fallback;
@@ -218,8 +464,79 @@ export function buildToolCallPreview(
           : t("prompts.permissionHeader.shell"),
       meta: [t("prompts.permissionMeta.timeout", { seconds: timeout })],
       copyText: command,
-      kind: "code",
+      kind: "shell",
       text: command,
+    };
+  }
+
+  if (normalized === "load_skill") {
+    // The skill is what the call is about, and the transcript row already names it next
+    // to the label; a `{"name": "..."}` code block would only repeat it.
+    const skill = parseLoadSkillName(context.argsText);
+    return {
+      toolName,
+      title,
+      header: skill,
+      meta: [],
+      copyText: skill,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "websearch" || normalized === "webfetch") {
+    // The query and the url are the whole of the call; a `{"query": "..."}` block
+    // beside a row that already shows it is punctuation, not information.
+    const subject = stringArg(args, "query", "url");
+    const meta: string[] = [];
+    if (normalized === "websearch") {
+      // Every parameter the search ran with, defaults included, so the header
+      // says what was asked for without opening the arguments: the tool starts
+      // at page 1 and returns 15 rows, never more than 25.
+      const page = Math.max(1, numberArg(args, "page", 1));
+      meta.push(t("prompts.permissionMeta.page", { page }));
+      const requested = numberArg(args, "max_results", 0);
+      const maxResults = requested > 0 ? Math.min(requested, 25) : 15;
+      meta.push(t("prompts.permissionMeta.maxResults", { count: maxResults }));
+      const site = stringArg(args, "site");
+      if (site) meta.push(t("prompts.permissionMeta.site", { site }));
+    }
+    return {
+      toolName,
+      title,
+      header: subject,
+      meta,
+      copyText: subject,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_get" || normalized === "config_revert") {
+    // The dotted key is the whole of the call and the row already names it, so a
+    // `{"path": "..."}` block would only repeat it - same reasoning as load_skill.
+    const key = stringArg(args, "path");
+    return {
+      toolName,
+      title,
+      header: key,
+      meta: [],
+      copyText: key,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_set") {
+    // Staged edits are uci command lines. Read as lines they are a command block
+    // like a shell call; read as a JSON array of strings they are punctuation.
+    const commands = stringListArg(args, "commands");
+    const text = commands.join("\n");
+    return {
+      toolName,
+      title,
+      header: "",
+      meta: [],
+      copyText: text,
+      kind: "code",
+      text,
     };
   }
 
@@ -267,14 +584,14 @@ export function buildToolCallPreview(
     };
   }
 
-  if (normalized === "write") {
-    const path = stringArg(args, "path");
+  if (normalized === "write" || normalized === "write_file") {
+    const path = stringArg(args, "path", "filePath");
     const content = stringArg(args, "content");
     return {
       toolName,
       title,
       header: path,
-      meta: [t("prompts.permissionMeta.chars", { count: content.length })],
+      meta: [tp("prompts.permissionMeta.chars", content.length)],
       copyText: content,
       kind: "code",
       text: content,
@@ -351,8 +668,9 @@ export function buildToolCallPreview(
     const meta: string[] = [];
     const offset = numberArg(args, "offset", 0);
     const limit = numberArg(args, "limit", 0);
-    if (offset > 0) meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
-    if (limit > 0) meta.push(t("prompts.permissionMeta.lines", { count: limit }));
+    if (offset > 0)
+      meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
+    if (limit > 0) meta.push(tp("prompts.permissionMeta.lines", limit));
     if (boolArg(args, "recursive", false)) {
       meta.push(t("prompts.permissionMeta.recursive"));
     }
@@ -362,7 +680,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta,
       copyText: stringArg(args, "path"),
       kind: "path",
@@ -384,7 +703,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta,
       copyText: pattern,
       kind: "code",
@@ -397,7 +717,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta: depth > 0 ? [t("prompts.permissionMeta.depth", { depth })] : [],
       copyText: stringArg(args, "path"),
       kind: "path",
@@ -407,6 +728,18 @@ export function buildToolCallPreview(
   const text =
     fallback ||
     (Object.keys(args).length > 0 ? JSON.stringify(args, null, 2) : "");
+  // A call that takes no input has nothing to preview, and an empty JSON object is not
+  // information. Name the action instead, the way plan_exit names its transition.
+  if (Object.keys(args).length === 0 && isEmptyArgsText(text)) {
+    return {
+      toolName,
+      title,
+      header: toolDisplayName(toolName),
+      meta: [],
+      copyText: "",
+      kind: "action",
+    };
+  }
   return {
     toolName,
     title,

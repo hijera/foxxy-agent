@@ -1,18 +1,27 @@
 package session_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/mention"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 type noopSender struct{}
@@ -150,14 +159,20 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	if modeOpt.CurrentValue != "agent" {
 		t.Fatalf("expected current mode agent, got %q", modeOpt.CurrentValue)
 	}
-	var askModeFound bool
+	var askModeFound, debugModeFound bool
 	for _, option := range modeOpt.Options {
 		if option.Value == string(session.ModeAsk) && option.Name == "Ask" {
 			askModeFound = true
 		}
+		if option.Value == string(session.ModeDebug) && option.Name == "Debug" {
+			debugModeFound = true
+		}
 	}
 	if !askModeFound {
 		t.Fatalf("expected Ask mode option, got %+v", modeOpt.Options)
+	}
+	if !debugModeFound {
+		t.Fatalf("expected Debug mode option, got %+v", modeOpt.Options)
 	}
 	if modelOpt == nil {
 		t.Fatal("expected config option id model")
@@ -171,6 +186,34 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if modelOpt.CurrentValue != "p1/gpt-4o" {
 		t.Fatalf("expected default model p1/gpt-4o for agent mode, got %q", modelOpt.CurrentValue)
+	}
+}
+
+func TestManagerSessionNewIncludesPermissionModeWithoutModels(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models = nil
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	options := make(map[string]acp.ConfigOption, len(res.ConfigOptions))
+	for _, option := range res.ConfigOptions {
+		options[option.ID] = option
+	}
+	if _, ok := options["mode"]; !ok {
+		t.Fatal("expected config option id mode")
+	}
+	if _, ok := options["permission_mode"]; !ok {
+		t.Fatal("expected config option id permission_mode")
+	}
+	if _, ok := options["model"]; ok {
+		t.Fatal("did not expect config option id model without configured models")
+	}
+	if _, ok := options["reasoning"]; ok {
+		t.Fatal("did not expect config option id reasoning without configured models")
 	}
 }
 
@@ -206,9 +249,107 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 	}
 }
 
+func TestManagerConfigOptionsAdvertiseReasoningForEffectiveModel(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models[0].Model = "p1/gpt-5"
+	cfg.Agent.Model = "p1/gpt-5"
+	cfg.Models[0].ReasoningDefault = "medium"
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	var reasoning *acp.ConfigOption
+	for i := range res.ConfigOptions {
+		if res.ConfigOptions[i].ID == "reasoning" {
+			reasoning = &res.ConfigOptions[i]
+			break
+		}
+	}
+	if reasoning == nil {
+		t.Fatal("expected reasoning config option")
+	}
+	if reasoning.Type != "select" || reasoning.CurrentValue != "medium" {
+		t.Fatalf("reasoning option = %+v, want select with current medium", reasoning)
+	}
+	want := []string{"minimal", "low", "medium", "high"}
+	if len(reasoning.Options) != len(want) {
+		t.Fatalf("reasoning choices = %+v, want %v", reasoning.Options, want)
+	}
+	for i, wantValue := range want {
+		if got := reasoning.Options[i].Value; got != wantValue {
+			t.Fatalf("reasoning choice %d = %q, want %q", i, got, wantValue)
+		}
+	}
+}
+
+func TestManagerSetConfigOptionReasoning(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models[0].Model = "p1/gpt-5"
+	cfg.Agent.Model = "p1/gpt-5"
+	cfg.Models[0].ReasoningDefault = "medium"
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	state := m.SessionByID(res.SessionID)
+
+	setReasoning := func(value string) (*acp.SessionSetConfigOptionResult, error) {
+		return m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+			SessionID: res.SessionID,
+			ConfigID:  "reasoning",
+			Value:     value,
+		})
+	}
+	optionCurrent := func(out *acp.SessionSetConfigOptionResult) string {
+		t.Helper()
+		for _, option := range out.ConfigOptions {
+			if option.ID == "reasoning" {
+				return option.CurrentValue
+			}
+		}
+		t.Fatal("reasoning config option missing from result")
+		return ""
+	}
+
+	out, err := setReasoning("high")
+	if err != nil {
+		t.Fatalf("set reasoning high: %v", err)
+	}
+	if got := state.GetSelectedReasoning(); got != "high" {
+		t.Fatalf("selected reasoning = %q, want high", got)
+	}
+	if got := optionCurrent(out); got != "high" {
+		t.Fatalf("returned reasoning = %q, want high", got)
+	}
+
+	out, err = setReasoning("   ")
+	if err != nil {
+		t.Fatalf("clear reasoning: %v", err)
+	}
+	if got := state.GetSelectedReasoning(); got != "" {
+		t.Fatalf("selected reasoning = %q, want cleared", got)
+	}
+	if got := optionCurrent(out); got != "medium" {
+		t.Fatalf("returned reasoning = %q, want default medium", got)
+	}
+
+	if _, err := setReasoning("ultra"); err == nil {
+		t.Fatal("expected error for invalid reasoning value")
+	}
+	if got := state.GetSelectedReasoning(); got != "" {
+		t.Fatalf("selected reasoning changed after invalid value: %q", got)
+	}
+}
+
 func TestManagerSetConfigOptionMode(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+	sender := &captureSender{}
+	m := session.NewManager(cfg, sender, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -239,6 +380,25 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	if modelCur != "p1/gpt-4o" {
 		t.Fatalf("expected effective model p1/gpt-4o for plan mode without override, got %q", modelCur)
 	}
+	var modeWire map[string]interface{}
+	for _, update := range sender.ups {
+		if _, ok := update.(acp.ModeUpdate); !ok {
+			continue
+		}
+		data, err := json.Marshal(update)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &modeWire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if modeWire["currentModeId"] != "plan" {
+		t.Fatalf("currentModeId = %#v, want plan in %#v", modeWire["currentModeId"], modeWire)
+	}
+	if _, ok := modeWire["modeId"]; ok {
+		t.Fatalf("deprecated modeId emitted in %#v", modeWire)
+	}
 }
 
 func TestManagerSetConfigOptionAskMode(t *testing.T) {
@@ -264,6 +424,66 @@ func TestManagerSetConfigOptionAskMode(t *testing.T) {
 		}
 	}
 	t.Fatalf("Ask mode was not selected: %+v", out.ConfigOptions)
+}
+
+func TestManagerSetConfigOptionDebugMode(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	out, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: res.SessionID,
+		ConfigID:  "mode",
+		Value:     "debug",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionSetConfigOption debug: %v", err)
+	}
+	for _, option := range out.ConfigOptions {
+		if option.ID == "mode" && option.CurrentValue == "debug" {
+			return
+		}
+	}
+	t.Fatalf("Debug mode was not selected: %+v", out.ConfigOptions)
+}
+
+// The legacy session/set_mode path is gated on IsValidMode, and the modes it
+// advertises in session/new come from a separate literal list - so a mode can be
+// settable while staying invisible to an ACP client. Pin both together.
+func TestManagerSetModeDebugIsAdvertised(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	if res.Modes == nil {
+		t.Fatal("session/new returned no mode state")
+	}
+	advertised := make(map[string]bool, len(res.Modes.AvailableModes))
+	for _, mode := range res.Modes.AvailableModes {
+		advertised[mode.ID] = true
+	}
+	for _, want := range []string{"agent", "plan", "docs", "ask", "debug"} {
+		if !advertised[want] {
+			t.Errorf("session/new does not advertise mode %q: %+v", want, res.Modes.AvailableModes)
+		}
+	}
+
+	if err := m.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{
+		SessionID: res.SessionID,
+		ModeID:    "debug",
+	}); err != nil {
+		t.Fatalf("HandleSessionSetMode debug: %v", err)
+	}
+	if got := m.SessionByID(res.SessionID).GetMode(); got != string(session.ModeDebug) {
+		t.Fatalf("session mode: want debug got %q", got)
+	}
 }
 
 func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
@@ -461,19 +681,46 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testing.T) {
+func TestHandleSessionPromptWithSenderDetachFromRequestSurvivesParentCancel(t *testing.T) {
+	res, perr, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{
+		SkipTurnLock:      true,
+		DetachFromRequest: true,
+	})
+	if perr != nil {
+		t.Fatalf("prompt: %v", perr)
+	}
+	if ctxErr != nil {
+		t.Fatalf("a detached turn must not see its parent's cancellation: %v", ctxErr)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("unexpected %+v err=%v", res, perr)
+	}
+}
+
+// Holding the turn lock outside the manager says nothing about who owns the turn's
+// lifetime. A caller that only sets SkipTurnLock - a non-streaming composer POST, which
+// can be stopped only by hanging up - keeps request-scoped cancellation.
+func TestHandleSessionPromptWithSenderStaysRequestScopedWithoutDetach(t *testing.T) {
+	_, _, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{SkipTurnLock: true})
+	if ctxErr == nil {
+		t.Fatal("turn context outlived the cancelled parent without DetachFromRequest")
+	}
+}
+
+// runPromptWithCancelledParent runs one turn whose parent context is cancelled while the
+// runner blocks, and reports what the runner saw of its own context.
+func runPromptWithCancelledParent(t *testing.T, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error, error) {
+	t.Helper()
 	runBlock := make(chan struct{})
 	cont := make(chan struct{})
+	var ctxErr error
 	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		close(runBlock)
 		<-cont
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		ctxErr = ctx.Err()
 		return string(acp.StopReasonEndTurn), nil
 	}
-	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
 	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
@@ -488,18 +735,13 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 		res, perr = m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sn.SessionID,
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
-		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+		}, noopSender{}, opts)
 	}()
 	<-runBlock
 	cancel()
 	close(cont)
 	wg.Wait()
-	if perr != nil {
-		t.Fatalf("prompt: %v", perr)
-	}
-	if res == nil || res.StopReason != acp.StopReasonEndTurn {
-		t.Fatalf("unexpected %+v err=%v", res, perr)
-	}
+	return res, perr, ctxErr
 }
 
 func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
@@ -556,7 +798,7 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSessionNew: %v", err)
 	}
-	_ = res
+	m.HandleSessionReady(res.SessionID)
 	var slash *acp.AvailableCommandsUpdate
 	for _, u := range snd.ups {
 		if v, ok := u.(acp.AvailableCommandsUpdate); ok && v.SessionUpdate == acp.UpdateTypeAvailableCommandsUpdate {
@@ -568,17 +810,23 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
 		return
 	}
-	// Skills (demo + bundled generate-rules) plus the built-in compact command
-	// (coddy compaction engine) and the always-present plugin command.
-	if len(slash.AvailableCommands) != 4 {
-		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
+	// The workspace skill, the standard delivery, and the built-in commands:
+	// the nine settings commands, compact (while compaction is enabled),
+	// export and plugin (always).
+	if want := 13 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
+		t.Fatalf("expected %d commands, got %+v", want, slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
+		if c.Name == "model" && (c.Input == nil || !strings.Contains(c.Input.Hint, "--once")) {
+			t.Fatalf("/model carries no argument hint: %+v", c)
+		}
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, compact and plugin, got %+v", slash.AvailableCommands)
+	for _, want := range []string{"demo", "configure-foxxycode", "rpa-feat", "model", "permissions", "plan", "compact", "export", "plugin"} {
+		if !names[want] {
+			t.Fatalf("expected %q among the commands, got %+v", want, slash.AvailableCommands)
+		}
 	}
 }
 
@@ -634,5 +882,798 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 	}
 	if got := st.GetCWD(); got != beta {
 		t.Fatalf("cwd changed on failed switch: %q", got)
+	}
+}
+
+func TestSetSessionWorkspaceRejectsActiveTurn(t *testing.T) {
+	root := t.TempDir()
+	alpha := filepath.Join(root, "alpha")
+	beta := filepath.Join(root, "beta")
+	for _, dir := range []string{alpha, beta} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		close(entered)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), alpha, nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: alpha})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st == nil {
+		t.Fatal("session not registered")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = m.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+			SessionID: res.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hold"}},
+		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+	}()
+	<-entered
+	defer func() {
+		close(release)
+		<-done
+	}()
+	if err := m.SetSessionWorkspace(st, beta); !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("SetSessionWorkspace error = %v, want ErrSessionTurnBusy", err)
+	}
+	if got := st.GetCWD(); got != alpha {
+		t.Fatalf("cwd changed during active turn: %q", got)
+	}
+}
+
+func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "cfg-srv", Command: "cfg-mcp"},
+		{Name: "off-srv", Command: "off-mcp", Disabled: true},
+	}}
+	cfg.Paths.Home = home
+	cwd := t.TempDir()
+
+	// Global <home>/mcp.json overrides config.yaml; project overrides both.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	servers := session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 4 {
+		t.Fatalf("servers = %+v, want 4", servers)
+	}
+	byName := map[string]config.MCPServerConfig{}
+	for _, s := range servers {
+		byName[s.Name] = s
+	}
+	if byName["cfg-srv"].Command != "home-override" {
+		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	}
+	if byName["home-srv"].Command != "proj-override" {
+		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
+	}
+	if !byName["off-srv"].Disabled {
+		t.Errorf("off-srv must keep its disabled flag in the effective list")
+	}
+	if _, ok := byName["proj-srv"]; !ok {
+		t.Errorf("proj-srv missing from effective list")
+	}
+
+	// A broken project mcp.json must not fail the session; config.yaml plus
+	// the global file still apply.
+	if err := os.WriteFile(filepath.Join(cwd, ".foxxycode", "mcp.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 3 {
+		t.Fatalf("servers with broken project mcp.json = %+v, want 3", servers)
+	}
+}
+
+func TestEffectiveMCPServersReportsABrokenFileOnce(t *testing.T) {
+	// The effective list is rebuilt on every turn and every MCP tool call, so a
+	// file that stays broken must not warn each time. A different failure, or the
+	// same one after a good load, is reported again.
+	home := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	cwd := t.TempDir()
+
+	var logged bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	path := config.MCPJSONPath(cwd)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	warnings := func() int {
+		return strings.Count(logged.String(), "failed to load mcp.json")
+	}
+
+	write("{broken")
+	for i := 0; i < 5; i++ {
+		session.EffectiveMCPServers(cfg, cwd, log)
+	}
+	if got := warnings(); got != 1 {
+		t.Fatalf("same failure logged %d times, want 1:\n%s", got, logged.String())
+	}
+
+	// Fixing the file and breaking it again must warn again, so a real
+	// regression is never swallowed by the deduplication.
+	write(`{"mcpServers":{}}`)
+	session.EffectiveMCPServers(cfg, cwd, log)
+	write("{broken")
+	session.EffectiveMCPServers(cfg, cwd, log)
+	if got := warnings(); got != 2 {
+		t.Fatalf("a failure after a good load logged %d times total, want 2:\n%s", got, logged.String())
+	}
+}
+
+func TestStateMCPToolFilter(t *testing.T) {
+	st := &session.State{ID: "s", CWD: t.TempDir()}
+	if allowed := st.GetMCPToolFilter(); !allowed("any", "tool") {
+		t.Error("nil factory must allow everything")
+	}
+	st.MCPFilterFactory = func() func(server, tool string) bool {
+		return func(server, tool string) bool { return tool == "echo" }
+	}
+	allowed := st.GetMCPToolFilter()
+	if !allowed("srv", "echo") || allowed("srv", "write") {
+		t.Error("factory-built filter must be used when set")
+	}
+}
+
+// Regression for hijera/foxxy-agent#146: a skills.dirs entry written with
+// ${CWD} in config.yaml must follow the workspace of each session, not the
+// directory the process was started from.
+func TestSessionSkillsFollowSessionCWDWithConfiguredDirs(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	launch := filepath.Join(root, "launch")
+	project := filepath.Join(root, "project")
+	skillDir := filepath.Join(project, ".agents", "skills", "proj-skill")
+	for _, d := range []string{home, launch, skillDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skillMD := "---\nname: proj-skill\ndescription: Project-local skill\n---\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+providers:
+  - name: p1
+    type: openai
+    api_key: k
+models:
+  - model: p1/gpt-4o
+agent:
+  model: p1/gpt-4o
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), launch, nil)
+
+	names := func(cwd string) []string {
+		res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+		if err != nil {
+			t.Fatalf("session/new %s: %v", cwd, err)
+		}
+		st := m.SessionByID(res.SessionID)
+		if st == nil {
+			t.Fatalf("session %s not registered", res.SessionID)
+		}
+		var out []string
+		for _, sum := range skills.ListSkills(st.GetSkills()) {
+			out = append(out, sum.Name)
+		}
+		return out
+	}
+	has := func(list []string, name string) bool {
+		for _, n := range list {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	if got := names(project); !has(got, "proj-skill") {
+		t.Fatalf("session rooted at the project must load its local skill, got %v", got)
+	}
+	if got := names(launch); has(got, "proj-skill") {
+		t.Fatalf("session rooted at the launch directory must not see the project skill, got %v", got)
+	}
+}
+
+func TestSetSessionWorkspaceReconnectsProjectMCPAndPreservesClientServers(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	alpha := filepath.Join(root, "alpha")
+	beta := filepath.Join(root, "beta")
+	for _, dir := range []string{home, alpha, beta} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mcpServer := httptest.NewServer(&fakeBetaHandler{token: "workspace"})
+	defer mcpServer.Close()
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(alpha), "alpha-project", config.MCPJSONServer{
+		Type:          "http",
+		URL:           mcpServer.URL,
+		DisabledTools: []string{"alpha-disabled"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(beta), "beta-project", config.MCPJSONServer{
+		Type:          "http",
+		URL:           mcpServer.URL,
+		DisabledTools: []string{"beta-disabled"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig()
+	cfg.Paths.Home = home
+	// Both declarations are project-local, so the workspace trust gate holds
+	// them until the operator approves each one for its own folder. This test
+	// is about what a workspace switch reconnects, not about the gate, so both
+	// are approved up front; the gate itself is covered by
+	// features/mcp_project_trust.feature.
+	approveProjectMCP(t, cfg, alpha, "alpha-project")
+	approveProjectMCP(t, cfg, beta, "beta-project")
+
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), alpha, nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{
+		CWD: alpha,
+		MCPServers: []acp.MCPServer{{
+			Name: "client-supplied",
+			Type: "http",
+			URL:  mcpServer.URL,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st == nil {
+		t.Fatal("session not registered")
+	}
+	defer st.CloseAll()
+
+	assertMCPClientNames(t, st, "alpha-project", "client-supplied")
+	clientSupplied := mcpClientByName(t, st, "client-supplied")
+	alphaFilter := st.GetMCPToolFilter()
+	if alphaFilter("alpha-project", "alpha-disabled") {
+		t.Fatal("alpha project disabled tool is allowed")
+	}
+
+	if err := m.SetSessionWorkspace(st, beta); err != nil {
+		t.Fatalf("SetSessionWorkspace: %v", err)
+	}
+	assertMCPClientNames(t, st, "beta-project", "client-supplied")
+	if got := mcpClientByName(t, st, "client-supplied"); got != clientSupplied {
+		t.Fatal("workspace switch replaced the client-supplied MCP connection")
+	}
+	result, err := mcpClientByName(t, st, "beta-project").CallTool(context.Background(), "get_token", `{}`)
+	if err != nil {
+		t.Fatalf("call beta project MCP tool: %v", err)
+	}
+	if result != "workspace" {
+		t.Fatalf("beta project MCP tool result = %q, want workspace", result)
+	}
+
+	betaFilter := st.GetMCPToolFilter()
+	if betaFilter("beta-project", "beta-disabled") {
+		t.Fatal("beta project disabled tool is allowed after workspace switch")
+	}
+	if !betaFilter("alpha-project", "alpha-disabled") {
+		t.Fatal("filter still reads the alpha project after workspace switch")
+	}
+}
+
+func mcpClientByName(t *testing.T, st *session.State, name string) *mcp.Client {
+	t.Helper()
+	for _, client := range st.GetMCPClients() {
+		if client.Name() == name {
+			return client
+		}
+	}
+	t.Fatalf("MCP client %q not found", name)
+	return nil
+}
+
+func assertMCPClientNames(t *testing.T, st *session.State, want ...string) {
+	t.Helper()
+	// Configured servers connect in the background so a session load never blocks a request;
+	// a turn waits through this same gate before it builds its tool set.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := st.WaitMCPReady(ctx); err != nil {
+		t.Fatalf("waiting for configured MCP servers: %v", err)
+	}
+	got := make([]string, 0, len(st.GetMCPClients()))
+	for _, client := range st.GetMCPClients() {
+		got = append(got, client.Name())
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("MCP clients = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("MCP clients = %v, want %v", got, want)
+		}
+	}
+}
+
+// approveProjectMCP records the operator's approval of a project-local server
+// for one workspace, the way `foxxycode mcp trust` and the Settings shield do.
+func approveProjectMCP(t *testing.T, cfg *config.Config, workspace, name string) {
+	t.Helper()
+	servers, err := mcp.ListManagedServers(cfg, workspace)
+	if err != nil {
+		t.Fatalf("list managed MCP servers for %s: %v", workspace, err)
+	}
+	for i := range servers {
+		if servers[i].Config.Name == name {
+			if err := mcp.NewTrustGate(cfg).Approve(workspace, servers[i]); err != nil {
+				t.Fatalf("approve %q for %s: %v", name, workspace, err)
+			}
+			return
+		}
+	}
+	t.Fatalf("mcp server %q not declared in %s", name, workspace)
+}
+
+// session/load replays a user message the way it was typed: the attachments
+// its mentions brought ride in the stored content, and a client is sent the
+// mention that brought each one, never the file body.
+func TestSessionLoadReplaysMentionsNotAttachmentBodies(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	store := &session.FileStore{Root: t.TempDir()}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("SECRET_BODY_TOKEN\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var parts []string
+		for _, b := range prompt {
+			if b.Type == acp.ContentTypeText {
+				parts = append(parts, b.Text)
+			} else if b.Resource != nil {
+				parts = append(parts, mention.Attachment{Path: b.Resource.URI, Body: b.Resource.Text}.XML())
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.Join(parts, "\n\n")})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m1 := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, store)
+	res, err := m1.HandleSessionNew(ctx, acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m1.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "summarize @notes.md"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snd := &captureSender{}
+	m2 := session.NewManager(cfg, snd, noopRunner, slog.Default(), root, store)
+	if _, err := m2.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: res.SessionID, CWD: root}); err != nil {
+		t.Fatal(err)
+	}
+	snd.mu.Lock()
+	defer snd.mu.Unlock()
+	for _, u := range snd.ups {
+		if chunk, ok := u.(acp.MessageChunkUpdate); ok && chunk.SessionUpdate == "user_message_chunk" {
+			if chunk.Content.Text != "summarize @notes.md" {
+				t.Fatalf("replayed user message = %q, want the text as typed", chunk.Content.Text)
+			}
+			return
+		}
+	}
+	t.Fatal("no user message was replayed")
+}
+
+// ---- session settings commands (settings.go, commands.go) ----
+
+func TestParseSettingsCommands(t *testing.T) {
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name      string
+		text      string
+		session   session.SettingsChange
+		turns     []session.SettingsChange
+		rest      string
+		wantNames int
+		wantErr   string
+	}{
+		{name: "session model", text: "/model p1/gpt-4o", session: session.SettingsChange{Model: str("p1/gpt-4o")}, wantNames: 1},
+		{name: "once with prompt", text: "/model p1/gpt-4o --once fix the bug",
+			turns: []session.SettingsChange{{Model: str("p1/gpt-4o"), Turns: 1}}, rest: "fix the bug", wantNames: 1},
+		{name: "flag before value", text: "/model --count=3 p1/gpt-4o go",
+			turns: []session.SettingsChange{{Model: str("p1/gpt-4o"), Turns: 3}}, rest: "go", wantNames: 1},
+		{name: "count with a space", text: "/reasoning high --count 2",
+			turns: []session.SettingsChange{{Reasoning: str("high"), Turns: 2}}, wantNames: 1},
+		{name: "chain on one line", text: "/model x --count=3 /nothink --once review\nmore",
+			turns:     []session.SettingsChange{{Model: str("x"), Turns: 3}, {Reasoning: str("off"), Turns: 1}},
+			rest:      "review\nmore",
+			wantNames: 2},
+		{name: "chain over lines", text: "/model x\n/nothink\nreview this",
+			session: session.SettingsChange{Model: str("x"), Reasoning: str("off")}, rest: "review this", wantNames: 2},
+		{name: "think with a level", text: "/think high explain", session: session.SettingsChange{Reasoning: str("high")}, rest: "explain", wantNames: 1},
+		{name: "think without a level", text: "/think explain this", session: session.SettingsChange{Reasoning: str("on")}, rest: "explain this", wantNames: 1},
+		{name: "mode once", text: "/plan --once how does it work", turns: []session.SettingsChange{{Mode: str("plan"), Turns: 1}}, rest: "how does it work", wantNames: 1},
+		{name: "effort alias", text: "/effort low", session: session.SettingsChange{Reasoning: str("low")}, wantNames: 1},
+		{name: "permissions spelling", text: "/permissions accept-edits", session: session.SettingsChange{PermissionMode: str("accept_edits")}, wantNames: 1},
+		{name: "rest is another command", text: "/model x --once /compact", turns: []session.SettingsChange{{Model: str("x"), Turns: 1}}, rest: "/compact", wantNames: 1},
+		{name: "mid-line is prose", text: "hello /model x", rest: "hello /model x"},
+		{name: "not a settings command", text: "/compact keep the api", rest: "/compact keep the api"},
+		{name: "mode is gone", text: "/mode plan", rest: "/mode plan"},
+		{name: "value missing", text: "/model", wantErr: "needs a value"},
+		{name: "value missing before prompt flag", text: "/permissions --once", wantErr: "needs a value"},
+		{name: "count out of range", text: "/model x --count=0", wantErr: "--count"},
+		{name: "unknown flag", text: "/model x --forever", wantErr: "unknown flag"},
+	}
+	eqPtr := func(a, b *string) bool {
+		if a == nil || b == nil {
+			return a == b
+		}
+		return *a == *b
+	}
+	eq := func(a, b session.SettingsChange) bool {
+		return eqPtr(a.Model, b.Model) && eqPtr(a.Reasoning, b.Reasoning) && eqPtr(a.Mode, b.Mode) &&
+			eqPtr(a.PermissionMode, b.PermissionMode) && a.Turns == b.Turns
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			line, err := session.ParseSettingsCommands(c.text)
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("err = %v, want %q", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(line.Names) != c.wantNames {
+				t.Fatalf("names = %v, want %d", line.Names, c.wantNames)
+			}
+			if line.Rest != c.rest {
+				t.Fatalf("rest = %q, want %q", line.Rest, c.rest)
+			}
+			if !eq(line.Session, c.session) {
+				t.Fatalf("session change = %+v, want %+v", line.Session, c.session)
+			}
+			if len(line.Turns) != len(c.turns) {
+				t.Fatalf("turn changes = %+v, want %+v", line.Turns, c.turns)
+			}
+			for i := range c.turns {
+				if !eq(line.Turns[i], c.turns[i]) {
+					t.Fatalf("turn change %d = %+v, want %+v", i, line.Turns[i], c.turns[i])
+				}
+			}
+		})
+	}
+}
+
+// settingsTestConfig serves a Qwen model (thinking can be switched off), a
+// gpt-5 (it cannot) and a plain one.
+func settingsTestConfig() *config.Config {
+	cfg := testConfig()
+	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "nd", Type: "neuraldeep", APIKey: "k"})
+	cfg.Models = append(cfg.Models,
+		config.ModelEntry{Model: "nd/qwen3.8-27b"},
+		config.ModelEntry{Model: "p1/gpt-5", ReasoningDefault: "medium"},
+	)
+	return cfg
+}
+
+func TestApplySessionSettingsPublishesTheWholeSnapshot(t *testing.T) {
+	sender := &captureSender{}
+	m := session.NewManager(settingsTestConfig(), sender, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []acp.SessionSettingsUpdate
+	var mu sync.Mutex
+	remove := m.AddSessionSettingsObserver(func(u acp.SessionSettingsUpdate) {
+		mu.Lock()
+		seen = append(seen, u)
+		mu.Unlock()
+	})
+	defer remove()
+
+	model, off := "nd/qwen3.8-27b", "off"
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &model, Reasoning: &off, Source: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Model != model || snap.Reasoning != "off" || snap.PermissionMode != "ask" || snap.ConfiguredPermissionMode != "ask" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if want := []string{"low", "medium", "high", "off"}; strings.Join(snap.ReasoningChoices, ",") != strings.Join(want, ",") {
+		t.Fatalf("reasoning choices = %v, want %v", snap.ReasoningChoices, want)
+	}
+	mu.Lock()
+	if len(seen) != 1 || seen[0].Settings.Version != snap.Version || seen[0].Source != "test" ||
+		!strings.Contains(seen[0].Notice, "Model: nd/qwen3.8-27b for this session") {
+		mu.Unlock()
+		t.Fatalf("observer saw %+v", seen)
+	}
+	mu.Unlock()
+	st := m.SessionByID(res.SessionID)
+	if log := st.GetUILog(); len(log) == 0 || !strings.Contains(log[len(log)-1].Message, "Reasoning: off") {
+		t.Fatalf("ui log = %+v, want the change noted", log)
+	}
+	var sawOption, sawSnapshot bool
+	sender.mu.Lock()
+	for _, u := range sender.ups {
+		switch u.(type) {
+		case acp.ConfigOptionUpdate:
+			sawOption = true
+		case acp.SessionSettingsUpdate:
+			sawSnapshot = true
+		}
+	}
+	sender.mu.Unlock()
+	if !sawOption || !sawSnapshot {
+		t.Fatalf("sender saw config option update %v, settings snapshot %v", sawOption, sawSnapshot)
+	}
+}
+
+func TestApplySessionSettingsRejectsWhatTheModelCannotDo(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		ch   session.SettingsChange
+		want string
+	}{
+		{session.SettingsChange{Model: str("nd/nope")}, "unknown model"},
+		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("off")}, "cannot be turned off"},
+		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("ultra")}, "is not offered"},
+		{session.SettingsChange{Reasoning: str("high")}, "offers no reasoning levels"},
+		{session.SettingsChange{Mode: str("build")}, "unknown mode"},
+		{session.SettingsChange{PermissionMode: str("never")}, "unknown permission mode"},
+		{session.SettingsChange{Model: str("p1/gpt-5"), Turns: 99}, "--count"},
+	}
+	for _, c := range cases {
+		if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, c.ch); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%+v: err = %v, want %q", c.ch, err, c.want)
+		}
+	}
+	// Nothing of a rejected change was written.
+	if got := m.SessionByID(res.SessionID).GetSelectedModelID(); got != "" {
+		t.Fatalf("selected model = %q after rejected changes", got)
+	}
+}
+
+func TestSwitchingModelDropsAReasoningLevelItDoesNotOffer(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qwen, off, gpt := "nd/qwen3.8-27b", "off", "p1/gpt-5"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &qwen, Reasoning: &off}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &gpt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Reasoning != "medium" {
+		t.Fatalf("reasoning after the switch = %q, want gpt-5's default medium", snap.Reasoning)
+	}
+}
+
+// modelRecorder is a runner that records the model and the mode each turn ran with.
+type modelRecorder struct {
+	mu    sync.Mutex
+	cfg   *config.Config
+	turns []string
+}
+
+func (r *modelRecorder) run(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+	r.mu.Lock()
+	r.turns = append(r.turns, st.EffectiveModelID(r.cfg)+"|"+st.EffectiveMode()+"|"+st.EffectiveReasoning(r.cfg))
+	r.mu.Unlock()
+	return string(acp.StopReasonEndTurn), nil
+}
+
+func (r *modelRecorder) got() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.turns...)
+}
+
+func promptText(text string) []acp.ContentBlock {
+	return []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}
+}
+
+func TestTurnOverridesLastTheirOperatorTurns(t *testing.T) {
+	cfg := settingsTestConfig()
+	rec := &modelRecorder{cfg: cfg}
+	m := session.NewManager(cfg, noopSender{}, rec.run, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	send := func(text string, opts *session.PromptRunOpts) {
+		t.Helper()
+		if _, err := m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText(text)}, noopSender{}, opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("/model nd/qwen3.8-27b --count=2 /plan --once first", nil)
+	// A wake is not the operator's turn: it consumes nothing.
+	send("tasks finished", &session.PromptRunOpts{BackgroundWake: &llm.BackgroundWake{Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Kind: "command"}}}})
+	send("second", nil)
+	send("third", nil)
+
+	want := []string{
+		"nd/qwen3.8-27b|plan|",
+		"p1/gpt-4o|agent|",
+		"nd/qwen3.8-27b|agent|",
+		"p1/gpt-4o|agent|",
+	}
+	if got := rec.got(); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("turns ran with %v, want %v", got, want)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st.GetSelectedModelID() != "" || st.GetMode() != "agent" {
+		t.Fatalf("the session itself changed: model %q, mode %q", st.GetSelectedModelID(), st.GetMode())
+	}
+	if len(st.TurnOverrides()) != 0 {
+		t.Fatalf("overrides left after their turns: %+v", st.TurnOverrides())
+	}
+}
+
+func TestSettingsOnlyPromptRunsNoTurn(t *testing.T) {
+	cfg := settingsTestConfig()
+	rec := &modelRecorder{cfg: cfg}
+	sender := &captureSender{}
+	m := session.NewManager(cfg, sender, rec.run, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText("/model p3/claude-3")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText("/model p2/gpt-4o-mini --once")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.got(); len(got) != 0 {
+		t.Fatalf("settings-only prompts ran turns: %v", got)
+	}
+	st := m.SessionByID(res.SessionID)
+	if len(st.GetMessages()) != 0 {
+		t.Fatalf("settings commands entered the history: %+v", st.GetMessages())
+	}
+	if st.GetSelectedModelID() != "p3/claude-3" {
+		t.Fatalf("session model = %q", st.GetSelectedModelID())
+	}
+	var notices []string
+	sender.mu.Lock()
+	for _, u := range sender.ups {
+		if c, ok := u.(acp.MessageChunkUpdate); ok && c.SessionUpdate == acp.UpdateTypeAgentMessageChunk {
+			notices = append(notices, c.Content.Text)
+		}
+	}
+	sender.mu.Unlock()
+	if len(notices) != 2 || !strings.Contains(notices[1], "for the next turn") {
+		t.Fatalf("notices = %v", notices)
+	}
+	// The armed model runs the next turn, then the session's again.
+	for _, text := range []string{"one", "two"} {
+		if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText(text)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := rec.got(); len(got) != 2 || !strings.HasPrefix(got[0], "p2/gpt-4o-mini|") || !strings.HasPrefix(got[1], "p3/claude-3|") {
+		t.Fatalf("turns ran with %v", got)
+	}
+}
+
+func TestSessionWideChangeEndsATurnOverride(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qwen, claude := "nd/qwen3.8-27b", "p3/claude-3"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &qwen, Turns: 5}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &claude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Overrides) != 0 || snap.Model != claude {
+		t.Fatalf("snapshot after the session change = %+v", snap)
+	}
+}
+
+func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bypass := "bypass"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{PermissionMode: &bypass}); err != nil {
+		t.Fatal(err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(store.SessionPath(res.SessionID), "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "permissionMode") {
+		t.Fatalf("session.json keeps the override: %s", raw)
+	}
+	fresh := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	if _, err := fresh.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fresh.SessionSettings(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "ask" {
+		t.Fatalf("permission mode after a restart = %q, want the configured ask", snap.PermissionMode)
 	}
 }

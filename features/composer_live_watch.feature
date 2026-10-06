@@ -1,0 +1,45 @@
+Feature: Watching a composer turn from another client
+  A turn belongs to the session, not to the request that started it. Whatever shape the
+  caller asked its own answer to take, every agent turn is published to the session's
+  composer relay, so any number of other clients - a browser tab, a second IDE panel -
+  can attach to `GET /foxxycode/sessions/{id}/composer-stream` and watch it happen.
+
+  Background:
+    Given a running foxxycode composer server
+    And an agent session
+
+  Scenario: A browser watches a turn a script started without streaming
+    Given a script starts an agent turn with "stream" set to false
+    When a second client subscribes to the composer stream of that session
+    Then the watching client receives the assistant text of the turn
+    And the watching client receives the terminating done frame
+    And the script still receives its plain JSON response
+
+  Scenario: A client that finds no turn running is told at once
+    When a second client subscribes to the composer stream of that session
+    Then the watching client is told there is no active composer stream
+
+  Scenario: An idle client is told a turn started in a session it is not driving
+    Given a client is subscribed to the server event stream
+    When a script starts an agent turn with "stream" set to false
+    Then the subscribed client is told the turn started for that session
+    And the subscribed client is told the turn ended when it finishes
+
+  Scenario: A client reloading mid-turn is replayed only what its transcript lacks
+    Given a script starts an agent turn whose first step is persisted while the second still streams
+    When a client loads the transcript of that session
+    And the client subscribes to the composer stream after that transcript
+    Then the watching client receives the text of the step still streaming
+    And the watching client does not receive the step its transcript already holds
+
+  Scenario: A client that joins a running turn reads how far it has come
+    Given a script starts an agent turn whose first step is persisted while the second still streams
+    When a client reads the activity of that session
+    Then the activity says when the turn started and how many tokens it has generated
+    And a client connecting to the server event stream is told the same start
+
+  Scenario: The progress of a turn reaches a client watching it
+    Given a script starts an agent turn whose first step is persisted while the second still streams
+    When a client loads the transcript of that session
+    And the client subscribes to the composer stream after that transcript
+    Then the watching client receives the progress of the turn

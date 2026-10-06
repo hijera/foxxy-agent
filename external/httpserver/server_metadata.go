@@ -3,8 +3,11 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -27,81 +30,118 @@ func metadataResponse(cfg *config.Config, yamlSel string) map[string]string {
 	return out
 }
 
-// profileMetadataPatch applies optional request metadata.model to session (profile POST only).
-// Returns false when metadata is absent or has no model key (no session change).
-func profileMetadataPatch(cfg *config.Config, st *session.State, raw json.RawMessage) (touched bool, err error) {
-	if len(raw) == 0 {
-		return false, nil
-	}
+// applyProfileSettings applies what a profile request says about the
+// session's settings - the mode its model field names, metadata.model and
+// metadata.reasoning - through the manager's setter, so every surface
+// watching the session mirrors it. Only what differs from the session is
+// changed, and quietly: a browser re-sends its selection with every message,
+// which is not a change worth a line in the transcript.
+//
+// metadata.settingsVersion is the version of the last settings snapshot the
+// client applied. When a newer one has been published since - the model was
+// switched from a console, an editor or a command - the client has not seen
+// it yet, and its values would undo that change: they are ignored and the
+// session's own settings stand. An empty mode leaves the mode alone.
+func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session.State, sessionID, mode string, raw json.RawMessage) error {
 	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return false, err
-	}
-	if v, ok := m["model"]; ok {
-		if string(v) == "null" {
-			return false, ErrInvalidMetadataModel
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return err
 		}
-		var s string
-		if err := json.Unmarshal(v, &s); err != nil {
-			return false, err
+	}
+	if v, ok := m["settingsVersion"]; ok && len(v) > 0 && string(v) != "null" {
+		var version uint64
+		if err := json.Unmarshal(v, &version); err != nil {
+			var s string
+			if json.Unmarshal(v, &s) != nil {
+				return fmt.Errorf("invalid metadata.settingsVersion")
+			}
+			version, err = strconv.ParseUint(strings.TrimSpace(s), 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid metadata.settingsVersion")
+			}
 		}
-		s = strings.TrimSpace(s)
-		if s == "" {
-			return false, ErrInvalidMetadataModel
-		}
-		if cfg == nil || cfg.FindModelEntry(s) == nil {
-			return false, ErrUnknownMetadataModel
-		}
-		st.SetSelectedModelID(s)
-		touched = true
-	}
-	// Reasoning is resolved after any model change so it validates against the new model.
-	if v, ok := m["reasoning"]; ok {
-		if err := applySessionReasoningRaw(cfg, st, v); err != nil {
-			return false, err
-		}
-		touched = true
-	}
-	return touched, nil
-}
-
-// applySessionReasoningRaw validates a metadata.reasoning JSON value and applies it to the session.
-// A null or empty string clears the override; any other value must be a level supported by the
-// session's effective model.
-func applySessionReasoningRaw(cfg *config.Config, st *session.State, v json.RawMessage) error {
-	if string(v) == "null" {
-		st.SetSelectedReasoning("")
-		return nil
-	}
-	var level string
-	if err := json.Unmarshal(v, &level); err != nil {
-		return err
-	}
-	return applySessionReasoning(cfg, st, level)
-}
-
-// applySessionReasoning sets or clears the session reasoning override (empty clears).
-// A non-empty level must be one of the effective model's resolved reasoning levels.
-func applySessionReasoning(cfg *config.Config, st *session.State, level string) error {
-	level = strings.TrimSpace(level)
-	if level == "" {
-		st.SetSelectedReasoning("")
-		return nil
-	}
-	if cfg == nil {
-		return ErrUnknownReasoningLevel
-	}
-	ent := cfg.FindModelEntry(st.EffectiveModelID(cfg))
-	if ent == nil {
-		return ErrUnknownReasoningLevel
-	}
-	for _, lv := range ent.ResolvedReasoningLevels() {
-		if lv == level {
-			st.SetSelectedReasoning(level)
+		if version > 0 && version < st.PublishedSettingsVersion() {
 			return nil
 		}
 	}
-	return ErrUnknownReasoningLevel
+	cfg := mgr.Cfg()
+	ch := session.SettingsChange{Source: "web", Quiet: true}
+	if mode = strings.TrimSpace(mode); mode != "" && mode != st.GetMode() {
+		ch.Mode = &mode
+	}
+	model := st.SessionModelID(cfg)
+	if v, ok := m["model"]; ok {
+		if string(v) == "null" {
+			return ErrInvalidMetadataModel
+		}
+		var id string
+		if err := json.Unmarshal(v, &id); err != nil {
+			return err
+		}
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return ErrInvalidMetadataModel
+		}
+		if cfg == nil || cfg.FindModelEntry(id) == nil {
+			return ErrUnknownMetadataModel
+		}
+		if id != strings.TrimSpace(st.GetSelectedModelID()) {
+			ch.Model = &id
+		}
+		model = id
+	}
+	// Reasoning is resolved after any model change so it validates against the new model.
+	if v, ok := m["reasoning"]; ok {
+		level := ""
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &level); err != nil {
+				return err
+			}
+		}
+		level = strings.TrimSpace(level)
+		if level != "" && (cfg == nil || !reasoningLevelOffered(cfg, cfg.FindModelEntry(model), level)) {
+			return ErrUnknownReasoningLevel
+		}
+		if level != strings.TrimSpace(st.GetSelectedReasoning()) {
+			ch.Reasoning = &level
+		}
+	}
+	if ch.Empty() {
+		return nil
+	}
+	_, err := mgr.ApplySessionSettings(ctx, sessionID, ch)
+	return err
+}
+
+// applySessionReasoning checks a reasoning level for a PATCH before it goes
+// to the setter: empty clears the session's selection, anything else must be
+// a level the session's model offers ("off" included where it can).
+func applySessionReasoning(cfg *config.Config, st *session.State, level string) error {
+	level = strings.TrimSpace(level)
+	if level == "" {
+		return nil
+	}
+	if cfg == nil || !reasoningLevelOffered(cfg, cfg.FindModelEntry(st.SessionModelID(cfg)), level) {
+		return ErrUnknownReasoningLevel
+	}
+	return nil
+}
+
+// reasoningLevelOffered reports whether level is one of the reasoning levels
+// the model entry offers, as GET /v1/models lists them for it. It is the one
+// check behind metadata.reasoning on a profile turn and reasoning_effort on a
+// direct completion.
+func reasoningLevelOffered(cfg *config.Config, ent *config.ModelEntry, level string) bool {
+	if cfg == nil || ent == nil {
+		return false
+	}
+	for _, lv := range cfg.ReasoningChoicesFor(ent) {
+		if lv == level {
+			return true
+		}
+	}
+	return false
 }
 
 // completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).
@@ -142,6 +182,16 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 	return st.EffectiveModelID(cfg)
 }
 
+// configuredModelMultimodal reports whether the selected YAML model explicitly
+// opts in to image/file inputs. Missing and unknown entries fail closed.
+func configuredModelMultimodal(cfg *config.Config, modelID string) bool {
+	if cfg == nil {
+		return false
+	}
+	entry := cfg.FindModelEntry(modelID)
+	return entry != nil && entry.Multimodal
+}
+
 // applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).
 func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string) error {
 	modelID = strings.TrimSpace(modelID)
@@ -157,6 +207,14 @@ func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string
 }
 
 // sessionPromptMetaFromHTTP maps HTTP metadata extensions to ACP session/prompt _meta.
+// runPlanRefusedInAskMode reports whether the request pairs the read-only ask
+// profile with a runPlanSlug. The session manager refuses that combination
+// too, but only once the turn has started, when a streamed response has
+// already committed 200; the handlers answer 409 up front instead.
+func runPlanRefusedInAskMode(model string, raw json.RawMessage) bool {
+	return model == string(session.ModeAsk) && session.RunPlanSlugFromPromptMeta(sessionPromptMetaFromHTTP(raw)) != ""
+}
+
 func sessionPromptMetaFromHTTP(raw json.RawMessage) map[string]interface{} {
 	if len(raw) == 0 {
 		return nil

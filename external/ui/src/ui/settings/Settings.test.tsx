@@ -4,7 +4,9 @@ import { Settings } from "./Settings";
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  // unstubAllGlobals, not restoreAllMocks: the latter also wipes the matchMedia mock that
+  // vitest.setup.ts installs once, and every later render in this file then crashes.
+  vi.unstubAllGlobals();
 });
 
 function mockConfigFetch(ok = true) {
@@ -40,4 +42,18 @@ test("settings footer exposes the API docs link (moved out of the hero footer)",
   expect(link.getAttribute("href")).toBe("/docs/");
   expect(link.tagName).toBe("A");
   expect(link.textContent).toContain("API docs");
+});
+
+test("settings footer links to the project website next to the API docs", async () => {
+  mockConfigFetch(true);
+  const { getByTestId } = render(<Settings onClose={() => {}} />);
+
+  const site = await waitFor(() => getByTestId("settings-site-link"));
+  expect(site.tagName).toBe("A");
+  expect(site.getAttribute("href")).toBe("https://hijera.github.io/foxxy-agent/");
+  expect(site.getAttribute("target")).toBe("_blank");
+  expect(site.getAttribute("rel")).toContain("noopener");
+  expect(site.textContent).toContain("Website");
+  // Same footer row, right after the API docs link.
+  expect(getByTestId("settings-api-docs-link").nextElementSibling).toBe(site);
 });

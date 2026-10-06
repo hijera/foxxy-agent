@@ -5,13 +5,33 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import { useStableHandler } from "./components/useStableHandler";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
+import type { QueuedMessage } from "./chat/Composer";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
+import { markConnected, markReconnecting } from "./chat/liveConnectionState";
+import { setLlmRetrying } from "./chat/llmRetryState";
+import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import { sessionMessageFiles } from "./chat/sessionMessageFiles";
+import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import {
+  isNewerSettings,
+  parseSessionSettings,
+  type SessionSettings,
+  type SessionSettingsEvent,
+  type TurnOverride,
+} from "./chat/sessionSettings";
+import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
+import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
+import type { QueuedMessageEvent } from "./chat/serverEvents";
+import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -25,15 +45,19 @@ import {
   type QuestionResolvedState,
 } from "./chat/questionTypes";
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import { planSessionStatsApply } from "./chat/sessionTokenTotals";
 import { stripCompactionPreamble } from "./chat/compactionSummary";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
+import { fetchJSON } from "./env/fetchJSON";
 import {
   preserveTranscriptItemIds,
   stablePermissionPromptItemId,
   stableThinkingItemId,
   stableToolCallItemId,
   stableUserItemId,
+  stableWakeItemId,
 } from "./chat/transcriptItemIds";
+import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
 import {
   appendDeferredAssistant,
   deferredAssistantItem,
@@ -44,10 +68,20 @@ import {
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pinPlanDocumentsToTurnEnd } from "./chat/planDocumentPlacement";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { ShadowTranscriptCache } from "./chat/sessionTranscriptCache";
+import {
+  parseSubagentTranscriptMeta,
+  type SubagentTranscriptMeta,
+} from "./chat/subagentTranscript";
 import { shouldApplyTranscriptSnapshot } from "./chat/transcriptSnapshotGuard";
+import {
+  shouldAdoptServerModeAfterTurn,
+  shouldApplySessionSelection,
+} from "./chat/sessionSelectionApply";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -55,12 +89,23 @@ import {
   upsertPermissionPromptRecord,
 } from "./chat/permissionPromptSessionStore";
 import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
-import { trimTranscriptForTurnReplay } from "./chat/transcriptTurnTrim";
+import { createTurnReplayTrimGate } from "./chat/transcriptTurnTrim";
+import {
+  diskFallbackDelayMs,
+  isNoLiveTurnRelayError,
+  liveReconnectDelayMs,
+  parseSessionBusyResponse,
+  shouldKeepWatching,
+  shouldReloadTranscript,
+} from "./chat/liveTurnRecovery";
 import {
   parseToolsPermissionPolicy,
   type ToolsPermissionPolicy,
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
+import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
+import { pickRicherToolArgs } from "./chat/toolCallArgs";
+import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   loadQuestionPromptRecords,
@@ -70,9 +115,32 @@ import {
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
-import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
+import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import type { ProviderUsage } from "./chat/providerUsage";
+import {
+  connectLocal,
+  connectRemote,
+  connectSwarmNode,
+  getEnv,
+  getRemoteToken,
+  localFetch,
+  notifyLocalApiUnauthorized,
+  returnToSwarm,
+  snapshotEnv,
+  subscribeEnv,
+} from "./env/remoteEnv";
+import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
+import {
+  newChatWorkspaceIsReady,
+  type PendingNewChatWorkspace,
+} from "./sessions/newChatWorkspace";
+import { EnvironmentChip } from "./chat/EnvironmentChip";
+import { probeSwarm } from "./swarm/api";
+import { SwarmView } from "./swarm/SwarmView";
+import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
+import { setHostShell } from "./chat/hostShell";
 import {
   injectBranchNavItems,
   deduplicateBranchNavs,
@@ -114,11 +182,30 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
-import {
-  armSessionDeleteBackdropSuppressUntil,
-  shouldSuppressShellBackdropClose,
-} from "./sessions/sessionDeleteBackdropSuppress";
+import { useConfirm } from "./components/useConfirm";
 import type { SessionRow } from "./sessions/types";
+import {
+  DEFAULT_SESSION_GROUP_MODE,
+  readSessionGroupCookie,
+  writeSessionGroupCookie,
+  type SessionGroupMode,
+} from "./sessions/sessionGroups";
+import {
+  defaultSortOrder,
+  DEFAULT_ARCHIVE_FILTER,
+  DEFAULT_SESSION_SORT_KEY,
+  isHistorySortKey,
+  isSessionArchiveFilter,
+  isSessionOriginFilter,
+  type SessionArchiveFilter,
+  type SessionOriginFilter,
+  type SessionSortKey,
+} from "./sessions/sessionQuery";
+import {
+  readSessionPref,
+  SESSION_PREF_COOKIES,
+  writeSessionPref,
+} from "./sessions/sessionPrefs";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -157,6 +244,7 @@ import {
 } from "./skills/workspaceAtRecents";
 import {
   schedulerCancelJob,
+  schedulerClearJobRuns,
   schedulerListJobs,
   schedulerRunJob,
 } from "./scheduler/api";
@@ -168,18 +256,49 @@ import {
   schedulerEditorFromParsedHash,
   setSchedulerCreateHash,
   setSchedulerJobHash,
+  setSchedulerJobRunsHash,
   setSchedulerListHash,
+  setSessionTasksHash,
   setSettingsHash,
+  setSettingsSectionHash,
   stripHistorySidebarFromHash,
+  appNavHrefSwarm,
+  appNavHrefDocs,
+  setDocsHash,
 } from "./scheduler/hashRoute";
+import { DocsView } from "./docs/DocsView";
+import { fetchDocsPage } from "./docs/api";
+import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import {
+  BackgroundTasksPanel,
+  type TaskFocus,
+} from "./tasks/BackgroundTasksPanel";
+import {
+  clearFinishedBackgroundTasks,
+  getBackgroundTask,
+  listBackgroundTasks,
+  stopBackgroundTask,
+} from "./tasks/api";
+import { awaitingPermissionCount, tasksPollIntervalMs } from "./tasks/taskStatus";
+import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
+import type { ExportFormat } from "./chat/SessionExportMenu";
 
 const HDR = "X-FoxxyCode-Session-ID";
+
+/**
+ * How often the open chat is asked whether it is working, while this client is not
+ * streaming it. Slow enough to be invisible on an idle chat, quick enough that a turn
+ * started without us - a background task waking the agent - shows up as progress rather
+ * than as a chat that sat still and then jumped.
+ */
+const VIEWED_ACTIVITY_POLL_MS = 4000;
 
 async function markFoxxyCodeSessionActivityRead(id: string): Promise<void> {
   const t = id.trim();
@@ -206,7 +325,9 @@ const SCHEDULER_JOBS_POLL_MS = 12_000;
 type SchedulerEditorState =
   | null
   | { mode: "create" }
-  | { mode: "edit"; jobId: string };
+  | { mode: "edit"; jobId: string }
+  /** The job's runs panel, docked where the editor docks; taskId is the run open in it. */
+  | { mode: "runs"; jobId: string; taskId: string | null };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -236,6 +357,7 @@ type ToolCallListRow = {
   argsPreview?: string;
   resultPreview?: string;
   resultPreviewTruncated?: boolean;
+  planSnapshot?: unknown;
 };
 
 function readMessageCreatedAtUTC(
@@ -254,45 +376,6 @@ function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   return !!(p && p.truncated === true);
 }
 
-type MemoryPhaseEvt = {
-  memoryRowId: string;
-  phase: string;
-  status: string;
-  userTurnIndex?: number;
-  durationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
-type MemoryChunkEvt = {
-  memoryRowId: string;
-  phase: string;
-  kind: string;
-  delta: string;
-};
-
-type MemoryTurnApi = {
-  userTurnIndex: number;
-  memoryRowId?: string;
-  memoryMode?: string;
-  memoryDurationMs?: number;
-  memoryContextText?: string;
-  recallSkipped?: boolean;
-  recallText?: string;
-  recallReasoningText?: string;
-  recallDurationMs?: number;
-  persistJudgeText?: string;
-  persistDurationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
 type ModelInfo = {
   id: string;
   ownedBy?: string;
@@ -302,7 +385,15 @@ type ModelInfo = {
   reasoningDefault?: string;
 };
 
-const PROFILE_MODES = ["agent", "plan", "docs", "ask"] as const;
+const PROFILE_MODES = ["agent", "plan", "docs", "ask", "debug"] as const;
+
+// SessionContextWindow is the window GET .../stats reports for a session,
+// named with the model it belongs to.
+type SessionContextWindow = {
+  model: string;
+  tokens: number;
+  source?: string;
+};
 
 type SessionStats = {
   tokenUsageTotal?: {
@@ -330,310 +421,8 @@ function randomSessionId(): string {
   return `sess_${hex}`;
 }
 
-async function fetchJSON<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<{ ok: boolean; status: number; data?: T }> {
-  const res = await fetch(path, init);
-  const status = res.status;
-  if (!res.ok) {
-    return { ok: false, status };
-  }
-  const data = (await res.json()) as T;
-  return { ok: true, status, data };
-}
-
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
-}
-
-function memoryTranscriptFromApi(
-  row: MemoryTurnApi,
-): Extract<TranscriptItem, { type: "memory_copilot" }> {
-  const rowId = (row.memoryRowId || "").trim() || `mem-${row.userTurnIndex}`;
-  const unifiedCtx = (row.memoryContextText || "").trim();
-  const rt = (row.recallText || "").trim();
-  const rr = (row.recallReasoningText || "").trim();
-  const paths = Array.isArray(row.recallReadPaths)
-    ? row.recallReadPaths.filter(
-        (x) => typeof x === "string" && x.trim() !== "",
-      )
-    : [];
-  const hasRecallTrail = !!(
-    row.recallDurationMs ||
-    rt ||
-    rr ||
-    paths.length > 0
-  );
-  const pt = (row.persistJudgeText || "").trim();
-  const hasPersistTrail = !!(row.persistDurationMs || pt || row.persistSaved);
-  const hasUnified = !!(row.memoryDurationMs || unifiedCtx);
-  const sumMs =
-    typeof row.memoryDurationMs === "number" && row.memoryDurationMs > 0
-      ? row.memoryDurationMs
-      : (row.recallDurationMs ?? 0) + (row.persistDurationMs ?? 0);
-  const legacyCombined = [row.recallText, row.persistJudgeText]
-    .filter((x) => typeof x === "string" && x.trim() !== "")
-    .join("\n\n");
-  const memoryTextOut = unifiedCtx || legacyCombined;
-  return {
-    id: stableMemoryCopilotItemId(rowId, row.userTurnIndex),
-    type: "memory_copilot",
-    memoryRowId: rowId,
-    userTurnIndex: row.userTurnIndex,
-    ...(hasUnified
-      ? { memoryStatus: "completed" as const, memoryText: memoryTextOut }
-      : {}),
-    recallStatus: hasRecallTrail ? "completed" : "idle",
-    persistStatus: hasPersistTrail ? "completed" : "idle",
-    recallText: row.recallText || "",
-    recallReasoning: row.recallReasoningText || "",
-    persistText: row.persistJudgeText || "",
-    persistReasoning: "",
-    ...(typeof row.recallDurationMs === "number"
-      ? { recallDurationMs: row.recallDurationMs }
-      : {}),
-    ...(typeof row.persistDurationMs === "number"
-      ? { persistDurationMs: row.persistDurationMs }
-      : {}),
-    ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    ...(typeof row.persistSaved === "boolean"
-      ? { persistSaved: row.persistSaved }
-      : {}),
-    ...(row.persistRelativePath
-      ? { persistRelativePath: row.persistRelativePath }
-      : {}),
-    ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
-    ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
-    ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
-  };
-}
-
-function applyMemoryPhaseToItems(
-  prev: TranscriptItem[],
-  p: MemoryPhaseEvt,
-): TranscriptItem[] {
-  const now = Date.now();
-  let idx = prev.findIndex(
-    (x) => x.type === "memory_copilot" && x.memoryRowId === p.memoryRowId,
-  );
-  const next = [...prev];
-  let uidx = -1;
-  for (let i = prev.length - 1; i >= 0; i--) {
-    const it = prev[i];
-    if (it && it.type === "user_message") {
-      uidx = i;
-      break;
-    }
-  }
-  const insertAt = uidx >= 0 ? uidx + 1 : next.length;
-
-  const baseMemory = (): Extract<
-    TranscriptItem,
-    { type: "memory_copilot" }
-  > => ({
-    id: stableMemoryCopilotItemId(
-      p.memoryRowId,
-      typeof p.userTurnIndex === "number" ? p.userTurnIndex : 0,
-    ),
-    type: "memory_copilot",
-    memoryRowId: p.memoryRowId,
-    userTurnIndex: typeof p.userTurnIndex === "number" ? p.userTurnIndex : 0,
-    memoryStatus: "idle",
-    memoryText: "",
-    recallStatus: "idle",
-    persistStatus: "idle",
-    recallText: "",
-    recallReasoning: "",
-    persistText: "",
-    persistReasoning: "",
-  });
-
-  if (idx < 0) {
-    next.splice(insertAt, 0, baseMemory());
-    idx = insertAt;
-  }
-
-  const cur = next[idx];
-  if (!cur || cur.type !== "memory_copilot") {
-    return prev;
-  }
-
-  let patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
-  const st = (p.status || "").trim();
-
-  if (p.phase === "memory") {
-    if (st === "started") {
-      patch.memoryStatus = "in_progress";
-      patch.recallStatus = "in_progress";
-      patch.persistStatus = "idle";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-    }
-    if (st === "completed") {
-      patch.memoryStatus = "completed";
-      patch.recallStatus = "completed";
-      patch.persistStatus = p.persistSaved ? "completed" : "idle";
-      const rp = p.recallReadPaths;
-      if (Array.isArray(rp) && rp.length > 0) {
-        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== "");
-        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
-      }
-      if (typeof p.persistSaved === "boolean") {
-        patch.persistSaved = p.persistSaved;
-      }
-      const pr = (p.persistRelativePath || "").trim();
-      if (pr) patch.persistRelativePath = pr;
-      const tt = (p.persistTitle || "").trim();
-      if (tt) patch.persistTitle = tt;
-      const pb = (p.persistSavedBody || "").trim();
-      if (pb) patch.persistSavedBody = pb;
-      if (typeof patch.memoryWallStartedAtMs === "number") {
-        patch.memoryWallDurationMs = Math.max(
-          0,
-          now - patch.memoryWallStartedAtMs,
-        );
-      }
-    }
-  }
-  if (p.phase === "recall") {
-    if (st === "started") {
-      patch.recallStatus = "in_progress";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-    }
-    if (st === "completed") {
-      patch.recallStatus = "completed";
-      if (typeof p.durationMs === "number" && p.durationMs > 0)
-        patch.recallDurationMs = p.durationMs;
-      const rp = p.recallReadPaths;
-      if (Array.isArray(rp) && rp.length > 0) {
-        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== "");
-        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
-      }
-    }
-  }
-  if (p.phase === "persist") {
-    if (st === "started") {
-      patch.persistStatus = "in_progress";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-      const wallStart = patch.memoryWallStartedAtMs;
-      const wallElapsed =
-        typeof wallStart === "number" ? Math.max(0, now - wallStart) : 0;
-      if (
-        typeof patch.memoryWallLiveCapMs === "number" &&
-        Number.isFinite(patch.memoryWallLiveCapMs)
-      ) {
-        patch.memoryWallLiveCapMs = Math.max(
-          patch.memoryWallLiveCapMs,
-          wallElapsed,
-        );
-      } else {
-        patch.memoryWallLiveCapMs = wallElapsed;
-      }
-    }
-    if (st === "completed") {
-      patch.persistStatus = "completed";
-      if (typeof p.durationMs === "number" && p.durationMs > 0)
-        patch.persistDurationMs = p.durationMs;
-      if (typeof p.persistSaved === "boolean") {
-        patch.persistSaved = p.persistSaved;
-      }
-      const pr = (p.persistRelativePath || "").trim();
-      if (pr) patch.persistRelativePath = pr;
-      const tt = (p.persistTitle || "").trim();
-      if (tt) patch.persistTitle = tt;
-      const pb = (p.persistSavedBody || "").trim();
-      if (pb) patch.persistSavedBody = pb;
-      if (typeof patch.memoryWallStartedAtMs === "number") {
-        patch.memoryWallDurationMs = Math.max(
-          0,
-          now - patch.memoryWallStartedAtMs,
-        );
-      }
-    }
-  }
-
-  next[idx] = patch;
-  return next;
-}
-
-function applyMemoryChunkToItems(
-  prev: TranscriptItem[],
-  c: MemoryChunkEvt,
-): TranscriptItem[] {
-  const idx = prev.findIndex(
-    (x) => x.type === "memory_copilot" && x.memoryRowId === c.memoryRowId,
-  );
-  if (idx < 0) return prev;
-  const cur = prev[idx];
-  if (!cur || cur.type !== "memory_copilot") return prev;
-  const next = [...prev];
-  const patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
-  const ph = (c.phase || "").trim();
-  const kd = (c.kind || "").trim();
-  const d = typeof c.delta === "string" ? c.delta : "";
-  if (!d) return prev;
-  if (ph === "memory") {
-    if (kd !== "reasoning") patch.memoryText = (patch.memoryText || "") + d;
-  } else if (ph === "recall") {
-    if (kd !== "reasoning") patch.recallText += d;
-  } else if (ph === "persist") {
-    if (kd !== "reasoning") patch.persistText += d;
-  } else {
-    return prev;
-  }
-  next[idx] = patch;
-  return next;
-}
-
-/** Freeze the memory wall-clock label once main-model reasoning starts while recall/persist are still SSE-busy (events can arrive after reasoning deltas). */
-function freezeMemoryWallWhenThinkingAfterRecall(
-  items: TranscriptItem[],
-  freezeAtMs: number,
-): TranscriptItem[] {
-  let userIdx = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (!it) continue;
-    if (it && it.type === "user_message") {
-      userIdx = i;
-      break;
-    }
-  }
-  if (userIdx < 0) return items;
-
-  let memIdx = -1;
-  let thinkingIdx = -1;
-  for (let i = userIdx + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it) continue;
-    if (it.type === "user_message") break;
-    if (it.type === "memory_copilot") memIdx = i;
-    if (it.type === "thinking" && it.status === "in_progress") {
-      thinkingIdx = i;
-      break;
-    }
-  }
-  if (memIdx < 0 || thinkingIdx < 0) return items;
-
-  const m = items[memIdx];
-  if (!m || m.type !== "memory_copilot") return items;
-
-  const memBusy =
-    m.memoryStatus === "in_progress" ||
-    m.recallStatus === "in_progress" ||
-    m.persistStatus === "in_progress";
-  if (!memBusy || typeof m.memoryWallLiveCapMs === "number") return items;
-
-  const startMs = m.memoryWallStartedAtMs;
-  if (typeof startMs !== "number") return items;
-
-  const cap = Math.max(0, freezeAtMs - startMs);
-  const next = [...items];
-  next[memIdx] = { ...m, memoryWallLiveCapMs: cap };
-  return next;
 }
 
 function parseRFC3339ms(s: string | undefined): number | null {
@@ -647,10 +436,31 @@ function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Parse the filename from a `Content-Disposition: attachment; filename="..."`
+ * header, decoding the percent-encoded form the server uses for non-ASCII
+ * names. Returns null when the header is missing or carries no filename.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const m = /filename="([^"]+)"/i.exec(header);
+  if (!m || !m[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 export function App() {
   // Only the active locale id is needed here: memoized labels below must recompute when the user
   // switches language. Translations themselves go through the module-level t().
   const { locale } = useT();
+  const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -666,6 +476,7 @@ export function App() {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
@@ -682,14 +493,22 @@ export function App() {
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
+  // Paste-to-chip literals: `path:start-end` → the exact text the user pasted,
+  // attached verbatim at send time. Lost on reload — the backend then re-reads
+  // the line range from the file instead. Capped; cleared after each send.
+  const pasteLiteralsRef = useRef<Map<string, string>>(new Map());
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
   const [worktreePref, setWorktreePref] = useState(false);
+  // Subversion has no worktrees: this is the "check the branch out into its own
+  // folder" preference behind the checkbox next to the SVN chip.
+  const [svnFolderPref, setSvnFolderPref] = useState(false);
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
     branch?: string;
     worktree?: boolean;
+    vcs?: "git" | "svn";
   } | null>(null);
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
@@ -714,30 +533,67 @@ export function App() {
     () => new Set(),
   );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
+  /**
+   * The viewed session has a turn running that this client is not streaming: a turn that
+   * outlived its request, or the autonomous turn a finished background task woke. The
+   * context ring has to keep updating through those, and `generating` cannot say so - it
+   * only means "a composer stream is attached here".
+   */
+  const [viewedTurnActive, setViewedTurnActive] = useState(false);
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
+  // A provider listing can arrive after /v1/models returned its fallback.
+  // Keep the live window per session, scoped to its model and config version;
+  // stats refreshes must not replace it with the earlier model-list value.
+  const [sessionContextWindows, setSessionContextWindows] = useState<
+    Record<string, { model: string; epoch: number; size: number }>
+  >({});
+  // The live config version, readable from handlers declared above the state
+  // that holds it.
+  const configEpochRef = useRef(0);
+  // The window GET .../stats reports, which names its own model instead of
+  // borrowing the composer's. It is the authority when the two disagree: a
+  // live frame is labelled with what the tab was showing when it arrived.
+  const recordSessionContextWindow = useStableHandler(
+    (sid: string, w: SessionContextWindow | null | undefined) => {
+      const key = sid.trim();
+      if (!key || !w || !(w.tokens > 0) || !w.model) {
+        return;
+      }
+      setSessionContextWindows((prev) => ({
+        ...prev,
+        [key]: { model: w.model, epoch: configEpochRef.current, size: w.tokens },
+      }));
+    },
+  );
 
   const applySessionStatsPayload = useCallback(
-    (stats: SessionStats | null | undefined, viewing: boolean) => {
+    (
+      stats: SessionStats | null | undefined,
+      viewing: boolean,
+      sessionKey?: string,
+    ) => {
       if (!viewing) {
         return;
       }
-      if (stats?.tokenUsageTotal) {
-        const t = stats.tokenUsageTotal;
+      // While this client streams the turn, tokenUsage is baseline + the turn's live
+      // deltas. Reseeding the baseline from a total that already counts the turn would
+      // add it twice, so only the context breakdown is refreshed then.
+      const key = (sessionKey ?? viewedSessionIdRef.current).trim();
+      const plan = planSessionStatsApply(stats, {
+        liveStreamAttached: key !== "" && activeComposerSidRef.current.has(key),
+      });
+      if (plan.tokenUsage) {
         tokenBaselineRef.current = {
-          input: t.inputTokens || 0,
-          output: t.outputTokens || 0,
-          total: t.totalTokens || 0,
+          input: plan.tokenUsage.inputTokens,
+          output: plan.tokenUsage.outputTokens,
+          total: plan.tokenUsage.totalTokens,
         };
-        setTokenUsage({
-          inputTokens: tokenBaselineRef.current.input,
-          outputTokens: tokenBaselineRef.current.output,
-          totalTokens: tokenBaselineRef.current.total,
-        });
+        setTokenUsage(plan.tokenUsage);
       }
-      if (stats?.contextBreakdown) {
-        setContextBreakdown(stats.contextBreakdown);
+      if (plan.contextBreakdown) {
+        setContextBreakdown(plan.contextBreakdown);
       }
     },
     [],
@@ -749,19 +605,27 @@ export function App() {
       if (!key) {
         return;
       }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
+      const statsRes = await fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(key)}/stats`, {
+        headers: { [HDR]: key },
+      });
       if (!statsRes.ok) {
         return;
       }
+      // The session's own window, named with the model it belongs to. Recorded
+      // whether or not this session is the one on screen: a window learnt while
+      // the tab was showing another chat is exactly what would otherwise be
+      // missed, leaving the ring on the model-list fallback until the next turn.
+      recordSessionContextWindow(key, statsRes.data?.contextWindow);
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
+        key,
       );
     },
-    [applySessionStatsPayload],
+    [applySessionStatsPayload, recordSessionContextWindow],
   );
 
   const debouncedRefreshSessionStats = useMemo(
@@ -783,17 +647,50 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  /** Per-session shadow transcript while that session streams in the background. */
-  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  /**
+   * Per-session shadow transcript while that session streams in the
+   * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
+   * write through `set` records recency, so `evictStaleSessionCaches` sees
+   * every entry.
+   */
+  const streamShadowBySidRef = useRef(
+    new ShadowTranscriptCache<TranscriptItem[]>(),
+  );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const pendingPostBySidRef = useRef(new Map<string, AbortController>());
+  const streamGenerationBySidRef = useRef(new Map<string, number>());
+  const relayAttachPendingRef = useRef(new Set<string>());
+  const stopPendingBySidRef = useRef(
+    new Map<string, { superseded: boolean }>(),
+  );
+  const stoppedTurnBySidRef = useRef(new Map<string, number>());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
+  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
   /** Session ids the user explicitly stopped, so a dropped stream is not auto-rejoined. */
   const userStoppedSidRef = useRef<Set<string>>(new Set());
+  // The re-attach paths below run on timers and awaited probes that outlive the
+  // component. After unmount they must not open a relay: nothing would read it,
+  // and the turn it watches would look attended to the server.
+  const appMountedRef = useRef(true);
+  useEffect(() => {
+    appMountedRef.current = true;
+    return () => {
+      appMountedRef.current = false;
+    };
+  }, []);
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  // Consecutive failed /activity probes per session. Reconnects and the disk
+  // poll give up on this rather than on an attempt count: while the server
+  // still answers that the turn is alive, there is something to come back to.
+  const activityFailuresRef = useRef<Map<string, number>>(new Map());
+  // Last messageSeq seen per session, so a poll tick can skip a transcript
+  // reload that would return exactly what is already rendered.
+  const lastMessageSeqRef = useRef<Map<string, number>>(new Map());
   /** Per-session interval ids for the persisted-transcript fallback poller. */
   const diskFallbackTimerRef = useRef<Map<string, number>>(new Map());
   /**
@@ -809,8 +706,27 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
-  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
+  /** True while GET /foxxycode/events is connected; gates the fallback sessions poll. */
+  const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  const serverEventHandlersRef = useRef<{
+    turnStarted: (sid: string) => void;
+    turnEnded: (sid: string) => void;
+    providerUsage: (usage: ProviderUsage) => void;
+    configReloaded: () => void;
+    messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
+    sessionSettings: (event: SessionSettingsEvent) => void;
+    subagentPermission: (parentSid: string) => void;
+    ready: () => void;
+  }>({
+    turnStarted: () => {},
+    turnEnded: () => {},
+    providerUsage: () => {},
+    configReloaded: () => {},
+    messageQueue: () => {},
+    sessionSettings: () => {},
+    subagentPermission: () => {},
+    ready: () => {},
+  });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -821,6 +737,8 @@ export function App() {
   function addActiveComposer(sid: string) {
     const k = sid.trim();
     if (!k) return;
+    // A stream is attached, so the live-status label stops saying "reconnecting".
+    markConnected(k);
     if (activeComposerSidRef.current.has(k)) return;
     activeComposerSidRef.current.add(k);
     bumpComposerActivity();
@@ -829,6 +747,10 @@ export function App() {
   function removeActiveComposer(sid: string) {
     const k = sid.trim();
     if (!k) return;
+    // Backstop for the live-status label: every turn ends through here, however it ended.
+    markConnected(k);
+    setMcpConnecting(k, false);
+    setLlmRetrying(k, false);
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
   }
@@ -879,15 +801,211 @@ export function App() {
     });
   }
 
-  const generating = useMemo(() => {
-    const sid = sessionId.trim();
-    if (!sid) return false;
-    return activeComposerSidRef.current.has(sid);
-  }, [sessionId, composerActivityEpoch]);
+  /**
+   * Drops least-recently-used shadow transcripts beyond the cache cap so old
+   * dialogs stop accumulating in memory. The session about to be viewed and
+   * any session with a live composer stream are pinned; evicted sessions are
+   * simply re-fetched via loadMessages on the next visit.
+   */
+  function evictStaleSessionCaches(nextViewedSid: string) {
+    const active = new Set<string>(activeComposerSidRef.current);
+    for (const k of postAbortBySidRef.current.keys()) active.add(k);
+    for (const k of relayAbortBySidRef.current.keys()) active.add(k);
+    for (const k of streamingAssistantBySidRef.current.keys()) active.add(k);
+    const victims = streamShadowBySidRef.current.evict({
+      viewedSid: nextViewedSid,
+      activeStreamSids: active,
+    });
+    for (const sid of victims) {
+      relayLastEventIdBySidRef.current.delete(sid);
+    }
+  }
+
+  /**
+   * The message queue per session: follow-ups the operator wrote while a turn
+   * was running, waiting for it to read them at its next step.
+   *
+   * The server owns the list. Every entry here came back from the queue routes
+   * or from a `message_queue` frame on the turn's own stream, so a second tab
+   * watching the same session shows the same queue, and a message the agent has
+   * just read disappears from it without the client guessing.
+   */
+  const [queueBySid, setQueueBySid] = useState<Record<string, QueuedMessage[]>>(
+    {},
+  );
+  /**
+   * Highest queue version applied per session.
+   *
+   * The same change reaches this client twice - once on the turn's own stream,
+   * once on `GET /foxxycode/events` - and those are separate connections, so the
+   * frames can arrive in either order. The version decides; without it a stale
+   * frame would put a cancelled message back on screen.
+   */
+  const queueOrderRef = useRef(new QueueDeliveryOrder());
+  const applyQueue = useCallback(
+    (sid: string, rows: QueuedMessage[], version: number, epoch?: number) => {
+      const key = sid.trim();
+      if (!queueOrderRef.current.accept(key, version, epoch)) {
+        return;
+      }
+      setQueueBySid((prev) => ({ ...prev, [key]: rows }));
+    },
+    [],
+  );
+  // The running turn's clock and generated tokens per session, from the turn's own
+  // stream and from the activity read that covers a tab which joined late.
+  const [turnProgressBySid, setTurnProgressBySid] = useState<
+    Record<string, TurnProgress>
+  >({});
+  const applyTurnProgress = useStableHandler(
+    (sid: string, next: TurnProgress, source: "stream" | "activity") => {
+      const key = sid.trim();
+      if (!key) return;
+      setTurnProgressBySid((prev) => {
+        const merged = mergeTurnProgress(prev[key], next, source);
+        return merged === prev[key] ? prev : { ...prev, [key]: merged };
+      });
+    },
+  );
+  const clearTurnProgress = useStableHandler((sid: string) => {
+    const key = sid.trim();
+    setTurnProgressBySid((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _ended, ...rest } = prev;
+      return rest;
+    });
+  });
+
+  const turnActivity = useSessionTurnActivity({
+    sessionId,
+    connected: serverEventsConnected,
+    onTurnProgress: (sid, progress) =>
+      progress
+        ? applyTurnProgress(sid, progress, "activity")
+        : clearTurnProgress(sid),
+    postPending: (sid) => pendingPostBySidRef.current.has(sid),
+    onQueueRead: (sid) => {
+      const fence = queueOrderRef.current.capture(sid);
+      return (queue) => {
+        if (queueOrderRef.current.acceptSnapshot(sid, queue.version, fence)) {
+          setQueueBySid((prev) => ({ ...prev, [sid]: queue.messages }));
+        }
+      };
+    },
+    onReconcile: (sid, active, wasActive) => {
+      noteViewedTurnActive(sid, active);
+      if (active) void attachViewedComposer(sid);
+      else if (wasActive) reconcileEndedTurn(sid);
+    },
+  });
+  const generating =
+    sessionId.trim() !== "" &&
+    (turnActivity.get(sessionId) ??
+      activeComposerSidRef.current.has(sessionId.trim()));
+  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
+
+  function reconcileEndedTurn(sid: string) {
+    removeActiveComposer(sid);
+    // The next turn starts its own clock; what this one reached is history.
+    clearTurnProgress(sid);
+    if (
+      sid !== viewedSessionIdRef.current.trim() &&
+      !streamShadowBySidRef.current.has(sid)
+    )
+      return;
+    noteUsageTurnEnded(sid);
+    void loadMessages(sid, {
+      preserveOnError: true,
+      skipSetItems: viewedSessionIdRef.current.trim() !== sid,
+    });
+    void refreshSessionStats(sid);
+  }
+
+  /** Reads the queue as it stands, for a tab that attaches to a turn already running. */
+  const refreshQueue = useCallback(
+    async (sid: string) => {
+      const key = sid.trim();
+      if (!key) return;
+      // A snapshot read over REST can cross a newer frame on a stream; the fence
+      // taken before the request is what lets the delivery order refuse it.
+      const fence = queueOrderRef.current.capture(key);
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/queue`,
+          { headers: { [HDR]: key } },
+        );
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        const messages = data?.messages;
+        if (
+          Array.isArray(messages) &&
+          queueOrderRef.current.acceptSnapshot(key, data?.version ?? 0, fence)
+        ) {
+          setQueueBySid((prev) => ({ ...prev, [key]: messages }));
+        }
+      } catch {
+        // The next message_queue frame brings the list.
+      }
+    },
+    [],
+  );
+
+  async function attachViewedComposer(sid: string) {
+    const canAttach = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      turnActivity.get(sid) === true &&
+      !postAbortBySidRef.current.has(sid) &&
+      !relayAbortBySidRef.current.has(sid) &&
+      // A Stop in flight has released the stream on purpose; its outcome
+      // decides whether this turn is watched again.
+      !stopPendingBySidRef.current.has(sid) &&
+      stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
+    if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
+    relayAttachPendingRef.current.add(sid);
+    try {
+      const generation = turnActivity.generation(sid);
+      const loaded = await loadMessages(sid, {
+        preserveOnError: true,
+        freshLoad: !streamShadowBySidRef.current.has(sid),
+      });
+      if (
+        loaded &&
+        canAttach() &&
+        turnActivity.generation(sid) === generation
+      ) {
+        void rejoinComposerLiveStream(sid, loaded);
+      }
+    } catch {
+      // An attach read failed; the activity reconciler retries without declaring idle.
+    } finally {
+      relayAttachPendingRef.current.delete(sid);
+    }
+  }
+
+  // Poll while the session is working, not merely while this client streams it: a turn
+  // recovered from disk, or an autonomous turn woken by a background task, burns context
+  // just the same, and stopping here is what left the ring frozen until the turn ended.
+  // Text of the most recent user turn, used to re-run it from the retry button
+  // on a failed/system notice (e.g. "model did not respond"). A turn a finished
+  // background task started has no text anybody typed, so there is nothing to
+  // re-run and no retry is offered.
+  const lastUserText = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it && it.type === "background_wake") return "";
+      if (it && it.type === "user_message") {
+        return typeof it.content === "string" ? it.content : "";
+      }
+    }
+    return "";
+  }, [items]);
 
   useEffect(() => {
     const sid = sessionId.trim();
-    if (!sid || !generating) {
+    if (!sid || (!generating && !viewedTurnActive)) {
       return;
     }
     void refreshSessionStats(sid);
@@ -895,7 +1013,13 @@ export function App() {
       void refreshSessionStats(sid);
     }, 800);
     return () => window.clearInterval(timer);
-  }, [sessionId, generating, refreshSessionStats]);
+  }, [sessionId, generating, viewedTurnActive, refreshSessionStats]);
+
+  // A session switch must not carry the previous chat's "still working" flag; the probes
+  // below re-raise it within a couple of seconds if the new one is in fact busy.
+  useEffect(() => {
+    setViewedTurnActive(false);
+  }, [sessionId]);
 
   // Arm audio unlock once so the first desktop chime is not swallowed by the
   // browser autoplay policy.
@@ -959,16 +1083,35 @@ export function App() {
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
-  const sessionsForSidebar = useMemo(
-    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
-  );
+  const sessionsForSidebar = useMemo(() => {
+    const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
+    // The open conversation's row follows this tab's own view of its turn, not the
+    // last listing: the listing is refreshed on a poll, and the activity dot must
+    // not trail a turn the reader is watching start or end.
+    const open = sessionId.trim();
+    if (!open) return rows;
+    return rows.map((row) =>
+      row.id === open && !!row.turnActive !== generating
+        ? { ...row, turnActive: generating }
+        : row,
+    );
+  }, [sessions, clientDraftSessions, sessionId, generating, t]);
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
-  const [modelsEpoch, setModelsEpoch] = useState(0);
+  /**
+   * Bumped whenever the server's configuration moved: a settings save here, or a
+   * `config_reloaded` event from a swap made elsewhere (the agent's `config_commit`,
+   * a skill install, another tab, an edit on disk that `serve` picked up). Everything
+   * derived from the config re-reads on it, so a model added mid-session reaches the
+   * picker without a page reload.
+   */
+  const [configEpoch, setConfigEpoch] = useState(0);
+  useEffect(() => {
+    configEpochRef.current = configEpoch;
+  }, [configEpoch]);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -985,6 +1128,29 @@ export function App() {
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
+  const [swarmRoute, setSwarmRoute] = useState(false);
+  // The documentation reader, open on a page (and section) of the built-in
+  // documentation; null when it is closed. lastDocsSlugRef remembers the page
+  // the reader was left on, so the rail and F1 reopen the book where it was.
+  const [docsRoute, setDocsRoute] = useState<{
+    slug: string | null;
+    anchor: string | null;
+  } | null>(null);
+  const lastDocsSlugRef = useRef<string | null>(null);
+  // Where the reader was opened from (a chat, the swarm, the scheduler), so
+  // closing it goes back there rather than home.
+  const docsReturnHashRef = useRef("");
+  // The Swarm entry only appears when the environment answers as a relay: on a
+  // plain agent there is no swarm to show.
+  const [isSwarmEnv, setIsSwarmEnv] = useState(false);
+  /**
+   * True when this page IS the relay, not an agent reached through one.
+   *
+   * A relay holds no sessions and serves no /foxxycode/* at all, so a chat
+   * box and a history drawer there are furniture for a room nobody can
+   * enter. What it does have is the swarm, so that is what it shows.
+   */
+  const [atSwarmRoot, setAtSwarmRoot] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
@@ -1000,9 +1166,100 @@ export function App() {
   const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
   const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
   const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
+  // The runs of the job whose runs panel is open: the background tasks of the
+  // job's session, polled the way the chat's Tasks panel polls its own.
+  const [schedulerRunsTasks, setSchedulerRunsTasks] = useState<BackgroundTask[]>([]);
+  const [schedulerRunsRunning, setSchedulerRunsRunning] = useState(0);
+  const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(null);
+  const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
+  // row, a link that names a task). Which cards are open otherwise is the panel's own
+  // business and is not part of the address.
+  //
+  // The pointer names its chat and is good for one use. Every session numbers its
+  // tasks from bg_1 and the panel unmounts with the drawer, so a pointer that outlived
+  // its use would open a card on the next mount - in whichever chat is on screen.
+  const [tasksFocus, setTasksFocus] = useState<
+    (TaskFocus & { sid: string }) | null
+  >(null);
+  const tasksFocusSeqRef = useRef(0);
+  const focusBackgroundTask = useCallback(
+    (sid: string, taskId: string | null) => {
+      const id = (taskId || "").trim();
+      const key = sid.trim();
+      if (!id || !key) {
+        return;
+      }
+      tasksFocusSeqRef.current += 1;
+      setTasksFocus({ sid: key, taskId: id, seq: tasksFocusSeqRef.current });
+    },
+    [],
+  );
+  const spendTasksFocus = useCallback((seq: number) => {
+    setTasksFocus((prev) => (prev && prev.seq === seq ? null : prev));
+  }, []);
+  const [schedulerRunsFocus, setSchedulerRunsFocus] =
+    useState<TaskFocus | null>(null);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [backgroundRunning, setBackgroundRunning] = useState(0);
+  // Detached subagents blocked on a prompt. Kept as a number so the poll
+  // effect below does not restart on every list refresh.
+  const backgroundAwaiting = useMemo(
+    () => awaitingPermissionCount(backgroundTasks),
+    [backgroundTasks],
+  );
+  const [backgroundListError, setBackgroundListError] = useState<string | null>(
+    null,
+  );
+  const [backgroundListLoading, setBackgroundListLoading] = useState(false);
+  /** Ticks once a second so elapsed times advance between polls. */
+  const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
+  // How History divides the list, remembered across visits; the archive stays
+  // hidden until it is asked for, so a conversation put aside is out of the way
+  // on the next open too.
+  const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>(
+    () => readSessionGroupCookie() ?? DEFAULT_SESSION_GROUP_MODE,
+  );
+  // Every one of these survives a reload: a filter forgotten by the next page
+  // load is not a setting, it is a gesture.
+  const [sessionsArchiveFilter, setSessionsArchiveFilter] =
+    useState<SessionArchiveFilter>(
+      () =>
+        readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
+        DEFAULT_ARCHIVE_FILTER,
+    );
+  const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
+      DEFAULT_SESSION_SORT_KEY,
+  );
+  // Which surface's conversations History shows: every one, the ones opened on
+  // this host, or the chats a messenger gateway is holding.
+  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.origin, isSessionOriginFilter) ?? "",
+  );
+  // The remotes this server offers as environments, read from the local config
+  // rather than the active one - the list of places to go must not travel with
+  // the place you are.
+  const [configuredRemotes, setConfiguredRemotes] = useState<
+    { name: string; url: string }[]
+  >([]);
+  // A folder picked from a History heading, waiting for the conversation on
+  // screen to be gone before it is applied (see newChatWorkspace.ts). The value
+  // is a ref and the trigger a counter, so the one effect that owns "the
+  // session changed" applies it - two effects racing to set the workspace
+  // context would be decided by whichever fetch answered last.
+  const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
+  // Sessions with an archive change in flight; see archiveSession.
+  const archivingRef = useRef<Set<string>>(new Set());
+  // The same, for pinning.
+  const pinningRef = useRef<Set<string>>(new Set());
+  const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
@@ -1010,20 +1267,81 @@ export function App() {
   const [viewportXL, setViewportXL] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
+  /**
+   * The viewed session's permission mode and the one a restart would give it
+   * back, the settings changed for the next turns, and the version of the
+   * snapshot they came from (chat/sessionSettings.ts). The server is the
+   * source of truth: every surface's change arrives as a versioned snapshot.
+   */
+  const [permissionMode, setPermissionMode] = useState("ask");
+  const [configuredPermissionMode, setConfiguredPermissionMode] =
+    useState("ask");
+  const [settingsOverrides, setSettingsOverrides] = useState<TurnOverride[]>(
+    [],
+  );
+  const settingsVersionRef = useRef<{ sid: string; version: number }>({
+    sid: "",
+    version: 0,
+  });
+  /** A permission mode picked before the chat has a session: it rides in as a
+   *  command at the start of the first message, where the server takes it. */
+  const pendingPermissionModeRef = useRef("");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
+    setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+    setSessionContextWindows((prev) => ({
+      ...prev,
+      [sid]: { model: llmModel, epoch: configEpoch, size: u.size },
+    }));
+    debouncedRefreshSessionStats(sid);
+  });
+  // Provider account usage for the composer's usage section and banner: read
+  // over REST at session open, model change and after each viewed turn, pushed
+  // by the events stream in between (chat/useProviderUsage.ts).
+  const [providerUsageTurnEpoch, setProviderUsageTurnEpoch] = useState(0);
+  const noteUsageTurnEnded = useCallback((sid: string) => {
+    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+      setProviderUsageTurnEpoch((n) => n + 1);
+    }
+  }, []);
+  const providerUsageState = useProviderUsage({
+    sessionId,
+    llmModel,
+    turnEpoch: providerUsageTurnEpoch,
+  });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
-   * Raw model/reasoning stored on the opened session. Held until the backends
-   * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on reload.
+   * Raw mode/model/reasoning stored on the opened session. Held until the
+   * backends list (`llmModelIds`) is available so the restore survives whichever
+   * of `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on
+   * reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
     model: string;
     reasoning: string;
+    mode: string;
   } | null>(null);
+  /**
+   * Session whose stored selection has already been restored. `loadMessages`
+   * also runs after every turn and on every reconnect, and each response
+   * carries the stored selection, so without this the restore would keep
+   * reverting a Mode or Model the user picked a moment earlier.
+   */
+  const appliedSelectionSidRef = useRef("");
+  /** Session whose Mode/Model the user changed by hand; their pick wins. */
+  const userTouchedSelectionSidRef = useRef("");
+  /**
+   * Bumped on every hand-made Mode change. A turn snapshots it so the
+   * post-turn mode adoption can tell "the server switched under us" from
+   * "the user picked a new mode while the turn was running".
+   */
+  const modeEditSeqRef = useRef(0);
+  /** Current mode, readable from callbacks that outlive their render. */
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -1067,14 +1385,25 @@ export function App() {
           (x) =>
             !(x.type === "question_prompt" && x.payload.requestId === ridInner),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `qp_${ridInner}`,
-            type: "question_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: `qp_${ridInner}`,
+          type: "question_prompt" as const,
+          payload: p,
+        };
+        // Insert right after the tool call that raised it, like the permission
+        // gate below: the card belongs under its own row, not above it.
+        const tcid = (p.toolCallId || "").trim();
+        const tcIdx = tcid
+          ? withoutDup.findIndex(
+              (x) => x.type === "tool_call" && x.toolCallId === tcid,
+            )
+          : -1;
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],
@@ -1236,7 +1565,7 @@ export function App() {
         return next;
       });
       // Same safety net as permissions: re-attach if the stream died while pending.
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
@@ -1284,11 +1613,19 @@ export function App() {
       // Safety net: if the live stream died while this prompt was pending, the
       // turn continues server-side after the answer — re-attach so the
       // continuation renders live (no-op when a stream is already attached).
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
   );
+
+  /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  // Whether the conversation on screen is archived, and whether the request to
+  // take it out of the archive is in flight.
+  const [viewedArchived, setViewedArchived] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
+  const [subagentTranscript, setSubagentTranscript] =
+    useState<SubagentTranscriptMeta | null>(null);
 
   const currentTitle = useMemo(() => {
     if (!sessionId) {
@@ -1302,8 +1639,25 @@ export function App() {
     }
     const row = sessions.find((s) => s.id === sessionId);
     const title = (row?.title || "").trim();
-    return title || t("chat.newChat");
-  }, [sessionId, sessions, describePreview, locale]);
+    if (title) {
+      return title;
+    }
+    // A child session has no History row to name it, so name it by its role;
+    // a run the scheduler started, and a job's own session, by their job.
+    if (subagentTranscript) {
+      const sched = subagentTranscript.scheduler;
+      if (sched) {
+        return subagentTranscript.jobSession
+          ? t("chat.schedulerJobSessionTitle", { jobId: sched.jobId })
+          : t("chat.scheduledRunTitle", { jobId: sched.jobId });
+      }
+      const name = subagentTranscript.name.trim();
+      return name
+        ? t("chat.subagentTitle", { name })
+        : t("chat.subagentTitleUnnamed");
+    }
+    return t("chat.newChat");
+  }, [sessionId, sessions, describePreview, locale, subagentTranscript]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -1312,6 +1666,18 @@ export function App() {
     }
     return (sessions.find((s) => s.id === sid)?.cwd || "").trim();
   }, [sessionId, sessions]);
+
+  // What a transcript row spells a path against: the session's own directory,
+  // then the worktrees of its workspace. Work inside a worktree reads against
+  // that worktree, so the deepest match wins (relativeToolTarget).
+  const transcriptPathRoots = useMemo(() => {
+    const roots = [currentSessionCwd];
+    for (const worktree of workspaceCtx?.worktrees || []) {
+      const path = (worktree.path || "").trim();
+      if (path) roots.push(path);
+    }
+    return roots.filter((root) => root !== "");
+  }, [currentSessionCwd, workspaceCtx]);
 
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
@@ -1328,6 +1694,135 @@ export function App() {
     );
   }
 
+  /**
+   * Writes the labels of one conversation.
+   *
+   * The list takes the new set **before** the request: the editor builds each
+   * gesture on the row it is shown, so a second gesture made while the first is
+   * still in flight would otherwise start from the set before both and undo
+   * one of them. The server folds what it stores and answers with the set it
+   * kept, which then replaces the optimistic one - a chip drawn here never
+   * changes spelling one refresh later - and a refused write puts back what the
+   * row carried, so the list never claims something the server does not hold.
+   */
+  async function saveSessionTags(id: string, tags: string[]): Promise<boolean> {
+    let previous: string[] | undefined;
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) {
+          return s;
+        }
+        previous = s.tags ?? [];
+        return { ...s, tags };
+      }),
+    );
+    const restore = () =>
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, tags: previous ?? [] } : s)),
+      );
+    let stored: string[];
+    try {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const data = (await res.json()) as { tags?: string[] };
+      stored = data.tags ?? [];
+    } catch {
+      // A dropped connection and a refused write end the same way: the row goes
+      // back to what the server still holds, and the caller says so.
+      restore();
+      return false;
+    }
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, tags: stored } : s)),
+    );
+    return true;
+  }
+
+  /**
+   * Export the current session transcript as a document. The server renders the
+   * chosen format and returns a binary attachment; we stream it to a Blob and
+   * trigger a browser download, recovering the filename from the
+   * Content-Disposition header when the server supplies one.
+   */
+  async function exportSession(format: ExportFormat) {
+    if (!sessionId || exportBusy) {
+      return;
+    }
+    const sid = sessionId;
+    // A failed export must say so: the spinner stopping on its own reads as a
+    // finished download that never arrived. Network errors are caught here too,
+    // otherwise the rejected promise escapes the `void exportSession(...)` call
+    // site as an unhandled rejection.
+    const notice = (level: "error" | "info", message: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level,
+          message,
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
+    const fail = () => notice("error", t("chat.exportFailed"));
+    setExportBusy(true);
+    try {
+      if (isEditorEmbed()) {
+        // An editor webview cannot save a blob: IntelliJ's JCEF drops downloads
+        // no CefDownloadHandler claims, and the VS Code panel hosts this SPA in
+        // a cross-origin iframe with no download permission. Have the server
+        // write the document out instead; a connected plugin reveals it.
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/export/file?format=${format}`,
+          { method: "POST", headers: { [HDR]: sid } },
+        );
+        if (!res.ok) {
+          // 409: every candidate name was held by something the server could not
+          // replace — on Windows that is the exported document still open.
+          notice(
+            "error",
+            res.status === 409
+              ? t("chat.exportNameTaken")
+              : t("chat.exportFailed"),
+          );
+          return;
+        }
+        const saved = (await res.json()) as { path?: string };
+        const path = (saved.path ?? "").trim();
+        if (path === "") {
+          fail();
+          return;
+        }
+        notice("info", t("chat.exportSaved", { path }));
+        return;
+      }
+      const res = await fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/export?format=${format}`,
+        { headers: { [HDR]: sid } },
+      );
+      if (!res.ok) {
+        fail();
+        return;
+      }
+      const blob = await res.blob();
+      const filename =
+        filenameFromDisposition(res.headers.get("Content-Disposition")) ??
+        `session.${format}`;
+      downloadBlob(filename, blob);
+    } catch {
+      fail();
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   const headers = useMemo(
     () => (sessionId ? { [HDR]: sessionId } : {}),
     [sessionId],
@@ -1339,7 +1834,10 @@ export function App() {
         headers: sid ? { [HDR]: sid } : {},
       });
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const ctx = (await res.json()) as WorkspaceContext;
+        setWorkspaceCtx(ctx);
+        // Host fact, not a workspace one: the tool cards name the interpreter.
+        setHostShell(ctx.shell);
       }
     } catch {
       // ignore: chips keep the previous context
@@ -1348,10 +1846,22 @@ export function App() {
 
   // Load the workspace context whenever the viewed session changes; a fresh
   // home/draft view also drops stale pre-session workspace choices.
+  //
+  // A folder picked from a History heading is applied here rather than where it
+  // was picked: leaving a conversation is asynchronous, and a workspace change
+  // issued before the session is gone lands on the conversation being left.
+  // It replaces the default probe rather than running beside it - two context
+  // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
     pendingWorkspaceRef.current = null;
+    const wanted = newChatWorkspaceRef.current;
+    if (newChatWorkspaceIsReady(wanted, sessionId)) {
+      newChatWorkspaceRef.current = null;
+      void switchWorkspace({ path: String(wanted?.path ?? "") });
+      return;
+    }
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
+  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
 
   // Host project root, once. Without a session header the endpoint reports the
   // server's own cwd, which is the project an editor plugin launched it for.
@@ -1379,10 +1889,22 @@ export function App() {
     [hostProjectRoot],
   );
 
+  // The session table in Settings lists, and deletes within, the set History
+  // shows: one server per project shares a single home with every other one.
+  const sessionsScopeForSettings = useMemo(
+    () => ({
+      projectRoot: hostProjectRoot,
+      projectOnly: sessionsProjectOnly,
+      onProjectOnlyChange: changeSessionsProjectOnly,
+    }),
+    [hostProjectRoot, sessionsProjectOnly, changeSessionsProjectOnly],
+  );
+
   async function switchWorkspace(payload: {
     path?: string;
     branch?: string;
     worktree?: boolean;
+    vcs?: "git" | "svn";
   }) {
     const sid = sessionId.trim();
     if (!sid) {
@@ -1404,15 +1926,22 @@ export function App() {
         }
       } else if (payload.branch) {
         const nextBranch = payload.branch;
-        setWorkspaceCtx((prev) =>
-          prev
-            ? {
-                ...prev,
-                branch: nextBranch,
-                is_worktree: Boolean(payload.worktree),
-              }
-            : prev,
-        );
+        setWorkspaceCtx((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          if (payload.vcs === "svn") {
+            return {
+              ...prev,
+              svn: { ...(prev.svn ?? { available: true }), branch: nextBranch },
+            };
+          }
+          return {
+            ...prev,
+            branch: nextBranch,
+            is_worktree: Boolean(payload.worktree),
+          };
+        });
       }
       return;
     }
@@ -1459,6 +1988,7 @@ export function App() {
             body: JSON.stringify({
               branch: pending.branch,
               worktree: Boolean(pending.worktree),
+              vcs: pending.vcs ?? "git",
             }),
         });
       }
@@ -1466,6 +1996,72 @@ export function App() {
       // ignore: the session still starts in the default workspace
     }
   }
+
+  const refreshBackgroundTasks = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        setBackgroundTasks([]);
+        setBackgroundRunning(0);
+        return;
+      }
+      const silent = !!opts?.silent;
+      if (!silent) {
+        setBackgroundListLoading(true);
+        setBackgroundListError(null);
+      }
+      const res = await listBackgroundTasks(sid);
+      if (!silent) {
+        setBackgroundListLoading(false);
+      }
+      if (!res.ok) {
+        if (!silent) {
+          setBackgroundListError(res.message);
+          setBackgroundTasks([]);
+          setBackgroundRunning(0);
+        }
+        return;
+      }
+      setBackgroundListError(null);
+      setBackgroundTasks(res.data.data || []);
+      setBackgroundRunning(res.data.running || 0);
+    },
+    [sessionId],
+  );
+
+  // The Tasks panel reads the output of every card it has open through this.
+  const loadBackgroundTaskOutput = useCallback(
+    async (taskId: string): Promise<string | null> => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        return null;
+      }
+      const res = await getBackgroundTask(sid, taskId);
+      return res.ok ? res.data.output || "" : null;
+    },
+    [sessionId],
+  );
+
+  const stopBackgroundTaskById = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        return;
+      }
+      await stopBackgroundTask(sid, taskId);
+      await refreshBackgroundTasks({ silent: true });
+    },
+    [sessionId, refreshBackgroundTasks],
+  );
+
+  const clearFinishedTasks = useCallback(async () => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    await clearFinishedBackgroundTasks(sid);
+    void refreshBackgroundTasks({ silent: true });
+  }, [sessionId, refreshBackgroundTasks]);
 
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -1524,6 +2120,20 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    if (p.branch === "docs") {
+      setDocsRoute({ slug: p.slug, anchor: p.anchor });
+      if (p.slug) {
+        lastDocsSlugRef.current = p.slug;
+      }
+      setSwarmRoute(false);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setSessionsOpen(false);
+      return;
+    }
+    setDocsRoute(null);
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
@@ -1533,6 +2143,15 @@ export function App() {
       void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(p.tasksOpen);
+      if (p.tasksOpen && p.taskId) {
+        // A link that names a task opens its card once; the address goes back to
+        // saying only that the panel is showing.
+        focusBackgroundTask(p.sessionId, p.taskId);
+        setSessionTasksHash(p.sessionId, null, {
+          historySidebar: !!p.historyOpen,
+        });
+      }
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1540,6 +2159,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -1556,13 +2176,25 @@ export function App() {
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
       return;
     }
+    if (p.branch === "swarm") {
+      setSwarmRoute(true);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setSessionsOpen(false);
+      return;
+    }
+    setSwarmRoute(false);
     if (p.branch === "settings") {
       setSettingsRoute(true);
       setSettingsSection(p.section);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -1588,6 +2220,7 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
+      setTasksOpen(false);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1597,6 +2230,7 @@ export function App() {
     setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
     setSessionsOpen(!!p.historyOpen);
   }, [schedulerHttpLinked]);
 
@@ -1605,6 +2239,7 @@ export function App() {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
@@ -1616,6 +2251,7 @@ export function App() {
   const clearSessionRoute = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
@@ -1625,6 +2261,7 @@ export function App() {
   const closeSchedulerDrawer = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -1645,7 +2282,9 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    if (parseAppHash().branch === "settings") {
+    setTasksOpen(false);
+    setDocsRoute(null);
+    if (parseAppHash().branch === "settings" || parseAppHash().branch === "docs") {
       const sid = sessionId.trim();
       if (sid) {
         setSessionHashInLocation(sid);
@@ -1767,7 +2406,42 @@ export function App() {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-  }, []);
+    // Slash commands are derived from skills.dirs, so a config swap moves them too.
+  }, [configEpoch]);
+
+  // Background tasks outlive the SSE stream of the turn that started them, so
+  // the drawer and the nav badge are kept honest by polling rather than by the
+  // composer stream. The cadence drops to a slow heartbeat when nothing runs.
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      setBackgroundTasks([]);
+      setBackgroundRunning(0);
+      return;
+    }
+    void refreshBackgroundTasks({ silent: !tasksOpen });
+  }, [sessionId, tasksOpen, refreshBackgroundTasks]);
+
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      return;
+    }
+    // Keep the fast cadence while a detached subagent awaits permission, even
+    // when the server stops counting it as running.
+    const id = window.setInterval(() => {
+      void refreshBackgroundTasks({ silent: true });
+    }, tasksPollIntervalMs(backgroundRunning + backgroundAwaiting));
+    return () => window.clearInterval(id);
+  }, [sessionId, backgroundRunning, backgroundAwaiting, refreshBackgroundTasks]);
+
+  // Elapsed labels must advance between polls, so the clock ticks on its own
+  // while something is actually running.
+  useEffect(() => {
+    if (backgroundRunning <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [backgroundRunning]);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked === false) {
@@ -1785,6 +2459,110 @@ export function App() {
     }, SCHEDULER_JOBS_POLL_MS);
     return () => window.clearInterval(id);
   }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
+
+  const schedulerRunsJobId =
+    schedulerEditor?.mode === "runs" ? schedulerEditor.jobId : "";
+  // A link that names a run opens its card once, like a task link in a chat.
+  const schedulerRunsLinkedTaskId =
+    schedulerEditor?.mode === "runs" ? schedulerEditor.taskId : null;
+  useEffect(() => {
+    if (!schedulerRunsJobId || !schedulerRunsLinkedTaskId) {
+      return;
+    }
+    tasksFocusSeqRef.current += 1;
+    setSchedulerRunsFocus({
+      taskId: schedulerRunsLinkedTaskId,
+      seq: tasksFocusSeqRef.current,
+    });
+    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerJobRunsHash(schedulerRunsJobId);
+  }, [schedulerRunsJobId, schedulerRunsLinkedTaskId]);
+  /** The job session the runs live under; empty until the job ran once. */
+  const schedulerRunsSessionId = useMemo(() => {
+    if (!schedulerRunsJobId) {
+      return "";
+    }
+    const job = schedulerJobs.find((j) => j.job_id === schedulerRunsJobId);
+    return (job?.session_id || "").trim();
+  }, [schedulerJobs, schedulerRunsJobId]);
+
+  const refreshSchedulerRuns = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const sid = schedulerRunsSessionId;
+      if (!sid) {
+        setSchedulerRunsTasks([]);
+        setSchedulerRunsRunning(0);
+        setSchedulerRunsError(null);
+        return;
+      }
+      if (!opts?.silent) {
+        setSchedulerRunsLoading(true);
+        setSchedulerRunsError(null);
+      }
+      const res = await listBackgroundTasks(sid);
+      if (!opts?.silent) {
+        setSchedulerRunsLoading(false);
+      }
+      if (!res.ok) {
+        if (!opts?.silent) {
+          setSchedulerRunsError(res.message);
+          setSchedulerRunsTasks([]);
+          setSchedulerRunsRunning(0);
+        }
+        return;
+      }
+      setSchedulerRunsError(null);
+      setSchedulerRunsTasks(res.data.data || []);
+      setSchedulerRunsRunning(res.data.running || 0);
+    },
+    [schedulerRunsSessionId],
+  );
+
+  const loadSchedulerRunOutput = useCallback(
+    async (taskId: string): Promise<string | null> => {
+      const sid = schedulerRunsSessionId;
+      if (!sid || !taskId) {
+        return null;
+      }
+      const res = await getBackgroundTask(sid, taskId);
+      return res.ok ? res.data.output || "" : null;
+    },
+    [schedulerRunsSessionId],
+  );
+
+  useEffect(() => {
+    if (!schedulerRunsJobId) {
+      setSchedulerRunsTasks([]);
+      setSchedulerRunsRunning(0);
+      setSchedulerRunsError(null);
+      return;
+    }
+    void refreshSchedulerRuns();
+  }, [schedulerRunsJobId, schedulerRunsSessionId, refreshSchedulerRuns]);
+
+  useEffect(() => {
+    if (!schedulerRunsJobId || !schedulerRunsSessionId) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      void refreshSchedulerRuns({ silent: true });
+    }, tasksPollIntervalMs(schedulerRunsRunning));
+    return () => window.clearInterval(id);
+  }, [
+    schedulerRunsJobId,
+    schedulerRunsSessionId,
+    schedulerRunsRunning,
+    refreshSchedulerRuns,
+  ]);
+
+  // A running run keeps the panel's clock ticking like the chat's panel does.
+  useEffect(() => {
+    if (schedulerRunsRunning <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [schedulerRunsRunning]);
 
   useEffect(() => {
     void (async () => {
@@ -1846,37 +2624,72 @@ export function App() {
         );
       }
     })();
-    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+    // configEpoch bumps after every config swap, so a model added to models[] - and the
+    // multimodal flag on one already there - reaches the picker without a page reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelsEpoch]);
+  }, [configEpoch]);
 
+  // Onboarding is decided once per page load. It used to re-run on configEpoch,
+  // so every Settings save re-fetched the status and reopened a picker the user
+  // had already dismissed. Re-entry is the "Restart onboarding" button
+  // (restartOnboarding below), not a save.
   useEffect(() => {
     void (async () => {
       const status = await fetchOnboardingStatus();
       setShowProviderPicker(shouldShowOnboarding(status));
     })();
-  }, [modelsEpoch]);
+  }, []);
 
-  // Apply the opened session's saved model/reasoning once the backends list is
-  // known. Runs whenever either input lands, so the restore is independent of
-  // whether /v1/models or the session messages resolve first after a reload.
+  // Apply the opened session's saved mode/model/reasoning once the backends
+  // list is known. Runs whenever either input lands, so the restore is
+  // independent of whether /v1/models or the session messages resolve first
+  // after a reload — but only ONCE per session open, because the same snapshot
+  // rides every later transcript reconcile and would otherwise revert a pick
+  // the user just made.
   useEffect(() => {
     if (!openSessionSelection || llmModelIds.length === 0) {
       return;
     }
-    if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
+    if (
+      !shouldApplySessionSelection({
+        stashSid: openSessionSelection.sid,
+        viewedSid: viewedSessionIdRef.current,
+        appliedSid: appliedSelectionSidRef.current,
+        userTouchedSid: userTouchedSelectionSidRef.current,
+      })
+    ) {
       return;
     }
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
+    appliedSelectionSidRef.current = openSessionSelection.sid;
+    const nextModel = pickLlmModelForOpenSession({
+      backends: llmModelIds,
+      sessionModel: openSessionSelection.model,
+      cookie: readLlmModelCookie(),
+      defaultAgentModel: defaultAgentYamlModel,
+    });
+    setLlmModel(nextModel);
+    // A session carries a reasoning level only once something chose one for it,
+    // and a model that names no `reasoning_default` makes the server report the
+    // effective level as empty. Applied as it comes, that empties the composer
+    // while the turn still runs at the model's default - so it goes through the
+    // same chooser as every other path, with the session's value as the
+    // preference rather than as the answer.
+    const openRow = modelInfos.find((m) => m.id === nextModel);
+    setLlmReasoning(
+      pickReasoningLevel({
+        levels: openRow?.reasoningLevels ?? [],
+        cookie: readReasoningCookie(),
+        sessionLevel: openSessionSelection.reasoning,
+        modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-    setLlmReasoning(openSessionSelection.reasoning);
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+    // The session profile is stored server-side, so a reopened chat comes back
+    // in the mode it was left in instead of dropping to agent.
+    const storedMode = openSessionSelection.mode.trim();
+    if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
+      setMode(storedMode);
+    }
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -2002,6 +2815,12 @@ export function App() {
       if (scopeCwd) {
         ps.set("cwd", scopeCwd);
       }
+      ps.set("archived", sessionsArchiveFilter);
+      if (sessionsOrigin) {
+        ps.set("origin", sessionsOrigin);
+      }
+      ps.set("sort", sessionsSortKey);
+      ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
@@ -2015,8 +2834,12 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
+        // status 0 is fetchJSON's "no answer from the server" (dropped connection),
+        // which has no code worth showing the user.
         setSessionsError(
-          t("sessions.backendUnavailable", { status: res.status }),
+          res.status === 0
+            ? t("sessions.offline")
+            : t("sessions.backendUnavailable", { status: res.status }),
         );
         return null;
       }
@@ -2037,7 +2860,15 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers, sessionsProjectOnly, hostProjectRoot],
+    [
+      sessionFilterQ,
+      sessionsArchiveFilter,
+      sessionsOrigin,
+      sessionsSortKey,
+      headers,
+      sessionsProjectOnly,
+      hostProjectRoot,
+    ],
   );
 
   useEffect(() => {
@@ -2058,6 +2889,11 @@ export function App() {
         const { setSendMode, readSendModeFromConfigDoc } =
           await import("./i18n/sendModeConfig");
         setSendMode(readSendModeFromConfigDoc(res.data));
+        const { setStatusLineEnabled, readStatusLineFromConfigDoc } =
+          await import("./chat/statusLineConfig");
+        setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
+        const { applyUiEffectsFromConfigDoc } = await import("./theme/uiEffects");
+        applyUiEffectsFromConfigDoc(res.data);
       }
     })();
   }, [headers]);
@@ -2112,14 +2948,25 @@ export function App() {
       (s) => !!s.turnActive && s.id !== sessionId,
     );
     const anyLocalComposer = activeComposerSidRef.current.size > 0;
-    if (!anyLocalComposer && !hasBackgroundTurn) {
+    // With the events stream up, a background turn announces itself, so the poll only
+    // has to keep a local composer's stats and unread flags fresh. When it is down (an
+    // older server, a proxy that eats SSE) the previous behaviour is restored verbatim
+    // rather than leaving the sidebar frozen.
+    const pollForBackground = hasBackgroundTurn && !serverEventsConnected;
+    if (!anyLocalComposer && !pollForBackground) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+  }, [
+    composerActivityEpoch,
+    sessions,
+    sessionId,
+    loadSessionsList,
+    serverEventsConnected,
+  ]);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -2127,6 +2974,17 @@ export function App() {
     }
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
+
+  /**
+   * The messages revision each transcript returned by loadMessages was read at, for
+   * a transcript that is the server's own snapshot and nothing more. Attaching to a
+   * running turn with it asks the relay only for the frames that snapshot lacks;
+   * a transcript that kept local rows past the snapshot has none, and attaches the
+   * way it always did.
+   */
+  const snapshotRevByTranscript = useRef(
+    new WeakMap<readonly TranscriptItem[], number>(),
+  );
 
   async function loadMessages(
     idOverride?: string,
@@ -2136,6 +2994,10 @@ export function App() {
       freshLoad?: boolean;
       expectedEpoch?: number;
       allowApplyWhileActive?: boolean;
+      /** Post-turn reconcile: line the composer up with the session's mode. */
+      adoptServerMode?: boolean;
+      /** modeEditSeqRef as it stood when that turn started. */
+      modeEditSeqAtTurnStart?: number;
     },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
@@ -2143,6 +3005,11 @@ export function App() {
       setItems([]);
       return null;
     }
+    // Two guards, two questions. The stream generation (upstream) asks whether a
+    // new POST or relay took the session over while this read was in flight; the
+    // transcript epoch below (fork) asks whether the snapshot may be painted.
+    const streamGeneration = streamGenerationBySidRef.current.get(sid);
+    const sameStream = () => streamGenerationBySidRef.current.get(sid) === streamGeneration;
     const requestEpoch =
       opts?.expectedEpoch !== undefined
         ? opts.expectedEpoch
@@ -2156,13 +3023,21 @@ export function App() {
           ? { allowWhileActive: opts.allowApplyWhileActive }
           : {}),
       });
-    const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
       selectedModelId?: string;
       selectedReasoning?: string;
-      memoryTurns?: MemoryTurnApi[];
+      mode?: string;
+      settings?: unknown;
+      subagent?: {
+        parentSessionId?: string;
+        name?: string;
+        taskId?: string;
+      } | null;
+      readOnly?: boolean;
+      archived?: boolean;
+      messagesRev?: number;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2173,23 +3048,62 @@ export function App() {
     }>(`/foxxycode/sessions/${encodeURIComponent(sid)}/messages`, {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
+    // Re-read the viewed session after the await: the viewer may have moved
+    // on while the request was in flight, and a stale response must neither
+    // clear the new session's rows nor merge them into this session's shadow.
+    const viewingNow = viewedSessionIdRef.current.trim();
+    if (!sameStream()) return null;
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        if (viewingTrim === sid && canApplySnapshot()) {
+        if (viewingNow === sid && canApplySnapshot()) {
           setItems([]);
         }
       }
       return null;
     }
-    if (viewingTrim === sid && canApplySnapshot()) {
+    if (viewingNow === sid && canApplySnapshot()) {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
+      // The effect restores it once per session open — see
+      // shouldApplySessionSelection — because this call also runs after every
+      // turn and every reconnect.
       setOpenSessionSelection({
         sid,
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
+        mode: (res.data.mode || "").trim(),
       });
+      // The backend may have switched the profile itself (a plan run, or the
+      // model calling plan_exit). The SSE `mode` frame is the primary signal;
+      // this is the recovery for a turn whose stream we did not see whole, and
+      // it defers to a Mode the user changed while the turn was running.
+      if (opts?.adoptServerMode) {
+        const serverMode = (res.data.mode || "").trim();
+        if (
+          shouldAdoptServerModeAfterTurn({
+            serverMode,
+            currentMode: modeRef.current,
+            knownModes: PROFILE_MODES,
+            editSeqAtTurnStart: opts.modeEditSeqAtTurnStart ?? modeEditSeqRef.current,
+            editSeqNow: modeEditSeqRef.current,
+          })
+        ) {
+          setMode(serverMode);
+        }
+      }
+      // The whole snapshot: the mode, the permission mode, the overrides for
+      // the next turns, and the version the next send names.
+      const snap = parseSessionSettings(res.data.settings);
+      if (snap) {
+        applySessionSettings(snap);
+      }
+      // A child session locks the composer; an ordinary one carries no marker.
+      setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
+      // The composer learns from the transcript, not from the session list: the
+      // list skips the archive, so the conversation on screen may be in no page
+      // the client holds.
+      setViewedArchived(!!res.data.archived);
     }
     type UILogRow = {
       id: string;
@@ -2223,20 +3137,19 @@ export function App() {
       noticesByTurn.set(turn, bucket);
     }
 
-    const memByTurn = new Map<number, MemoryTurnApi>();
-    for (const row of res.data.memoryTurns || []) {
-      if (typeof row.userTurnIndex === "number" && row.userTurnIndex > 0) {
-        memByTurn.set(row.userTurnIndex, row);
-      }
-    }
     const next: TranscriptItem[] = [];
     const pushUiNoticesForTurn = (turn: number) => {
       for (const row of noticesByTurn.get(turn) || []) {
-        if (row.level !== "error") continue;
+        // Only the two levels the transcript knows how to render; a level a
+        // newer server may add stays invisible rather than mis-rendered.
+        if (row.level !== "error" && row.level !== "notice") continue;
         next.push({
           id: row.id,
           type: "system_notice",
-          level: "error",
+          // The server calls the neutral level "notice"; the transcript has
+          // called it "info" since the re-attach rows, and renders one style
+          // for both.
+          level: row.level === "notice" ? "info" : "error",
           message: row.message,
           createdAtUtc: row.createdAt,
         });
@@ -2246,9 +3159,28 @@ export function App() {
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
     let pendingAssistant = emptyDeferredAssistant();
+    let assistantInTurn = 0;
+    /**
+     * Emits whatever assistant text has accumulated so far.
+     *
+     * Assistant text is buffered rather than pushed on sight so that a reply split across
+     * several messages reads as one bubble. It therefore has to be flushed before anything
+     * that comes *after* it chronologically — the tool calls of the same step, and the
+     * reasoning of the next one. Without that, a turn that spoke before calling a tool
+     * renders as "user, every tool call, then all the text at the bottom": invisible while a
+     * model only talks at the end, glaring the moment a turn is stopped mid-flight and its
+     * partial answer is persisted ahead of the tools.
+     */
     const flushAssistantForTurn = () => {
-      const row = deferredAssistantItem(pendingAssistant, userTurnIdx);
-      if (row) next.push(row);
+      const row = deferredAssistantItem(
+        pendingAssistant,
+        userTurnIdx,
+        assistantInTurn,
+      );
+      if (row) {
+        next.push(row);
+        assistantInTurn++;
+      }
       pendingAssistant = emptyDeferredAssistant();
     };
     for (const m of res.data.messages || []) {
@@ -2273,20 +3205,39 @@ export function App() {
         }
         userTurnIdx++;
         thinkingInTurn = 0;
+        assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+        // Nobody typed the first message of a turn a finished background
+        // task started, and nothing shows in its place: the turn reads as the
+        // agent carrying on. It still opens a turn, so the notices and the
+        // ids of the turn line up with the server's count of user messages.
+        const wakeTasks = parseBackgroundWakeTasks(
+          (m as Record<string, unknown>).background_wake,
+        );
+        if (wakeTasks.length > 0) {
+          next.push({
+            id: stableWakeItemId(userTurnIdx),
+            type: "background_wake",
+            tasks: wakeTasks,
+            ...(cat ? { createdAtUtc: cat } : {}),
+          });
+          continue;
+        }
         const rawContent = m.content || "";
-        const parsedAssets = parseSessionAssetFiles(rawContent);
+        const parsedAssets = sessionMessageFiles(
+          (m as Record<string, unknown>).files,
+          rawContent,
+        );
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
           content: rawContent,
           ...(cat ? { createdAtUtc: cat } : {}),
+          ...((m as Record<string, unknown>).queued === true
+            ? { queued: true }
+            : {}),
           ...(parsedAssets.length > 0 ? { files: parsedAssets } : {}),
         });
-        const mt = memByTurn.get(userTurnIdx);
-        if (mt) {
-          next.push(memoryTranscriptFromApi(mt));
-        }
         continue;
       }
       if (role === "assistant") {
@@ -2312,6 +3263,8 @@ export function App() {
         }
         const reasoning = (m.reasoning || "").trim();
         if (reasoning) {
+          // Reasoning opens a new step, so anything said in the previous one closes here.
+          flushAssistantForTurn();
           const dk = reasoningDurationCacheKey(reasoning);
           const cachedMs = dk
             ? reasoningDurationMsByContentRef.current.get(dk)
@@ -2344,7 +3297,7 @@ export function App() {
           });
         }
         const content = m.content || "";
-        if (content) {
+        if (content.trim()) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           pendingAssistant = appendDeferredAssistant(
             pendingAssistant,
@@ -2353,6 +3306,10 @@ export function App() {
           );
         }
         const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
+        // Whatever the model said before reaching for a tool belongs above that tool.
+        if (tcs.length > 0) {
+          flushAssistantForTurn();
+        }
         for (const tc of tcs) {
           const id = tc?.id || "";
           const fn = tc?.function || {};
@@ -2429,12 +3386,14 @@ export function App() {
           const pickedArgs =
             titleLower === "question"
               ? pickRicherQuestionToolArgs(cur.argsText, row.argsPreview)
-              : row.argsPreview;
+              : pickRicherToolArgs(cur.argsText, row.argsPreview);
           if (pickedArgs) merged.argsText = pickedArgs;
         }
         if (row.resultPreview) merged.resultText = row.resultPreview;
         if (row.resultPreviewTruncated === true)
           merged.resultWasTruncated = true;
+        const todoPlan = normalizeTodoPlanSnapshot(row.planSnapshot);
+        if (todoPlan !== undefined) merged.todoPlan = todoPlan;
         const st = parseRFC3339ms(row.startedAt);
         const fin = parseRFC3339ms(row.finishedAt);
         if (st != null && fin != null && fin >= st) {
@@ -2443,6 +3402,7 @@ export function App() {
         next[idx] = merged;
       }
     }
+    if (!sameStream()) return null;
     const prevShadow = streamShadowBySidRef.current.get(sid);
     // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a branch).
     const localForMerge = opts?.freshLoad
@@ -2451,11 +3411,16 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingTrim === sid
+        : viewedSessionIdRef.current.trim() === sid
           ? itemsRef.current
           : undefined;
+    const mergedTranscript = mergeTranscriptPreferLocalSuffix(
+      next,
+      localForMerge,
+    );
+    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
-      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      mergedTranscript,
       localForMerge,
     );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
@@ -2472,7 +3437,7 @@ export function App() {
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
         sid,
-        viewingSid: viewingTrim,
+        viewingSid: viewingNow,
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
@@ -2481,6 +3446,8 @@ export function App() {
       localForMerge ?? prevShadow ?? itemsRef.current,
     );
     const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const snapshotRev = res.data.messagesRev;
+    const serverOnly = mergedTranscript === next && appliedRaw === merged;
     const hasPendingPermission = applied.some(
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
@@ -2495,9 +3462,16 @@ export function App() {
         return next;
       });
     }
+    const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
+      if (serverOnly && typeof snapshotRev === "number") {
+        snapshotRevByTranscript.current.set(items, snapshotRev);
+      }
+    };
     if (opts?.skipSetItems) {
       if (canApplySnapshot()) {
         streamShadowBySidRef.current.set(sid, applied);
+        evictStaleSessionCaches(viewedSessionIdRef.current);
+        noteSnapshotRev(applied);
       }
       return applied;
     }
@@ -2524,10 +3498,25 @@ export function App() {
       // ignore — branch nav is optional
     }
 
+    if (!sameStream()) return null;
     if (!canApplySnapshot()) {
       return withBranches;
     }
+    // Frames may have arrived while the optional branches request was in flight.
+    const beforeShadowMerge = withBranches;
+    withBranches = mergeTranscriptPreferLocalSuffix(
+      withBranches,
+      streamShadowBySidRef.current.get(sid),
+    );
+    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
     streamShadowBySidRef.current.set(sid, withBranches);
+    evictStaleSessionCaches(viewedSessionIdRef.current);
+    // The viewer moved on while this fetch was in flight (the user picked
+    // another session or went home): keep the shadow for the next visit, but
+    // never paint a stale transcript under the current route.
+    if (viewedSessionIdRef.current.trim() !== sid) {
+      return withBranches;
+    }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2584,6 +3573,12 @@ export function App() {
       setActiveDraftId(id);
       setSessionId("");
       viewedSessionIdRef.current = "";
+      // A local draft is a new chat: it has no stored profile of its own, so it
+      // must not inherit the mode of the session being left.
+      setMode("agent");
+      setOpenSessionSelection(null);
+      appliedSelectionSidRef.current = "";
+      userTouchedSelectionSidRef.current = "";
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
       setDraftHashInLocation(id, { historySidebar: keepHistoryOpen });
@@ -2602,6 +3597,16 @@ export function App() {
     } else {
       setItems([]);
     }
+    streamShadowBySidRef.current.touch(id);
+    evictStaleSessionCaches(id);
+  }
+
+  /** "Ask the agent" in the reader: a fresh chat with the page mentioned and
+   *  the selection quoted, ready to be finished and sent. */
+  function askAboutDocs(draft: string) {
+    goHome();
+    setDocsRoute(null);
+    setDraft(draft);
   }
 
   function goHome() {
@@ -2609,6 +3614,7 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2623,9 +3629,21 @@ export function App() {
     setContextBreakdown(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
-    // the old session's model over the new chat default.
+    // the old session's model over the new chat default. Clearing the applied
+    // marker lets the same session restore again when it is reopened later.
     setOpenSessionSelection(null);
+    appliedSelectionSidRef.current = "";
+    userTouchedSelectionSidRef.current = "";
+    // A new chat starts in agent; the mode used to survive New chat while the
+    // model was reset, so a plan session leaked its profile into the next one.
+    setMode("agent");
+    // A new chat runs under the configured permission mode until it is changed.
+    settingsVersionRef.current = { sid: "", version: 0 };
+    pendingPermissionModeRef.current = "";
+    setPermissionMode(configuredPermissionMode);
+    setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
       setLlmModel(
         pickDefaultLlmModelForNewChat({
@@ -2639,13 +3657,15 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm(t("app.confirmDeleteDraft"));
+      const ok = await confirm({
+        title: t("app.confirmDeleteDraft"),
+        message: t("app.confirmDeleteDraftBody"),
+        confirmLabel: t("app.delete"),
+        variant: "danger",
+      });
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(
-        sessionDeleteBackdropSuppressUntilRef,
-      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2654,13 +3674,18 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm(t("app.confirmDeleteChat"));
+    const ok = await confirm({
+      title: t("app.confirmDeleteChat"),
+      message: t("app.confirmDeleteChatBody"),
+      confirmLabel: t("app.delete"),
+      variant: "danger",
+      // The row's trash does one thing, and this dialog asks about that one
+      // thing: focus the answer so Enter finishes what the click started.
+      initialFocus: "confirm",
+    });
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(
-      sessionDeleteBackdropSuppressUntilRef,
-    );
     clearQuestionPromptRecords(id);
     await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -2675,6 +3700,173 @@ export function App() {
     }
     await loadSessionsList(true);
   }
+
+  /**
+   * Puts a conversation in the archive, or takes it back out.
+   *
+   * The row moves only once the server has agreed. Moving it first reads better
+   * for the half second it saves, but it is a lie the UI then has to take back:
+   * a refused PATCH would leave the drawer showing a state that is not on disk,
+   * and a listing already in flight could put the row back anyway. The request
+   * is quick, and what the drawer shows stays what the server said.
+   */
+  async function archiveSession(id: string, archived: boolean) {
+    // One conversation, one request at a time. Two PATCHes for the same session
+    // in flight together settle in whatever order the network gives them, so a
+    // quick archive-then-unarchive could leave the archive flag opposite to the
+    // last thing the operator pressed.
+    if (archivingRef.current.has(id)) {
+      return;
+    }
+    archivingRef.current.add(id);
+    try {
+      await runArchiveSession(id, archived);
+    } finally {
+      archivingRef.current.delete(id);
+    }
+  }
+
+  async function runArchiveSession(id: string, archived: boolean) {
+    let res: Response;
+    try {
+      res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      return;
+    }
+    if (!res.ok) {
+      setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      return;
+    }
+    const rowStays =
+      sessionsArchiveFilter === "all" ||
+      (sessionsArchiveFilter === "only") === archived;
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Keeps a conversation at the top of every listing, or lets it back into the
+   * order. Like archiving, the row moves only once the server has agreed, and
+   * one request per session is in flight at a time.
+   */
+  async function pinSession(id: string, pinned: boolean) {
+    if (pinningRef.current.has(id)) {
+      return;
+    }
+    pinningRef.current.add(id);
+    try {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      // The row does not move here: a pin changes the order, and the order is
+      // the server's answer, not something to guess at from one row.
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      pinningRef.current.delete(id);
+    }
+  }
+
+  /**
+   * Writes the order the operator dragged the pinned conversations into. The
+   * whole order travels, not the one that moved: a list rewritten from what was
+   * on screen cannot interleave with a concurrent change into an order nobody
+   * asked for. The rows are re-read afterwards, because the order is the
+   * server's answer.
+   */
+  async function reorderPinnedSessions(ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+    try {
+      const res = await fetch("/foxxycode/sessions/pins/reorder", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      }
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    }
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Takes the conversation on screen out of the archive, from the notice that
+   * stands where its composer would be. The flag is cleared as soon as the
+   * server agrees, so the composer comes back without waiting for the listing.
+   */
+  async function unarchiveViewedSession() {
+    const sid = sessionId.trim();
+    if (!sid || unarchiving) {
+      return;
+    }
+    setUnarchiving(true);
+    try {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      setViewedArchived(false);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
+      );
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      setUnarchiving(false);
+    }
+  }
+
+  // The session table in Settings removes bundles behind the open panel. Drop
+  // the rows from History right away, and when the conversation on screen was
+  // one of them, reset the chat to a new one - without leaving Settings, which
+  // is where the user still is, so the route is re-anchored on that tab.
+  // A stable handler: Settings keeps one identity, and every call still sees
+  // the session on screen now and the goHome of the latest render.
+  const onSessionsDeletedInSettings = useStableHandler((ids: string[]) => {
+    if (ids.length === 0) {
+      return;
+    }
+    const gone = new Set(ids);
+    for (const id of ids) {
+      clearQuestionPromptRecords(id);
+    }
+    setSessions((prev) => prev.filter((row) => !gone.has(row.id)));
+    // A subagent transcript is not listed and is never a target of its own: it
+    // goes with the parent whose tree was removed, so the viewed child has to
+    // follow its parent home.
+    const viewing = sidebarActiveId.trim();
+    const viewedParent = (subagentTranscript?.parentSessionId ?? "").trim();
+    if (gone.has(viewing) || (viewedParent !== "" && gone.has(viewedParent))) {
+      goHome();
+      setSettingsSectionHash("sessions_manager");
+    }
+  });
 
   async function handleBranchSend(text: string, userMsgIdx: number) {
     const sourceSid = sessionId.trim();
@@ -2736,6 +3928,8 @@ export function App() {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setSubagentTranscript(null);
+    setViewedArchived(false);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -2815,73 +4009,95 @@ export function App() {
         }
       }
 
-      const list = await loadSessionsList(true);
-      if (lifecycle.signal.aborted) {
-        return;
-      }
-      const exists = !!list?.some((s) => s.id === sessionId);
-      if (exists) {
-        const sess = list?.find((s) => s.id === sessionId);
-        const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-          `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
-          { headers },
-        );
+      // The transcript must not queue behind History: the list is a whole-store scan
+      // and one more round trip, and blocking on it is what leaves the panel on a
+      // spinner after a reload. Start it here, read it only where it is needed.
+      const listPromise = loadSessionsList(true);
+      const statsPromise = fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`, {
+        headers,
+      });
+
+      const shadowSnap = streamShadowBySidRef.current.get(sessionId);
+      let loaded: TranscriptItem[] | null = null;
+      if (
+        activeComposerSidRef.current.has(sessionId) &&
+        shadowSnap &&
+        shadowSnap.length > 0
+      ) {
+        // pickSession scheduled a fade that clears the rows in 110ms, and this
+        // branch is synchronous - so without cancelling it the transcript just
+        // restored from the stream's shadow is wiped a moment later, and the
+        // chat sits empty until the stream next paints. While a foreground
+        // spawn_agent waits on its child that is minutes, which is exactly what
+        // it looked like: an empty window with a Stop button in it. The
+        // loadMessages path below already cancels the same timer before it
+        // paints.
+        if (fadeOutTimerRef.current !== null) {
+          clearTimeout(fadeOutTimerRef.current);
+          fadeOutTimerRef.current = null;
+        }
+        setSessionFadingOut(false);
+        setItems([...shadowSnap]);
+      } else {
+        // freshLoad when no shadow: prevents stale itemsRef from a previous session
+        // bleeding into this session (e.g. React StrictMode double-invoke of effects).
+        const noShadow = !shadowSnap || shadowSnap.length === 0;
+        loaded = await loadMessages(undefined, {
+          freshLoad: noShadow,
+          preserveOnError: true,
+        });
         if (lifecycle.signal.aborted) {
           return;
         }
-        if (statsRes.ok && statsRes.data?.stats) {
-          applySessionStatsPayload(
-            statsRes.data.stats,
-            viewedSessionIdRef.current.trim() === sessionId,
-          );
-        }
-        const shadowSnap = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) &&
-          shadowSnap &&
-          shadowSnap.length > 0
+        const shAfter = streamShadowBySidRef.current.get(sessionId);
+        if (activeComposerSidRef.current.has(sessionId) && shAfter?.length) {
+          setItems([...shAfter]);
+        } else if (
+          !loaded &&
+          !shAfter?.length &&
+          !activeComposerSidRef.current.has(sessionId)
         ) {
-          setItems([...shadowSnap]);
-          setSessionLoading(false);
-        } else {
-          // freshLoad when no shadow: prevents stale itemsRef from a previous session
-          // bleeding into this session (e.g. React StrictMode double-invoke of effects).
-          const noShadow = !shadowSnap || shadowSnap.length === 0;
-          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
-          if (lifecycle.signal.aborted) {
-            return;
-          }
-          if (activeComposerSidRef.current.has(sessionId)) {
-            const sh = streamShadowBySidRef.current.get(sessionId);
-            if (sh && sh.length > 0) {
-              setItems([...sh]);
-              setSessionLoading(false);
-            }
-          }
-          if (
-            loaded &&
-            sess?.turnActive &&
-            !activeComposerSidRef.current.has(sessionId)
-          ) {
-            void rejoinComposerLiveStream(sessionId, loaded);
-          }
-        }
-      } else {
-        const shElse = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) ||
-          (shElse && shElse.length > 0)
-        ) {
-          if (shElse && shElse.length > 0) {
-            setItems([...shElse]);
-          }
-        } else {
+          // Nothing on disk for this id yet (a draft chat, or a read that failed):
+          // show it empty rather than the previous session's transcript.
           setItems([]);
         }
-        // Always clear the skeleton once this session is resolved. A live composer
-        // with an empty shadow (first send, before the first token) must not leave
-        // the loading state stuck — the stream fills the transcript as it arrives.
-        setSessionLoading(false);
+      }
+      // The chat is resolved either way. A failed or empty read must never leave the
+      // panel on a skeleton - that reads as "loading forever" to the user.
+      setSessionLoading(false);
+
+      const statsRes = await statsPromise;
+      if (lifecycle.signal.aborted) {
+        return;
+      }
+      if (statsRes.ok) {
+        recordSessionContextWindow(sessionId, statsRes.data?.contextWindow);
+      }
+      if (statsRes.ok && statsRes.data?.stats) {
+        applySessionStatsPayload(
+          statsRes.data.stats,
+          viewedSessionIdRef.current.trim() === sessionId,
+          sessionId,
+        );
+      }
+
+      const list = await listPromise;
+      if (lifecycle.signal.aborted) {
+        return;
+      }
+      if (!activeComposerSidRef.current.has(sessionId)) {
+        const sess = list?.find((s) => s.id === sessionId);
+        if (loaded && sess?.turnActive) {
+          void rejoinComposerLiveStream(sessionId, loaded);
+        } else {
+          // The list row is only the fast path: one page deep (limit 30,
+          // project-scoped) and a moment stale, so a chat missing from it may still
+          // be working. Ask the session itself before deciding it is idle.
+          void reconnectLiveStreamIfActive(sessionId);
+        }
       }
     })();
     return () => {
@@ -2919,6 +4135,7 @@ export function App() {
           it.resultWasTruncated = update.resultWasTruncated;
         if (update.fullResultText !== undefined)
           it.fullResultText = update.fullResultText;
+        if (update.todoPlan !== undefined) it.todoPlan = update.todoPlan;
         if (update.startedAtMs !== undefined)
           it.startedAtMs = update.startedAtMs;
         if (update.finishedAtMs !== undefined)
@@ -2956,13 +4173,11 @@ export function App() {
         merged.resultWasTruncated = update.resultWasTruncated;
       if (update.fullResultText !== undefined)
         merged.fullResultText = update.fullResultText;
+      if (update.todoPlan !== undefined) merged.todoPlan = update.todoPlan;
       next[idx] = merged;
       return next;
     });
   }
-
-  // Max auto-reconnect attempts before giving up (until the next clean stream or focus).
-  const LIVE_RECONNECT_MAX = 5;
 
   /**
    * When a live composer stream drops before its final [DONE] (e.g. the embedded
@@ -2976,24 +4191,43 @@ export function App() {
     opts?: { reconcileIfDone?: boolean },
   ): Promise<void> {
     const key = rawSid.trim();
-    if (!key) return;
+    if (!key || !appMountedRef.current) return;
     if (userStoppedSidRef.current.has(key)) {
       userStoppedSidRef.current.delete(key);
+      markConnected(key);
       return;
     }
-    if (activeComposerSidRef.current.has(key)) return;
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
     let active = false;
     try {
-      const act = await fetchJSON<{ turnActive?: boolean }>(
+      const act = await fetchJSON<{ turnActive?: boolean; messageSeq?: number }>(
         `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
         { headers: { [HDR]: key } },
       );
-      active = !!(act.ok && act.data?.turnActive);
+      if (!act.ok) {
+        // The server answered something other than a probe result; treat it as
+        // a failed probe so a server that has stopped answering is given up on.
+        noteActivityFailure(key);
+        markConnected(key);
+        return;
+      }
+      activityFailuresRef.current.delete(key);
+      active = !!act.data?.turnActive;
+      if (typeof act.data?.messageSeq === "number") {
+        lastMessageSeqRef.current.set(key, act.data.messageSeq);
+      }
+      noteViewedTurnActive(key, active);
     } catch {
+      noteActivityFailure(key);
+      markConnected(key);
       return;
     }
     if (!active) {
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
+      markConnected(key);
       // The turn already finished. If we got here from a dropped stream, pull the
       // persisted transcript so a stuck partial assistant is replaced by the result.
       if (opts?.reconcileIfDone && !activeComposerSidRef.current.has(key)) {
@@ -3003,33 +4237,86 @@ export function App() {
       }
       return;
     }
-    if (activeComposerSidRef.current.has(key)) return;
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
     const loaded = await loadMessages(key, {
       skipSetItems: viewedSessionIdRef.current.trim() !== key,
     });
-    if (!loaded) return;
-    if (activeComposerSidRef.current.has(key)) return;
+    if (!loaded) {
+      markConnected(key);
+      return;
+    }
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
+    // addActiveComposer clears the reconnecting flag the moment the stream attaches;
+    // this call runs for the whole rejoined turn, so clearing it here would be too late.
     await rejoinComposerLiveStream(key, loaded);
   }
 
-  function scheduleLiveStreamReconnect(rawSid: string, delayMs = 400): void {
+  /**
+   * Retry the re-attach, backing off but never giving up on a turn the server
+   * still reports as alive. The attempt count only sets the delay now: what
+   * ends the retries is the server no longer answering the probe, which is the
+   * only evidence that there is nothing to come back to. `delayMs` overrides
+   * the backoff for the first, deliberately quick, retry after a clean drop.
+   */
+  function scheduleLiveStreamReconnect(rawSid: string, delayMs?: number): void {
     const key = rawSid.trim();
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) return;
+    if (!shouldKeepWatching(activityFailuresRef.current.get(key) ?? 0)) {
+      markConnected(key);
+      return;
+    }
     const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
-    if (attempts >= LIVE_RECONNECT_MAX) return;
     liveReconnectAttemptsRef.current.set(key, attempts + 1);
+    markReconnecting(key);
     window.setTimeout(() => {
       // Go through the ref so the delayed call uses the current render's closure.
       reconnectLiveStreamRef.current(key, { reconcileIfDone: true });
-    }, delayMs);
+    }, delayMs ?? liveReconnectDelayMs(attempts));
+  }
+
+  /**
+   * Forget what this session's recovery loop learned: the retry budget, the
+   * failed-probe count and the last transcript size. Called wherever a turn
+   * starts, finishes cleanly or is stopped — a new turn must not inherit the
+   * previous one's give-up state.
+   */
+  function resetLiveRecoveryState(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    liveReconnectAttemptsRef.current.delete(key);
+    activityFailuresRef.current.delete(key);
+    lastMessageSeqRef.current.delete(key);
+  }
+
+  /** One failed /activity probe. Enough of them in a row and the session is dropped. */
+  function noteActivityFailure(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    activityFailuresRef.current.set(
+      key,
+      (activityFailuresRef.current.get(key) ?? 0) + 1,
+    );
+  }
+
+  /** Record a turnActive probe, but only for the chat the user is actually looking at. */
+  function noteViewedTurnActive(rawSid: string, active: boolean): void {
+    const key = rawSid.trim();
+    if (!key || viewedSessionIdRef.current.trim() !== key) return;
+    setViewedTurnActive(active);
   }
 
   function stopDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
     const h = diskFallbackTimerRef.current.get(key);
     if (h === undefined) return;
-    window.clearInterval(h);
+    window.clearTimeout(h);
     diskFallbackTimerRef.current.delete(key);
   }
 
@@ -3038,46 +4325,92 @@ export function App() {
    * embedded browser that keeps killing long-lived fetches. Polls the persisted
    * transcript so the turn's progress still appears without a manual page reload,
    * and stops as soon as a live stream attaches or the turn ends.
+   *
+   * It runs for as long as the server says the turn is alive. There used to be a
+   * ~5-minute tick cap here, reset only by a window focus event — which never
+   * fires for someone watching an editor panel, exactly where a delegated turn
+   * can run for half an hour. What ends the poll now is the turn ending, a live
+   * stream taking over, the user stopping, or the server no longer answering.
+   *
+   * Each tick is scheduled from the previous one rather than by setInterval, so
+   * the cadence can back off while nothing is being written, and the transcript
+   * is re-read only when `messageSeq` says it grew.
    */
   function startDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
     if (!key || diskFallbackTimerRef.current.has(key)) return;
-    let ticks = 0;
-    const handle = window.setInterval(() => {
-      void (async () => {
-        ticks += 1;
-        // A live stream took over, the user stopped, or the safety cap (~5 min) hit.
-        if (
-          activeComposerSidRef.current.has(key) ||
-          userStoppedSidRef.current.has(key) ||
-          ticks > 150
-        ) {
-          stopDiskFallbackPoll(key);
+    let firstTick = true;
+    let quietTicks = 0;
+
+    const tick = async (): Promise<void> => {
+      if (
+        activeComposerSidRef.current.has(key) ||
+        userStoppedSidRef.current.has(key) ||
+        !shouldKeepWatching(activityFailuresRef.current.get(key) ?? 0)
+      ) {
+        stopDiskFallbackPoll(key);
+        return;
+      }
+      let active = false;
+      let messageSeq: number | undefined;
+      try {
+        const act = await fetchJSON<{ turnActive?: boolean; messageSeq?: number }>(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
+          { headers: { [HDR]: key } },
+        );
+        if (!act.ok) {
+          noteActivityFailure(key);
           return;
         }
-        let active = false;
-        try {
-          const act = await fetchJSON<{ turnActive?: boolean }>(
-            `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
-            { headers: { [HDR]: key } },
-          );
-          if (!act.ok) return;
-          active = !!act.data?.turnActive;
-        } catch {
-          return;
-        }
-        if (activeComposerSidRef.current.has(key)) return;
+        activityFailuresRef.current.delete(key);
+        active = !!act.data?.turnActive;
+        messageSeq =
+          typeof act.data?.messageSeq === "number" ? act.data.messageSeq : undefined;
+        noteViewedTurnActive(key, active);
+      } catch {
+        noteActivityFailure(key);
+        return;
+      }
+      if (activeComposerSidRef.current.has(key)) return;
+
+      const lastSeq = lastMessageSeqRef.current.get(key);
+      const reload = shouldReloadTranscript({
+        firstTick,
+        turnActive: active,
+        messageSeq,
+        lastMessageSeq: lastSeq,
+      });
+      quietTicks = reload ? 0 : quietTicks + 1;
+      firstTick = false;
+      if (messageSeq !== undefined) {
+        lastMessageSeqRef.current.set(key, messageSeq);
+      }
+      if (reload) {
         await loadMessages(key, {
           skipSetItems: viewedSessionIdRef.current.trim() !== key,
           preserveOnError: true,
         });
-        if (!active) {
-          stopDiskFallbackPoll(key);
-          void loadSessionsList(true);
-        }
-      })();
-    }, 2000);
-    diskFallbackTimerRef.current.set(key, handle);
+      }
+      if (!active) {
+        stopDiskFallbackPoll(key);
+        void loadSessionsList(true);
+      }
+    };
+
+    const schedule = () => {
+      // Re-checked every tick: a stop clears the handle, and the poll ends by
+      // simply not scheduling the next one.
+      const handle = window.setTimeout(() => {
+        void (async () => {
+          await tick();
+          if (diskFallbackTimerRef.current.has(key)) {
+            schedule();
+          }
+        })();
+      }, diskFallbackDelayMs(quietTicks));
+      diskFallbackTimerRef.current.set(key, handle);
+    };
+    schedule();
   }
 
   // Stable handles to the latest closures so once-subscribed listeners and
@@ -3092,6 +4425,81 @@ export function App() {
     void reconnectLiveStreamIfActive(sid, opts);
   };
   scheduleLiveStreamReconnectRef.current = scheduleLiveStreamReconnect;
+
+  // Handlers are read through a ref so the subscription below can mount once: it must
+  // survive re-renders, and the callbacks it needs are redefined on every one of them.
+  serverEventHandlersRef.current = {
+    turnStarted: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      // A new admission: a Stop of the previous turn no longer fences this one,
+      // neither by generation (upstream) nor by the fork's user-stopped flag.
+      stoppedTurnBySidRef.current.delete(key);
+      userStoppedSidRef.current.delete(key);
+      const pendingStop = stopPendingBySidRef.current.get(key);
+      if (pendingStop) pendingStop.superseded = true;
+      turnActivity.observe(key, true);
+      noteViewedTurnActive(key, true);
+      void attachViewedComposer(key);
+    },
+    turnEnded: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key) return;
+      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      // The event has no turn identity: an owned or observed successor may
+      // already be active. Keep polling until REST confirms admission is idle.
+      void turnActivity.refresh(key);
+    },
+    providerUsage: providerUsageState.applyPushed,
+    configReloaded: () => setConfigEpoch((e) => e + 1),
+    // A session is shared: this is what someone else queued, in another
+    // browser or from a console attached over --remote.
+    messageQueue: (sid: string, queue: QueuedMessageEvent) =>
+      applyQueue(sid, queue.messages, queue.version),
+    sessionSettings: (event: SessionSettingsEvent) =>
+      applySessionSettings(event.settings),
+    subagentPermission: (parentSid: string) => {
+      if (parentSid.trim() === viewedSessionIdRef.current.trim()) {
+        void refreshBackgroundTasks({ silent: true });
+      }
+    },
+    ready: () => {
+      // Recovery can miss the idle edge. Retire pending acknowledgements too,
+      // so an old Stop cannot re-establish the fence after this reconnect.
+      stoppedTurnBySidRef.current.clear();
+      for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
+      turnActivity.ready();
+    },
+  };
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    const env = getEnv();
+    void subscribeSharedServerEvents({
+      env,
+      onRefused: (status) => {
+        if (status === 401 && env.mode === "local") notifyLocalApiUnauthorized();
+      },
+      onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
+      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onProviderUsage: (_sid, usage) =>
+        serverEventHandlersRef.current.providerUsage(usage),
+      onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
+      onMessageQueue: (sid, queue) =>
+        serverEventHandlersRef.current.messageQueue(sid, queue),
+      onSessionSettings: (event) =>
+        serverEventHandlersRef.current.sessionSettings(event),
+      onSubagentPermission: (parentSid) =>
+        serverEventHandlersRef.current.subagentPermission(parentSid),
+      onConnectedChange: setServerEventsConnected,
+      onReady: () => serverEventHandlersRef.current.ready(),
+      signal: ctl.signal,
+    });
+    return () => ctl.abort();
+  }, []);
+
 
   // On return to foreground (alt-tab back, tool window shown), re-attach to any
   // in-flight turn whose live stream was cut while the webview was backgrounded.
@@ -3109,55 +4517,181 @@ export function App() {
     };
   }, []);
 
+  /**
+   * Heartbeat on the open chat while this client is not streaming it.
+   *
+   * Every other re-attach path needs an event we do not get here: a send, a session
+   * switch, a window focus. A turn can start with none of those - the autonomous turn a
+   * finished background task wakes is the ordinary case - and the user sitting on that
+   * chat would see nothing move until they clicked away and back. One HEAD-sized GET
+   * every few seconds is what makes such a turn appear at all, and what keeps the context
+   * ring honest while it runs.
+   */
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || generating) {
+      return;
+    }
+    let stopped = false;
+    const probe = async () => {
+      if (stopped) return;
+      // A stream of our own took over, or the user pressed Stop and must not be
+      // re-attached behind their back (that flag is consumed by the reconnect path,
+      // so this one only reads it).
+      if (
+        activeComposerSidRef.current.has(sid) ||
+        userStoppedSidRef.current.has(sid)
+      ) {
+        return;
+      }
+      try {
+        const act = await fetchJSON<{ turnActive?: boolean }>(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/activity`,
+          { headers: { [HDR]: sid } },
+        );
+        if (stopped || !act.ok) return;
+        const active = !!act.data?.turnActive;
+        noteViewedTurnActive(sid, active);
+        if (active && !activeComposerSidRef.current.has(sid)) {
+          reconnectLiveStreamRef.current(sid);
+        }
+      } catch {
+        // Server not reachable right now; the next tick retries.
+      }
+    };
+    const id = window.setInterval(() => void probe(), VIEWED_ACTIVITY_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [sessionId, generating]);
+
   async function rejoinComposerLiveStream(
     sid: string,
     baseline: TranscriptItem[],
   ): Promise<void> {
     const key = sid.trim();
-    if (!key) return;
+    if (!key || !appMountedRef.current) return;
+    // One reader per session: a POST or a relay that already owns the stream is
+    // not replaced. Every caller checks first; this is the backstop for the race
+    // between the activity reconciler and the fork's own re-attach paths.
+    if (postAbortBySidRef.current.has(key) || relayAbortBySidRef.current.has(key)) return;
 
     bumpTranscriptEpoch(key);
-    relayAbortBySidRef.current.get(key)?.abort();
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
+    streamGenerationBySidRef.current.set(
+      key,
+      (streamGenerationBySidRef.current.get(key) ?? 0) + 1,
+    );
+    const ownsRelay = () => relayAbortBySidRef.current.get(key) === fetchCtl;
+    const queueEpoch = queueOrderRef.current.capture(key).epoch;
 
     addActiveComposer(key);
+    // addActiveComposer clears the reconnecting flag, and until the relay actually says
+    // something we have nothing but the transcript as it was before this turn started.
+    // Deriving a status line from that is how the row froze on the previous turn's last
+    // tool for the whole time the server held the request open with no relay to attach
+    // to - the case a background task's autonomous turn used to produce.
+    markReconnecting(key);
+    let relayDelivered = false;
+    const noteRelayByte = () => {
+      if (relayDelivered) return;
+      relayDelivered = true;
+      markConnected(key);
+    };
     const assistantId = newId("a");
     streamingAssistantBySidRef.current.set(key, assistantId);
-    // The relay replays the in-flight turn's SSE from the start, so drop any
-    // partial turn output already loaded from disk — the replay rebuilds it in
-    // emission order (otherwise the turn's text would render twice).
-    const replayBase = trimTranscriptForTurnReplay(baseline);
-    streamShadowBySidRef.current.set(key, [...replayBase]);
+    streamShadowBySidRef.current.set(key, [...baseline]);
     if (viewedSessionIdRef.current.trim() === key) {
-      setItems([...replayBase]);
+      setItems([...baseline]);
     }
 
+    // Three ways to attach, and only one of them replays the turn from its start:
+    //  - a frame cursor (Last-Event-ID) resumes after the last frame this tab read;
+    //  - a snapshot revision (?since_rev=) asks only for what the transcript just
+    //    loaded lacks;
+    //  - neither - the rev is unknown: another process, the Windows registry with
+    //    no relay of its own, a remote - and the whole turn is replayed.
+    // A full replay re-sends the partial turn the baseline already shows, so that
+    // part has to go, or the turn's text renders twice. The other two send only
+    // what is missing, and trimming there would drop steps that are never sent
+    // again. The gate trims on the FIRST relay byte, not up front: when no relay
+    // answers (turn already over, backend restarted) the transcript must stay as
+    // the user left it instead of being emptied by a replay that never arrives.
+    const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+    const sinceRev = resumeFrom
+      ? undefined
+      : snapshotRevByTranscript.current.get(baseline);
+    const fullReplay = !resumeFrom && sinceRev === undefined;
+    const trimOnFirstReplayByte = fullReplay
+      ? createTurnReplayTrimGate()
+      : (prev: TranscriptItem[]) => prev;
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
-    ) => applyStreamItemsForSession(key, fn);
+    ) => {
+      // A relay that lost the session to a newer reader must not write into it.
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
+      noteRelayByte();
+      applyStreamItemsForSession(key, (prev) =>
+        fn(trimOnFirstReplayByte(prev)),
+      );
+    };
 
+    // Give up on the live stream and let the disk poller show the turn's progress.
+    // (The finally block below clears the abort controller and reconciles.)
+    const fallBackToDisk = () => {
+      streamingAssistantBySidRef.current.delete(key);
+      removeActiveComposer(key);
+      startDiskFallbackPoll(key);
+    };
+
+    // Usage events carry no transcript rows, so they clear the flag on their own:
+    // a turn whose first sign of life is a token count is attached all the same.
     const branchTokenUsage = (u: TokenUsage | null) => {
-      if (u === null) return;
+      if (u === null || !ownsRelay() || fetchCtl.signal.aborted) return;
+      noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
         debouncedRefreshSessionStats(key);
       }
     };
     const branchContextUsage = (u: ContextUsageUpdate) => {
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
+      noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
-        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-        debouncedRefreshSessionStats(key);
+        applyContextUsage(key, u);
       }
     };
 
+    // The queue changes this tab missed while it was away arrive on no stream it
+    // will read now: frames on the turn's own stream are replayed only while the
+    // relay still holds them, and GET /foxxycode/events carries changes, not state.
+    // A server that restarted numbers its changes from the beginning; the delivery
+    // order notices the lower version on this snapshot and starts a new epoch.
+    void refreshQueue(key);
+
     let reconcileOnExit = true;
     try {
+      // Resume after the last frame this tab consumed, so a dropped connection costs
+      // a gap rather than a replay of the whole turn.
+      const headers: Record<string, string> = { [HDR]: key };
+      if (resumeFrom) {
+        headers["Last-Event-ID"] = resumeFrom;
+      }
+      // Without a frame cursor - a reloaded tab - the baseline is the transcript just
+      // loaded, and the relay is asked only for what that snapshot lacks: replaying
+      // the whole turn on top of it put every finished step on screen a second time.
       const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
-        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream` +
+          (sinceRev !== undefined ? `?since_rev=${sinceRev}` : ""),
+        { headers, signal: fetchCtl.signal },
       );
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       if (!res.ok || !res.body) {
+        // No relay to attach to (auth, restart, session gone). Keep the transcript
+        // and let the poller reveal the turn's progress if it is still running.
+        fallBackToDisk();
         return;
       }
       const reader = res.body.getReader();
@@ -3165,6 +4699,9 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        streamErrorCode,
+        lastEventId,
+        desynced,
         endedWithoutDone,
         finalAssistantId,
         flushToolQueue,
@@ -3181,15 +4718,31 @@ export function App() {
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryPhaseToItems,
-        applyMemoryChunkToItems,
+        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onMcpConnecting: (connecting: boolean) =>
+          setMcpConnecting(key, connecting),
+        onLlmRetrying: (retrying: boolean) => setLlmRetrying(key, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
+        onModeChanged: (m: string) => onServerModeChanged(key, m),
+        onMessageQueue: (q) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyQueue(key, q.messages, q.version, queueEpoch);
+          }
+        },
+        onSessionSettings: (e) => applySessionSettings(e.settings),
+        onTurnProgress: (progress) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyTurnProgress(key, progress, "stream");
+          }
+        },
       });
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
 
       const syncAssistantFromServer = async () => {
         try {
@@ -3197,7 +4750,13 @@ export function App() {
             `/foxxycode/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
-          if (!res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsRelay() ||
+            fetchCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3229,12 +4788,36 @@ export function App() {
         }
       };
 
+      if (lastEventId) {
+        relayLastEventIdBySidRef.current.set(key, lastEventId);
+      }
+      // The relay had already dropped frames this tab never saw, so the transcript on
+      // screen has a hole in it. The persisted messages are the source of truth.
+      if (desynced) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+      }
+
+      if (isNoLiveTurnRelayError(streamErrorCode, streamErrorMessage)) {
+        // The relay has nothing to attach to. That is a state, not a failure: the
+        // turn may have finished while we reconnected, or it runs somewhere this
+        // process cannot see. Reconcile from disk and keep watching if it is live.
+        flushToolQueue();
+        finishThinking();
+        fallBackToDisk();
+        return;
+      }
+
       if (streamErrorMessage) {
         flushToolQueue();
         finishThinking();
         const errText = streamErrorMessage;
         applyStreamItems((prev) => {
-          const withoutEmptyAssistant = prev.filter(
+          const withoutEmptyAssistant = retireRelayedPermissionPrompts(
+            prev,
+          ).filter(
             (it) =>
               !(
                 it.type === "assistant_message" &&
@@ -3259,28 +4842,39 @@ export function App() {
 
       if (endedWithoutDone) {
         // Relay was cut before [DONE]; the turn is likely still running. Schedule
-        // another re-attach and leave the transcript as-is for now.
+        // another re-attach and leave the transcript as-is for now. Poll the
+        // persisted rows meanwhile so progress shows even if every retry fails.
         flushToolQueue();
         finishThinking();
         reconcileOnExit = false;
         scheduleLiveStreamReconnect(key);
+        startDiskFallbackPoll(key);
         return;
       }
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
 
       flushToolQueue();
       finishThinking();
+      // A prompt this turn relayed on behalf of a subagent ended with the
+      // stream that carried it: the relay withdrew it and, for a background
+      // child, raised it again as the card at the end of the chat.
+      applyStreamItems(retireRelayedPermissionPrompts);
       ensureAssistant({
         streaming: false,
         createdAtUtc: new Date().toISOString(),
       });
 
       void loadSessionsList(true);
-      let ok = await syncAssistantFromServer();
+      let ok = transcriptHasFilledAssistant(
+        streamShadowBySidRef.current.get(key) ?? [], finalAssistantId,
+      );
+      if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
         await new Promise((r) => setTimeout(r, 500));
+        if (!ownsRelay() || fetchCtl.signal.aborted) return;
         ok = await syncAssistantFromServer();
       }
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       const viewing = viewedSessionIdRef.current.trim();
       const reconcileEpoch = bumpTranscriptEpoch(key);
       await loadMessages(key, {
@@ -3292,13 +4886,25 @@ export function App() {
     } catch {
       // AbortError when relay superseded or fetch aborted
     } finally {
-      if (relayAbortBySidRef.current.get(key) === fetchCtl) {
-        relayAbortBySidRef.current.delete(key);
-      }
+      if (!ownsRelay()) return;
+      relayAbortBySidRef.current.delete(key);
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      void turnActivity.refresh(key, false);
+      // A relay this client cut short (its own POST or a newer relay took
+      // over) did not end the turn; only a stream that ran to its end
+      // spent quota.
+      if (!fetchCtl.signal.aborted) noteUsageTurnEnded(key);
+      // The session is no longer pinned; bound the cache now rather than
+      // only after the reconciliation below succeeds.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
-      if (reconcileOnExit) {
+      // A Stop releases this stream before the server answers (#283), and the
+      // server has not persisted what the turn wrote since its last message yet:
+      // a snapshot applied now would take that text off the screen. The turn's
+      // end reconciles the transcript once the cancel has persisted it, and a
+      // Stop that failed re-attaches through the relay.
+      if (reconcileOnExit && !userStoppedSidRef.current.has(key)) {
         const viewing = viewedSessionIdRef.current.trim();
         void loadMessages(key, { skipSetItems: viewing !== key });
       }
@@ -3309,7 +4915,19 @@ export function App() {
 
   async function streamResponses(
     text: string,
-    opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
+    opts?: {
+      modeOverride?: string;
+      runPlanSlug?: string;
+      files?: File[];
+      /**
+       * Put the text back in the composer if the server refuses this send as
+       * busy. Set by the message queue's fallback: the queue closes a moment
+       * before the turn releases its admission, so a follow-up written in that
+       * gap is told "no turn is running" and then refused as busy - and what
+       * the operator wrote must not vanish between the two answers.
+       */
+      restoreDraftOnBusy?: boolean;
+    },
   ) {
     // One key per intentional submission; reconnects attach to the existing stream.
     const requestId = randomSessionId();
@@ -3317,6 +4935,10 @@ export function App() {
     let postSessionKey = "";
     let completedNormally = false;
     let assistantStreamId = "";
+    // A Mode the user switches while this turn runs is a choice for the NEXT
+    // turn, so the post-turn reconcile must not overwrite it with the mode the
+    // session is in now.
+    const modeEditSeqAtTurnStart = modeEditSeqRef.current;
     const isNewChatFirstSend = !sessionId.trim();
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
@@ -3326,6 +4948,8 @@ export function App() {
       : null;
 
     let sidEffective = "";
+    const ownsPost = () =>
+      postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
     try {
       let sid = sessionId;
@@ -3345,32 +4969,44 @@ export function App() {
       postSessionKey = sid.trim();
       // Fresh send supersedes any prior user-stop / reconnect budget for this session.
       userStoppedSidRef.current.delete(postSessionKey);
-      liveReconnectAttemptsRef.current.delete(postSessionKey);
+      resetLiveRecoveryState(postSessionKey);
       stopDiskFallbackPoll(postSessionKey);
       bumpTranscriptEpoch(postSessionKey);
       // Own the transcript before any asynchronous attachment preparation so
       // a concurrent GET /messages cannot erase the optimistic user row.
       addActiveComposer(postSessionKey);
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
+      pendingPostBySidRef.current.set(postSessionKey, abortCtl);
+      streamGenerationBySidRef.current.set(
+        postSessionKey,
+        (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+      );
+      stoppedTurnBySidRef.current.delete(postSessionKey);
+      turnActivity.observe(postSessionKey, true);
+      addActiveComposer(postSessionKey);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
       relayAbortBySidRef.current.delete(postSessionKey);
 
       let streamKey = postSessionKey;
+      let queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
       const applyStreamItems = (
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
-      ) => applyStreamItemsForSession(streamKey, fn);
+      ) => {
+        if (ownsPost() && !abortCtl.signal.aborted)
+          applyStreamItemsForSession(streamKey, fn);
+      };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
-        if (u === null) return;
+        if (u === null || !ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
           debouncedRefreshSessionStats(streamKey);
         }
       };
       const branchContextUsage = (u: ContextUsageUpdate) => {
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
-          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-          debouncedRefreshSessionStats(streamKey);
+          applyContextUsage(streamKey, u);
         }
       };
 
@@ -3394,16 +5030,13 @@ export function App() {
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
           ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
+              files: optimisticUserFiles(opts.files),
             }
           : {}),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
       const baseItems = pickStreamMutationBase({
@@ -3428,15 +5061,40 @@ export function App() {
         input: text,
         stream: true,
       };
-      const atts = extractAtFileAttachments(text);
-      const profileModel =
-        mode === "agent" || mode === "plan" || mode === "docs" || mode === "ask";
-      if (atts.length > 0 && profileModel) {
-        reqBody.attachments = atts;
+      // The "@" mentions of the text are resolved by the server, when the
+      // message is sent (internal/session/mentions.go): one grammar for
+      // every surface, so nothing is derived here but the recent picks.
+      const profileModel = (PROFILE_MODES as readonly string[]).includes(mode);
+      if (profileModel) {
+        const atts = extractAtFileAttachments(text);
+        // The server resolves ordinary mentions. Keep the exact pasted bytes
+        // only for a ranged mention whose source is still in this composer.
+        const literalAtts = atts.filter(
+          (a) =>
+            a.startLine != null &&
+            a.endLine != null &&
+            pasteLiteralsRef.current.has(`${a.path}:${a.startLine}-${a.endLine}`),
+        );
+        if (literalAtts.length > 0) {
+          reqBody.attachments = literalAtts.map((a) => {
+          const literal = pasteLiteralsRef.current.get(
+            `${a.path}:${a.startLine}-${a.endLine}`,
+          );
+          return {
+            path: a.path,
+            source: {
+              ...(literal != null ? { literal } : {}),
+              startLine: a.startLine,
+              endLine: a.endLine,
+            },
+          };
+          });
+        }
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
+        pasteLiteralsRef.current.clear();
       }
       if (opts?.files && opts.files.length > 0) {
         const inlineFiles = await Promise.all(
@@ -3461,13 +5119,28 @@ export function App() {
       const yamlSel = llmModel.trim();
       const reasoningSel = llmReasoning.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
-      if (yamlSel || reasoningSel || runSlug) {
+      // The version of the settings snapshot these selectors mirror: when a
+      // newer one was published meanwhile (the model switched from another
+      // surface), the server keeps its own values instead of these.
+      const heldVersion =
+        settingsVersionRef.current.sid === sid.trim()
+          ? settingsVersionRef.current.version
+          : 0;
+      if (yamlSel || reasoningSel || runSlug || heldVersion > 0) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
         if (reasoningSel) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
+        if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
         reqBody.metadata = meta;
       }
+      // A permission mode picked before the chat had a session goes first,
+      // as the command that asks for it; the server takes it off the text.
+      if (!sid.trim() && pendingPermissionModeRef.current) {
+        reqBody.input = `/permissions ${pendingPermissionModeRef.current}\n${text}`;
+        pendingPermissionModeRef.current = "";
+      }
+      if (!ownsPost() || abortCtl.signal.aborted) return;
       const res = await fetch("/v1/responses", {
         method: "POST",
         headers: {
@@ -3478,6 +5151,8 @@ export function App() {
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      pendingPostBySidRef.current.delete(postSessionKey);
 
       if (res.status === 202) {
         const receipt = (await res.json()) as { status?: string };
@@ -3503,31 +5178,54 @@ export function App() {
       }
 
       if (res.status === 409) {
-        let msg = t("app.chatBusy");
+        let parsedBody: unknown = null;
         try {
-          const body = (await res.json()) as {
-            error?: { message?: string };
-          };
-          const m = body?.error?.message;
-          if (typeof m === "string" && m.trim()) {
-            msg = m.trim();
-          }
+          parsedBody = await res.json();
         } catch {
           // ignore
         }
+        const busy = parseSessionBusyResponse(res.status, parsedBody);
+        const serverMsg = busy.message.trim();
+        const busySid = (busy.sessionId || postSessionKey).trim();
+
+        // The turn that owns this chat is still running server-side (typically a
+        // long request the user reloaded away from). Nothing was accepted, so put
+        // the text back in the composer, drop the optimistic row, and open the
+        // running turn instead of leaving a dead-end error behind.
         applyStreamItems((prev) => [
-          ...prev,
+          ...prev.filter((it) => it.id !== userItem.id),
           {
             id: newId("s"),
             type: "system_notice",
-            level: "error" as const,
-            message: msg,
+            level: busy.busy ? ("info" as const) : ("error" as const),
+            message: busy.busy
+              ? t("app.chatBusyReattached")
+              : serverMsg || t("app.chatBusy"),
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        postAbortBySidRef.current.delete(postSessionKey);
-        streamingAssistantBySidRef.current.delete(postSessionKey);
+        if (
+          opts?.restoreDraftOnBusy &&
+          viewedSessionIdRef.current.trim() === postSessionKey
+        ) {
+          setDraft((current) => current || text);
+        }
         completedNormally = true;
+        if (busy.busy) {
+          // Only into the chat the text was written in, and never over what the
+          // reader typed since: the refusal can land after a session switch.
+          if (viewedSessionIdRef.current.trim() === postSessionKey) {
+            setDraft((current) => current || text);
+          }
+          if (busySid && viewedSessionIdRef.current.trim() !== busySid) {
+            openSessionFromRoute(busySid);
+          }
+          // Detached: the finally block below still has to release this send's
+          // composer state before the re-attach can claim it.
+          void Promise.resolve().then(() =>
+            reconnectLiveStreamIfActive(busySid, { reconcileIfDone: true }),
+          );
+        }
         return;
       }
 
@@ -3541,16 +5239,24 @@ export function App() {
         bumpTranscriptEpoch(postSessionKey);
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
+        streamGenerationBySidRef.current.set(
+          postSessionKey,
+          (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+        );
+        turnActivity.observe(oldKey, false);
+        turnActivity.observe(postSessionKey, true);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
-        const sh = streamShadowBySidRef.current.get(oldKey);
-        streamShadowBySidRef.current.delete(oldKey);
-        if (sh) {
-          streamShadowBySidRef.current.set(postSessionKey, sh);
+        streamShadowBySidRef.current.rename(oldKey, postSessionKey);
+        const relayCursor = relayLastEventIdBySidRef.current.get(oldKey);
+        relayLastEventIdBySidRef.current.delete(oldKey);
+        if (relayCursor !== undefined) {
+          relayLastEventIdBySidRef.current.set(postSessionKey, relayCursor);
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
-        openSessionFromRoute(sidHdr);
+        if (viewedSessionIdRef.current.trim() === oldKey)
+          openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -3576,12 +5282,13 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        postAbortBySidRef.current.delete(postSessionKey);
-        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         return;
       }
 
+      // Admission is now settled. Reconcile events ignored while the POST was
+      // pending, including a real end whose response reader never finishes.
+      void turnActivity.refresh(streamKey);
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       const carry = { buf: "" };
@@ -3604,15 +5311,55 @@ export function App() {
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryPhaseToItems,
-        applyMemoryChunkToItems,
+        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onMcpConnecting: (connecting: boolean) =>
+          setMcpConnecting(streamKey, connecting),
+        onLlmRetrying: (retrying: boolean) =>
+          setLlmRetrying(streamKey, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
+        onModeChanged: (m: string) => onServerModeChanged(streamKey, m),
+        onMessageQueue: (q) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyQueue(streamKey, q.messages, q.version, queueEpoch);
+          }
+        },
+        onSessionSettings: (e) => applySessionSettings(e.settings),
+        onTurnProgress: (progress) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyTurnProgress(streamKey, progress, "stream");
+          }
+        },
+        onSettingsOnly: () => {
+          settingsOnly = true;
+        },
       });
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      assistantStreamId = finalAssistantId;
+      // Only settings commands: the exchange drawn for it is not part of the
+      // conversation. The transcript's log holds the notice, which the reload
+      // below renders in the place a reload of the page would.
+      if (settingsOnly) {
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              it.id !== userItem.id &&
+              !(it.type === "assistant_message" && it.id === finalAssistantId),
+          ),
+        );
+        void loadSessionsList(true);
+        await loadMessages(sidEffective, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== postSessionKey,
+          preserveOnError: true,
+        });
+        completedNormally = true;
+        return;
+      }
 
       const syncAssistantFromServer = async () => {
         try {
@@ -3620,7 +5367,13 @@ export function App() {
             `/foxxycode/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsPost() ||
+            abortCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3692,7 +5445,7 @@ export function App() {
         finishThinking();
         return;
       }
-      liveReconnectAttemptsRef.current.delete(postSessionKey.trim());
+      resetLiveRecoveryState(postSessionKey);
 
       flushToolQueue();
 
@@ -3706,6 +5459,7 @@ export function App() {
       const kProbe = postSessionKey.trim();
       let mergedForSyncProbe: TranscriptItem[] = [];
       for (let attempt = 0; attempt < 40; attempt++) {
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         const sh = streamShadowBySidRef.current.get(kProbe);
         if (sh && sh.length > 0) {
           mergedForSyncProbe = sh;
@@ -3728,9 +5482,11 @@ export function App() {
         ok = await syncAssistantFromServer();
         for (let i = 0; i < 10 && !ok; i++) {
           await new Promise((r) => setTimeout(r, 500));
+          if (!ownsPost() || abortCtl.signal.aborted) return;
           ok = await syncAssistantFromServer();
         }
       }
+      if (!ownsPost() || abortCtl.signal.aborted) return;
       const viewingEnd = viewedSessionIdRef.current.trim();
       const reconcileEpoch = bumpTranscriptEpoch(sidEffective);
       await loadMessages(sidEffective, {
@@ -3738,6 +5494,8 @@ export function App() {
         preserveOnError: true,
         expectedEpoch: reconcileEpoch,
         allowApplyWhileActive: true,
+        adoptServerMode: viewingEnd === postSessionKey,
+        modeEditSeqAtTurnStart,
       });
       void refreshSessionStats(sidEffective);
       markViewedSessionActivityRead(sidEffective);
@@ -3745,6 +5503,11 @@ export function App() {
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
+      releaseSessionId?.(sidEffective);
+      if (pendingPostBySidRef.current.get(postSessionKey) === abortCtl) {
+        pendingPostBySidRef.current.delete(postSessionKey);
+      }
+      if (!ownsPost()) return;
       postAbortBySidRef.current.delete(postSessionKey);
       if (!completedNormally) {
         // Only patch the transcript when this turn actually produced a bubble; a
@@ -3780,6 +5543,8 @@ export function App() {
         void loadMessages(sidEffective, {
           skipSetItems: viewingFin !== postSessionKey.trim(),
           preserveOnError: true,
+          adoptServerMode: viewingFin === postSessionKey.trim(),
+          modeEditSeqAtTurnStart,
         });
         void loadSessionsList(true);
         markViewedSessionActivityRead(postSessionKey.trim());
@@ -3791,30 +5556,99 @@ export function App() {
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
-      releaseSessionId?.(sidEffective);
+      void turnActivity.refresh(postSessionKey, false);
+      // A background stream that just finished on a no-longer-recent session
+      // should release its transcript without waiting for the next navigation.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
-  function stopActiveGeneration(): void {
+  async function stopActiveGeneration(): Promise<void> {
     const sid = sessionId.trim();
-    if (!sid) return;
+    if (!sid || stopPendingBySidRef.current.has(sid)) return;
+    const request = { superseded: false };
+    stopPendingBySidRef.current.set(sid, request);
     // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
     userStoppedSidRef.current.add(sid);
-    liveReconnectAttemptsRef.current.delete(sid);
+    resetLiveRecoveryState(sid);
     stopDiskFallbackPoll(sid);
-    // Always send the server-side cancel so Stop works even after page reload.
-    void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
-      method: "POST",
-      headers: { [HDR]: sid },
-    });
-    // Also abort the in-progress fetch request if we have one from this page session.
-    postAbortBySidRef.current.get(sid)?.abort();
+    const post = postAbortBySidRef.current.get(sid);
+    const relay = relayAbortBySidRef.current.get(sid);
+    const generation = turnActivity.generation(sid);
+    const streamGeneration = streamGenerationBySidRef.current.get(sid);
+    const cancelCtl = new AbortController();
+    const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
+    const errorId = `stop_error_${sid}`;
+    applyStreamItemsForSession(sid, (prev) =>
+      prev.filter((it) => it.id !== errorId),
+    );
+    let fenced = false;
+    try {
+      // Always send the server-side cancel so Stop works even after page reload.
+      const cancelled = fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
+      // Release this tab's stream of the turn before the answer, not after it.
+      // Over HTTP/1.1 a browser keeps six connections to a host for all of its
+      // tabs, and a few open tabs of FoxxyCode hold every one of them with event and
+      // turn streams: the cancel request then waits for a connection that only
+      // this abort frees. The turn does not depend on the stream, and a failed
+      // Stop rejoins it through the relay.
+      post?.abort();
+      relay?.abort();
+      const res = await cancelled;
+      if (!res.ok) throw new Error(`cancel failed (${res.status})`);
+      // The acknowledgement neither proves idle nor gives an old Stop ownership
+      // of a newer turn in this session.
+      fenced =
+        !request.superseded &&
+        turnActivity.generation(sid) === generation &&
+        streamGenerationBySidRef.current.get(sid) === streamGeneration;
+      if (fenced) {
+        stoppedTurnBySidRef.current.set(sid, generation);
+        void turnActivity.refresh(sid, false);
+      }
+    } catch {
+      // The turn is still running and still ours to watch: a drop after a Stop
+      // that never reached the server must re-attach like any other. Caught
+      // here, so nothing escapes to paint the IDE panel's error overlay.
+      userStoppedSidRef.current.delete(sid);
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev.filter((it) => it.id !== errorId),
+        {
+          id: errorId,
+          type: "system_notice",
+          level: "error",
+          message: t("app.stopFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    } finally {
+      window.clearTimeout(timer);
+      if (stopPendingBySidRef.current.get(sid) === request) {
+        stopPendingBySidRef.current.delete(sid);
+        // The stream was released for a Stop that did not take this turn: the
+        // request failed, or a successor started meanwhile. Rejoin it without
+        // waiting for the next reconciliation tick, one task later, so the
+        // released stream has let go of the session before the attach looks.
+        if (!fenced) window.setTimeout(() => void turnActivity.refresh(sid), 0);
+      }
+    }
   }
 
   const maxContextTokens = useMemo(() => {
+    const live = sessionContextWindows[sessionId.trim()];
+    if (live?.model === llmModel && live.epoch === configEpoch) {
+      return live.size;
+    }
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
+  }, [modelInfos, llmModel, sessionId, sessionContextWindows, configEpoch]);
 
   const llmModelMultimodal = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
@@ -3830,16 +5664,93 @@ export function App() {
   // pick when the new model still offers it, else fall back (cookie -> model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
+    // Nothing is known about a model whose row has not arrived - the list is still
+    // in flight, or the id was just set. Clearing the level there loses the one the
+    // session asked for, and the run that follows cannot bring it back: it only
+    // sees the emptied value. Leave the selection alone until the row says what
+    // the model actually offers.
+    if (!row) {
+      return;
+    }
+    const levels = row.reasoningLevels ?? [];
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
         cookie: readReasoningCookie(),
         sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
+        modelDefault: row.reasoningDefault ?? null,
       }),
     );
   }, [llmModel, modelInfos]);
+
+  /**
+   * applySessionSettings mirrors a settings snapshot of the viewed session in
+   * the composer: the model, the reasoning level, the mode, the permission
+   * mode and what is changed for the next turns. A snapshot of another
+   * session, or one older than the snapshot already shown, is dropped: the
+   * same change reaches a tab down the turn stream and the events stream.
+   * Cookies are left alone: they are the default of a new chat, not the
+   * record of an existing session.
+   */
+  const applySessionSettings = useStableHandler((snap: SessionSettings) => {
+    const viewed = viewedSessionIdRef.current.trim();
+    const held =
+      settingsVersionRef.current.sid === snap.sessionId
+        ? settingsVersionRef.current.version
+        : 0;
+    if (!isNewerSettings(held, viewed, snap)) {
+      return;
+    }
+    settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setPermissionMode(snap.permissionMode);
+    setConfiguredPermissionMode(snap.configuredPermissionMode);
+    setSettingsOverrides(snap.overrides);
+    if (snap.mode) {
+      setMode(snap.mode);
+    }
+    if (snap.model && llmModelIds.includes(snap.model)) {
+      setLlmModel(snap.model);
+    }
+    setLlmReasoning(snap.reasoning);
+  });
+
+  /** patchSessionSettings sends a settings change and mirrors the answer. */
+  const patchSessionSettings = useCallback(
+    (sid: string, body: Record<string, unknown>) =>
+      fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { settings?: unknown } | null) => {
+          const snap = parseSessionSettings(b?.settings);
+          if (snap) {
+            applySessionSettings(snap);
+          }
+        })
+        .catch(() => {}),
+    [headers, applySessionSettings],
+  );
+
+  const onPermissionModeChange = useCallback(
+    (next: string) => {
+      const pm = next.trim();
+      if (!pm) {
+        return;
+      }
+      setPermissionMode(pm);
+      const sid = sessionId.trim();
+      if (!sid) {
+        // No session yet: the choice rides in with the first message.
+        pendingPermissionModeRef.current =
+          pm === configuredPermissionMode ? "" : pm;
+        return;
+      }
+      void patchSessionSettings(sid, { permissionMode: pm });
+    },
+    [sessionId, configuredPermissionMode, patchSessionSettings],
+  );
 
   const onLlmReasoningChange = useCallback(
     (level: string) => {
@@ -3853,13 +5764,9 @@ export function App() {
       if (!sid) {
         return;
       }
-      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedReasoning: lv }),
-      });
+      void patchSessionSettings(sid, { selectedReasoning: lv });
     },
-    [sessionId, headers],
+    [sessionId, patchSessionSettings],
   );
 
   const onLlmModelChange = useCallback(
@@ -3874,14 +5781,57 @@ export function App() {
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
+      void patchSessionSettings(sid, { selectedModelId: mid });
+    },
+    [sessionId, llmModelIds, patchSessionSettings],
+  );
+
+  // A Mode switch is a session change, not a client preference: it is stored
+  // right away so a reload comes back in the same profile, and it still rides
+  // the next turn as the top-level `model` of POST /v1/responses.
+  const onModeChange = useCallback(
+    (next: string) => {
+      const m = next.trim();
+      if (!m || !(PROFILE_MODES as readonly string[]).includes(m)) {
+        return;
+      }
+      setMode(m);
+      modeEditSeqRef.current += 1;
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      userTouchedSelectionSidRef.current = sid;
+      if (isClientDraftSessionId(sid)) {
+        return;
+      }
       void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedModelId: mid }),
+        body: JSON.stringify({ mode: m }),
+      }).catch(() => {
+        // The mode is already applied locally; a lost write must not surface as
+        // an unhandled rejection.
       });
     },
-    [sessionId, llmModelIds, headers],
+    [sessionId, headers],
   );
+
+  // The backend switched the profile on its own (a plan run, or the model
+  // calling plan_exit). Adopting it keeps the composer from posting a mode the
+  // session has already left, which the next turn would write back. A relay we
+  // watch in the background must not repaint the composer of another chat, so
+  // the frame only lands when it names the session on screen.
+  const onServerModeChanged = useCallback((sid: string, next: string) => {
+    const m = next.trim();
+    if (!m || !(PROFILE_MODES as readonly string[]).includes(m)) {
+      return;
+    }
+    if (sid.trim() !== viewedSessionIdRef.current.trim()) {
+      return;
+    }
+    setMode(m);
+  }, []);
 
   const contextPct = useMemo(
     () => contextUsagePercent(maxContextTokens, contextBreakdown),
@@ -3912,19 +5862,292 @@ export function App() {
     [refreshSchedulerJobs],
   );
 
+  const openSchedulerRuns = useCallback((jobId: string) => {
+    const jid = jobId.trim();
+    if (!jid) {
+      return;
+    }
+    setSchedulerEditor({ mode: "runs", jobId: jid, taskId: null });
+    setSchedulerJobRunsHash(jid);
+  }, []);
+
+  const closeSchedulerRuns = useCallback(() => {
+    if (!schedulerRunsJobId) {
+      return;
+    }
+    setSchedulerEditor({ mode: "edit", jobId: schedulerRunsJobId });
+    setSchedulerJobHash(schedulerRunsJobId);
+    setSchedulerRunsFocus(null);
+  }, [schedulerRunsJobId]);
+
+  const stopSchedulerRun = useCallback(
+    async (taskId: string) => {
+      const sid = schedulerRunsSessionId;
+      if (!sid) {
+        return;
+      }
+      await stopBackgroundTask(sid, taskId);
+      await refreshSchedulerRuns({ silent: true });
+      void refreshSchedulerJobs({ silent: true });
+    },
+    [schedulerRunsSessionId, refreshSchedulerRuns, refreshSchedulerJobs],
+  );
+
+  const clearSchedulerRuns = useCallback(async () => {
+    if (!schedulerRunsJobId) {
+      return;
+    }
+    const res = await schedulerClearJobRuns(schedulerRunsJobId);
+    if (!res.ok) {
+      setSchedulerRunsError(res.message);
+      return;
+    }
+    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerJobRunsHash(schedulerRunsJobId);
+    void refreshSchedulerRuns({ silent: true });
+    void refreshSchedulerJobs({ silent: true });
+  }, [schedulerRunsJobId, refreshSchedulerRuns, refreshSchedulerJobs]);
+
   const openSchedulerFromNav = useCallback(() => {
     if (schedulerHttpLinked !== true) {
       return;
     }
     setSessionsOpen(false);
+    setTasksOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
   }, [schedulerHttpLinked]);
 
+  const openTasksFromNav = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setTasksOpen(true);
+    setSessionTasksHash(sid);
+  }, [sessionId]);
+
+  const closeTasksDrawer = useCallback(() => {
+    setTasksOpen(false);
+    // A pointer at a task that never showed up does not wait for the next opening.
+    setTasksFocus(null);
+    if (sessionsOpen) {
+      setHistoryHash();
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId, sessionsOpen]);
+
+  // "Open in Tasks" on a transcript row: the panel opens with that task's card open.
+  const openBackgroundTask = useCallback(
+    (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      setTasksOpen(true);
+      focusBackgroundTask(sid, taskId);
+      setSessionTasksHash(sid);
+    },
+    [sessionId, focusBackgroundTask],
+  );
+
+  /** Opens a session in this tab: the child transcript behind an agent task,
+   *  or the parent chat from a read-only notice. Same path as a History pick,
+   *  so the panel closes and the hash becomes `#/s/<id>`. */
+  const openSessionInPlace = (targetId: string) => {
+    const id = targetId.trim();
+    if (id) {
+      pickSession(id);
+    }
+  };
+
+  useEffect(() => {
+    const env = getEnv();
+    // Inside a node the relay's own routes are no longer under the base URL, so
+    // asking again would say "not a swarm" and take away the way back. What we
+    // came through is remembered instead.
+    if (env.mode === "remote" && env.swarmRelay) {
+      setIsSwarmEnv(true);
+      setAtSwarmRoot(false);
+      return undefined;
+    }
+    const ac = new AbortController();
+    void probeSwarm(ac.signal).then((info) => {
+      setIsSwarmEnv(!!info);
+      setAtSwarmRoot(!!info);
+    });
+    return () => ac.abort();
+  }, []);
+
+  // Entering a node points the whole app at that node's mount, so every screen
+  // that already existed works against it with a relay in the middle.
+  const openSwarmNode = useCallback((nodePath: string[], hash?: string) => {
+    const env = getEnv();
+    // Served by the relay from its own root, the environment is plain
+    // same-origin: the relay is then this page's origin. Without that fallback
+    // the one entry point this screen exists for silently did nothing.
+    const relay =
+      env.mode === "remote"
+        ? (env.swarmRelay ?? env.baseUrl)
+        : window.location.origin;
+    if (!relay) {
+      return;
+    }
+    connectSwarmNode(
+      relay,
+      nodePath,
+      env.mode === "remote" ? env.token : "",
+      hash,
+    );
+  }, []);
+
+  /**
+   * Where the app has been in this swarm, as a route.
+   *
+   * Inside a node it is that node; back on the relay it is whatever
+   * `returnToSwarm` remembered. The map marks it and draws the path to it, so
+   * the screen can say where we are rather than only what exists.
+   */
+  const swarmCurrentNode = useMemo(() => {
+    const env = getEnv();
+    if (env.mode !== "remote") {
+      return [] as string[];
+    }
+    const route = env.swarmNode || env.swarmFrom || "";
+    return route.split("/").filter(Boolean);
+  }, []);
+
+  const openSwarmFromNav = useCallback(() => {
+    const env = getEnv();
+    // Inside a node, going to the swarm means going back out to its relay.
+    if (env.mode === "remote" && env.swarmRelay) {
+      returnToSwarm();
+      return;
+    }
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setSessionsOpen(false);
+    setSettingsRoute(false);
+    window.location.hash = appNavHrefSwarm();
+  }, []);
+
+  /** Opens the reader over whatever is on screen, remembering it for the close. */
+  const openDocsAt = useCallback((slug: string | null, anchor: string | null) => {
+    if (parseAppHash().branch !== "docs") {
+      docsReturnHashRef.current = window.location.hash;
+    }
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setSessionsOpen(false);
+    setSettingsRoute(false);
+    window.location.hash = appNavHrefDocs(slug, anchor);
+  }, []);
+
+  const openDocsFromNav = useCallback(() => {
+    openDocsAt(lastDocsSlugRef.current, null);
+  }, [openDocsAt]);
+
+  // A search /docs <words> brings into the reader; cleared when the reader closes.
+  const [docsSearchSeed, setDocsSearchSeed] = useState<{ query: string; nonce: number } | null>(
+    null,
+  );
+
+  /**
+   * `/docs [page or words]` in the composer, as in the console: the command
+   * alone reopens the book, a page's address or title opens that page (and
+   * section), anything else opens the reader on that search.
+   */
+  const openDocsCommand = useCallback(
+    (arg: string) => {
+      setDraft("");
+      if (!arg) {
+        setDocsSearchSeed(null);
+        openDocsFromNav();
+        return;
+      }
+      void fetchDocsPage(arg).then((res) => {
+        if (res.ok && docsCommandOpensPage(arg, res.data.title)) {
+          setDocsSearchSeed(null);
+          openDocsAt(res.data.slug, res.data.anchor || null);
+          return;
+        }
+        setDocsSearchSeed({ query: arg, nonce: Date.now() });
+        openDocsFromNav();
+      });
+    },
+    [openDocsAt, openDocsFromNav],
+  );
+
+  /** Following a link of the reader adds a history entry, so Back returns to
+   *  the page before; settling on the first page of the book does not. */
+  const openDocsPage = useCallback(
+    (slug: string, anchor?: string | null, opts?: { replace?: boolean }) => {
+      if (opts?.replace) {
+        setDocsHash(slug, anchor);
+        return;
+      }
+      window.location.hash = appNavHrefDocs(slug, anchor);
+    },
+    [],
+  );
+
+  const onCloseDocs = useCallback(() => {
+    setDocsRoute(null);
+    setDocsSearchSeed(null);
+    const back = docsReturnHashRef.current;
+    docsReturnHashRef.current = "";
+    if (back && !back.startsWith("#/docs")) {
+      window.location.hash = back;
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else {
+      clearSessionRoute();
+    }
+  }, [sessionId, clearSessionRoute]);
+
+  // F1 opens the documentation, as it does in the console, and closes it again.
+  const docsOpenRef = useRef(false);
+  docsOpenRef.current = docsRoute !== null;
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "F1" || e.altKey || e.ctrlKey || e.metaKey) {
+        return;
+      }
+      e.preventDefault();
+      if (docsOpenRef.current) {
+        onCloseDocs();
+      } else {
+        openDocsFromNav();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCloseDocs, openDocsFromNav]);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -3958,15 +6181,34 @@ export function App() {
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
     setSettingsRoute(false);
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
 
+  /** Background tasks indexed by the tool call that started them, so a
+   *  transcript row can keep ticking after the tool itself returned. */
+  const backgroundTasksByToolCallId = useMemo(() => {
+    const byToolCall = new Map<string, BackgroundTask>();
+    for (const t of backgroundTasks) {
+      const tc = (t.tool_call_id || "").trim();
+      if (tc) {
+        byToolCall.set(tc, t);
+      }
+    }
+    return byToolCall;
+  }, [backgroundTasks]);
+
+  // The panel belongs to a chat, so it only exists when one is open.
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
+
   const shellBackdropOpen =
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
-    settingsRoute;
+    settingsRoute ||
+    swarmRoute ||
+    docsRoute !== null;
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -3979,6 +6221,102 @@ export function App() {
       return id.includes(q) || desc.includes(q);
     });
   }, [schedulerJobs, schedulerFilterQ]);
+
+  // Read the environments this server offers once: the list lives in the local
+  // config, so it is fetched off the origin rather than through the shim.
+  useEffect(() => {
+    let alive = true;
+    localFetch("/foxxycode/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!alive || !cfg) {
+          return;
+        }
+        const list = (cfg as Record<string, unknown>)?.httpserver as
+          | Record<string, unknown>
+          | undefined;
+        const raw = list?.remotes;
+        if (!Array.isArray(raw)) {
+          return;
+        }
+        setConfiguredRemotes(
+          raw
+            .map((item) => {
+              const o = (item ?? {}) as Record<string, unknown>;
+              return { name: String(o.name ?? ""), url: String(o.url ?? "") };
+            })
+            .filter((r) => r.url.trim() !== ""),
+        );
+      })
+      .catch(() => {
+        /* configured remotes are optional */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const activeEnv = useSyncExternalStore(
+    subscribeEnv,
+    snapshotEnv,
+    snapshotEnv,
+  );
+
+  /**
+   * The environments the History filter offers. Two kinds share the list,
+   * because to an operator they are one question - where is this conversation:
+   * the origin rows narrow the listing of whichever server is being read, and a
+   * remote row points the whole app at another server, the way the composer's
+   * environment chip does.
+   */
+  const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
+    const onRemote = activeEnv.mode === "remote";
+    // Narrowing by origin is a filter on the server being read; it must not
+    // reach for connectLocal, which reloads the page and would throw the choice
+    // away before it was used. Only coming *back* from a remote is a switch,
+    // and that reload resets the filter along with everything else.
+    const narrowTo = (origin: SessionOriginFilter) => () => {
+      if (onRemote) {
+        connectLocal();
+        return;
+      }
+      setSessionsOrigin(origin);
+      writeSessionPref(SESSION_PREF_COOKIES.origin, origin);
+    };
+    const rows: SessionsEnvironmentOption[] = [
+      {
+        key: "all",
+        label: t("sessions.filter.env.all"),
+        active: !onRemote && sessionsOrigin === "",
+        onPick: narrowTo(""),
+      },
+      {
+        key: "local",
+        label: t("sessions.filter.env.local"),
+        active: !onRemote && sessionsOrigin === "local",
+        onPick: narrowTo("local"),
+      },
+      {
+        key: "gateway",
+        label: t("sessions.filter.env.gateway"),
+        active: !onRemote && sessionsOrigin === "gateway",
+        onPick: narrowTo("gateway"),
+      },
+    ];
+    for (const remote of configuredRemotes) {
+      rows.push({
+        key: remote.url,
+        label: remote.name.trim() || remote.url,
+        active:
+          onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
+        // connectRemote reloads the page, so nothing of this session's state
+        // reaches the other server - the origin filter included.
+        onPick: () =>
+          connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
+      });
+    }
+    return rows;
+  }, [activeEnv, configuredRemotes, sessionsOrigin, t]);
 
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
@@ -4010,7 +6348,36 @@ export function App() {
     },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
+    onTagsSave: (id: string, tags: string[]) => saveSessionTags(id, tags),
     onDelete: deleteSession as (id: string) => void | Promise<void>,
+    onArchive: (id: string, archived: boolean) =>
+      void archiveSession(id, archived),
+    onPin: (id: string, pinned: boolean) => void pinSession(id, pinned),
+    onReorderPins: (ids: string[]) => void reorderPinnedSessions(ids),
+    groupMode: sessionGroupMode,
+    onGroupModeChange: (mode: SessionGroupMode) => {
+      setSessionGroupMode(mode);
+      writeSessionGroupCookie(mode);
+    },
+    archiveFilter: sessionsArchiveFilter,
+    onArchiveFilterChange: (value: SessionArchiveFilter) => {
+      setSessionsArchiveFilter(value);
+      writeSessionPref(SESSION_PREF_COOKIES.status, value);
+    },
+    environments: sessionEnvironments,
+    sortKey: sessionsSortKey,
+    onSortKeyChange: (key: SessionSortKey) => {
+      setSessionsSortKey(key);
+      writeSessionPref(SESSION_PREF_COOKIES.sort, key);
+    },
+    onNewChatInWorkspace: (cwd: string) => {
+      // Park the folder and leave; the effect below applies it on the first
+      // render with no session current. Doing it here would post the folder to
+      // the conversation being left and leave the new chat in the default one.
+      newChatWorkspaceRef.current = { path: cwd, nonce: Date.now() };
+      setNewChatWorkspaceEpoch((n) => n + 1);
+      goHome();
+    },
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
     onSearchClear: () => setSessionFilterDraft(""),
@@ -4030,6 +6397,167 @@ export function App() {
     });
   };
 
+  // Identity-stable handlers for the React.memo message rows: a shell
+  // re-render (every streamed token) must not invalidate their props.
+  const handleEditUserMessage = useStableHandler(
+    (content: string, userMsgIdx: number) => {
+      const assetNote = extractSessionAssetsXml(content);
+      setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
+      setEditingUserMsgIdx(userMsgIdx);
+      setEditingAssetNote(assetNote);
+      setEditingFiles(parseSessionAssetFiles(content));
+    },
+  );
+  const handleStopBackgroundTask = useStableHandler((id: string) => {
+    void stopBackgroundTaskById(id);
+  });
+
+  /**
+   * Queue the draft for the turn that is running instead of refusing it.
+   *
+   * The turn can end between the keystroke and the request; the server says so
+   * with `no_active_turn`, and what the operator wrote is sent as an ordinary
+   * prompt rather than dropped. Any other refusal puts the text back in the
+   * composer, because losing it is worse than a second attempt.
+   */
+  const handleQueueMessage = useStableHandler((text: string) => {
+    const sid = sessionId.trim();
+    const generation = turnActivity.generation(sid);
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
+    const body = text.trim();
+    if (!sid || !body) return;
+    setDraft("");
+    void (async () => {
+      type QueueAnswer = {
+        messages?: QueuedMessage[];
+        version?: number;
+        error?: { code?: string; message?: string };
+      };
+      let payload: QueueAnswer | null = null;
+      let status = 0;
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
+          {
+            method: "POST",
+            headers: { [HDR]: sid, "Content-Type": "application/json" },
+            body: JSON.stringify({ text: body }),
+          },
+        );
+        status = res.status;
+        payload = (await res.json().catch(() => null)) as QueueAnswer | null;
+      } catch {
+        // Network failure: treated as a refusal below.
+      }
+      if (status === 201 && Array.isArray(payload?.messages)) {
+        applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
+        return;
+      }
+      if (
+        payload?.error?.code === "no_active_turn" &&
+        queueOrderRef.current.capture(sid).epoch === queueEpoch &&
+        turnActivity.generation(sid) === generation &&
+        viewedSessionIdRef.current.trim() === sid
+      ) {
+        // The turn ended between the keystroke and the request. Send it as an
+        // ordinary prompt; if the admission has not been released yet and that
+        // is refused too, the text comes back to the composer rather than
+        // being lost between the two answers.
+        void streamResponses(body, { restoreDraftOnBusy: true });
+        return;
+      }
+      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      const code = payload?.error?.code;
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice",
+          level: "error" as const,
+          message:
+            code === "queue_full"
+              ? t("composer.queueFull")
+              : code === "session_busy"
+                ? t("composer.queueBusyElsewhere")
+                : t("composer.queueFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    })();
+  });
+
+  /**
+   * Take one queued follow-up back. The list is updated at once so the card
+   * disappears under the click; the server's answer (or the next
+   * `message_queue` frame) is what it settles on.
+   */
+  const handleCancelQueued = useStableHandler((id: string) => {
+    const sid = sessionId.trim();
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
+    const messageID = id.trim();
+    if (!sid || !messageID) return;
+    const taken = (queueBySid[sid] ?? []).find((q) => q.id === messageID);
+    setQueueBySid((prev) => ({
+      ...prev,
+      [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
+    }));
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(messageID)}`,
+          { method: "DELETE", headers: { [HDR]: sid } },
+        );
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (Array.isArray(data?.messages)) {
+          applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+        // Taken back before the agent read it: the text returns to the composer to be
+        // edited, ahead of anything typed since. A 404 means the agent read it first,
+        // and it is already in the conversation.
+        const text = taken?.text ?? "";
+        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+          setDraft((current) =>
+            current.trim() ? `${text}\n\n${current}` : text,
+          );
+        }
+      } catch {
+        // The next message_queue frame corrects the list.
+      }
+    })();
+  });
+  const handleFetchToolCallFull = useStableHandler(
+    async (toolCallId: string) => {
+      if (!sessionId) return;
+      const det = await fetchJSON<{
+        args?: string;
+        result?: string;
+        meta?: {
+          status?: string;
+          kind?: string;
+          name?: string;
+          planSnapshot?: unknown;
+        };
+      }>(
+        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+        { headers },
+      );
+      if (!det.ok || !det.data) return;
+      const meta = det.data.meta || {};
+      const patch: Record<string, unknown> = { toolCallId };
+      if (meta.name) patch.title = meta.name;
+      if (meta.kind) patch.kind = meta.kind;
+      if (meta.status) patch.status = meta.status;
+      const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
+      if (todoPlan !== undefined) patch.todoPlan = todoPlan;
+      if (det.data.args) patch.argsText = det.data.args;
+      if (det.data.result !== undefined) patch.fullResultText = det.data.result;
+      upsertToolCall(patch as any);
+    },
+  );
+
   return (
     <div
       className={[
@@ -4044,9 +6572,15 @@ export function App() {
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
-        showScheduler={schedulerHttpLinked === true}
+        showHistory={!atSwarmRoot}
+        showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        showSwarm={isSwarmEnv}
+        onOpenSwarm={openSwarmFromNav}
+        swarmOpen={swarmRoute}
+        onOpenDocs={openDocsFromNav}
+        docsOpen={docsRoute !== null}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
@@ -4055,7 +6589,11 @@ export function App() {
       />
 
       <div
-        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
+        className={[
+          "shell-main",
+          sessionsOpen ? "shell-history-open" : "",
+          tasksPanelOpen ? "shell-tasks-open" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -4069,13 +6607,6 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (
-              shouldSuppressShellBackdropClose(
-                sessionDeleteBackdropSuppressUntilRef,
-              )
-            ) {
-              return;
-            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }
@@ -4098,7 +6629,9 @@ export function App() {
             <SchedulerJobsDrawer
               open={schedulerOpen}
               selectedJobId={
-                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
+                schedulerEditor?.mode === "edit" || schedulerEditor?.mode === "runs"
+                  ? schedulerEditor.jobId
+                  : null
               }
               className="scheduler-dock-drawer"
               onClose={closeSchedulerDrawer}
@@ -4113,6 +6646,7 @@ export function App() {
                 setSchedulerEditor({ mode: "edit", jobId: jid });
                 setSchedulerJobHash(jid);
               }}
+              onOpenRuns={openSchedulerRuns}
               onRunJob={(jid) => void onSchedulerRunJob(jid)}
               onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
               searchDraft={schedulerFilterDraft}
@@ -4120,8 +6654,38 @@ export function App() {
               onSearchClear={() => setSchedulerFilterDraft("")}
             />
 
+            {schedulerEditor?.mode === "runs" ? (
+              <BackgroundTasksPanel
+                open
+                className="scheduler-runs-dock"
+                title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
+                emptyText={t("scheduler.runsEmpty")}
+                focus={schedulerRunsFocus}
+                onFocusHonoured={(seq) =>
+                  setSchedulerRunsFocus((prev) =>
+                    prev && prev.seq === seq ? null : prev,
+                  )
+                }
+                tasks={schedulerRunsTasks}
+                loadOutput={loadSchedulerRunOutput}
+                listError={schedulerRunsError}
+                loading={schedulerRunsLoading}
+                nowMs={backgroundNowMs}
+                onClose={closeSchedulerRuns}
+                onStopTask={stopSchedulerRun}
+                onClearFinished={() => {
+                  void clearSchedulerRuns();
+                }}
+                onOpenSession={openSessionInPlace}
+              />
+            ) : null}
+
             <SchedulerJobEditorSheet
-              open={schedulerHttpLinked === true && !!schedulerEditor}
+              open={
+                schedulerHttpLinked === true &&
+                !!schedulerEditor &&
+                schedulerEditor.mode !== "runs"
+              }
               mode={schedulerEditor?.mode === "create" ? "create" : "edit"}
               jobId={
                 schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
@@ -4143,171 +6707,278 @@ export function App() {
                 setSchedulerEditor(null);
                 void refreshSchedulerJobs({ silent: true });
               }}
+              onOpenRuns={openSchedulerRuns}
             />
           </div>
         ) : null}
 
+        {swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute) ? (
+          <div className="swarm-dock-cluster">
+            <SwarmView
+              onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
+              onOpenSession={(s) => openSwarmNode(s.node_path, `#/s/${s.id}`)}
+              {...(swarmCurrentNode.length > 0
+                ? { currentNode: swarmCurrentNode }
+                : {})}
+              {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
+            />
+          </div>
+        ) : null}
+        {docsRoute ? (
+          <div className="docs-dock-cluster">
+            <DocsView
+              slug={docsRoute.slug}
+              anchor={docsRoute.anchor}
+              onOpen={openDocsPage}
+              onClose={onCloseDocs}
+              {...(docsSearchSeed ? { searchSeed: docsSearchSeed } : {})}
+              {...(atSwarmRoot ? {} : { onAsk: askAboutDocs })}
+            />
+          </div>
+        ) : null}
         {settingsRoute ? (
           <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
+              // Subagent approvals are keyed by workspace, and spawn_agent
+              // checks the session's own cwd: the viewed session's workspace
+              // is the one the tab must ask about. Falls back to the host
+              // project root, which is the cwd an editor plugin launched the
+              // server for.
+              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
+              activeSessionId={sidebarActiveId}
+              onSessionsDeleted={onSessionsDeletedInSettings}
+              sessionsScope={sessionsScopeForSettings}
+              onSessionTagsChanged={(id: string, tags: string[]) =>
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === id ? { ...s, tags } : s)),
+                )
+              }
             />
           </div>
         ) : null}
-        <ChatScreen
-          title={currentTitle}
-          sessionId={sessionId}
-          workspaceCtx={workspaceCtx}
-          worktreePref={worktreePref}
-          workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
-          onWorkspacePickBranch={(b: string, wt: boolean) =>
-            void switchWorkspace({ branch: b, worktree: wt })
-          }
-          onWorktreeToggle={() => setWorktreePref((v) => !v)}
-          sessionLoading={sessionLoading}
-          sessionFadingOut={sessionFadingOut}
-          heroAccentVerb={heroAccentVerb}
-          heroComposerFocusEpoch={heroHomeGeneration}
-          onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
-          items={items}
-          draft={draft}
-          tokenUsage={tokenUsage}
-          contextPct={contextPct}
-          maxContextTokens={maxContextTokens}
-          contextBreakdown={contextBreakdown}
-          mode={mode}
-          modes={[...PROFILE_MODES]}
-          {...(llmModelIds.length > 0
-            ? {
-                llmModels: llmModelIds,
-                llmModel,
-                onLlmModelChange,
-                llmModelMultimodal,
-                ...(llmReasoningLevels.length > 0
-                  ? {
-                      llmReasoningLevels,
-                      llmReasoning,
-                      onLlmReasoningChange,
-                    }
-                  : {}),
+        {tasksPanelOpen ? (
+          <BackgroundTasksPanel
+            open
+            focus={
+              tasksFocus && tasksFocus.sid === sessionId.trim()
+                ? tasksFocus
+                : null
+            }
+            onFocusHonoured={spendTasksFocus}
+            tasks={backgroundTasks}
+            loadOutput={loadBackgroundTaskOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onStopTask={stopBackgroundTaskById}
+            onOpenSession={openSessionInPlace}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+            onRefresh={() => {
+              void refreshBackgroundTasks({ silent: true });
+            }}
+          />
+        ) : null}
+        {atSwarmRoot ? null : (
+          <ChatScreen
+            title={currentTitle}
+            sessionId={sessionId}
+            backgroundTasks={backgroundTasks}
+            onOpenBackgroundTasks={openTasksFromNav}
+            onBackgroundTasksChanged={() => {
+              void refreshBackgroundTasks({ silent: true });
+            }}
+            backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+            backgroundNowMs={backgroundNowMs}
+            onOpenBackgroundTask={openBackgroundTask}
+            onStopBackgroundTask={handleStopBackgroundTask}
+            subagentTranscript={subagentTranscript}
+            sessionArchived={viewedArchived}
+            unarchiving={unarchiving}
+            onUnarchiveSession={() => void unarchiveViewedSession()}
+            onOpenSession={openSessionInPlace}
+            pathRoots={transcriptPathRoots}
+            turnProgress={turnProgressBySid[sessionId.trim()] ?? null}
+            backgroundTasksOpen={tasksPanelOpen}
+            onCloseBackgroundTasks={closeTasksDrawer}
+            workspaceCtx={workspaceCtx}
+            worktreePref={worktreePref}
+            svnFolderPref={svnFolderPref}
+            workspaceLocked={items.length > 0}
+            onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
+            onWorkspacePickBranch={(b: string, wt: boolean) =>
+              void switchWorkspace({ branch: b, worktree: wt })
+            }
+            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
+              void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
+            }
+            onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
+            sessionLoading={sessionLoading}
+            sessionFadingOut={sessionFadingOut}
+            heroAccentVerb={heroAccentVerb}
+            heroComposerFocusEpoch={heroHomeGeneration}
+            onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+            onExportSession={(f: ExportFormat) => void exportSession(f)}
+            exportBusy={exportBusy}
+            items={items}
+            draft={draft}
+            tokenUsage={tokenUsage}
+            providerUsage={providerUsageState.usage}
+            usageBannerDismissedKey={providerUsageState.dismissedKey}
+            onUsageBannerDismiss={providerUsageState.dismissBanner}
+            contextPct={contextPct}
+            maxContextTokens={maxContextTokens}
+            contextBreakdown={contextBreakdown}
+            mode={mode}
+            modes={[...PROFILE_MODES]}
+            {...(llmModelIds.length > 0
+              ? {
+                  llmModels: llmModelIds,
+                  llmModel,
+                  onLlmModelChange,
+                  llmModelMultimodal,
+                  ...(llmReasoningLevels.length > 0
+                    ? {
+                        llmReasoningLevels,
+                        llmReasoning,
+                        onLlmReasoningChange,
+                      }
+                    : {}),
+                }
+              : {})}
+            onModeChange={onModeChange}
+            permissionMode={permissionMode}
+            configuredPermissionMode={configuredPermissionMode}
+            onPermissionModeChange={
+              subagentTranscript ? undefined : onPermissionModeChange
+            }
+            settingsOverrides={settingsOverrides}
+            onDraftChange={setDraft}
+            generating={generating}
+            onContextRingOpen={() => {
+              const sid = sessionId.trim();
+              if (sid) {
+                void refreshSessionStats(sid);
               }
-            : {})}
-          onModeChange={setMode}
-          onDraftChange={setDraft}
-          generating={generating}
-          onContextRingOpen={() => {
-            const sid = sessionId.trim();
-            if (sid) {
-              void refreshSessionStats(sid);
-            }
-          }}
-          onStop={() => stopActiveGeneration()}
-          onQuestionPromptResolved={resolveQuestionPrompt}
-          onPermissionPromptResolved={resolvePermissionPrompt}
-          onPlanDocumentExpanded={(itemId, expanded) => {
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, expanded }
-                  : x,
-              ),
-            );
-          }}
-          onPlanDocumentRun={(slug) => {
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            void streamResponses(t("chat.runPlanMessage"), {
-              modeOverride: "agent",
-              runPlanSlug: slug,
-            });
-          }}
-          onPlanDocumentDiscard={async (itemId, slug) => {
-            const sid = sessionId.trim();
-            if (!sid) return;
-            try {
-              await fetch(
-                `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                {
-                  method: "DELETE",
-                  headers,
-                },
+            }}
+            onStop={() => stopActiveGeneration()}
+            {...(subagentTranscript
+              ? {}
+              : {
+                  queuedMessages,
+                  onQueue: handleQueueMessage,
+                  onCancelQueued: handleCancelQueued,
+                })}
+            onQuestionPromptResolved={resolveQuestionPrompt}
+            onPermissionPromptResolved={resolvePermissionPrompt}
+            onPlanDocumentExpanded={(itemId, expanded) => {
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === itemId && x.type === "plan_document"
+                    ? { ...x, expanded }
+                    : x,
+                ),
               );
-            } catch {
-              return;
-            }
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, discarded: true }
-                  : x,
-              ),
-            );
-          }}
-          onEdit={(content, userMsgIdx) => {
-            const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
-            setEditingUserMsgIdx(userMsgIdx);
-            setEditingAssetNote(assetNote);
-            setEditingFiles(parseSessionAssetFiles(content));
-          }}
-          {...(editingFiles.length > 0 ? { editingFiles } : {})}
-          onBranchSwitch={(sid) => switchBranch(sid)}
-          {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          onSend={(text: string, files?: File[]) => {
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            setDraft("");
-            if (editingUserMsgIdx !== null) {
-              const idx = editingUserMsgIdx;
-              const note = editingAssetNote;
-              setEditingUserMsgIdx(null);
-              setEditingAssetNote("");
-              setEditingFiles([]);
-              const textWithAssets = note ? `${text}\n${note}` : text;
-              void handleBranchSend(textWithAssets, idx);
-            } else {
-              void streamResponses(text, files ? { files } : undefined);
-            }
-          }}
-          onFetchToolCallFull={async (toolCallId: string) => {
-            if (!sessionId) return;
-            const det = await fetchJSON<{
-              args?: string;
-              result?: string;
-              meta?: { status?: string; kind?: string; name?: string };
-            }>(
-              `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
-              { headers },
-            );
-            if (!det.ok || !det.data) return;
-            const meta = det.data.meta || {};
-            const patch: Record<string, unknown> = { toolCallId };
-            if (meta.name) patch.title = meta.name;
-            if (meta.kind) patch.kind = meta.kind;
-            if (meta.status) patch.status = meta.status;
-            if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result !== undefined)
-              patch.fullResultText = det.data.result;
-            upsertToolCall(patch as any);
-          }}
-        />
+            }}
+            // A subagent transcript is read-only: like onEdit below, Run plan and
+            // Discard are withheld rather than stubbed, so the plan card renders
+            // without its footer and its editor is read-only.
+            {...(subagentTranscript
+              ? {}
+              : {
+                  onPlanDocumentRun: (slug: string) => {
+                    if (
+                      sessionId.trim() &&
+                      (turnActivity.get(sessionId) ??
+                        activeComposerSidRef.current.has(sessionId.trim()))
+                    ) {
+                      return;
+                    }
+                    void streamResponses(t("chat.runPlanMessage"), {
+                      modeOverride: "agent",
+                      runPlanSlug: slug,
+                    });
+                  },
+                  onPlanDocumentDiscard: async (itemId: string, slug: string) => {
+                    const sid = sessionId.trim();
+                    if (!sid) return;
+                    try {
+                      await fetch(
+                        `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                        {
+                          method: "DELETE",
+                          headers,
+                        },
+                      );
+                    } catch {
+                      return;
+                    }
+                    setItems((prev) =>
+                      prev.map((x) =>
+                        x.id === itemId && x.type === "plan_document"
+                          ? { ...x, discarded: true }
+                          : x,
+                      ),
+                    );
+                  },
+                })}
+            {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
+            {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            onBranchSwitch={(sid) => switchBranch(sid)}
+            {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onPasteChipCaptured={(key, literal) => {
+              const m = pasteLiteralsRef.current;
+              m.set(key, literal);
+              // Bound the map: drop oldest entries past 32 (Map keeps insertion order).
+              while (m.size > 32) {
+                const oldest = m.keys().next().value;
+                if (oldest == null) {
+                  break;
+                }
+                m.delete(oldest);
+              }
+            }}
+            onDocsCommand={openDocsCommand}
+            onSend={(text: string, files?: File[]) => {
+              // A subagent transcript is read-only: the server answers 409.
+              if (subagentTranscript) {
+                return;
+              }
+              if (
+                sessionId.trim() &&
+                (turnActivity.get(sessionId) ??
+                  activeComposerSidRef.current.has(sessionId.trim()))
+              ) {
+                return;
+              }
+              setDraft("");
+              if (editingUserMsgIdx !== null) {
+                const idx = editingUserMsgIdx;
+                const note = editingAssetNote;
+                setEditingUserMsgIdx(null);
+                setEditingAssetNote("");
+                setEditingFiles([]);
+                const textWithAssets = note ? `${text}\n${note}` : text;
+                void handleBranchSend(textWithAssets, idx);
+              } else {
+                void streamResponses(text, files ? { files } : undefined);
+              }
+            }}
+            onFetchToolCallFull={handleFetchToolCallFull}
+          />
+        )}
         <ProviderPickerDialog
           open={showProviderPicker}
           onSaved={() => {
             setShowProviderPicker(false);
-            setModelsEpoch((e) => e + 1);
+            setConfigEpoch((e) => e + 1);
             maybeStartTour();
           }}
           onSkip={() => {

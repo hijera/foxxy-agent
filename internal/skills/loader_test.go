@@ -9,10 +9,18 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
+// withoutBundled drops the standard delivery from a listing, so a test can
+// assert on what it put in a directory itself. The names come from the delivery
+// rather than a list here, which is what keeps this from going stale every time
+// a skill joins or leaves it.
 func withoutBundled(loaded []*skills.Skill) []*skills.Skill {
+	delivered := make(map[string]bool)
+	for _, s := range skills.Bundled() {
+		delivered[skills.CanonicalCommandName(s)] = true
+	}
 	var out []*skills.Skill
 	for _, s := range loaded {
-		if skills.CanonicalCommandName(s) == "generate-rules" {
+		if delivered[skills.CanonicalCommandName(s)] {
 			continue
 		}
 		out = append(out, s)
@@ -26,6 +34,7 @@ func TestLoadSkillWithFrontmatter(t *testing.T) {
 	content := `---
 name: "go-standards"
 description: "Go coding standards"
+version: "1.4.2"
 ---
 
 # Go Standards
@@ -56,6 +65,9 @@ Use fmt.Errorf for error wrapping.
 	}
 	if s.Description != "Go coding standards" {
 		t.Errorf("expected description %q, got %q", "Go coding standards", s.Description)
+	}
+	if s.Version != "1.4.2" {
+		t.Errorf("expected version %q from frontmatter, got %q", "1.4.2", s.Version)
 	}
 	if !strings.Contains(s.Content, "Write comments") {
 		t.Errorf("expected content in skill body, got: %q", s.Content)

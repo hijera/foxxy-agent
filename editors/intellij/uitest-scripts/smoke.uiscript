@@ -1,0 +1,4 @@
+# Smallest possible check that the whole chain works: Gradle -> uiConsole -> robot-server -> IDE.
+# Run this first whenever UI automation misbehaves; if it fails, nothing else is worth debugging.
+screenshot initial
+tree Foxxy 6

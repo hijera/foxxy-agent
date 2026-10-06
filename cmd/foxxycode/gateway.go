@@ -16,7 +16,9 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
@@ -29,6 +31,7 @@ func runGateway(args []string) error {
 	gwCWD := fs.String("cwd", "", "default session working directory")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root directory")
 	logLevel := fs.String("log-level", "", "debug|info|warn|error")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of gateway:\n")
 		fs.PrintDefaults()
@@ -58,14 +61,19 @@ func runGateway(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if !cfg.Gateways.Telegram.Enabled {
-		return fmt.Errorf("no gateway enabled; set gateways.telegram.enabled: true in config")
+		return fmt.Errorf("no gateway enabled; set gateways.telegram.enable: true in config")
 	}
 
 	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{Level: strings.TrimSpace(*logLevel)})
-	log, logCloser, err := logger.New(cfg.Logger)
+	config.ApplyDebugFlag(fs, cfg, debugFlag)
+	log, levelVar, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
+	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
+	llm.SetDebugLogger(log)
+	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting gateway", "version", version.Get())
@@ -77,11 +85,20 @@ func runGateway(args []string) error {
 
 	// Build a null ACP sender (gateway uses its own per-message senders).
 	nullSender := &nullUpdateSender{}
+	var mgr *session.Manager
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		active := cfg
+		if mgr != nil {
+			active = mgr.Cfg()
+		}
+		loop := agent.NewAgent(active, st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			return mgr.ReloadConfigForSession(ctx, st)
+		})
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, nullSender, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, nullSender, runner, log, paths.CWD, store)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -102,4 +119,3 @@ func (n *nullUpdateSender) RequestPermission(_ context.Context, _ acp.Permission
 func (n *nullUpdateSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil
 }
-

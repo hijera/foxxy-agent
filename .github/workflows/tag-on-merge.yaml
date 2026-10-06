@@ -2,6 +2,10 @@
 # Direct pushes to main (for example GitHub web IDE) do not trigger this workflow.
 # Manual SemVer tag pushes still build via docker-build-push.yaml and release-binaries.yaml (push: tags).
 # Child workflows are invoked via workflow_call (GITHUB_TOKEN tag pushes do not fire push: tags workflows).
+# The release description is written last, by release-notes.yaml, once every job that attaches
+# to the release has finished (see that file for why none of those jobs writes it).
+# GitHub Pages (the website plus docs/, updatePlugins.xml included) is redeployed by site.yaml
+# once the build jobs are done, see the site job below.
 #
 # workflow_dispatch:
 #   - empty: bump tag on HEAD (if needed) and release
@@ -51,6 +55,11 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.ref }}
+          # actions/checkout refuses fork-PR checkouts under pull_request_target by
+          # default (pwn-request guard). Safe to opt in here (see workflow header):
+          # the job runs only on merged==true and never executes the checked-out
+          # tree, it only runs git tag/push against the already-merged commit.
+          allow-unsafe-pr-checkout: true
 
       - name: Fetch all tags
         run: git fetch --tags origin
@@ -86,18 +95,29 @@ jobs:
         id: version
         if: (github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == '') && steps.check.outputs.skip != 'true'
         env:
-          # First release when origin has no SemVer tags yet. Subsequent
-          # releases bump the patch of the highest existing tag.
-          INITIAL_VERSION: "0.2.0"
+          # Floor of the current release line. A release bumps the patch of the
+          # highest existing tag, so the minor version never moves by itself: when
+          # the bumped version is still below this floor (0.2.95 -> 0.2.96 < 0.3.0),
+          # the release gets the floor instead, and later merges bump from there
+          # (0.3.1, 0.3.2, ...). Starting the next line is a change to this value
+          # (and to releaseLineFloor in internal/update/tag_on_merge_workflow_test.go);
+          # a tag pushed by hand would not run the plugin jobs. Also the first
+          # version when origin has no SemVer tags yet.
+          MIN_VERSION: "0.3.0"
         run: |
           set -euo pipefail
           LATEST="$({ git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
           if [ -z "$LATEST" ]; then
-            NEW_VERSION="$INITIAL_VERSION"
+            NEW_VERSION="$MIN_VERSION"
             echo "No existing SemVer tags on origin; starting at ${NEW_VERSION}"
           else
             NEW_VERSION="$(echo "$LATEST" | awk -F. '{$3=$3+1; OFS="."; print $1,$2,$3}')"
-            echo "Bumping ${LATEST} -> ${NEW_VERSION}"
+            if [ "$(printf '%s\n%s\n' "$NEW_VERSION" "$MIN_VERSION" | sort -V | tail -1)" != "$NEW_VERSION" ]; then
+              echo "${LATEST} + 1 = ${NEW_VERSION} is below the release line floor; releasing ${MIN_VERSION}"
+              NEW_VERSION="$MIN_VERSION"
+            else
+              echo "Bumping ${LATEST} -> ${NEW_VERSION}"
+            fi
           fi
           echo "previous=${LATEST:-none}" >> "$GITHUB_OUTPUT"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
@@ -173,3 +193,31 @@ jobs:
       tag: ${{ needs.release.outputs.tag }}
       mode: universal
     secrets: inherit
+
+  # Waits for every job that attaches to the release, and runs even when one of them failed:
+  # a release with a broken build still gets its notes. Docker does not touch the release.
+  release-notes:
+    name: Release notes
+    needs: [release, binaries, intellij-plugin, vscode-extension]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.skip != 'true' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-notes.yaml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
+
+  # Redeploys GitHub Pages from main once intellij-plugin has committed the new
+  # updatePlugins.xml and every asset the download links point at is attached. That commit is
+  # pushed with GITHUB_TOKEN, which starts no workflow, so this call is the only deploy it gets.
+  # Runs when a build failed too: the plugin repository document and docs/ must still go out,
+  # and the website's download cards fall back to the newest release that has each package.
+  site:
+    name: Website
+    needs: [release, binaries, intellij-plugin, vscode-extension]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.skip != 'true' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yaml

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,9 +19,13 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
@@ -29,6 +34,10 @@ type CommandDeps struct {
 	NewServerRef func(**acp.Server, *config.Config, func() *config.Config) acp.UpdateSender
 	EnsureHome   func(string) error
 	OpenStore    func(string, *config.Config) (*session.FileStore, error)
+	// CheckOutput is where -t / --test-config and --dry-run print their
+	// report; nil means stdout. cmd/foxxycode passes the writer the console,
+	// acp and serve print to, so the report reads the same from every command.
+	CheckOutput io.Writer
 }
 
 // StartParams configures PrepareHTTP / StartHTTP.
@@ -45,6 +54,13 @@ type StartParams struct {
 	// -plan-no-self-run flag was passed). Editor plugins set it so their panels
 	// forbid the model from leaving plan mode by itself.
 	PlanNoSelfRun *bool
+	// Debug forces debug.enable=true when non-nil and true (the -debug flag was
+	// passed). Enables verbose diagnostics for this process.
+	Debug *bool
+	// ProjectTrust overrides mcp.project_trust when non-empty (the
+	// -mcp-project-trust flag was passed). CI jobs and container entrypoints
+	// use it to opt a trusted checkout in without editing config.yaml.
+	ProjectTrust string
 	// AuthToken is the optional bearer token from --auth-token; empty falls back to
 	// FOXXYCODE_HTTP_TOKEN and then httpserver.auth_token.
 	AuthToken string
@@ -99,28 +115,26 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	if params.SchedulerEnabled {
-		cfg.Scheduler.Enabled = true
-	}
-	if params.PlanNoSelfRun != nil {
-		v := *params.PlanNoSelfRun
-		cfg.Tools.PlanNoSelfRun = &v
-	}
-	if err := cfg.Scheduler.Validate(cfg); err != nil {
-		return nil, fmt.Errorf("scheduler: %w", err)
+	// Hand over the standard skill delivery before anything reads skills. Best
+	// effort, like every other surface: a home that cannot be written still gets
+	// the copies the binary carries (skills.Bundled).
+	_, _ = skills.SeedDelivery(cfg)
+	if err := applyStartOverrides(cfg, params); err != nil {
+		return nil, err
 	}
 
-	cfg.Logger.ApplyOverrides(params.LoggerOverrides)
-	log, logCloser, err := logger.New(cfg.Logger)
+	log, logLevel, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("log: %w", err)
 	}
+	logLevel.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
+	llm.SetDebugLogger(log)
+	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
-
-	if cfg.SchedulerEffectiveEnabled() {
-		scheduler.Start(context.Background(), cfg, log, paths.CWD)
-	}
+	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	store, err := deps.OpenStore(params.SessionsRoot, cfg)
 	if err != nil {
@@ -131,6 +145,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 
 	var srv *acp.Server
 	var mgr *session.Manager
+	var s *Server
 	live := func() *config.Config {
 		if mgr != nil {
 			return mgr.Cfg()
@@ -141,6 +156,24 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		c := live()
 		loop := agent.NewAgent(c, st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			warnings, err := mgr.ReloadConfigForSession(ctx, st)
+			if err == nil && s != nil {
+				// ReplaceConfig also drops the slash cache and announces the reload.
+				s.ReplaceConfig(mgr.Cfg())
+			}
+			return warnings, err
+		})
+		// The manager owns child sessions; without this hook spawn_agent
+		// answers that subagents are not available in this session.
+		loop.SetSubagentRuntime(mgr)
+		// A detached child outlives this turn, so its permission prompts need
+		// somewhere to go once the turn's stream is gone: the server hangs
+		// them on the background task row. The nil check keeps a typed-nil
+		// from posing as an installed broker before New assigns s.
+		if s != nil {
+			loop.SetDetachedPermissionBroker(s.detachedPromptBroker())
+		}
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
@@ -152,17 +185,9 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		mgr.SetPreferredSessionID(pid)
 	}
 
-	listenAddr := strings.TrimSpace(params.ListenAddr)
-	if listenAddr == "" {
-		hostStr := strings.TrimSpace(params.Host)
-		portStr := strings.TrimSpace(params.Port)
-		listenAddr = net.JoinHostPort(hostStr, portStr)
-		if hostStr == "0.0.0.0" && portStr == "12345" {
-			listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
-		}
-	}
+	listenAddr := listenAddress(cfg, params)
 
-	s := New(cfg, mgr, log, paths.CWD)
+	s = New(cfg, mgr, log, paths.CWD, logLevel)
 
 	// Out-of-band bearer tokens (--auth-token, then FOXXYCODE_HTTP_TOKEN) enable auth without
 	// storing the secret in config.yaml; they union with httpserver.auth_token.
@@ -170,16 +195,36 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if t := strings.TrimSpace(params.AuthToken); t != "" {
 		extraTokens = append(extraTokens, t)
 	}
-	if t := strings.TrimSpace(os.Getenv("FOXXYCODE_HTTP_TOKEN")); t != "" {
+	if t := strings.TrimSpace(os.Getenv(TokenEnvVar)); t != "" {
 		extraTokens = append(extraTokens, t)
 	}
 	s.SetExtraAuthTokens(extraTokens)
-	authOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(extraTokens) > 0
+	// The web sign-in account can live in the environment as it can for
+	// `foxxycode serve` (FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD, usually in
+	// $FOXXYCODE_HOME/.env), and a form nobody can pass is refused here too.
+	if err := s.SetExtraLogin(strings.TrimSpace(os.Getenv(LoginUserEnvVar)), os.Getenv(LoginPasswordEnvVar)); err != nil {
+		_ = logCloser.Close()
+		return nil, fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
+	}
+	if pol := s.loginPolicyNow(); pol.broken {
+		_ = logCloser.Close()
+		return nil, errors.New("httpserver.login.enable is true but no account is configured: " +
+			"set httpserver.login.user and password_hash (`foxxycode serve set-password`), " +
+			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
+	}
+	// The IntelliJ and VS Code plugins and `foxxycode desktop` start this command
+	// on 127.0.0.1 and call it with no credential. A direct loopback client
+	// therefore passes the sign-in form here; `foxxycode serve` has no such rule.
+	s.SetTrustLoopbackClients(true)
+	loginOn := s.loginPolicyNow().enabled
+	authOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(extraTokens) > 0 || loginOn
 	if effHost, _, err := net.SplitHostPort(listenAddr); err == nil {
 		if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
 			log.Warn("HTTP API is reachable without authentication",
 				"host", effHost,
-				"hint", "set httpserver.auth_token / --auth-token / FOXXYCODE_HTTP_TOKEN, or httpserver.allow_insecure: true to silence")
+				"hint", "sign-in for the browser: `foxxycode serve set-password`, or "+LoginUserEnvVar+" / "+LoginPasswordEnvVar+"; "+
+					"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
+					"httpserver.allow_insecure: true silences this")
 		}
 	}
 
@@ -199,6 +244,11 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 	s.SetFolderPicker(params.FolderPicker)
 	httpSrv := &http.Server{Addr: listenAddr, Handler: s.Handler()}
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(context.Background(), scheduler.Options{
+			Cfg: live, Log: log, ProcessCWD: paths.CWD, Mgr: mgr,
+		})
+	}
 
 	return &StartedHTTP{
 		Server:     s,
@@ -212,17 +262,60 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}, nil
 }
 
+// applyStartOverrides applies what the operator decided on the command line
+// instead of in config.yaml. The start and --dry-run both go through it, so a
+// dry run checks the configuration this process would actually run with.
+func applyStartOverrides(cfg *config.Config, params StartParams) error {
+	if params.SchedulerEnabled {
+		cfg.Scheduler.Enabled = true
+	}
+	if params.PlanNoSelfRun != nil {
+		v := *params.PlanNoSelfRun
+		cfg.Tools.PlanNoSelfRun = &v
+	}
+	if params.Debug != nil && *params.Debug {
+		cfg.Debug.Enabled = true
+	}
+	if strings.TrimSpace(params.ProjectTrust) != "" {
+		next := config.MCP{ProjectTrust: params.ProjectTrust}
+		if err := next.Validate(); err != nil {
+			return fmt.Errorf("-%s: %w", config.ProjectTrustFlagName, err)
+		}
+		cfg.MCP = next
+	}
+	if err := cfg.Scheduler.Validate(cfg); err != nil {
+		return fmt.Errorf("scheduler: %w", err)
+	}
+	cfg.Logger.ApplyOverrides(params.LoggerOverrides)
+	return nil
+}
+
+// listenAddress is the address the server binds: StartParams.ListenAddr when
+// the caller fixed one, else -H/-P, where the two untouched flag defaults
+// defer to httpserver.host and httpserver.port.
+func listenAddress(cfg *config.Config, params StartParams) string {
+	if addr := strings.TrimSpace(params.ListenAddr); addr != "" {
+		return addr
+	}
+	hostStr := strings.TrimSpace(params.Host)
+	portStr := strings.TrimSpace(params.Port)
+	if hostStr == "0.0.0.0" && portStr == "12345" {
+		return net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
+	}
+	return net.JoinHostPort(hostStr, portStr)
+}
+
 // ListenAndServe blocks until the HTTP server stops.
 func (st *StartedHTTP) ListenAndServe() error {
 	st.Log.Info("listening", "addr", st.ListenAddr)
-	return st.httpSrv.ListenAndServe()
+	return describeListenError(st.httpSrv.ListenAndServe(), st.ListenAddr)
 }
 
 // Serve starts listening in a background goroutine. Returns when the listener is ready or ctx is done.
 func (st *StartedHTTP) Serve(ctx context.Context) error {
 	ln, err := net.Listen("tcp", st.ListenAddr)
 	if err != nil {
-		return err
+		return describeListenError(err, st.ListenAddr)
 	}
 	st.ListenAddr = ln.Addr().String()
 	errCh := make(chan error, 1)
@@ -251,6 +344,25 @@ func (st *StartedHTTP) Serve(ctx context.Context) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// describeListenError turns a failed bind into a message that names the cause. The OS text
+// differs per platform - Windows says "Only one usage of each socket address ... is normally
+// permitted", not "address already in use" - so the check goes through the errno (see
+// listenErrorIsAddrInUse), and the wording tells the caller what to do about it. Anything
+// else is passed through unchanged.
+func describeListenError(err error, addr string) error {
+	if err == nil {
+		return nil
+	}
+	if listenErrorIsAddrInUse(err) {
+		return fmt.Errorf("cannot listen on %s: the port is already in use by another process "+
+			"(stop it, or start foxxycode on a different port): %w", addr, err)
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("cannot listen on %s: permission denied for this address or port: %w", addr, err)
+	}
+	return err
 }
 
 // Shutdown gracefully stops the HTTP server and drains background work.
@@ -284,12 +396,16 @@ func Run(args []string, deps CommandDeps) error {
 	port := fs.String("P", "12345", "listen port for HTTP")
 	fs.StringVar(host, "host", "0.0.0.0", "bind address for HTTP (alias of -H)")
 	fs.StringVar(port, "port", "12345", "listen port (alias of -P)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enable=true in this process (build with -tags scheduler)")
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
+	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage of http:\n")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage of http:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -299,7 +415,7 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
-	st, err := StartHTTP(deps, StartParams{
+	params := StartParams{
 		CLI: config.CLIPaths{
 			Home:   strings.TrimSpace(*homeDir),
 			CWD:    strings.TrimSpace(*httpCWD),
@@ -318,7 +434,33 @@ func Run(args []string, deps CommandDeps) error {
 		SchedulerEnabled: *schedulerEnabled,
 		AuthToken:        strings.TrimSpace(*authToken),
 		PlanNoSelfRun:    boolFlagIfPassed(fs, config.PlanNoSelfRunFlagName, planNoSelfRun),
-	})
+		Debug:            boolFlagIfPassed(fs, config.DebugFlagName, debugFlag),
+		ProjectTrust:     strings.TrimSpace(*projectTrust),
+	}
+	out := deps.CheckOutput
+	if out == nil {
+		out = os.Stdout
+	}
+	// A config check reports on the file and leaves: nothing is created under
+	// the home and no server starts. Next to --dry-run it asks for the full
+	// report instead of the problems-only one.
+	if *testConfig && !*dryRun {
+		return config.RunCheck(out, params.CLI)
+	}
+	// A dry run applies the flags as a start would and tries the address the
+	// server would bind, on top of everything the file names.
+	if *dryRun {
+		return dryrun.RunAndReport(out, params.CLI, *testConfig,
+			func(c *config.Config) error { return applyStartOverrides(c, params) },
+			func(prep *dryrun.Prepared) (dryrun.Request, error) {
+				return dryrun.Request{
+					Surface:   dryrun.SurfaceHTTP,
+					Listeners: []dryrun.Listener{{Path: "httpserver", Addr: listenAddress(prep.Cfg, params)}},
+				}, nil
+			})
+	}
+
+	st, err := StartHTTP(deps, params)
 	if err != nil {
 		return err
 	}

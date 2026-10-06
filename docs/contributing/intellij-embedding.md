@@ -1,0 +1,338 @@
+# Embedding the UI in an IntelliJ / PhpStorm plugin (JCEF)
+
+The foxxycode-agent web UI is designed to run inside JCEF (the Chromium browser
+embedded in JetBrains IDEs) as part of an IntelliJ IDEA / PhpStorm plugin.
+
+## Supported browser baseline
+
+| Component | Version |
+| --- | --- |
+| Minimum IDE | PhpStorm / IntelliJ IDEA **2022.3.3** |
+| JetBrains Runtime | JBR 17.0.6 |
+| JCEF | 104.5.2 |
+| **Chromium** | **104** |
+
+The frontend build targets Chromium 104 (`build.target` / `build.cssTarget`
+in `external/ui/vite.config.ts`). Two build steps enforce the baseline:
+
+- `external/ui/postcss-resolve-color-mix.mjs` — resolves every
+  `color-mix()` (Chromium 111+) to precomputed per-theme values at build
+  time; the build fails on expressions it cannot resolve.
+- `external/ui/scripts-check-chromium104.mjs` — scans the built
+  `dist/styles.css` and `dist/app.js` (including dependency code) for CSS/JS
+  features newer than Chromium 104 and fails `npm run build:go` on findings.
+  Run standalone with `npm --prefix external/ui run check:compat`.
+
+Contributor rule: do not use CSS or JS features newer than Chromium 104 in
+the shipped UI (details in `.claude/rules/ui-spa.md`). Notable off-limits
+features: `:has()`, `oklch()`/`oklab()`, `@container`, native CSS nesting,
+`Array.prototype.toSorted`, `Promise.withResolvers`, `URL.canParse`.
+`dvh`/`svh` units are allowed only with a preceding `vh` fallback
+declaration for the same property.
+
+## Depending on JCEF (IDE 2026.2 and later)
+
+From build 262 (IDE 2026.2) `com.intellij.ui.jcef.*` is no longer part of the
+platform core: it ships as the bundled plugin **Web Browser (JCEF)**, id
+`com.intellij.modules.jcef`, and its classes reach only plugins that depend on
+it. A plugin that declares nothing but `com.intellij.modules.platform` still
+installs, but the first class with a JCEF type in its signatures fails with
+`NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser` and the tool window
+stays empty.
+
+The dependency must be **optional**, because IDEs before 2025.3.1 have no such
+plugin and would refuse a required one. IntelliJ only accepts an optional
+`<depends>` that names a descriptor, so the plugin ships an empty one:
+
+```xml
+<depends optional="true" config-file="foxxycode-jcef.xml">com.intellij.modules.jcef</depends>
+```
+
+That covers the plugin on every supported IDE, but not a user who disabled Web
+Browser (JCEF). `JcefSupport.isAvailable()` (in `editors/intellij`) resolves the
+JCEF classes by name, without linking a JCEF type, and the tool window factory
+shows a message instead of the browser panel when they are missing.
+`TestPluginDescriptorDependsOnJcefOptionally` and
+`TestToolWindowFactoryGuardsJcef` in `editors/intellij/plugin_build_test.go`
+keep both in place.
+
+## Serving the UI to JCEF
+
+Run the agent's HTTP server and point `JBCefBrowser` at it:
+
+```text
+http://127.0.0.1:<port>/
+```
+
+Use `127.0.0.1` (or `localhost`) — the UI calls `crypto.randomUUID()`, which
+requires a trustworthy origin. Loopback HTTP qualifies; a non-loopback plain
+HTTP host does not.
+
+## Theme integration
+
+The UI has 7 built-in themes: `dark` (default), `light`, `midnight`,
+`solarized-dark`, `monokai`, `nord`, `rose-pine`. The active theme is the
+`data-theme` attribute on `<html>`, persisted in the `foxxycode_ui_theme`
+cookie.
+
+JCEF does not propagate the IDE look-and-feel to `prefers-color-scheme`, so
+the plugin drives the theme explicitly through two mechanisms:
+
+### 1. `?theme=` query parameter (initial load, pre-first-paint)
+
+```text
+http://127.0.0.1:<port>/?theme=dark
+http://127.0.0.1:<port>/?theme=light#/s/<sessionId>
+```
+
+Accepted values: any of the 7 theme ids. Precedence: query parameter >
+cookie > default (`dark`). A valid query value is applied before the first
+paint (no flash) and written to the cookie so later loads without the
+parameter keep the theme.
+
+Cookie persistence inside JCEF depends on the plugin's client/cache
+configuration, so **always pass `?theme=` on load** and use the JS API below
+for live switching; the UI stays themed even when cookies are not persisted.
+
+### 2. `window.foxxycodeUi` JS API (live switching)
+
+Registered by the SPA at startup (`external/ui/src/ui/theme/foxxycodeUiApi.ts`):
+
+```ts
+window.foxxycodeUi: {
+  version: 1;
+  setTheme(theme: string): boolean;   // applies + persists; false on unknown ids
+  getTheme(): string;                 // currently applied theme id
+  getThemes(): string[];              // all valid ids, display order
+  onThemeChange(cb: (theme: string) => void): () => void; // returns unsubscribe
+  setLocale(locale: string): boolean; // "en" | "ru"; applies + persists; false on unknown ids
+  getLocale(): string;                // currently applied locale id
+  onLocaleChange(cb: (locale: string) => void): () => void; // returns unsubscribe
+}
+```
+
+`setTheme` goes through the same code path as the in-UI theme picker: it
+updates `data-theme`, `color-scheme`, the cookie, and every subscribed React
+component re-renders.
+
+`setLocale` updates `<html lang>`, the `foxxycode_ui_lang` cookie, and re-renders
+every component that uses the i18n provider (same path as changing language in
+Settings | Tools | FoxxyCode in the plugin).
+
+## UI language (`?lang=` and `setLocale`)
+
+Supported SPA locales: `en` (default), `ru`. The active locale is the `lang`
+attribute on `<html>`, persisted in the `foxxycode_ui_lang` cookie.
+
+**Single source of truth:** the UI language is stored once, in the backend
+config (`ui.locale` in `config.yaml`, values `""` = auto, `"en"`, `"ru"`), and
+edited from one place only — the SPA **Settings → Appearance** language select,
+under the theme grid. The
+IntelliJ and VS Code plugins no longer have their own language setting; they read
+`ui.locale` from the backend and follow live changes made in the SPA.
+
+### 1. `?lang=` query parameter (initial load, pre-first-paint)
+
+```text
+http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
+```
+
+Precedence: query parameter > cookie > default (`en`). A valid query value is
+applied before the first paint and written to the cookie.
+
+On server start the plugin fetches `GET /foxxycode/config`, reads `ui.locale`,
+and resolves the `?lang=` value: an explicit `en`/`ru` from the config, otherwise
+the host default (`Locale.getDefault()`, Russian when the JVM default language is
+`ru`). Passing `?lang=` on load keeps the SPA's first paint and the plugin chrome
+in agreement even in auto mode — the URL param intentionally beats the SPA cookie,
+while the SPA's own picker still shows "Auto" because it renders the config value,
+not the active locale.
+
+### 2. Live switching, both directions
+
+- **Plugin → SPA:** when the plugin locale changes (config re-read on restart, or
+  a change relayed from the SPA), it injects
+  `window.foxxycodeUi.setLocale('<en|ru>')` after each page load. The SPA updates
+  without a full reload.
+- **SPA → plugin:** when the user flips the language in **Settings → Appearance**, the
+  SPA notifies the host. In JCEF the plugin subscribes via
+  `window.foxxycodeUi.onLocaleChange(...)` wired to a `JBCefJSQuery`; the callback
+  adopts the new locale and publishes `FoxxyCodeLanguageListener.TOPIC` so the
+  toolbar and any status/error panels re-localize. (In the VS Code webview, where
+  the SPA runs in a cross-origin iframe, the SPA `window.parent.postMessage`s the
+  same payload — see below.)
+
+`setLocale` is a no-op when the locale is unchanged (it does not notify
+listeners), so the plugin→SPA→plugin round-trip cannot loop.
+
+**VS Code postMessage contract** — the SPA (`embedLocaleBridge.ts`) posts to the
+webview wrapper, which forwards to the extension host:
+
+```jsonc
+{ "type": "foxxycode:locale", "locale": "en" | "ru" }
+```
+
+### Kotlin example (theme + locale bridge)
+
+```kotlin
+import com.intellij.ide.ui.LafManagerListener
+import com.intellij.ui.JBColor
+import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefBrowserBase
+import com.intellij.ui.jcef.JBCefJSQuery
+
+fun ideTheme(): String = if (JBColor.isBright()) "light" else "dark"
+
+val browser = JBCefBrowser("http://127.0.0.1:$port/?theme=${ideTheme()}&lang=${spaLang()}")
+
+// Follow IDE theme changes (Settings > Appearance, quick switch, etc.).
+project.messageBus.connect(disposable).subscribe(
+    LafManagerListener.TOPIC,
+    LafManagerListener {
+        browser.cefBrowser.executeJavaScript(
+            "window.foxxycodeUi && window.foxxycodeUi.setTheme('${ideTheme()}')",
+            browser.cefBrowser.url,
+            0,
+        )
+    },
+)
+
+// SPA → plugin: adopt locale changes made in the SPA Settings → General picker.
+val localeQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+localeQuery.addHandler { locale -> adoptLocale(locale); null }
+// After each page load, subscribe once:
+//   window.foxxycodeUi.onLocaleChange(function (l) { ${localeQuery.inject("l")} });
+```
+
+Any of the 7 theme ids can be substituted for `light`/`dark` — e.g. map the
+IDE's Darcula to `midnight` if that fits the plugin's visual language
+better.
+
+## Embed mode (`?embed=<id>`)
+
+Pass `&embed=<id>` on the initial URL to opt the SPA into a flatter, more
+native host-IDE look. Two ids are shipped: `intellij` (the JCEF tool window)
+and `vscode` (the extension's webview iframe). The SPA mirrors the value into
+`<html data-embed="<id>">` (validated as `[a-z0-9_-]+`) before first paint,
+and CSS overrides keyed on `[data-embed="intellij"], [data-embed="vscode"]`
+then:
+
+- flatten the composer card (6px radius, solid 1px border, no frosted-glass
+  halo or backdrop blur) so it reads as an IDE input field;
+- tighten hero/composer spacing.
+
+What the two ids share and where they differ:
+
+| Behaviour | `intellij` | `vscode` |
+| --- | --- | --- |
+| Flat composer chrome (above) | yes | yes |
+| Hide the folder chip, reopen the last project session, History scoped to the project, Enter sends on narrow panels (`isEditorEmbed()`) | yes | yes |
+| File and directory drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths; directories become `@path/` | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
+| Host → SPA `@`-mention channel | `window.foxxycodeUi.insertFileMention` via `executeJavaScript` | `postMessage` `{ type: "foxxycode:insertFileMention", paths }` from the parent frame (`embedHostBridge.ts`) |
+| Visual effects (infinite animations, frosted glass) default | off (`data-effects="reduced"`) | on (`data-effects="full"`) |
+
+#### Reduced effects in the JCEF panel
+
+JCEF renders the IntelliJ panel off-screen (the default in 2022.3–2026.2 IDEs) and
+copies every frame the page paints into the IDE on its UI thread. An effect that
+repaints continuously therefore slows the whole IDE, badly without a GPU: measured in
+PyCharm 2023.3 with the GPU off, the bouncing typing dots kept the IDE's UI thread
+~5% busy through every turn and the dark hero title 5.4% with the panel merely open.
+
+So the page carries `<html data-effects="full|reduced">`. The inline bootstrap in
+`src/index.html` sets it before the first paint: the `foxxycode_ui_effects` cookie
+when present, else `reduced` for `?embed=intellij` and `full` everywhere else
+(`ui/theme/uiEffects.ts` holds the same logic for the running app). `reduced` stops
+the long-lived infinite animations (the typing dots keep a slow stepped glow: colour
+only, six steps over three seconds: ~0.2% of the IDE's UI thread idle, where the CSS
+bounce cost 3.6-5.4%, an eased cycle 5.5% and the bounce as a 12 fps animated WebP 2.3%)
+and switches the glass blur off: the
+`--foxxycode-glass-panel-backdrop` token becomes `none` and the literal blurs are
+switched off, because a blur of what scrolls under a panel is recomputed on every
+repaint, in software without a GPU. Without the blur a translucent tint would let the
+transcript read straight through the sticky header and the top bar, so the panel tokens
+(`--foxxycode-glass-panel-bg`, `--foxxycode-chat-header-bg`, `--nav`) turn opaque per
+theme, in the colour they showed: the tint composited over the top of that theme's
+canvas. The light theme is the exception: its composite is plain white, which read as
+harsh, so its panels take the composer field's soft grey (`#f3f3f4`). The canvas keeps its gradient and glow (a flattened canvas was tried and looked
+worse). The **Animations and translucency** switch in **Settings → Appearance** is one
+setting for every client: it applies at once and saves `ui.effects` to `config.yaml`,
+so turning the effects on in the IntelliJ panel turns them on everywhere; only an
+unset key falls back to each client's default. The cookie caches the value for the
+inline bootstrap, which paints before any request can read the config; the SPA
+re-applies the config value at startup. JCEF keeps cookies in its persistent
+`jcef_cache`, and a cookie ignores the port, so even the cached copy survives IDE
+restarts and the backend's random port. `reducedEffectsCss.test.ts` fails when a new infinite animation or literal
+backdrop blur is not covered.
+
+`embedChromeCss.test.ts` keeps the two CSS families in step: every
+`[data-embed]` rule must name both ids. Any other id is accepted but gets none of
+the CSS overrides. (The transcript rows used `content-visibility: auto` until
+upstream #278, and the IntelliJ panel had an opt-out of its own because Chromium
+104 raised "ResizeObserver loop limit exceeded" on it; both are gone.)
+
+```text
+http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
+http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=vscode
+```
+
+### Reopening the last session
+
+A plugin does **not** need to track sessions or build a `#/s/<sessionId>` URL.
+Loading the bare route in embed mode is enough: the SPA calls
+`GET /foxxycode/project/last-session` and navigates to the session the user
+last had open in the project the backend was started for (`--cwd`), recording
+each new one with `PUT /foxxycode/project/last-session`. An explicit hash in
+the URL still wins, so deep links keep working.
+
+The record is stored server-side, per project, in `~/.foxxycode/projects.json`.
+That matters because plugins bind the backend to a **fresh random port** on
+every IDE launch: `localStorage`/`sessionStorage` are keyed by origin and would
+be empty each time. It also means a host-side reload that drops the fragment
+(for example the VS Code panel re-rendering its HTML on a theme change) lands
+back on the same session rather than on a new chat.
+
+## Verifying against real Chromium 104
+
+Playwright 1.24 bundles Chromium 104. To smoke-test the built UI without an
+IDE:
+
+```bash
+cd external/ui && npm run build:go
+# in a scratch directory:
+npm i playwright@1.24 && npx playwright install chromium
+# drive http://127.0.0.1:<port>/ served by `foxxycode http` (build tag "http ui")
+```
+
+## Embedding the UI in a VS Code extension (webview)
+
+The VS Code extension at `editors/vscode/` follows the same contract: bundle a full-feature
+`foxxycode` binary, start `foxxycode http --cwd <workspace>` on a free port, and embed the SPA.
+Differences from the IntelliJ embedding:
+
+- **Host element:** VS Code webviews load external URLs only via an `<iframe>` inside the webview
+  HTML. The extension cannot `executeJavaScript` into a cross-origin iframe (unlike JCEF), so live
+  theme switching is done by reloading the iframe with an updated `?theme=` parameter. Initial load
+  is still flash-free thanks to `?theme=` being applied before first paint.
+- **Locale:** like IntelliJ, the extension has no language setting — it reads `ui.locale` from the
+  backend config on start and resolves `?lang=`. SPA-driven changes come back via the
+  `{ type: "foxxycode:locale", locale }` `postMessage` the iframe sends to the webview wrapper,
+  which forwards it to the extension host; the host adopts the locale and refreshes command titles
+  via the `foxxycode.locale` context key, without reloading the iframe.
+- **CSP:** the webview HTML sets `frame-src http://127.0.0.1:* http://localhost:*;` so the iframe
+  can load the loopback foxxycode server on its auto-picked port.
+- **Embed id:** the extension passes `?embed=vscode`. It shares the flat composer chrome and the
+  `isEditorEmbed()` behaviours with `intellij`, but not the Chromium-104 row-containment opt-out
+  and not the host-resolved drop gate (see the table above).
+- **Host → SPA file mentions:** the extension's **Add to FoxxyCode** command (Explorer, editor and
+  tab context menus) sends `{ type: "foxxycode:insertFileMention", paths: string[] }` to the
+  webview; the wrapper relays it into the iframe with `contentWindow.postMessage` (queued until
+  the frame has loaded), and `embedHostBridge.ts` in the SPA accepts it only from `window.parent`
+  and feeds the same file-mention bus IntelliJ reaches through `window.foxxycodeUi`.
+- **Native inline diffs:** the extension host subscribes to `GET /foxxycode/ide/events` (Node `http`
+  SSE reader) and renders decorations via `vscode.window.createTextEditorDecorationType`, with
+  Accept/Reject/Revert/Show-diff notifications posting to
+  `/foxxycode/sessions/<id>/permission` and `vscode.diff` respectively. This is the direct peer of
+  the IntelliJ `FoxxyCodeIdeDiffService`.
+
+The `?theme=`, `?lang=`, and `window.foxxycodeUi` contracts described above are unchanged.

@@ -1,58 +1,61 @@
 package fs
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
-	"unicode/utf8"
 
-	"golang.org/x/text/encoding/charmap"
+	"github.com/hijera/foxxycode-agent/internal/textenc"
 )
 
-type textEncoding uint8
+// textEncoding is how a workspace file was read, carried between decode and
+// encode so a tool that rewrites a file puts it back in the encoding it found.
+type textEncoding = textenc.Encoding
 
-const (
-	textEncodingUTF8 textEncoding = iota
-	textEncodingUTF8BOM
-	textEncodingWindows1251
-)
+// fallbackEncoding is the legacy charset assumed for bytes that are not UTF-8
+// and that neither statistical detection nor the system ANSI code page could
+// name.
+//
+// FoxxyCode is developed and mostly run on Russian Windows, where an unmarked
+// legacy text file is Windows-1251 in overwhelming practice. Reading one as such
+// is what this layer always did unconditionally, and keeping it as the last rung
+// makes the file tools behave identically on a Linux CI box, where DecodeANSI
+// has no code page to offer.
+//
+// It is the third Cyrillic path, not the second: since textenc lets the system
+// ANSI reading overrule a detected Latin one, a short cp1251 file on a Russian
+// Windows install is named upstream of here and never reaches this rung.
+var fallbackEncoding = textEncoding{Charset: "windows-1251"}
 
-var utf8BOM = []byte{0xef, 0xbb, 0xbf}
+// errNotText is returned for content that has no text reading at all. It is a
+// sentinel so callers can tell it from a decoder that merely failed.
+var errNotText = errors.New("file is not text: it is binary or its encoding could not be detected")
 
-// decodeText detects the supported on-disk encoding and returns UTF-8 text for tools.
-// Valid UTF-8 wins because arbitrary legacy single-byte encodings are ambiguous.
+// decodeText returns the file as UTF-8 text plus the encoding to write it back
+// in. Detection is shared with prompt attachments (internal/textenc): byte-order
+// marks, a UTF-8 fast path, a binary guard, charset detection, and the system
+// ANSI code page. Only the last rung is local - see fallbackEncoding.
 func decodeText(data []byte) (string, textEncoding, error) {
-	if bytes.HasPrefix(data, utf8BOM) {
-		body := data[len(utf8BOM):]
-		if !utf8.Valid(body) {
-			return "", textEncodingUTF8BOM, fmt.Errorf("invalid UTF-8 after BOM")
-		}
-		return string(body), textEncodingUTF8BOM, nil
+	text, enc, err := textenc.Decode(data)
+	if err == nil {
+		return text, enc, nil
 	}
-	if utf8.Valid(data) {
-		return string(data), textEncodingUTF8, nil
+	if !errors.Is(err, textenc.ErrUndecodable) {
+		return "", textEncoding{}, err
 	}
-	decoded, err := charmap.Windows1251.NewDecoder().Bytes(data)
-	if err != nil {
-		return "", textEncodingWindows1251, fmt.Errorf("decode Windows-1251: %w", err)
+	// Binary content has no text reading. Saying so beats handing the model a
+	// page of noise, and it matches what search has always done with such files.
+	if textenc.LooksBinary(data) {
+		return "", textEncoding{}, errNotText
 	}
-	return string(decoded), textEncodingWindows1251, nil
+	decoded, ferr := textenc.DecodeAs(data, fallbackEncoding)
+	if ferr != nil {
+		return "", textEncoding{}, fmt.Errorf("decode %s: %w", fallbackEncoding.Charset, ferr)
+	}
+	return decoded, fallbackEncoding, nil
 }
 
 func encodeText(content string, encoding textEncoding) ([]byte, error) {
-	switch encoding {
-	case textEncodingUTF8:
-		return []byte(content), nil
-	case textEncodingUTF8BOM:
-		return append(append([]byte(nil), utf8BOM...), []byte(content)...), nil
-	case textEncodingWindows1251:
-		encoded, err := charmap.Windows1251.NewEncoder().Bytes([]byte(content))
-		if err != nil {
-			return nil, fmt.Errorf("encode Windows-1251: %w", err)
-		}
-		return encoded, nil
-	default:
-		return nil, fmt.Errorf("unsupported text encoding")
-	}
+	return encoding.Encode(content)
 }
 
 func existingTextEncoding(data []byte) (textEncoding, error) {

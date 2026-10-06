@@ -1,0 +1,6 @@
+# Opens the tool window and dumps its component tree. Run this whenever a locator stops matching:
+# the tree file it writes is the source of truth for what @class / @accessiblename to target.
+toolwindow FoxxyCode
+sleep 3
+screenshot opened
+tree FoxxyCode

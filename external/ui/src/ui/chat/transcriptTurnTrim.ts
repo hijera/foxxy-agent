@@ -1,18 +1,40 @@
 import type { TranscriptItem } from "./types";
 
 /**
- * Cut the transcript right after its last user_message (keeping any branch_nav
- * rows attached to it). Used as the baseline when re-attaching to an in-flight
+ * Cut the transcript right after its last user_message that started a turn
+ * (keeping any branch_nav rows attached to it); queued follow-ups after it go too. Used as the baseline when re-attaching to an in-flight
  * turn: the composer relay replays the turn's SSE bytes from the beginning, so
  * partial turn output loaded from disk would be duplicated by the replay.
  * (If the relay buffer overflowed, head-of-turn content reappears when the
  * turn ends and loadMessages reconciles from disk.)
  */
+/**
+ * Gate that applies {@link trimTranscriptForTurnReplay} to the FIRST live mutation
+ * only. Re-attaching to an in-flight turn must not empty the visible turn up front:
+ * when the relay never answers (turn already over, backend restarted) there is no
+ * replay to rebuild it, and the user would be left staring at a truncated chat.
+ */
+export function createTurnReplayTrimGate(): (
+  items: TranscriptItem[],
+) => TranscriptItem[] {
+  let trimmed = false;
+  return (items: TranscriptItem[]) => {
+    if (trimmed) return items;
+    trimmed = true;
+    return trimTranscriptForTurnReplay(items);
+  };
+}
+
 export function trimTranscriptForTurnReplay(
   items: TranscriptItem[],
 ): TranscriptItem[] {
   for (let i = items.length - 1; i >= 0; i--) {
-    if (items[i]?.type !== "user_message") continue;
+    const it = items[i];
+    if (it?.type !== "user_message") continue;
+    // A follow-up from the message queue belongs to the turn being replayed: the
+    // relay sends it again as a user_message event, where the turn read it. The
+    // cut goes after the prompt the turn started from.
+    if (it.queued === true) continue;
     let end = i + 1;
     while (end < items.length && items[end]?.type === "branch_nav") {
       end++;

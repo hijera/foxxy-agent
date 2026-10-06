@@ -154,7 +154,7 @@ describe("VSIX packaging invariants", () => {
 describe("version stamping", () => {
   // The VSIX manifest version and the bundled binary version both used to be wrong:
   // vsce read the static package.json version, and prepare-binary built with `-s -w`
-  // only. Guard both mechanisms so a release cannot silently ship 0.1.6 / dev again.
+  // only. Guard both mechanisms so a release cannot silently ship the static fallback / dev again.
   const prepareBinary = fs.readFileSync(
     path.join(root, "scripts", "prepare-binary.mjs"),
     "utf8",
@@ -178,6 +178,26 @@ describe("version stamping", () => {
   it("passes PLUGIN_VERSION to vsce so the VSIX manifest version is not static", () => {
     // vsce package <version> rewrites package.json's version before packaging.
     expect(makefile).toMatch(/vsce package "\$\(PLUGIN_VERSION\)" --no-git-tag-version/);
+  });
+});
+
+describe("script modules", () => {
+  // A `#!` line makes a script unimportable from vitest: vite's SSR transform hoists the
+  // imports above it, so the `#!` is no longer at byte 0 and the module fails to compile with
+  // "Invalid or unexpected token" - which surfaces as a syntax error in the *importing* test
+  // file and takes that whole suite down. changelog.test.ts was dead this way from the day it
+  // landed. Every script here is run as `node scripts/<name>.mjs`, so none of them needs one.
+  const scripts = fs.readdirSync(path.join(root, "scripts")).filter((f) => f.endsWith(".mjs"));
+
+  it("has scripts to check", () => {
+    expect(scripts.length).toBeGreaterThan(0);
+  });
+
+  it("keeps scripts/*.mjs free of shebangs, so tests can import them", () => {
+    for (const name of scripts) {
+      const src = fs.readFileSync(path.join(root, "scripts", name), "utf8");
+      expect(src.startsWith("#!"), `scripts/${name} starts with a shebang`).toBe(false);
+    }
   });
 });
 

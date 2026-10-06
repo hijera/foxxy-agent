@@ -39,7 +39,11 @@ func (b *Browser) currentURL() string {
 func finishAction(b *Browser, env *tooling.Env, action string) (string, error) {
 	url := b.currentURL()
 
-	shot, shotErr := b.capture()
+	var shot []byte
+	var shotErr error
+	if b.captureScreens {
+		shot, shotErr = b.capture()
+	}
 	var savedPath string
 	if shotErr == nil && len(shot) > 0 {
 		name := fmt.Sprintf("browser_%d.png", time.Now().UnixNano())
@@ -60,13 +64,18 @@ func finishAction(b *Browser, env *tooling.Env, action string) (string, error) {
 	if url != "" {
 		fmt.Fprintf(&sb, "url: %s\n", url)
 	}
-	if savedPath != "" {
+	switch {
+	case savedPath != "":
 		fmt.Fprintf(&sb, "screenshot: %s\n", savedPath)
-	} else if shotErr != nil {
+	case shotErr != nil:
 		fmt.Fprintf(&sb, "screenshot: unavailable (%v)\n", shotErr)
+	case !b.captureScreens:
+		// Say so once per action rather than leaving the model to wonder why it
+		// never sees the page; evaluate and the page log are how it reads state here.
+		sb.WriteString("screenshot: disabled (browser.screenshots is false)\n")
 	}
-	if logs := b.drainConsole(); len(logs) > 0 {
-		sb.WriteString("console:\n")
+	if logs := b.drainPageLog(); len(logs) > 0 {
+		sb.WriteString("page log:\n")
 		for _, l := range logs {
 			fmt.Fprintf(&sb, "  %s\n", l)
 		}

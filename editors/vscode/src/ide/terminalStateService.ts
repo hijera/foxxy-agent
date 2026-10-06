@@ -9,6 +9,13 @@ import {
   type TerminalEntry,
   type TerminalSnapshot,
 } from "./terminalStatePayload";
+import {
+  CAPTURE_SENTINEL,
+  mergeScreenCapture,
+  normalizeScreenCapture,
+  screenFromClipboard,
+  shouldCaptureScreen,
+} from "./terminalCapturePolicy";
 
 const DEBOUNCE_MS = 400;
 /** Per-terminal output cap (chars). The backend re-caps defensively too. */
@@ -18,6 +25,12 @@ interface TrackedTerminal {
   id: string;
   output: string;
   lastCommand: string;
+  /** Where `output` came from last: a shell-integration stream or a screen capture. */
+  source: "execution" | "screen" | null;
+  /** Time of the last shell-integration output chunk. */
+  lastExecutionOutputAt: number | null;
+  /** Time of the last clipboard screen capture. */
+  lastCaptureAt: number | null;
 }
 
 /** Reports every open terminal (name, shell, recent output, focus) to the
@@ -27,6 +40,14 @@ interface TrackedTerminal {
  *  (`onDidStartTerminalShellExecution`, VS Code >= 1.93), feature-detected so
  *  the extension keeps its `^1.75.0` engine floor; without shell integration
  *  the terminal list is still reported (with empty output).
+ *
+ *  Opt-in screen capture (`foxxycode.terminalClipboardCapture`): terminals
+ *  that were open before activation, or that have no shell integration, only
+ *  expose their buffer through the clipboard (select all → copy → read →
+ *  restore, the cline approach). It runs for the *active* terminal when it
+ *  changes, when reporting starts, and when the FoxxyCode panel is shown,
+ *  throttled and skipped while shell integration has fresh output
+ *  (`terminalCapturePolicy.ts`).
  *
  *  Mirrors the lifecycle of `ide/editorStateService.ts`: `startIfNeeded(baseUrl)`
  *  wires the subscriptions and `dispose()` tears them down. Gated by the
@@ -38,6 +59,8 @@ export class TerminalStateService {
   private last: TerminalSnapshot | null = null;
   private nextId = 1;
   private readonly tracked = new WeakMap<vscode.Terminal, TrackedTerminal>();
+  /** Re-entrancy guard for the clipboard round-trip. */
+  private capturing = false;
 
   constructor(private readonly log?: (line: string) => void) {}
 
@@ -53,7 +76,10 @@ export class TerminalStateService {
           this.tracked.delete(term);
           this.schedule();
         }),
-        vscode.window.onDidChangeActiveTerminal(onChange),
+        vscode.window.onDidChangeActiveTerminal(() => {
+          this.schedule();
+          void this.captureActiveScreen("active-changed");
+        }),
       );
       // Shell-integration execution API (VS Code >= 1.93): feature-detected so
       // the 1.75 engine floor still compiles/loads on older hosts.
@@ -70,6 +96,13 @@ export class TerminalStateService {
     }
     if (rebased) this.last = null; // force a resend to the new server
     this.schedule();
+    void this.captureActiveScreen("start");
+  }
+
+  /** Asks for a screen capture of the active terminal (e.g. when the FoxxyCode
+   *  panel becomes visible); subject to the capture policy. */
+  requestScreenCapture(reason: string): void {
+    void this.captureActiveScreen(reason);
   }
 
   dispose(): void {
@@ -87,10 +120,74 @@ export class TerminalStateService {
   private track(terminal: vscode.Terminal): TrackedTerminal {
     let t = this.tracked.get(terminal);
     if (!t) {
-      t = { id: String(this.nextId++), output: "", lastCommand: "" };
+      t = {
+        id: String(this.nextId++),
+        output: "",
+        lastCommand: "",
+        source: null,
+        lastExecutionOutputAt: null,
+        lastCaptureAt: null,
+      };
       this.tracked.set(terminal, t);
     }
     return t;
+  }
+
+  /** Reads the active terminal's visible buffer through the clipboard and
+   *  folds it into that terminal's reported output. The clipboard is always
+   *  restored, even when a step throws. Only the active terminal can be read:
+   *  the workbench commands act on it. A terminal that was never rendered (or
+   *  an empty one) copies nothing, which the sentinel makes detectable. */
+  private async captureActiveScreen(reason: string): Promise<void> {
+    if (!this.baseUrl) return;
+    const term = vscode.window.activeTerminal;
+    const settings = readSettings();
+    const tracked = term ? this.track(term) : null;
+    const go = shouldCaptureScreen({
+      enabled: settings.trackTerminals && settings.terminalClipboardCapture,
+      hasActiveTerminal: !!term,
+      capturing: this.capturing,
+      now: Date.now(),
+      lastCaptureAt: tracked?.lastCaptureAt ?? null,
+      lastExecutionOutputAt: tracked?.lastExecutionOutputAt ?? null,
+    });
+    if (!go || !tracked) return;
+
+    this.capturing = true;
+    let saved: string | null = null;
+    try {
+      saved = await vscode.env.clipboard.readText();
+      await vscode.env.clipboard.writeText(CAPTURE_SENTINEL);
+      await vscode.commands.executeCommand("workbench.action.terminal.selectAll");
+      await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
+      const text = screenFromClipboard(await vscode.env.clipboard.readText());
+      await vscode.commands.executeCommand("workbench.action.terminal.clearSelection");
+      tracked.lastCaptureAt = Date.now();
+      if (text !== null) {
+        const { output, changed } = mergeScreenCapture(
+          tracked.output,
+          normalizeScreenCapture(text, MAX_OUTPUT_BYTES),
+        );
+        if (changed) {
+          tracked.output = output;
+          tracked.source = "screen";
+          this.schedule();
+        }
+      }
+    } catch (e) {
+      this.log?.(
+        `[foxxycode] terminal capture failed (${reason}): ${(e as Error).message ?? String(e)}`,
+      );
+    } finally {
+      if (saved !== null) {
+        try {
+          await vscode.env.clipboard.writeText(saved);
+        } catch {
+          // Nothing more to do: the clipboard API itself is unavailable.
+        }
+      }
+      this.capturing = false;
+    }
   }
 
   /** Consumes a shell execution's output stream into the terminal's buffer. */
@@ -116,6 +213,8 @@ export class TerminalStateService {
     try {
       for await (const chunk of execution.read()) {
         t.output = appendBounded(t.output, stripAnsi(String(chunk)), MAX_OUTPUT_BYTES);
+        t.source = "execution";
+        t.lastExecutionOutputAt = Date.now();
         this.schedule();
       }
     } catch {

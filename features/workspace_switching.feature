@@ -42,6 +42,13 @@ Feature: Workspace switching
     And the context reports the session is in a worktree
     And the worktree path differs from the repository root
 
+  Scenario: The dedicated worktree lives inside the repository
+    Given a workspace git repository "repo" with branches "main, feature/login"
+    And a session rooted at folder "repo"
+    When I switch the session to branch "feature/login" in a worktree
+    Then the worktree path is ".foxxycode/worktrees/feature-login" inside repository "repo"
+    And repository "repo" reports no untracked files
+
   Scenario: Returning to the default branch leaves the worktree
     Given a workspace git repository "repo" with branches "main, feature/login"
     And a session rooted at folder "repo"
@@ -63,6 +70,24 @@ Feature: Workspace switching
     Given a workspace folder "parent" containing subfolders "one, two"
     When I browse workspace folders under "parent"
     Then the folder listing contains "one, two"
+
+  Scenario: Create a folder from the workspace picker
+    Given a workspace folder "parent" containing subfolders "one, two"
+    When I create the folder "three" under "parent"
+    Then the folder listing points at "three" inside "parent"
+    When I browse workspace folders under "parent"
+    Then the folder listing contains "one, three, two"
+
+  Scenario: Browse the machine drives for the workspace picker
+    Given the host reports drives "X:\, Y:\"
+    When I browse the workspace drive list
+    Then the folder listing contains "X:, Y:"
+    And the folder listing has no folder above it
+
+  Scenario: Walk up from a filesystem root to the drive list
+    Given the host reports drives "X:\, Y:\"
+    When I browse workspace folders under the filesystem root
+    Then the folder listing offers the drive list above it
 
   Scenario: Reject switching to a missing folder
     Given a workspace folder "plain" without git

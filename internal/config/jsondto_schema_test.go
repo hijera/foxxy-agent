@@ -29,6 +29,20 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	if ord[0] != "providers" {
 		t.Fatalf("first key %v", ord[0])
 	}
+	// Context compaction is a tab of its own, right after the ReAct agent tab:
+	// the same loop, and the settings an operator reads together.
+	at := func(key string) int {
+		for i, v := range ord {
+			if v == key {
+				return i
+			}
+		}
+		return -1
+	}
+	agent, compaction := at("agent"), at("compaction")
+	if agent < 0 || compaction != agent+1 {
+		t.Fatalf("compaction must follow agent: agent=%d compaction=%d order=%v", agent, compaction, ord)
+	}
 }
 
 func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
@@ -37,7 +51,7 @@ func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
 	items := providers["items"].(map[string]interface{})
 	pprops := items["properties"].(map[string]interface{})
 	name := pprops["name"].(map[string]interface{})
-	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_-]*$`; got != want {
+	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
 		t.Fatalf("provider name pattern: got %v want %v", got, want)
 	}
 	apiKey := pprops["api_key"].(map[string]interface{})
@@ -129,5 +143,24 @@ agent:
 	}
 	if cfg3.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("yaml round-trip model %q", cfg3.Agent.Model)
+	}
+}
+
+func TestUISchemaOmitsMCPPolicyFromUI(t *testing.T) {
+	// mcp.project_trust is edited in the MCP servers tab, next to the servers
+	// it governs, so it must not become a settings section of its own.
+	doc := config.UISchemaMap()
+	props, ok := doc["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatal("properties")
+	}
+	if _, ok := props["mcp"]; ok {
+		t.Fatal("mcp must not be exposed as its own UI section")
+	}
+	// Hiding it must not drop it from the saved document.
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustAllow}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+	if got := back.MCP.ResolvedProjectTrust(); got != config.ProjectTrustAllow {
+		t.Fatalf("project_trust after round trip = %q, want %q", got, config.ProjectTrustAllow)
 	}
 }

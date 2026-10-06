@@ -1,0 +1,609 @@
+# ReAct Agent: Design Specification
+
+## Role in FoxxyCode
+
+FoxxyCode is modeled as **harness plus execution engine**. This document specifies that engine -
+
+- the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
+- default **coding-agent** behavior - tool registry, `agent`, `plan`, `docs`, `ask`, and `debug` modes, permission gates.
+
+The same harness may use a narrower tool surface or different clients (automation, not only IDEs).
+
+The ReAct flow and message contract below stay stable for any ACP-speaking session.
+
+## What is ReAct?
+
+ReAct (Reasoning + Acting) is an agent paradigm where the LLM alternates between:
+- **Thought** - internal reasoning about what to do next
+- **Action** - calling a tool or producing output
+- **Observation** - receiving the result of the action
+
+Reference: https://arxiv.org/abs/2210.03629
+
+## ReAct Loop Implementation
+
+### System Prompt Structure
+
+Built-in templates are assembled from manifests and Go **`text/template`** fragments under **`internal/prompts/sections/<mode>/`** for **agent**, **plan**, **docs**, **ask**, and **debug**. Variant fragments resolve by configured model-reference slug, provider-neutral API-model slug, and family. A configured **`prompts.dir`** keeps the legacy complete-file overrides (**`agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`**, plus dotted variants).
+
+Rendered order matches the markdown files roughly as follows:
+
+```
+[Intro + Mode + How to work / How to plan]
+Working directory: {{.CWD}}
+
+{{if .Tools}}
+## Available tools
+{{.Tools}}
+{{end}}
+
+{{if .Skills}} ... skill catalog + always-active/glob-matched bodies
+          (invoked /name bodies are injected into the user message instead) ... {{end}}
+
+{{if .Memory}}
+## Session memory
+{{.Memory}}
+{{end}}
+
+<environment_context>
+<os>...</os>
+<arch>...</arch>
+<shell>...</shell>
+</environment_context>
+```
+
+The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt. Editor project metadata is appended the same way: readable files under the workspace's **`.idea`** and **`.vscode`** directories become **`<intellij_idea_project_context>`** and **`<vscode_project_context>`** blocks (**`internal/session/editor_project_context.go`**), capped per file and in total, and framed as data rather than as instructions.
+
+### The system prompt is frozen for the turn
+
+The system message is rendered **once per turn**, by **`buildSystemPromptParts`**
+(**`internal/agent/system_prompt.go`**), and every step of the ReAct loop then sends that same
+message back byte for byte. Nothing rewrites **`messages[0]`** between the steps.
+
+The reason is the provider's prompt cache. A provider caches a request by its **prefix** - the tool
+definitions, then the messages from the start - and the first byte that differs from the previous
+request throws away everything cached behind it. The system message sits in front of the whole
+conversation, so a wall clock with seconds in it, or a checklist row a tool had just rewritten, used
+to make a fifty-thousand-token history look new on every single request. Alibaba's gateway caches in
+blocks of 1024 tokens; a difference inside the first block leaves **`cached_tokens`** at zero no
+matter how much identical history follows.
+
+### The turn context block
+
+What does move while a turn runs travels **after** the replayed history, as one trailing `user`
+message built by **`buildTurnContext`** (**`internal/agent/turn_context.go`**):
+
+```
+<turn_context>
+Runtime state refreshed by FoxxyCode for this step. It is not a message from the user; do not answer it, just take it into account.
+
+## Current UTC time
+2026-09-15T11:39:03Z
+
+## Current todo checklist
+- [ ] ...
+
+## Project rules activated by this turn
+### go-files (Go style)
+...
+
+## Long-term memory
+Already on disk:
+- ...
+</turn_context>
+```
+
+- the **wall clock**, always - stamped once when the turn's prompt was rendered and reused by every
+  step of that turn, because the lane re-issues a step that produced nothing and that replay has to
+  be the request that failed, byte for byte (*Lane replays* in
+  [architecture.md](architecture.md));
+- the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
+  **`session.Plan`**), when the session has one - so a **`foxxycode_todo_*`** call in this turn is
+  reflected on the very next step;
+- the **rules a tool call activated** after the system prompt was frozen - a glob rule or a nested
+  **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
+  They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
+  the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
+  given yet;
+- the **memory subagent's report** for this turn, when long-term memory is on
+  ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
+  the system message would make **`messages[0]`** a new one on every turn and cost the cached
+  conversation each time. It joins the block on the first request when the run settled inside
+  **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
+  **`{{.Memory}}`** slot of the templates holds the session notes alone;
+- the **background tasks still running** in this session, one line each in the wording of
+  **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
+  so the model knows what it left running without a call. Finished and system tasks are left out,
+  and the section is not written with **`tools.background.enable`** false.
+
+The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
+read/grep eviction projection, and the working message slice the loop keeps appending to never sees
+it. Only the last few hundred tokens of a request are therefore uncached; the conversation behind
+them is a cache hit.
+
+**`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
+render them - at the cost of that cache, on every request. Such a template gets no clock and no
+checklist after the history; its block carries the two sections no template prints, the memory
+report and the running background tasks, and is left out when there is neither.
+
+### The other half: read/grep eviction
+
+Freezing the system message is only half of a stable prefix. Read/grep result
+eviction (**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
+replayed history, which invalidates the cache from that point on just as surely. With the default
+sliding working window that used to happen on nearly every step, so the conversation was reprocessed
+each time even with the prompt frozen. **`compaction.result_eviction.start_percent`** (default 50)
+holds the projection off until the estimated context reaches that share of the model's
+**`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
+decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
+mark and make the projection flap between two shapes. See
+[compaction.md](../features/compaction.md).
+
+The fork keeps a few more things out of the frozen message's way. The editor state (**`<foxxycode_ide_context>`**, **`<foxxycode_terminal_context>`**) is appended to the **user message** of the turn and persisted with it, so it is append-only and never touches the prefix. A **configuration reload** (**`config_commit`** / **`config_rollback`**) renders the system message again, because its tool section, skills and response language described the configuration that was just replaced. The **tools-free request** of a forced answer gets a one-off system prompt for that request only. And the loop guard's **`collapseLoopDuplicates`** is deliberately not held back by **`start_percent`**: it rewrites history once, on the step a loop is quarantined, and the projection is stable again from the next step on.
+
+### Reading the cache hit
+
+Providers report the cached share of a request as
+**`usage.prompt_tokens_details.cached_tokens`** (OpenAI-compatible) or
+**`cache_read_input_tokens`** (Anthropic). FoxxyCode carries it as
+**`llm.Response.CachedInputTokens`** and logs it per call:
+
+```
+export FOXXYCODE_LOG_LEVEL=debug   # or logger.levels: {agent: debug}
+# msg="llm call usage" input_tokens=6044 cached_input_tokens=5120 output_tokens=12
+```
+
+A long session whose second step shows **`cached_input_tokens`** near zero means something is
+rewriting the prefix. Most OpenAI-compatible servers omit the field entirely, and then it reads
+zero without meaning a miss.
+
+### Agent identity
+
+**Every system prompt FoxxyCode sends opens by naming the product.** The sentence lives in **`internal/prompts/identity.go`** as **`prompts.Identity`** (**`"You are FoxxyCode, an AI coding agent."`**), and **`prompts.WithIdentity`** is what puts it there.
+
+Why it exists: an LLM gateway cannot tell one OpenAI-compatible client from another by the wire protocol, so gateways attribute traffic by matching the **opening of the system prompt** against a table of known products (**`"You are Claude Code…"`**, **`"You are Cline…"`**). FoxxyCode used to open with a generic sentence and was therefore invisible in that kind of analytics. Treat **`prompts.Identity`** as a published contract: gateways key on the **`you are foxxycode`** substring, and rewording it silently drops FoxxyCode out of their reports until they catch up.
+
+Where it is applied:
+
+- **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), around the language directive and the rendered template — covers every mode, a user's own **`prompts.dir`** template, and the render fallback;
+- both compaction engines (`internal/agent/compact.go`, `internal/agent/compaction.go`) — a summarizer is its own request with its own system prompt;
+- the auxiliary prompts: session titles (`internal/agent/title.go`), chat-title descriptions (`external/httpserver/foxxycode_foxxycode.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory subagent (`external/memory/agent.go`).
+
+Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
+
+1. the marker lands within the **first 220 characters**, because that is the prefix a gateway inspects — a long **`{{.CWD}}`** must not push it out;
+2. the line appears **exactly once**. This fork keeps the built-in templates generic and opens every prompt with the **`## Response language`** directive, which is long enough to push a template's own opening past the 220-character window — so **`WithIdentity`** wraps the directive plus the template and contributes the only identity sentence there is. Branding the templates too would print the line twice.
+
+A custom **`prompts.dir`** template does **not** need to name FoxxyCode: the line is prepended for it automatically.
+
+### Tool Calling via Function Calling API
+
+Modern LLMs support native function/tool calling. The agent uses this instead of
+text-based ReAct prompting:
+
+1. Tools are defined as JSON Schema objects and passed to the LLM API
+2. LLM returns structured tool call requests (not raw text)
+3. Agent executes the requested tools
+4. Results are appended to conversation as `tool` role messages
+5. LLM continues reasoning with tool results in context
+
+This approach is more reliable than text parsing and supported by all major providers
+(OpenAI, Anthropic, Ollama with compatible models).
+
+### Conversation Message Structure
+
+```
+messages: [
+  { role: "system",    content: <system_prompt> },
+  { role: "user",      content: <user_prompt> },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_1", name: "read_file", args: {...} }] },
+  { role: "tool",      tool_call_id: "call_1", content: <file_contents> },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_2", name: "write_file", args: {...} }] },
+  { role: "tool",      tool_call_id: "call_2", content: "OK" },
+  { role: "assistant", content: <final_answer> }
+]
+```
+
+### Loop Steps
+
+```
+1. BUILD_MESSAGES
+   - Load applicable skills and project rules for current context (separate prompt sections)
+   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - For the last user message, detect `/name` invocations: prepend each matched skill's body to the message content before the LLM call. This augmentation is ephemeral — not persisted to session history, not shown in the chat transcript.
+   - Prepend system to session history (user turn already persisted on Run entry)
+
+2. LLM_CALL
+   - Send messages + tool definitions to LLM provider
+   - Receive response: may contain text + tool_calls
+
+3. STREAM_RESPONSE
+   - For each text chunk: send session/update(agent_message_chunk)
+   - For each tool_call: send session/update(tool_call, status=pending)
+
+4. EXECUTE_TOOLS (if any tool calls)
+   - For each tool_call sequentially inside one assistant message:
+     a. Send session/update(tool_call_update, status=in_progress)
+     b. If requires permission: session/request_permission -> wait for response
+     c. Execute tool (built-in or MCP)
+     d. Send session/update(tool_call_update, status=completed|failed, content=result)
+     e. Append tool result to conversation history
+
+5. REFRESH_SYSTEM
+   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+
+6. CHECK_COMPLETION
+   - If no tool calls in last response -> DONE (stopReason: end_turn)
+   - If turn_count >= max_turns -> DONE (stopReason: max_turns)
+   - Otherwise -> back to step 2
+
+   Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
+   - A streamed response repeating the same passage **`loop_stream_repeat_cycles`** times
+     in a row (answer text or reasoning) has its stream cancelled. The repeated run is
+     stripped from the stored message, so it is never replayed to the model.
+   - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
+     arguments is not executed; the model gets a result explaining why.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
+
+7. FINAL_RESPONSE
+   - Send session/prompt response with stopReason
+```
+
+### Tool Calling via Function Calling API
+
+Modern LLMs support native function/tool calling. The agent uses this instead of
+text-based ReAct prompting:
+
+1. Tools are defined as JSON Schema objects and passed to the LLM API
+2. LLM returns structured tool call requests (not raw text)
+3. Agent executes the requested tools
+4. Results are appended to conversation as `tool` role messages
+5. LLM continues reasoning with tool results in context
+
+This approach is more reliable than text parsing and supported by all major providers
+(OpenAI, Anthropic, Ollama with compatible models).
+
+### Conversation Message Structure
+
+```
+messages: [
+  { role: "system",    content: <system_prompt> },
+  { role: "user",      content: <user_prompt> },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_1", name: "read_file", args: {...} }] },
+  { role: "tool",      tool_call_id: "call_1", content: <file_contents> },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_2", name: "write_file", args: {...} }] },
+  { role: "tool",      tool_call_id: "call_2", content: "OK" },
+  { role: "assistant", content: <final_answer> }
+]
+```
+
+### Loop Steps
+
+```
+1. BUILD_MESSAGES
+   - Load applicable skills and project rules for current context (separate prompt sections)
+   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - For the last user message, detect `/name` invocations: prepend each matched skill's body to the message content before the LLM call. This augmentation is ephemeral — not persisted to session history, not shown in the chat transcript.
+   - Prepend system to session history (user turn already persisted on Run entry)
+
+2. LLM_CALL
+   - Send messages + tool definitions to LLM provider
+   - Receive response: may contain text + tool_calls
+
+3. STREAM_RESPONSE
+   - For each text chunk: send session/update(agent_message_chunk)
+   - For each tool_call: send session/update(tool_call, status=pending)
+
+4. EXECUTE_TOOLS (if any tool calls)
+   - For each tool_call sequentially inside one assistant message:
+     a. Send session/update(tool_call_update, status=in_progress)
+     b. If requires permission: session/request_permission -> wait for response
+     c. Execute tool (built-in or MCP)
+     d. Send session/update(tool_call_update, status=completed|failed, content=result)
+     e. Append tool result to conversation history
+
+5. REFRESH_SYSTEM
+   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+
+6. CHECK_COMPLETION
+   - If no tool calls in last response -> DONE (stopReason: end_turn)
+   - If turn_count >= max_turns -> DONE (stopReason: max_turns)
+   - Otherwise -> back to step 2
+
+   Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
+   - A streamed response repeating the same passage **`loop_stream_repeat_cycles`** times
+     in a row (answer text or reasoning) has its stream cancelled. The repeated run is
+     stripped from the stored message, so it is never replayed to the model.
+   - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
+     arguments is not executed; the model gets a result explaining why.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
+
+7. FINAL_RESPONSE
+   - Send session/prompt response with stopReason
+```
+
+## Endings that must never be silent
+
+Two endings reach the caller as an ordinary success, so neither is visible unless the
+turn says something:
+
+- **The output cap.** A model that reaches **`models[].max_tokens`** stops mid-sentence
+  while the stream still closes cleanly (**`finish_reason: length`** followed by
+  **`[DONE]`**). The turn ends with **`stopReason: max_tokens`** - which no UI surface
+  renders - so it appends a notice to the transcript naming the cap, the tokens spent and
+  the setting to raise (**`maxTokensNotice`**, `internal/agent/max_tokens_notice.go`).
+  Unlike a stall there is nothing to wait out: the model did not fail, it ran out of the
+  budget the configuration gave it. This matters most on reasoning models - hidden
+  thinking is billed against the same budget as the visible answer, so the text can run
+  out well before the number suggests. Measured on `kimi-k2.6` at `max_tokens: 8192`,
+  roughly half the budget went to reasoning the user never saw.
+- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stream_idle_timeout_ms`**, the
+  stall guard every streamed call carries (**`llm.WithStreamIdleGuard`**,
+  `internal/llm/stream_idle_guard.go`). It watches the chunks the stream readers hand on -
+  text, reasoning, and the **`Progress`** frames a tool call's argument fragments become -
+  so a gateway that keeps sending keep-alive comments for a dead model is still cut, which
+  a byte counter would never do. It sits outside the retry wrapper, so its clock spans a
+  replayed attempt. The ReAct loop keeps the partial answer and, while
+  **`agent.llm_continue`** is on, asks the model to carry on from it, up to
+  **`agent.llm_continue_max`** times per turn (**`llm_continue_stall_delays_ms`** between
+  them); off, the turn ends at the cut and says why. A stall before anything visible goes
+  to the **`agent.llm_stall_retry`** family instead. The same guard bounds compaction, the
+  title pass, the memory subagent and the direct model routes. See
+  `docs/reference/config.md` for the keys.
+- **A provider that fails mid-answer.** A 5xx the retry wrapper could not ride out, or a
+  stream that dropped after text was shown, is carried on the same way
+  (**`llm.IsTransientProviderError`**, `internal/agent/provider_recovery.go`, from upstream
+  1.2.9): the text the user watched arrive is kept, the turn parks for
+  **`agent.llm_continue_error_delays_ms`** (a longer **`Retry-After`** is honoured up to
+  **`llm_continue_retry_after_max_ms`**) and asks the model to go on. It spends the same
+  per-turn budget as a stall and the same repeat detector watches it. A refusal (4xx) and a
+  limit (429) are not recovered; a failure before any text is the stall ladder's.
+- **The step limit.** A turn that reaches **`agent.max_turns`** (30 when unset; upstream
+  reads an unset limit as none) ends with a notice naming the limit, streamed and stored the
+  way the output-cap notice is (`internal/agent/stop_notice.go`). The session manager also
+  hands the text back as **`SessionPromptResult.StopNotice`**, which the HTTP API passes on
+  as **`meta.stop_notice`**; the surfaces that show the stream do not print it again.
+- **A lane, not a model, that failed.** One model name at a proxy is usually a group of
+  interchangeable deployments, and a sick member fails per attempt rather than per
+  conversation. Two failures are therefore answered by re-issuing the identical request
+  before anything else is tried:
+  - A streamed call the first-token guard cut with **nothing produced** is replayed
+    immediately (**`maxFirstTokenReissues`**), ahead of the waiting ladder and on the same
+    **`agent.llm_stall_retry`** switch. That iteration is repeated, not counted against
+    **`max_turns`** - a call that produced nothing is not a reasoning step the model chose.
+    It is safe by construction: no chunk reached the client and no message was appended.
+    Only if the replay is silent too does the ladder start pausing, which is the recovery
+    a saturated gateway needs.
+  - A turn that ends with neither answer text nor a tool call is replayed once as well
+    (**`maxEmptyAssistantReissues`**), counted like the wording nudge it precedes, with
+    the empty assistant turn dropped from the
+    LLM-facing message slice so the outgoing request is byte for byte the one that failed.
+    The transcript keeps that turn, because the user watched its reasoning stream in. The
+    wording nudge (**`maxEmptyAssistantContinuations`**) follows only if the replay came
+    back empty too.
+  - Both budgets reset as soon as the model makes progress.
+
+  Every error a provider returns is prefixed with the **`providers[].name`** it came from
+  and the address that request actually reached (`internal/llm/provider_label.go`), because
+  the address is not always the one the operator has in mind - **`type: openai`** with no
+  **`api_base`** talks to **`https://api.openai.com/v1`**. The label sits **outside** the
+  resilient wrapper, so retry classification still reads the untouched upstream error, and
+  it wraps rather than replaces the cause, so **`errors.Is`** and **`errors.As`** keep
+  working.
+
+### Tracing the stream
+
+**`FOXXYCODE_LLM_TRACE`** writes frame-level traces of the OpenAI-compatible SSE path:
+**`1`** (or **`stderr`**) to standard error, any other value as a file path. Each streamed
+call logs its request shape, then a line per *decisive* frame - one carrying a
+`finish_reason`, starting a tool call, or preceded by a gap over a second - and a terminal
+line whose **`verdict`** names how the stream ended:
+
+| verdict | meaning |
+| --- | --- |
+| `complete` | terminal marker and a finish_reason both arrived |
+| `truncated-by-max-tokens` | the output cap was reached |
+| `cut-before-terminal-marker` | closed with neither `[DONE]` nor a finish_reason |
+| `finish-reason-without-done` | finish_reason but no `[DONE]` (still a complete response) |
+| `done-without-finish-reason` | `[DONE]` but no finish_reason |
+| `error` | transport failure or a server error frame |
+| `request-failed` | the call never produced a response |
+
+The terminal line also reports the content/reasoning character split, the tool-call frame
+count and the largest inter-frame gap - the numbers that separate "the model is writing a
+long tool call" from "the connection is open and dead". Argument frames are deliberately
+*not* logged individually: one real turn produced 1105 frame lines out of 1143 before that
+rule, burying everything that mattered.
+
+## Mode-Specific Behavior
+
+### Agent Mode
+
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`foxxycode_todo_plan_*`** and **`foxxycode_todo_item_*`** tools surfaced in **`Tools`**. The **Git worktrees** section (**`internal/prompts/sections/agent/git_worktrees.md`**) names **`.foxxycode/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
+
+Representative builtins (excluding MCP-namespaced tools):
+
+- `read_file`, `write_file`, `write_text_file`, `list_dir`, `search_files`
+- `websearch`, `webfetch`, `http_request`
+- `run_command`, `apply_diff`
+- Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
+- Session checklist: **`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**, **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**, **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**
+- All MCP server tools (names **`serverName__toolName`**)
+
+### Plan Mode
+
+Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no built-in writes or **foxxycode** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
+
+Representative builtins exposed to the LLM (registry allowlist):
+
+- `read_file`, `list_dir`, `search_files`
+- `websearch`, `webfetch`
+- `run_command`
+
+Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
+
+### Docs Mode
+
+Embedded **`docs.md`** distinguishes review-only requests from explicit documentation edits and treats implemented behavior plus observable tests as the primary evidence. Built-in mutators are restricted to **`docs_write`** and **`docs_edit`**, which accept only `.md` paths under the session CWD, reject symlink escapes, and protect **`internal/prompts/`**. **`docs_write`** requires an explicit overwrite flag for an existing file, while **`docs_edit`** requires a non-empty exact match that is unique unless **`replaceAll`** is set.
+
+Representative builtins exposed to the LLM (registry allowlist):
+
+- `read`, `glob`, `grep`
+- `websearch`, `webfetch`
+- `question`
+- `docs_write`, `docs_edit`
+
+Docs mode does not expose **`run_command`** or MCP tools because those surfaces cannot currently guarantee read-only execution. Prompts instruct the user to switch to **`agent`** mode for code or configuration changes.
+
+### Ask Mode
+
+The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/features/subagents.md`**).
+
+## Built-in Tools Specification
+
+### `read_file`
+```json
+{
+  "name": "read_file",
+  "description": "Read the contents of a file",
+  "parameters": {
+    "path": { "type": "string", "description": "Absolute or relative (to cwd) path" },
+    "start_line": { "type": "integer", "description": "First line to read (1-based, optional)" },
+    "end_line": { "type": "integer", "description": "Last line to read (1-based, optional)" }
+  },
+  "required": ["path"]
+}
+```
+
+### `write_file`
+```json
+{
+  "name": "write_file",
+  "description": "Write or create a file with the given content",
+  "parameters": {
+    "path": { "type": "string", "description": "Absolute or relative (to cwd) path" },
+    "content": { "type": "string", "description": "Full file content to write" }
+  },
+  "required": ["path", "content"]
+}
+```
+
+### `list_dir`
+```json
+{
+  "name": "list_dir",
+  "description": "List files and directories at the given path",
+  "parameters": {
+    "path": { "type": "string", "description": "Directory path (default: cwd)" },
+    "recursive": { "type": "boolean", "description": "Include subdirectories" }
+  }
+}
+```
+
+### `grep`
+```json
+{
+  "name": "grep",
+  "description": "Search file contents recursively (system ripgrep with a built-in fallback)",
+  "parameters": {
+    "pattern": { "type": "string", "description": "Regex or literal search pattern" },
+    "path": { "type": "string", "description": "Directory to search in (default: cwd)" },
+    "glob": { "type": "string", "description": "File glob filter (e.g. '**/*.go')" },
+    "case_sensitive": { "type": "boolean", "default": false },
+    "max_results": { "type": "integer", "default": 100 }
+  },
+  "required": ["pattern"]
+}
+```
+
+### `run_command`
+```json
+{
+  "name": "run_command",
+  "description": "Execute a shell command in the working directory",
+  "parameters": {
+    "command": { "type": "string", "description": "Shell command to execute" },
+    "timeout_seconds": { "type": "integer", "default": 30 }
+  },
+  "required": ["command"]
+}
+```
+
+### `apply_diff`
+```json
+{
+  "name": "apply_diff",
+  "description": "Apply a unified diff to a file",
+  "parameters": {
+    "path": { "type": "string", "description": "File to patch" },
+    "diff": { "type": "string", "description": "Unified diff content" }
+  },
+  "required": ["path", "diff"]
+}
+```
+
+## Plan Update Format
+
+Clients receive `session/update` notifications whose **`sessionUpdate`** field equals **`plan`**, carrying structured **`entries`**. Todolist tooling also persists the active checklist under **`todos/active.md`** in the bundle when session persistence is on (mirrors **`FormatPlanMarkdown`** / **`ParsePlanMarkdown`**).
+
+Example payload:
+
+```json
+{
+  "sessionUpdate": "plan",
+  "entries": [
+    { "content": "Read current auth module", "priority": "high", "status": "pending" },
+    { "content": "Analyze JWT requirements", "priority": "high", "status": "pending" },
+    { "content": "Write new auth implementation", "priority": "medium", "status": "pending" },
+    { "content": "Update tests", "priority": "low", "status": "pending" }
+  ]
+}
+```
+
+Plan entries are updated as the agent progresses:
+```json
+{ "content": "Read current auth module", "priority": "high", "status": "completed" }
+```
+
+## Error Handling in ReAct Loop
+
+- LLM API error: retry up to 3 times with exponential backoff, then fail turn
+- Tool execution error: return error as observation, let LLM decide next step
+- Permission denied: return "permission denied" observation
+- Tool timeout: return "timeout" observation after configured timeout
+- Context too long: summarize older messages, continue with summary
+- Cancelled: abort all operations, return `cancelled` stop reason

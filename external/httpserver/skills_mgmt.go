@@ -37,7 +37,10 @@ type skillRowResponse struct {
 	Readonly    bool   `json:"readonly"`          // bundled skills cannot be deleted
 }
 
-// foxxycodeSkillsGet lists all skills with their enabled/disabled state.
+// foxxycodeSkillsGet lists all skills with their enabled/disabled state. ${CWD} in
+// skills.dirs resolves against the session named by the optional
+// X-FoxxyCode-Session-ID header, or the server default workspace without it, the
+// same way /foxxycode/slash-commands does.
 func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -47,7 +50,11 @@ func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	installDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	loader := skills.NewLoader(cfg.Skills.Dirs)
 
-	allLoaded, err := loader.LoadAll(s.sessionDefaultCWD(), cfg.Paths.Home)
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
+	allLoaded, err := loader.LoadAll(cwd, cfg.Paths.Home)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"failed to load skills"}}`, http.StatusInternalServerError)
 		return
@@ -294,16 +301,22 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// foxxycodeSkillsSourcesGet lists configured remote skill sources.
+// foxxycodeSkillsSourcesGet lists every remote skill source in effect. system names
+// the subset FoxxyCode brings itself: they are in items like any other, but they do
+// not live in config.yaml and DELETE refuses them, so a client shows them
+// without a remove control.
 func (s *Server) foxxycodeSkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
+	system := make([]string, 0, len(skills.SystemSources))
+	system = append(system, skills.SystemSources...)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "foxxycode.skills_sources",
 		"items":  skills.ListSources(s.activeCfg()),
+		"system": system,
 	})
 }
 

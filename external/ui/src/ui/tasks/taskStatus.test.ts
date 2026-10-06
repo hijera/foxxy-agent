@@ -1,0 +1,570 @@
+import { describe, expect, test } from "vitest";
+import type { BackgroundTask } from "./types";
+import {
+  TASKS_POLL_ACTIVE_MS,
+  TASKS_POLL_IDLE_MS,
+  agentTaskName,
+  agentUsage,
+  countRunningTasks,
+  agentTranscriptSessionId,
+  awaitingPermissionCount,
+  displayElapsedSeconds,
+  estimateProgress,
+  formatDuration,
+  isAgentTask,
+  isAwaitingPermission,
+  isOverdue,
+  groupTasks,
+  sortTasksByStart,
+  taskErrorText,
+  taskMetaLine,
+  taskTag,
+  taskTitle,
+  taskStatusLabel,
+  taskTimingLine,
+  taskTone,
+  tasksPollIntervalMs,
+} from "./taskStatus";
+
+const START_MS = Date.parse("2026-07-29T12:00:00Z");
+
+function task(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return {
+    id: "bg_1",
+    session_id: "s1",
+    kind: "command",
+    label: "make build",
+    status: "running",
+    started_at: new Date(START_MS).toISOString(),
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 0,
+    overdue: false,
+    running: true,
+    ...over,
+  };
+}
+
+describe("formatDuration", () => {
+  test.each([
+    [-5, "0s"],
+    [0, "0s"],
+    [45, "45s"],
+    [60, "1m"],
+    [95, "1m35s"],
+    [3600, "1h"],
+    [5400, "1h30m"],
+  ])("formats %i seconds as %s", (seconds, want) => {
+    expect(formatDuration(seconds)).toBe(want);
+  });
+});
+
+describe("taskTone", () => {
+  test.each([
+    ["queued", "running"],
+    ["running", "running"],
+    ["succeeded", "success"],
+    ["failed", "danger"],
+    ["timed_out", "danger"],
+    ["stopped", "warning"],
+    ["orphaned", "muted"],
+  ] as const)("maps %s to %s", (status, want) => {
+    expect(taskTone(status)).toBe(want);
+  });
+});
+
+test("taskStatusLabel spells timed_out as two words", () => {
+  expect(taskStatusLabel("timed_out")).toBe("Timed out");
+  expect(taskStatusLabel("orphaned")).toBe("Orphaned");
+});
+
+describe("displayElapsedSeconds", () => {
+  test("a running task keeps ticking from started_at between polls", () => {
+    const t = task({ elapsed_seconds: 10 });
+    expect(displayElapsedSeconds(t, START_MS + 42_000)).toBe(42);
+  });
+
+  test("a finished task keeps what the server measured", () => {
+    const t = task({
+      running: false,
+      status: "succeeded",
+      elapsed_seconds: 30,
+    });
+    expect(displayElapsedSeconds(t, START_MS + 9_000_000)).toBe(30);
+  });
+
+  test("an unparsable timestamp falls back to the server value", () => {
+    const t = task({ started_at: "not a date", elapsed_seconds: 7 });
+    expect(displayElapsedSeconds(t, START_MS + 42_000)).toBe(7);
+  });
+});
+
+describe("estimateProgress", () => {
+  test("is null without an estimate", () => {
+    expect(estimateProgress(task(), START_MS + 5_000)).toBeNull();
+  });
+
+  test("is null once the task finished", () => {
+    const t = task({
+      running: false,
+      status: "succeeded",
+      expected_seconds: 60,
+    });
+    expect(estimateProgress(t, START_MS + 5_000)).toBeNull();
+  });
+
+  test("tracks elapsed against the estimate", () => {
+    const t = task({ expected_seconds: 100 });
+    expect(estimateProgress(t, START_MS + 25_000)).toBeCloseTo(0.25);
+  });
+
+  test("clamps at the estimate rather than overflowing the bar", () => {
+    const t = task({ expected_seconds: 10 });
+    expect(estimateProgress(t, START_MS + 300_000)).toBe(1);
+  });
+});
+
+describe("isOverdue", () => {
+  test("a running task past its estimate is overdue", () => {
+    expect(isOverdue(task({ expected_seconds: 10 }), START_MS + 25_000)).toBe(
+      true,
+    );
+  });
+
+  test("a task inside its estimate is not overdue", () => {
+    expect(isOverdue(task({ expected_seconds: 60 }), START_MS + 25_000)).toBe(
+      false,
+    );
+  });
+
+  test("a task without an estimate is never overdue", () => {
+    expect(isOverdue(task(), START_MS + 9_000_000)).toBe(false);
+  });
+
+  test("a finished task is never overdue", () => {
+    const t = task({
+      running: false,
+      status: "succeeded",
+      expected_seconds: 1,
+      elapsed_seconds: 500,
+    });
+    expect(isOverdue(t, START_MS + 9_000_000)).toBe(false);
+  });
+});
+
+describe("taskTimingLine", () => {
+  test("running task shows elapsed and the estimate", () => {
+    const line = taskTimingLine(
+      task({ expected_seconds: 120 }),
+      START_MS + 30_000,
+    );
+    expect(line).toBe("30s · est. 2m");
+  });
+
+  test("overdue running task says so", () => {
+    const line = taskTimingLine(
+      task({ expected_seconds: 10 }),
+      START_MS + 30_000,
+    );
+    expect(line).toContain("overdue");
+  });
+
+  test("finished task reports its exit code", () => {
+    const t = task({
+      running: false,
+      status: "failed",
+      elapsed_seconds: 90,
+      exit_code: 2,
+    });
+    expect(taskTimingLine(t, START_MS + 9_000_000)).toBe("1m30s · exit 2");
+  });
+
+  test("finished agent task omits the synthetic exit code", () => {
+    const finished = {
+      kind: "agent" as const,
+      label: "agent explore: survey the repo",
+      agent: { name: "explore", session_id: "sess_0a1b2c" },
+      running: false,
+      elapsed_seconds: 90,
+    };
+    const ok = task({ ...finished, status: "succeeded", exit_code: 0 });
+    expect(taskTimingLine(ok, START_MS + 9_000_000)).toBe("1m30s");
+    const failed = task({ ...finished, status: "failed", exit_code: 1 });
+    expect(taskTimingLine(failed, START_MS + 9_000_000)).toBe("1m30s");
+  });
+});
+
+describe("tasksPollIntervalMs", () => {
+  test("polls fast while something runs and slowly when idle", () => {
+    expect(tasksPollIntervalMs(1)).toBe(TASKS_POLL_ACTIVE_MS);
+    expect(tasksPollIntervalMs(0)).toBe(TASKS_POLL_IDLE_MS);
+  });
+});
+
+describe("sortTasksByStart", () => {
+  test("orders purely by start time, newest first, regardless of state", () => {
+    const older = task({
+      id: "old",
+      running: false,
+      status: "succeeded",
+      started_at: new Date(START_MS - 60_000).toISOString(),
+    });
+    const newer = task({
+      id: "new",
+      running: false,
+      status: "succeeded",
+      started_at: new Date(START_MS).toISOString(),
+    });
+    const live = task({
+      id: "live",
+      started_at: new Date(START_MS - 120_000).toISOString(),
+    });
+
+    // The long-running task started first, so it sorts last even though it is
+    // still going: sections carry state, ordering carries time.
+    expect(sortTasksByStart([older, newer, live]).map((t) => t.id)).toEqual([
+      "new",
+      "old",
+      "live",
+    ]);
+  });
+
+  test("does not mutate the input array", () => {
+    const input = [
+      task({ id: "a", started_at: new Date(START_MS - 1000).toISOString() }),
+      task({
+        id: "b",
+        running: false,
+        started_at: new Date(START_MS).toISOString(),
+      }),
+    ];
+    const before = input.map((t) => t.id);
+    sortTasksByStart(input);
+    expect(input.map((t) => t.id)).toEqual(before);
+  });
+});
+
+describe("groupTasks", () => {
+  test("splits into running and finished, each newest first", () => {
+    const at = (offset: number) => new Date(START_MS + offset).toISOString();
+    const grouped = groupTasks([
+      task({ id: "r-old", started_at: at(-90_000) }),
+      task({
+        id: "f-old",
+        running: false,
+        status: "succeeded",
+        started_at: at(-60_000),
+      }),
+      task({ id: "r-new", started_at: at(-10_000) }),
+      task({
+        id: "f-new",
+        running: false,
+        status: "failed",
+        started_at: at(-5_000),
+      }),
+    ]);
+
+    expect(grouped.running.map((t) => t.id)).toEqual(["r-new", "r-old"]);
+    expect(grouped.finished.map((t) => t.id)).toEqual(["f-new", "f-old"]);
+  });
+
+  test("an empty session yields two empty halves", () => {
+    expect(groupTasks([])).toEqual({ running: [], finished: [] });
+  });
+});
+
+describe("agent tasks", () => {
+  const agent = task({
+    id: "bg_7",
+    kind: "agent",
+    label: "agent explore: survey the repo",
+    agent: { name: "explore", session_id: "sess_0a1b2c" },
+  });
+
+  test("are told apart by kind, not by label", () => {
+    expect(isAgentTask(agent)).toBe(true);
+    expect(isAgentTask(task({ label: "agent explore: fake" }))).toBe(false);
+  });
+
+  test("expose the definition name only for agent rows", () => {
+    expect(agentTaskName(agent)).toBe("explore");
+    expect(agentTaskName(task({ agent: { name: "x" } }))).toBe("");
+    expect(agentTaskName(task({ kind: "agent" }))).toBe("");
+  });
+
+  test("resolve the child session only when the snapshot carries it", () => {
+    expect(agentTranscriptSessionId(agent)).toBe("sess_0a1b2c");
+    expect(
+      agentTranscriptSessionId(
+        task({ kind: "agent", agent: { name: "explore" } }),
+      ),
+    ).toBeNull();
+    expect(
+      agentTranscriptSessionId(
+        task({ kind: "agent", agent: { name: "explore", session_id: "  " } }),
+      ),
+    ).toBeNull();
+    expect(
+      agentTranscriptSessionId(
+        task({ agent: { name: "explore", session_id: "sess_0a1b2c" } }),
+      ),
+    ).toBeNull();
+  });
+});
+
+// A detached subagent's prompt has nowhere else to be noticed: the panel is
+// closed by default and the prompt is not in any transcript.
+test("awaiting is decided by a usable prompt, not by the field's presence", () => {
+  const base = {
+    id: "bg_1",
+    session_id: "s1",
+    kind: "agent",
+    label: "agent explore: survey",
+    status: "running" as const,
+    started_at: new Date().toISOString(),
+    timeout_seconds: 1800,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 1,
+    overdue: false,
+    running: true,
+  };
+  const prompt = {
+    sessionId: "sess_1",
+    toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
+    options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+  };
+
+  expect(isAwaitingPermission({ ...base, pending_permission: prompt })).toBe(true);
+  expect(isAwaitingPermission(base)).toBe(false);
+  // A prompt missing either id cannot be answered, so it is not one.
+  expect(
+    isAwaitingPermission({
+      ...base,
+      pending_permission: { ...prompt, sessionId: "  " },
+    }),
+  ).toBe(false);
+  expect(
+    isAwaitingPermission({
+      ...base,
+      pending_permission: { ...prompt, toolCall: { toolCallId: "" } },
+    }),
+  ).toBe(false);
+
+  expect(
+    awaitingPermissionCount([
+      { ...base, pending_permission: prompt },
+      { ...base, id: "bg_2" },
+      { ...base, id: "bg_3", pending_permission: prompt },
+    ]),
+  ).toBe(2);
+});
+
+describe("countRunningTasks", () => {
+  const row = (over: Partial<BackgroundTask>): BackgroundTask =>
+    ({
+      id: "bg_1",
+      session_id: "s",
+      command: "make test",
+      status: "running",
+      running: true,
+      ...over,
+    }) as BackgroundTask;
+
+  test("counts the rows that say running", () => {
+    expect(
+      countRunningTasks([
+        row({ id: "bg_1" }),
+        row({ id: "bg_2", status: "succeeded", running: false }),
+        row({ id: "bg_3" }),
+      ]),
+    ).toBe(2);
+  });
+
+  test("leaves out the memory run the runtime starts for every turn", () => {
+    expect(
+      countRunningTasks([
+        row({ id: "bg_1", agent: { name: "memory", system: true } }),
+        row({ id: "bg_2", agent: { name: "explore" } }),
+      ]),
+    ).toBe(1);
+    expect(countRunningTasks([])).toBe(0);
+  });
+});
+
+describe("what a card says about its task", () => {
+  const base = (over: Partial<BackgroundTask>): BackgroundTask =>
+    ({
+      id: "bg_1",
+      session_id: "s",
+      kind: "command",
+      label: "make test",
+      command: "make test",
+      status: "running",
+      running: true,
+      started_at: "2026-09-18T10:00:00Z",
+      elapsed_seconds: 0,
+      ...over,
+    }) as BackgroundTask;
+
+  test("the tag names what stands behind the task", () => {
+    expect(taskTag(base({}))).toBe("shell");
+    expect(taskTag(base({ kind: "agent", agent: { name: "general" } }))).toBe(
+      "general",
+    );
+    expect(
+      taskTag(base({ kind: "agent", agent: { name: "memory", system: true } })),
+    ).toBe("memory");
+    // An agent row that lost its name still reads as an agent.
+    expect(taskTag(base({ kind: "agent" }))).toBe("agent");
+  });
+
+  test("the title drops the half of the label the tag already says", () => {
+    expect(taskTitle(base({}))).toBe("make test");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "agent general: review the diff: handlers first",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("review the diff: handlers first");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "memory: what did we decide",
+          agent: { name: "memory", system: true },
+        }),
+      ),
+    ).toBe("what did we decide");
+  });
+
+  test("a label that is not the pool's prefix is kept whole, a bare one gets a name", () => {
+    // A scheduled run is labelled by the scheduler, colon and all.
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "nightly: refresh the changelog",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("nightly: refresh the changelog");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "agent general",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("Subagent run");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "agent general:  ",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("Subagent run");
+    // A command with no label falls back to the command itself.
+    expect(taskTitle(base({ label: "", command: "go vet ./..." }))).toBe(
+      "go vet ./...",
+    );
+  });
+
+  test("the meta line counts while the task runs and sums it up afterwards", () => {
+    const nowMs = Date.parse("2026-09-18T10:01:05Z");
+    expect(taskMetaLine(base({ expected_seconds: 300 }), nowMs)).toBe(
+      "1m5s · est. 5m",
+    );
+    const done = base({
+      running: false,
+      status: "failed",
+      exit_code: 2,
+      elapsed_seconds: 90,
+      finished_at: "2026-09-18T10:01:30Z",
+    });
+    // How it ended is the dot's to say on a folded card, and the foot's on an open
+    // one; the exit code is the foot's alone.
+    expect(taskMetaLine(done, nowMs)).toMatch(/^1m30s · \d{1,2}:\d{2}/);
+    expect(taskMetaLine(done, nowMs)).not.toMatch(/Failed|exit/i);
+    expect(
+      taskMetaLine(
+        base({ running: false, status: "orphaned", elapsed_seconds: 5 }),
+        nowMs,
+      ),
+    ).toBe("5s");
+  });
+});
+
+describe("taskErrorText", () => {
+  const failed = (over: Partial<BackgroundTask> = {}) =>
+    task({ running: false, status: "failed", exit_code: 2, ...over });
+
+  test("an error that only restates the exit code says nothing the foot does not", () => {
+    expect(taskErrorText(failed({ error: "exit status 2" }))).toBeNull();
+    expect(taskErrorText(failed({ error: " Exit status 2 " }))).toBeNull();
+  });
+
+  test("any other error is the card's to show", () => {
+    expect(
+      taskErrorText(failed({ error: "make: *** [site-docs-check] Error 2" })),
+    ).toBe("make: *** [site-docs-check] Error 2");
+    // A different code than the one recorded is news, not a repeat.
+    expect(taskErrorText(failed({ error: "exit status 1" }))).toBe(
+      "exit status 1",
+    );
+    expect(
+      taskErrorText(
+        failed({ exit_code: 1, error: "subagent panicked: nil map" }),
+      ),
+    ).toBe("subagent panicked: nil map");
+    expect(taskErrorText(failed())).toBeNull();
+  });
+});
+
+describe("agentUsage", () => {
+  const agent = (over: Partial<NonNullable<BackgroundTask["agent"]>> = {}) =>
+    task({
+      kind: "agent",
+      agent: { name: "explore", session_id: "sess_1", ...over },
+    });
+
+  test("names the model by its short name and sums the tokens the calls spent", () => {
+    expect(
+      agentUsage(
+        agent({
+          model: "neuraldeep/qwen3.8-27b",
+          input_tokens: 198_000,
+          output_tokens: 14_345,
+        }),
+      ),
+    ).toEqual({
+      model: "qwen3.8-27b",
+      modelId: "neuraldeep/qwen3.8-27b",
+      tokens: 212_345,
+      inputTokens: 198_000,
+      outputTokens: 14_345,
+    });
+  });
+
+  test("a run that has not reported yet names its model alone", () => {
+    expect(agentUsage(agent({ model: "rpa/qwen3.6-35b-a3b" }))).toEqual({
+      model: "qwen3.6-35b-a3b",
+      modelId: "rpa/qwen3.6-35b-a3b",
+      tokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+  });
+
+  test("a command, and an agent row from a server that reports neither, say nothing", () => {
+    expect(agentUsage(task())).toBeNull();
+    expect(agentUsage(agent())).toBeNull();
+  });
+});

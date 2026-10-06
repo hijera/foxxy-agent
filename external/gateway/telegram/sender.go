@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hijera/foxxycode-agent/internal/acp"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 const (
@@ -37,6 +38,10 @@ type Sender struct {
 	log *slog.Logger
 
 	rich richConfig // Bot API 10.1 Rich Messages mode (off → legacy formatting)
+
+	// asks is where a subagent's permission request waits for a tap; nil
+	// (a sender built outside a bot) refuses such a request instead.
+	asks *chatPermissions
 
 	mu          sync.Mutex
 	responseBuf strings.Builder      // LLM text only — sent in Flush()
@@ -96,6 +101,15 @@ func toolResultText(items []acp.ToolCallResultItem) string {
 // SendSessionUpdate handles streaming events from the agent.
 func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	switch u := update.(type) {
+
+	case acp.BackgroundWakeUpdate:
+		// A turn nobody typed opens with what woke the agent, as a message of
+		// its own above the answer. Plain text: a task label is a command line,
+		// full of characters Markdown would eat.
+		msg := tgbotapi.NewMessage(s.chatID, "🔔 "+session.BackgroundWakeNote(u))
+		if _, err := s.bot.Send(msg); err != nil {
+			s.log.Warn("telegram: wake note not delivered", "err", err, "chat", s.chatID)
+		}
 
 	case acp.MessageChunkUpdate:
 		if u.Content.Type != acp.ContentTypeText {
@@ -220,9 +234,27 @@ func (s *Sender) streamDraft(llmText, toolName string) {
 	}
 }
 
-// RequestPermission auto-approves in gateway context (no interactive UI).
-func (s *Sender) RequestPermission(_ context.Context, _ acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+// RequestPermission allows what the chat's own agent asks: the admin who
+// configured the bot decided that. A subagent's request carries the child's
+// own effective mode; a child below bypass is not waved through on the parent's
+// behalf but asked about in the chat, with buttons, and the tap decides
+// (permission.go). A sender with nowhere to ask refuses it instead.
+func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	stamped := strings.TrimSpace(params.EffectivePermissionMode)
+	if stamped == "" || stamped == "bypass" {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
+	if s.asks == nil || s.bot == nil {
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
+	res, err := s.asks.ask(ctx, s.bot, s.log, s.chatID, params.SessionID, params)
+	if err != nil {
+		s.log.Warn("telegram: permission request not delivered", "err", err, "chat", s.chatID)
+	}
+	if err != nil || res == nil {
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
+	return res, nil
 }
 
 // RequestQuestion sends the question text to Telegram and returns an empty answer.
@@ -360,7 +392,14 @@ func (s *Sender) streamUpdate(llmText, toolName string) {
 // buildStreamPreview builds the text shown in the live streaming message.
 // While a tool is running, it appends "⚙️ toolName…" below the accumulated LLM text.
 // While the LLM is writing, it appends "…" to signal the response is not finished.
+//
+// The preview is sent with no parse mode - half a sentence is half a markup -
+// so the accumulated text goes through the plain rendering: the reader sees the
+// answer taking shape, not the markers it is written with.
 func buildStreamPreview(llmText, toolName string) string {
+	if llmText != "" {
+		llmText = mdToPlainPreview(llmText)
+	}
 	if toolName != "" {
 		indicator := "⚙️ " + toolName + "…"
 		if llmText == "" {

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Combobox } from "../settings/Combobox";
+import { CodexAuthField } from "../settings/CodexAuthField";
+import { ProxyUrlField } from "../settings/ProxyUrlField";
+import type { FetchedModel } from "../settings/useProviderModels";
 import { useProbeModels } from "./useProbeModels";
 
 export type ProviderPresetId =
@@ -8,7 +11,8 @@ export type ProviderPresetId =
   | "anthropic"
   | "ollama"
   | "compatible"
-  | "neuraldeep";
+  | "neuraldeep"
+  | "codex";
 
 type ProviderPreset = {
   id: ProviderPresetId;
@@ -17,7 +21,7 @@ type ProviderPreset = {
   label: string;
   description: string;
   providerName: string;
-  providerType: "openai" | "anthropic" | "neuraldeep";
+  providerType: "openai" | "anthropic" | "neuraldeep" | "codex";
   apiBase?: string;
   /**
    * The provider type pins its own endpoint, so apiBase is display-only: shown
@@ -37,7 +41,11 @@ function stripV1(base: string): string {
   return base.replace(/\/v1\/?$/, "");
 }
 
-const PRESETS: ProviderPreset[] = [
+// A non-empty tuple, not a plain array: every lookup here falls back to PRESETS[0],
+// and under noUncheckedIndexedAccess a plain array would make that fallback
+// `ProviderPreset | undefined` and force a null check on a list that is a source
+// constant and can never be empty.
+const PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
   {
     id: "openai",
     label: "OpenAI",
@@ -97,7 +105,36 @@ const PRESETS: ProviderPreset[] = [
     envKey: "${NEURALDEEP_API_KEY}",
     website: "https://hub.neuraldeep.ru",
   },
+  {
+    id: "codex",
+    label: "Codex",
+    descriptionKey: "onboarding.provider.codex.description",
+    description: "Use your ChatGPT subscription through OAuth",
+    providerName: "codex",
+    providerType: "codex",
+    multimodal: false,
+    defaultModel: "codex/gpt-5.6-sol",
+  },
 ];
+
+/**
+ * catalogEntry finds the probed model behind a model id. The combobox writes a
+ * bare id, the fixed-endpoint presets pre-fill a prefixed one, so both forms
+ * have to match.
+ */
+function catalogEntry(
+  preset: ProviderPreset,
+  modelId: string,
+  catalog: FetchedModel[],
+): FetchedModel | undefined {
+  const raw = modelId.trim();
+  if (!raw) {
+    return undefined;
+  }
+  return catalog.find(
+    (m) => m.id === raw || `${preset.providerName}/${m.id}` === raw,
+  );
+}
 
 function buildConfigBody(
   preset: ProviderPreset,
@@ -106,17 +143,20 @@ function buildConfigBody(
   proxy: string,
   modelId: string,
   baseDoc: Record<string, unknown>,
+  catalog: FetchedModel[],
 ): Record<string, unknown> {
   const provider: Record<string, unknown> = {
     name: preset.providerName,
     type: preset.providerType,
-    api_key: apiKey.trim() || preset.envKey || "",
   };
+  if (preset.providerType !== "codex") {
+    provider.api_key = apiKey.trim() || preset.envKey || "";
+  }
   // Presets whose provider type pins its own endpoint never write api_base: the
   // backend would ignore it, and an editable-looking value in the saved YAML only
   // invites confusion.
   const base = apiBase.trim() || preset.apiBase || "";
-  if (!preset.apiBaseFixed && base) {
+  if (preset.providerType !== "codex" && !preset.apiBaseFixed && base) {
     provider.api_base = base;
   }
   // The proxy applies to every provider type (including neuraldeep, whose base
@@ -137,6 +177,11 @@ function buildConfigBody(
     // to satisfy the required provider/model_id config format.
     model = `${preset.providerName}/${rawModel}`;
   }
+  // A hub serves vision and text-only models side by side, so the per-provider
+  // preset constant is only a fallback: whenever the picked id is in the probed
+  // catalog, that entry's advisory vision flag decides. It stays advisory - the
+  // value is editable afterwards in Settings.
+  const listed = catalogEntry(preset, modelId, catalog);
   return {
     ...baseDoc,
     providers: [provider],
@@ -145,7 +190,7 @@ function buildConfigBody(
         model,
         max_tokens: 8192,
         temperature: 0.2,
-        multimodal: preset.multimodal,
+        multimodal: listed ? listed.vision === true : preset.multimodal,
       },
     ],
     agent: {
@@ -190,9 +235,23 @@ export function ProviderPickerDialog(props: {
 
   /** Base URL sent when probing the provider's model list. Presets with a fixed
    * endpoint send nothing: the backend pins the URL from the provider type. */
-  const probeApiBase = preset.apiBaseFixed
-    ? ""
-    : apiBase.trim() || preset.apiBase || "";
+  const probeApiBase =
+    preset.apiBaseFixed || preset.providerType === "codex"
+      ? ""
+      : apiBase.trim() || preset.apiBase || "";
+
+  const probeInput = useMemo(
+    () => ({
+      type: preset.providerType,
+      ...(preset.providerType === "codex"
+        ? { provider_name: preset.providerName }
+        : {}),
+      api_base: probeApiBase,
+      api_key: preset.providerType === "codex" ? "" : apiKey.trim(),
+      proxy: proxy.trim(),
+    }),
+    [apiKey, preset.providerName, preset.providerType, probeApiBase, proxy],
+  );
 
   const presetLabel = useCallback(
     (p: ProviderPreset) => (p.labelKey ? t(p.labelKey) : p.label),
@@ -200,7 +259,8 @@ export function ProviderPickerDialog(props: {
   );
 
   const presetDescription = useCallback(
-    (p: ProviderPreset) => (p.descriptionKey ? t(p.descriptionKey) : p.description),
+    (p: ProviderPreset) =>
+      p.descriptionKey ? t(p.descriptionKey) : p.description,
     [t],
   );
 
@@ -217,10 +277,14 @@ export function ProviderPickerDialog(props: {
   useEffect(() => {
     setTestOk(false);
     setError(null);
-    // Pre-select the neuraldeep default so its model shows in the combobox
-    // instead of only as placeholder text; other providers start empty.
+    // Pre-select fixed recommendations so they show in the combobox instead of
+    // only as placeholder text; generic API providers start empty.
     const next = PRESETS.find((p) => p.id === selected) ?? PRESETS[0];
-    setModelId(selected === "neuraldeep" ? next.defaultModel : "");
+    setModelId(
+      selected === "neuraldeep" || selected === "codex"
+        ? next.defaultModel
+        : "",
+    );
     resetModels();
     if (selected === "ollama") {
       setApiBase((b) => b || "http://127.0.0.1:11434/v1");
@@ -235,18 +299,17 @@ export function ProviderPickerDialog(props: {
     if (!props.open) {
       return;
     }
-    const key = apiKey.trim();
-    if (!key) {
+    if (preset.providerType === "codex") {
       return;
     }
-    const type = preset.providerType;
-    const base = probeApiBase;
-    const proxyURL = proxy.trim();
+    if (!probeInput.api_key) {
+      return;
+    }
     const handle = window.setTimeout(() => {
-      void probeModels({ type, api_base: base, api_key: key, proxy: proxyURL });
+      void probeModels(probeInput);
     }, 600);
     return () => window.clearTimeout(handle);
-  }, [props.open, apiKey, probeApiBase, proxy, preset.providerType, probeModels]);
+  }, [props.open, probeInput, preset.providerType, probeModels]);
 
   const configBody = useMemo(
     () =>
@@ -257,8 +320,15 @@ export function ProviderPickerDialog(props: {
         proxy,
         modelId,
         baseDoc,
+        fetchedModels,
       ),
-    [preset, apiKey, apiBase, proxy, modelId, baseDoc],
+    [preset, apiKey, apiBase, proxy, modelId, baseDoc, fetchedModels],
+  );
+
+  /** Catalog entry behind the chosen model, when the probe listed it. */
+  const pickedModel = useMemo(
+    () => catalogEntry(preset, modelId, fetchedModels),
+    [preset, modelId, fetchedModels],
   );
 
   const testConnection = useCallback(async () => {
@@ -306,7 +376,9 @@ export function ProviderPickerDialog(props: {
       }
       setTestOk(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("onboarding.connectionFailed"));
+      setError(
+        e instanceof Error ? e.message : t("onboarding.connectionFailed"),
+      );
     } finally {
       setBusy(false);
     }
@@ -339,7 +411,9 @@ export function ProviderPickerDialog(props: {
       }
       props.onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("onboarding.saveFailedGeneric"));
+      setError(
+        e instanceof Error ? e.message : t("onboarding.saveFailedGeneric"),
+      );
     } finally {
       setBusy(false);
     }
@@ -350,7 +424,9 @@ export function ProviderPickerDialog(props: {
   }
 
   const showApiBase =
-    selected === "compatible" || selected === "ollama" || selected === "neuraldeep";
+    selected === "compatible" ||
+    selected === "ollama" ||
+    selected === "neuraldeep";
 
   return (
     <div className="provider-picker-host" data-testid="provider-picker-dialog">
@@ -385,7 +461,9 @@ export function ProviderPickerDialog(props: {
               data-testid={`provider-card-${p.id}`}
               onClick={() => setSelected(p.id)}
             >
-              <span className="provider-picker-card-title">{presetLabel(p)}</span>
+              <span className="provider-picker-card-title">
+                {presetLabel(p)}
+              </span>
               <span className="provider-picker-card-desc">
                 {presetDescription(p)}
               </span>
@@ -394,27 +472,31 @@ export function ProviderPickerDialog(props: {
         </div>
 
         <div className="provider-picker-form">
-          <label className="provider-picker-field">
-            <span>{t("onboarding.apiKey")}</span>
-            <div className="provider-picker-key-row">
-              <input
-                className="provider-picker-input"
-                type={showKey ? "text" : "password"}
-                value={apiKey}
-                onChange={(ev) => setApiKey(ev.target.value)}
-                placeholder={preset.envKey || "sk-..."}
-                autoComplete="off"
-                data-testid="provider-api-key"
-              />
-              <button
-                type="button"
-                className="provider-picker-ghost-btn"
-                onClick={() => setShowKey((v) => !v)}
-              >
-                {showKey ? t("onboarding.hideKey") : t("onboarding.showKey")}
-              </button>
-            </div>
-          </label>
+          {selected === "codex" ? (
+            <CodexAuthField providerName={preset.providerName} />
+          ) : (
+            <label className="provider-picker-field">
+              <span>{t("onboarding.apiKey")}</span>
+              <div className="provider-picker-key-row">
+                <input
+                  className="provider-picker-input"
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(ev) => setApiKey(ev.target.value)}
+                  placeholder={preset.envKey || "sk-..."}
+                  autoComplete="off"
+                  data-testid="provider-api-key"
+                />
+                <button
+                  type="button"
+                  className="provider-picker-ghost-btn"
+                  onClick={() => setShowKey((v) => !v)}
+                >
+                  {showKey ? t("onboarding.hideKey") : t("onboarding.showKey")}
+                </button>
+              </div>
+            </label>
+          )}
 
           {showApiBase ? (
             <label className="provider-picker-field">
@@ -440,15 +522,19 @@ export function ProviderPickerDialog(props: {
 
           <label className="provider-picker-field">
             <span>{t("onboarding.proxy")}</span>
-            <input
-              className="provider-picker-input"
+            <ProxyUrlField
               value={proxy}
-              onChange={(ev) => setProxy(ev.target.value)}
+              onChange={setProxy}
+              ariaLabel={t("onboarding.proxy")}
               placeholder="socks5h://127.0.0.1:1080"
-              autoComplete="off"
-              data-testid="provider-proxy"
+              inputClassName="provider-picker-input"
+              rowClassName="provider-picker-key-row"
+              buttonClassName="provider-picker-ghost-btn"
+              dataTestId="provider-proxy"
             />
-            <span className="provider-picker-hint">{t("onboarding.proxyHint")}</span>
+            <span className="provider-picker-hint">
+              {t("onboarding.proxyHint")}
+            </span>
           </label>
 
           {preset.website ? (
@@ -469,10 +555,15 @@ export function ProviderPickerDialog(props: {
               <Combobox
                 value={modelId}
                 onChange={setModelId}
-                options={fetchedModels.map((m) => ({
-                  value: m.id,
-                  label: m.name || m.id,
-                }))}
+                options={fetchedModels.map((m) => {
+                  const label = m.name || m.id;
+                  return {
+                    value: m.id,
+                    label: m.vision
+                      ? t("settings.modelVisionOption", { model: label })
+                      : label,
+                  };
+                })}
                 placeholder={preset.defaultModel}
                 ariaLabel={t("onboarding.defaultModel")}
                 testid="provider-model-id"
@@ -481,15 +572,11 @@ export function ProviderPickerDialog(props: {
               <button
                 type="button"
                 className="provider-picker-ghost-btn"
-                onClick={() =>
-                  void probeModels({
-                    type: preset.providerType,
-                    api_base: probeApiBase,
-                    api_key: apiKey.trim(),
-                    proxy: proxy.trim(),
-                  })
+                onClick={() => void probeModels(probeInput)}
+                disabled={
+                  modelsLoading ||
+                  (preset.providerType !== "codex" && !apiKey.trim())
                 }
-                disabled={modelsLoading || !apiKey.trim()}
                 data-testid="provider-fetch-models"
               >
                 {modelsLoading
@@ -500,8 +587,21 @@ export function ProviderPickerDialog(props: {
               </button>
             </div>
             {modelsFetched && modelsError ? (
-              <span className="provider-picker-hint" data-testid="provider-models-error">
+              <span
+                className="provider-picker-hint"
+                data-testid="provider-models-error"
+              >
                 {t("onboarding.modelsFetchFailed")}
+              </span>
+            ) : null}
+            {pickedModel ? (
+              <span
+                className="provider-picker-hint"
+                data-testid="provider-multimodal-note"
+              >
+                {pickedModel.vision
+                  ? t("onboarding.modelMultimodalOn")
+                  : t("onboarding.modelMultimodalOff")}
               </span>
             ) : null}
           </label>

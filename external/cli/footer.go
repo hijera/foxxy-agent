@@ -1,0 +1,271 @@
+//go:build cli
+
+package cli
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/platform"
+)
+
+// footer renders the status lines under the editor (pi FooterComponent):
+// line 1: dim cwd (git branch) • session title [• plan]
+// line 2: token stats + context percent left, (provider) model • reasoning right;
+// line 3, only while the active model's provider reports account usage:
+// plan • window percentages with reset times • wallet (usage.go).
+type footer struct {
+	theme *tui.Theme
+
+	cwd       string
+	gitBranch string
+	title     string
+	modeID    string
+
+	tokensIn  int
+	tokensOut int
+	// runningTasks is how many background tasks of the session run right now.
+	runningTasks int
+	ctxPercent   float64
+	ctxMax       int
+
+	provider  string
+	model     string
+	reasoning string
+	// permission is the session's permission mode; anything but ask is
+	// named on the first line, bypass in the warning colour (#292).
+	permission string
+	// overrides are the settings changed for a number of turns.
+	overrides []acp.TurnOverride
+
+	// usages holds the latest usage update per provider row; the active
+	// model's renders. now is the clock of the reset-time wording (tests pin
+	// it).
+	usages map[string]*acp.ProviderUsageUpdate
+	now    func() time.Time
+}
+
+func newFooter(theme *tui.Theme, cwd string) *footer {
+	return &footer{theme: theme, cwd: cwd, gitBranch: detectGitBranch(cwd)}
+}
+
+// Invalidate is a no-op; the footer recomputes every render.
+func (f *footer) Invalidate() {}
+
+// SetSession updates title and mode.
+func (f *footer) SetSession(title, modeID string) { f.title, f.modeID = title, modeID }
+
+// AddTokens accumulates per-call token usage (the update carries per-call
+// input/output, so directional counters are summed client-side).
+func (f *footer) AddTokens(in, out int) { f.tokensIn += in; f.tokensOut += out }
+
+// ResetTokens clears accumulated counters (new/switched session).
+func (f *footer) ResetTokens() { f.tokensIn, f.tokensOut = 0, 0 }
+
+// SetRunningTasks updates how many background tasks of the session run right now.
+func (f *footer) SetRunningTasks(n int) { f.runningTasks = n }
+
+// SetContext updates the context-window occupancy.
+func (f *footer) SetContext(percent float64, maxTokens int) {
+	f.ctxPercent, f.ctxMax = percent, maxTokens
+}
+
+// SetModel updates the provider/model/reasoning segment.
+func (f *footer) SetModel(modelID, reasoning string) {
+	f.provider, f.model = splitModelID(modelID)
+	f.reasoning = reasoning
+}
+
+// SetSettings adopts a settings snapshot: the permission mode and the
+// overrides for the running and the next turns.
+func (f *footer) SetSettings(permission string, overrides []acp.TurnOverride) {
+	f.permission = permission
+	f.overrides = append([]acp.TurnOverride(nil), overrides...)
+}
+
+// overridesText renders the turn overrides: "next 2 turns: model x".
+func (f *footer) overridesText() string {
+	if len(f.overrides) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(f.overrides))
+	for _, o := range f.overrides {
+		label := o.Setting
+		if label == "permission_mode" {
+			label = "permissions"
+		}
+		scope := "this turn"
+		switch {
+		case o.Active && o.TurnsLeft > 0:
+			scope = "this turn +" + itoa(o.TurnsLeft)
+		case !o.Active && o.TurnsLeft == 1:
+			scope = "next turn"
+		case !o.Active:
+			scope = "next " + itoa(o.TurnsLeft) + " turns"
+		}
+		parts = append(parts, scope+": "+label+" "+tui.SanitizeText(o.Value))
+	}
+	return strings.Join(parts, " • ")
+}
+
+// SetUsage adopts a provider usage update for its provider row.
+func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) {
+	if u == nil || u.Provider == "" {
+		return
+	}
+	if f.usages == nil {
+		f.usages = make(map[string]*acp.ProviderUsageUpdate)
+	}
+	f.usages[u.Provider] = u
+}
+
+// DropUsage forgets the snapshot of a provider row: the backend answered
+// that the row has no usage now (its panel switched off in config, or the
+// row retyped), so the line must not keep the old numbers.
+func (f *footer) DropUsage(provider string) {
+	if f.usages != nil {
+		delete(f.usages, provider)
+	}
+}
+
+// Usage returns the update of the active model's provider, or nil.
+func (f *footer) Usage() *acp.ProviderUsageUpdate {
+	if f.provider == "" || f.usages == nil {
+		return nil
+	}
+	return f.usages[f.provider]
+}
+
+// usageLine renders the third line, or "" when nothing applies.
+func (f *footer) usageLine(width int) string {
+	u := f.Usage()
+	if u == nil {
+		return ""
+	}
+	now := time.Now()
+	if f.now != nil {
+		now = f.now()
+	}
+	modelID := f.provider + "/" + f.model
+	return renderUsageLine(f.theme, usageFooterSegments(u, modelID, now), width)
+}
+
+func splitModelID(id string) (provider, model string) {
+	if idx := strings.IndexByte(id, '/'); idx > 0 {
+		return id[:idx], id[idx+1:]
+	}
+	return "", id
+}
+
+// Render draws both footer lines padded to width.
+func (f *footer) Render(width int) []string {
+	th := f.theme
+
+	line1 := tui.SanitizeText(f.cwd)
+	if f.gitBranch != "" {
+		line1 += " (" + tui.SanitizeText(f.gitBranch) + ")"
+	}
+	if f.title != "" {
+		line1 += " • " + tui.SanitizeText(f.title)
+	}
+	// Any profile other than the default is worth naming; the fork ships several.
+	if f.modeID != "" && f.modeID != "agent" {
+		line1 += " • " + tui.SanitizeText(f.modeID)
+	}
+	// Background tasks outlive the turn that started them, and the status line that
+	// counts them goes away with the turn. The footer keeps saying what still runs,
+	// and names the command that lists it. The segment closes the line and is the part
+	// of it that changes what the operator does next, so when the line does not fit it
+	// is the path and the title that give way - a macOS temp folder or a deep monorepo
+	// path would otherwise push the count off the screen.
+	if f.runningTasks > 0 {
+		tasks := " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
+		if room := width - tui.VisibleWidth(tasks); room >= 8 && tui.VisibleWidth(line1) > room {
+			line1 = tui.TruncateToWidth(line1, room, "...")
+		}
+		line1 += tasks
+	}
+
+	left := ""
+	if f.tokensIn > 0 || f.tokensOut > 0 {
+		left = "↑" + tui.FormatTokenCount(f.tokensIn) + " ↓" + tui.FormatTokenCount(f.tokensOut) + " "
+	}
+	if f.ctxMax > 0 {
+		left += fmt.Sprintf("%.1f%%/%s (auto)", f.ctxPercent, tui.FormatTokenCount(f.ctxMax))
+	}
+
+	right := ""
+	if f.model != "" {
+		if f.provider != "" {
+			right = "(" + tui.SanitizeText(f.provider) + ") " + tui.SanitizeText(f.model)
+		} else {
+			right = tui.SanitizeText(f.model)
+		}
+		if f.reasoning != "" {
+			right += " • " + tui.SanitizeText(f.reasoning)
+		}
+	}
+
+	gap := width - tui.VisibleWidth(left) - tui.VisibleWidth(right)
+	if gap < 1 {
+		gap = 1
+	}
+	line2 := left + strings.Repeat(" ", gap) + right
+
+	// The permission mode closes the first line when it is not the asking
+	// one: bypass in the warning colour, so a session that approves
+	// everything never looks like one that asks.
+	first := th.Fg(roleDim, tui.TruncateToWidth(line1, width, "..."))
+	if f.permission != "" && f.permission != "ask" {
+		seg := " • " + strings.ReplaceAll(f.permission, "_", " ")
+		if room := width - tui.VisibleWidth(seg); room >= 8 {
+			role := roleDim
+			if f.permission == "bypass" {
+				role = roleWarning
+			}
+			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + th.Fg(role, seg)
+		}
+	}
+	lines := []string{
+		first,
+		th.Fg(roleDim, tui.TruncateToWidth(line2, width, "")),
+	}
+	if ov := f.overridesText(); ov != "" {
+		lines = append(lines, th.Fg(roleAccent, tui.TruncateToWidth(ov, width, "...")))
+	}
+	if usage := f.usageLine(width); usage != "" {
+		lines = append(lines, usage)
+	}
+	return lines
+}
+
+// gitBranchTimeout bounds the git call behind the footer's branch label. The
+// footer is built before the first frame, and the label is decoration: a git
+// that does not answer (a credential helper waiting on a prompt, the macOS
+// developer-tools stub behind its install dialog) must not hold the console.
+var gitBranchTimeout = 3 * time.Second
+
+func detectGitBranch(cwd string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), gitBranchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Stderr = nil // never inherit the tty; raw mode must stay clean
+	// A helper git left behind (a credential prompt) still holds the output
+	// pipe after the timeout killed git itself; do not wait for it either.
+	cmd.WaitDelay = time.Second
+	platform.HideConsoleWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" {
+		return ""
+	}
+	return branch
+}

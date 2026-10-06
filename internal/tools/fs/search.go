@@ -2,7 +2,6 @@ package fs
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/hijera/foxxycode-agent/internal/textenc"
 )
 
 const maxSearchLineBytes = 10 * 1024 * 1024
@@ -66,7 +67,10 @@ func searchFileLines(ctx context.Context, filePath string, matcher *regexp.Regex
 
 	reader := bufio.NewReaderSize(file, 8192)
 	probe, _ := reader.Peek(8192)
-	if bytes.IndexByte(probe, 0) >= 0 {
+	// textenc.LooksBinary rather than a bare NUL scan: UTF-16 text is half NUL
+	// bytes, and skipping it here would make grep the one tool that cannot see a
+	// file read decodes fine.
+	if textenc.LooksBinary(probe) {
 		return nil
 	}
 

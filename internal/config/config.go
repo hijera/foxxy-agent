@@ -10,15 +10,25 @@ import (
 
 // LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $FOXXYCODE_HOME/config.yaml is missing, and loads YAML.
 func LoadFromCLI(cli CLIPaths) (*Config, error) {
-	paths, err := Resolve(cli)
+	paths, err := resolveConfigFile(cli)
 	if err != nil {
 		return nil, err
 	}
-	// Load $FOXXYCODE_HOME/.env before config.yaml is parsed so that ${VAR} references in YAML see the values.
-	// Existing process environment always takes precedence over .env.
+	return readConfigFile(paths, strings.TrimSpace(cli.Config) != "")
+}
+
+// resolveConfigFile resolves the paths and picks the file the loader reads: an
+// explicit --config, else <home>/config.yaml, else <cwd>/config.yaml when the
+// home has none. <home>/.env is loaded first so ${VAR} references in the file
+// see its values; the process environment always takes precedence over .env.
+// Check uses the same resolution, so -t reports on the file a start would load.
+func resolveConfigFile(cli CLIPaths) (Paths, error) {
+	paths, err := Resolve(cli)
+	if err != nil {
+		return Paths{}, err
+	}
 	loadDotEnv(paths.Home)
-	explicitConfig := strings.TrimSpace(cli.Config) != ""
-	if !explicitConfig {
+	if strings.TrimSpace(cli.Config) == "" {
 		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {
 			cwdCfg := filepath.Join(paths.CWD, defaultConfigName)
 			if _, err := os.Stat(cwdCfg); err == nil {
@@ -26,7 +36,7 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 			}
 		}
 	}
-	return readConfigFile(paths, explicitConfig)
+	return paths, nil
 }
 
 // Load reads config from the given path, or resolves $FOXXYCODE_HOME/config.yaml (and optional $CWD/config.yaml).
@@ -58,7 +68,7 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	}
 
 	originalData := append([]byte(nil), data...)
-	expanded := expandEnvEscaped(ExpandPathVars(string(data), paths))
+	expanded := expandConfigBody(string(data), paths)
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
@@ -91,6 +101,19 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Rules.Validate(); err != nil {
 		return fmt.Errorf("rules: %w", err)
 	}
+	cfg.Swarm.Normalize()
+	if err := cfg.Swarm.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.MCP.Validate(); err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
+	if err := cfg.Subagents.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.Hooks.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.Tools.Validate(); err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
@@ -106,13 +129,17 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Title.Validate(cfg); err != nil {
 		return fmt.Errorf("title: %w", err)
 	}
+	if err := cfg.Autocomplete.Validate(cfg); err != nil {
+		return fmt.Errorf("autocomplete: %w", err)
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
 	cfg.HTTPServer.Normalize()
 	cfg.Gateways.Telegram.Normalize()
 	if err := cfg.Gateways.Telegram.Validate(); err != nil {
-		return fmt.Errorf("gateways.telegram: %w", err)
+		// The error already names its key under gateways.telegram.
+		return err
 	}
 	if err := cfg.HTTPServer.Validate(); err != nil {
 		return fmt.Errorf("httpserver: %w", err)
@@ -123,6 +150,13 @@ func validateSubconfigs(cfg *Config) error {
 	}
 	if err := cfg.Browser.Validate(); err != nil {
 		return fmt.Errorf("browser: %w", err)
+	}
+	if err := cfg.VCS.Validate(); err != nil {
+		return fmt.Errorf("vcs: %w", err)
+	}
+	cfg.Debug.ApplyDefaults()
+	if err := cfg.Debug.Validate(); err != nil {
+		return fmt.Errorf("debug: %w", err)
 	}
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
@@ -142,9 +176,15 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.Logger.File) != "" && len(cfg.Logger.Outputs) == 0 {
 		cfg.Logger.Outputs = []string{LogOutputStderr, LogOutputFile}
 	}
+	// The log file belongs to the process, so ${CWD} in it is the default
+	// working directory (per-session placeholders are left alone by the body
+	// expansion, see expandConfigBody).
+	if f := strings.TrimSpace(cfg.Logger.File); f != "" {
+		cfg.Logger.File = filepath.Clean(ExpandPathVars(f, p))
+	}
 
 	if d := strings.TrimSpace(cfg.Sessions.Dir); d != "" {
-		cfg.Sessions.Dir = filepath.Clean(ExpandFOXXYCODEHomeOnly(d, p))
+		cfg.Sessions.Dir = filepath.Clean(ExpandPathVars(d, p))
 	} else {
 		cfg.Sessions.Dir = ""
 	}
@@ -153,6 +193,8 @@ func applyDefaults(cfg *Config) {
 		return ExpandFOXXYCODEHomeOnly(s, p)
 	})
 	cfg.Rules.ApplyDefaults()
+	cfg.Subagents.ApplyDefaults(p)
+	cfg.Hooks.ApplyDefaults(p)
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()
@@ -162,6 +204,9 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Title.Normalize()
 	cfg.Title.ApplyDefaults()
+
+	cfg.Autocomplete.Normalize()
+	cfg.Autocomplete.ApplyDefaults()
 
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)
@@ -175,6 +220,8 @@ func applyDefaults(cfg *Config) {
 	cfg.UI.ApplyDefaults()
 
 	cfg.Browser.ApplyDefaults()
+
+	cfg.VCS.ApplyDefaults()
 
 	if len(cfg.Providers) == 0 && len(cfg.Models) == 0 {
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {

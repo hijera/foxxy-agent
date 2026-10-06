@@ -28,6 +28,12 @@ type Skill struct {
 
 	// Content is the body of the skill file (without frontmatter).
 	Content string
+
+	// Model and Reasoning, when set, are what the turn that uses the skill
+	// runs on from then on: frontmatter model and reasoning (alias effort,
+	// Claude Code's spelling). They last until that turn ends.
+	Model     string
+	Reasoning string
 }
 
 // Loader discovers and loads skills from the filesystem.
@@ -50,13 +56,18 @@ func NewLoader(dirs []string) *Loader {
 // This means ${CWD}/.foxxycode/skills (last by default) has the highest priority.
 func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill, error) {
 	var disabled map[string]struct{}
+	var withdrawn map[string]struct{}
 	if len(installDir) > 0 && installDir[0] != "" {
 		disabled = ReadDisabled(installDir[0])
+		withdrawn = DeliveredAndDeleted(installDir[0])
 	}
 
 	// ordered tracks insertion order of first encounter; byName points to the slot
 	// in ordered so a later directory can overwrite the skill for a given name.
-	type slot struct{ name string; skill *Skill }
+	type slot struct {
+		name  string
+		skill *Skill
+	}
 	var ordered []slot
 	byName := make(map[string]int) // canonical name → index in ordered
 	seenPath := make(map[string]bool)
@@ -75,8 +86,14 @@ func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill,
 		}
 	}
 
-	// Bundled skills are always prepended (lowest priority, never overridden).
+	// The standard delivery is prepended at the lowest priority, so the copy in
+	// the managed dir overrides it. One the operator deleted from there is left
+	// out: the in-binary copy is a fallback for a home the delivery could not
+	// write, not a way for a deleted skill to come back as an undeletable one.
 	for _, s := range Bundled() {
+		if _, gone := withdrawn[CanonicalCommandName(s)]; gone {
+			continue
+		}
 		addSkill(s)
 	}
 
@@ -206,6 +223,11 @@ func loadFile(path string) (*Skill, error) {
 		}
 		skill.Description = fm.Description
 		skill.Version = strings.TrimSpace(fm.Version)
+		skill.Model = strings.TrimSpace(fm.Model)
+		skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Reasoning))
+		if skill.Reasoning == "" {
+			skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Effort))
+		}
 	}
 
 	return skill, nil
@@ -217,6 +239,9 @@ type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Version     string `yaml:"version"`
+	Model       string `yaml:"model"`
+	Reasoning   string `yaml:"reasoning"`
+	Effort      string `yaml:"effort"`
 }
 
 // parseFrontmatter splits a file into frontmatter and body.

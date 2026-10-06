@@ -7,6 +7,7 @@ import (
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 	toolssh "github.com/hijera/foxxycode-agent/internal/tools/ssh"
+	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
@@ -33,8 +34,33 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandToolForShell(environment.Shell))
+	if cfg == nil || cfg.Tools.Background.ResolvedEnabled() {
+		r.Register(shell.BackgroundListTool())
+		r.Register(shell.BackgroundOutputTool())
+		r.Register(shell.BackgroundWaitTool())
+		r.Register(shell.BackgroundStopTool())
+		r.Register(shell.BackgroundReapTool())
+	}
 	r.Register(QuestionTool())
+	r.Register(ConfigGetTool())
+	r.Register(ConfigSetTool())
+	r.Register(ConfigChangesTool())
+	r.Register(ConfigCommitTool())
+	r.Register(ConfigRevertTool())
+	r.Register(ConfigRollbackTool())
 	r.Register(PlanExitTool())
+	// Compaction is a capability of the loop, so the model may reach for it
+	// like any other tool; the operator turns it off with compaction.enable.
+	if cfg == nil || cfg.Compaction.IsEnabled() {
+		r.Register(CompactContextTool())
+	}
+	// Filing the session it runs in: a conversation the model renamed or
+	// tagged is one the operator can find again.
+	r.Register(SessionDescribeTool())
+	// FoxxyCode's own documentation, embedded in the binary: read-only, so
+	// every mode and every child gets it.
+	r.Register(DocsSearchTool())
+	r.Register(DocsReadTool())
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())
@@ -49,17 +75,56 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(todo.ItemMoveTool())
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
+	r.Register(toolweb.HTTPRequestTool())
 	r.Register(toolssh.SSHRunCommandTool())
+	// Subagents: offered unless explicitly disabled; the runtime hides the tool
+	// again for a child that reached subagents.max_depth.
+	if cfg == nil || cfg.Subagents.ResolvedEnabled() {
+		r.Register(SpawnAgentTool())
+	}
 	// Model-driven skill auto-discovery: offered unless explicitly disabled.
 	if cfg == nil || cfg.Skills.AutoDiscoveryEnabled() {
 		r.Register(LoadSkillTool())
+	}
+	// Subversion tools: registered only when vcs.svn is enabled and a client is
+	// installed, so turning the setting off removes them from the next turn.
+	toolsvn.RegisterBuiltins(r.Register, cfg)
+	// The model's own switch between the configured models and reasoning
+	// levels: offered when there is something to switch to.
+	if modelSwitchOffered(cfg) {
+		r.Register(SwitchModelTool(cfg))
 	}
 	registerSchedulerTools(r, cfg)
 	registerBrowserTools(r, cfg)
 	return r
 }
 
+// modelSwitchOffered reports whether switch_model has anything to switch:
+// more than one configured model, or one that offers reasoning levels.
+func modelSwitchOffered(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if len(cfg.Models) > 1 {
+		return true
+	}
+	return len(cfg.Models) == 1 && len(cfg.ReasoningChoicesFor(&cfg.Models[0])) > 0
+}
+
 // ResolvePath returns an absolute filesystem path resolved against cwd.
 func ResolvePath(path, cwd string) string {
 	return toolfs.ResolvePath(path, cwd)
+}
+
+// ApplyOutputLimit caps a tool result to the per-tool output line ceiling carried
+// by env. Re-exported so the agent can apply it to MCP calls (which bypass the
+// registry). No-op when env carries no limits.
+func ApplyOutputLimit(out, tool string, env *Env) string {
+	return tooling.ApplyOutputLimit(out, tool, env)
+}
+
+// ApplyOutputLimitError applies the per-tool output ceiling to an error while
+// preserving its original cause for errors.Is/errors.As.
+func ApplyOutputLimitError(err error, tool string, env *Env) error {
+	return tooling.ApplyOutputLimitError(err, tool, env)
 }

@@ -1,0 +1,12 @@
+# Shell scripts must keep LF endings. This fork is developed on Windows, where
+# core.autocrlf=true would otherwise rewrite them on checkout — and a CRLF
+# shebang line breaks the interpreter, including the bash that Git for Windows
+# uses to run hooks.
+*.sh text eol=lf
+.githooks/* text eol=lf
+
+# Everything under packaging/ is consumed on a Unix host: a completion file is
+# sourced into the running shell, where a stray CR lands inside variable values
+# and command names, and the man page and the Homebrew templates are read by
+# groff and brew the same way.
+packaging/** text eol=lf

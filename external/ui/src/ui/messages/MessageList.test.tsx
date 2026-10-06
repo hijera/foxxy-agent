@@ -1,10 +1,23 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
+import { stripFoxxyCodeAttachmentsForUserDisplay } from "../skills/stripFoxxyCodeAttachments";
+import { resetLlmRetryState, setLlmRetrying } from "../chat/llmRetryState";
 
-afterEach(() => cleanup());
+vi.mock("../skills/stripFoxxyCodeAttachments", { spy: true });
+
+afterEach(() => {
+  cleanup();
+  resetLlmRetryState();
+});
 
 test("renders system error notice collapsed with an expandable body", () => {
   const items: TranscriptItem[] = [
@@ -112,32 +125,147 @@ test("permission preview uses the matching tool call arguments", () => {
   expect(screen.queryByText("Update the requested component")).toBeNull();
 });
 
-test("renders memory copilot foldout", () => {
+test("plan document forwards Run plan and Discard to the transcript handlers", () => {
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+  const onRun = vi.fn();
+  const onDiscard = vi.fn();
+
+  render(
+    <MessageList
+      items={items}
+      sessionId="sess_1"
+      onPlanDocumentRun={onRun}
+      onPlanDocumentDiscard={onDiscard}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /run plan/i }));
+  fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+  expect(onRun).toHaveBeenCalledWith("demo-plan");
+  expect(onDiscard).toHaveBeenCalledWith("p1", "demo-plan");
+});
+
+test("plan document on a read-only transcript renders without Run plan and Discard", () => {
+  // A subagent child transcript passes neither handler (like onEdit), so the
+  // card must not show controls that would do nothing.
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+
+  render(<MessageList items={items} sessionId="sess_0a1b2c" />);
+
+  expect(screen.getByText("Demo plan")).toBeInTheDocument();
+  expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /run plan/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
+});
+
+test("a memory run renders nothing in the transcript", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hi" },
+    { id: "m1", type: "memory_run", status: "started", taskId: "bg_1" },
+  ];
+
+  const { container } = render(<MessageList items={items} />);
+
+  expect(container.querySelector(".thinking-row")).toBeNull();
+  expect(screen.getByText("Hi")).toBeInTheDocument();
+});
+
+// The live line is on screen for the whole turn and always says what is happening,
+// in general words at least: it used to drop its text under a reasoning row and to
+// vanish altogether once the turn had written any text, which read as a turn that
+// had stopped.
+test("the live line names reasoning under a reasoning row", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
     {
-      id: "m1",
-      type: "memory_copilot",
-      memoryRowId: "mem-1",
-      userTurnIndex: 1,
-      recallStatus: "completed",
-      persistStatus: "completed",
-      recallText: "- fact",
-      recallReasoning: "",
-      persistText: '{"save":false,"reason":"No durable fact to persist."}',
-      persistReasoning: "",
-      recallDurationMs: 10,
-      persistDurationMs: 5,
-      persistSaved: false,
+      id: "t1",
+      type: "thinking",
+      status: "in_progress",
+      content: "weighing the options",
+      startedAtMs: Date.now() - 4000,
     },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent("Thinking…");
+});
+
+test("the live line stays while the answer streams and names it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "The price", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Writing the answer",
+  );
+});
+
+test("the live line stays under text written earlier in the turn", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "tc1",
+      title: "webfetch",
+      status: "in_progress",
+      argsText: '{"url":"https://foxxycode.dev/"}',
+      startedAtMs: Date.now(),
+    },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Fetching",
+  );
+});
+
+test("a finished turn carries no live line", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "Done." },
   ];
 
   render(<MessageList items={items} />);
 
-  expect(screen.getByTestId("memory-copilot-row")).toBeTruthy();
-  expect(document.querySelector(".foxxycode-memory-recall")).toBeTruthy();
-  expect(screen.getByText("fact")).toBeInTheDocument();
-  expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
+});
+
+test("the live line still speaks when the transcript is not already saying it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots-status")).toBeInTheDocument();
 });
 
 test("tool call message uses thinking-row wrapper next to thinking row", () => {
@@ -163,10 +291,240 @@ test("tool call message uses thinking-row wrapper next to thinking row", () => {
 
   render(<MessageList items={items} />);
 
-  const wrapper = screen.getByText("write_file").closest(".thinking-row");
+  const wrapper = screen.getByText("writing a file").closest(".thinking-row");
   expect(wrapper).toBeTruthy();
   expect(wrapper).toHaveClass("foxxycode-tool-call-row");
 
   // Tool and thinking are sibling foldout rows (same stack rhythm as messages-inner gap).
   expect(wrapper?.nextElementSibling).toHaveClass("thinking-row");
+});
+
+test("untouched memoized rows skip re-render when another item streams", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "a1", type: "assistant_message", content: "strea", streaming: true },
+  ];
+  const { rerender } = render(<MessageList items={items} onEdit={onEdit} />);
+  const userRenders = vi.mocked(stripFoxxyCodeAttachmentsForUserDisplay).mock.calls
+    .length;
+  expect(userRenders).toBeGreaterThan(0);
+
+  // Streaming delta: only the assistant item gets a new object reference.
+  const next: TranscriptItem[] = [
+    items[0]!,
+    { id: "a1", type: "assistant_message", content: "streaming", streaming: true },
+  ];
+  rerender(<MessageList items={next} onEdit={onEdit} />);
+  expect(
+    vi.mocked(stripFoxxyCodeAttachmentsForUserDisplay).mock.calls.length,
+  ).toBe(userRenders);
+  expect(screen.getByText("streaming")).toBeInTheDocument();
+});
+
+// A stream cut mid-answer leaves the bubble marked streaming, and nothing clears
+// that flag until the turn ends - so the dots row, the only place the live status
+// is rendered, stayed hidden for the whole wait. The operator watched a frozen
+// half-answer with no sign the turn was still alive, which is exactly the moment
+// the "provider is not responding" status exists for.
+test("a parked turn shows its status under the frozen bubble", () => {
+  setLlmRetrying("sess-1", true);
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the compile errors" },
+    { id: "a1", type: "assistant_message", content: "I will fix", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating sessionId="sess-1" />);
+
+  expect(document.querySelector(".typing-dots")).toBeTruthy();
+  expect(
+    screen.getByText(/Provider is not responding/),
+  ).toBeInTheDocument();
+});
+
+// The live line stands under the transcript for the whole turn (upstream #282):
+// it used to vanish once the turn had written any text, which read as a turn
+// that had stopped the moment a model paused between two sentences.
+test("a live stream keeps its status row", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the compile errors" },
+    { id: "a1", type: "assistant_message", content: "I will fix", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating sessionId="sess-1" />);
+
+  expect(document.querySelector(".typing-dots")).toBeTruthy();
+});
+
+// With no bubble on screen the dots keep their original job as the placeholder.
+test("the dots still stand in when nothing has streamed yet", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the compile errors" },
+  ];
+
+  render(<MessageList items={items} generating sessionId="sess-1" />);
+
+  expect(document.querySelector(".typing-dots")).toBeTruthy();
+});
+
+test("only the answer that hands the turn back carries an action row", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Go" },
+    {
+      id: "a1",
+      type: "assistant_message",
+      content: "Reading the file.",
+      createdAtUtc: "2026-01-01T10:00:00.000Z",
+    },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "completed",
+      argsText: '{"path":"a.txt"}',
+      resultText: "OK",
+    },
+    {
+      id: "a2",
+      type: "assistant_message",
+      content: "Done.",
+      createdAtUtc: "2026-01-01T10:00:04.000Z",
+    },
+  ];
+
+  const { container } = render(<MessageList items={items} />);
+
+  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(1);
+  expect(container.querySelectorAll(".msg-assistant-foot")).toHaveLength(1);
+  // The copy button and the minute both belong to the closing answer, not to the
+  // answers the turn left behind between tool calls.
+  const closing = screen
+    .getByText("Done.")
+    .closest<HTMLElement>(".msg-assistant")!;
+  expect(within(closing).getByTestId("assistant-message-copy")).toBeTruthy();
+  const intermediate = screen
+    .getByText("Reading the file.")
+    .closest(".msg-assistant")!;
+  expect(intermediate.querySelector(".msg-assistant-foot")).toBeNull();
+});
+
+test("a turn still in flight offers no copy control on its last answer", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Go" },
+    { id: "a1", type: "assistant_message", content: "Working on it." },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "in_progress",
+      argsText: '{"path":"a.txt"}',
+    },
+  ];
+
+  const { container } = render(<MessageList items={items} generating />);
+
+  expect(screen.queryByTestId("assistant-message-copy")).toBeNull();
+  expect(container.querySelector(".msg-assistant-foot")).toBeNull();
+});
+
+test("every finished turn keeps the action row on the answer that closed it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "First" },
+    { id: "a1", type: "assistant_message", content: "Looking." },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "completed",
+      argsText: '{"path":"a.txt"}',
+      resultText: "OK",
+    },
+    { id: "a2", type: "assistant_message", content: "First answer." },
+    { id: "u2", type: "user_message", content: "Second" },
+    { id: "a3", type: "assistant_message", content: "Second answer." },
+  ];
+
+  render(<MessageList items={items} />);
+
+  // One per turn: the older answer stays copyable, the mid-turn one does not.
+  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(2);
+  expect(
+    screen.getByText("First answer.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).not.toBeNull();
+  expect(
+    screen.getByText("Looking.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).toBeNull();
+});
+
+test("a new turn does not strip the action row off the previous answer", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "First" },
+    { id: "a1", type: "assistant_message", content: "First answer." },
+    { id: "u2", type: "user_message", content: "Second" },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(
+    screen.getByText("First answer.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).not.toBeNull();
+});
+
+// An assistant row holding nothing but whitespace is zero pixels tall and still
+// takes the column's gap, which reads as a hole between the rows around it.
+test("a whitespace-only assistant row takes no place in the transcript", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "t1", type: "tool_call", toolCallId: "tc1", title: "read", status: "completed" },
+    { id: "a1", type: "assistant_message", content: "\n\n", streaming: true },
+    { id: "t2", type: "tool_call", toolCallId: "tc2", title: "read", status: "completed" },
+  ];
+  const { container } = render(<MessageList items={items} />);
+  expect(container.querySelectorAll(".msg-assistant-stack")).toHaveLength(0);
+});
+
+test("a woken turn shows neither a note nor a user bubble, only the agent carrying on", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "start the tests" },
+    { id: "a1", type: "assistant_message", content: "Started them in the background." },
+    {
+      id: "w1",
+      type: "background_wake",
+      tasks: [
+        { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+      ],
+    },
+    { id: "a2", type: "assistant_message", content: "The tests failed." },
+  ];
+  const { container } = render(<MessageList items={items} />);
+  expect(screen.getByText("The tests failed.")).toBeInTheDocument();
+  // One user bubble: the one somebody typed. Nothing names the wake.
+  expect(container.querySelectorAll(".msg-user")).toHaveLength(1);
+  expect(container.textContent).not.toContain("bg_3");
+  expect(container.textContent).not.toContain("make test");
+  expect(container.querySelector('[role="note"]')).toBeNull();
+});
+
+test("a message typed after a wake is edited by the index the server knows it by", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "start the tests" },
+    { id: "w1", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] },
+    { id: "u2", type: "user_message", content: "fix it" },
+  ];
+  render(<MessageList items={items} onEdit={onEdit} />);
+  const edits = screen.getAllByTestId("user-message-edit");
+  expect(edits).toHaveLength(2);
+  fireEvent.click(edits[1]!);
+  // The server counts the wake as user message 1, so "fix it" is message 2.
+  expect(onEdit).toHaveBeenCalledWith("fix it", 2);
 });

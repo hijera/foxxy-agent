@@ -1,6 +1,7 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { syntaxHighlightOptions } from "./syntaxLanguages";
 import {
   createContext,
   isValidElement,
@@ -13,6 +14,13 @@ import {
   type ReactNode,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { docsHrefFromFoxxyCodeLink } from "../scheduler/hashRoute";
+import { remarkDocMentions } from "./remarkDocMentions";
+
+/** A video file where Markdown has an image: the documentation embeds its
+ *  recordings this way, fetched from GitHub when they play. */
+const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
 
 type CodeProps = {
   className?: string | undefined;
@@ -26,8 +34,16 @@ type PreProps = {
 };
 
 type AProps = {
-  href?: string;
+  // react-markdown hands anchor props straight from hast, where href may be
+  // absent, so both fields have to admit an explicit undefined.
+  href?: string | undefined;
   children?: unknown;
+};
+
+type ImgProps = {
+  src?: string | undefined;
+  alt?: string | undefined;
+  title?: string | undefined;
 };
 
 function normalizeText(children: unknown): string {
@@ -55,32 +71,6 @@ function copyTextToClipboard(text: string): Promise<void> {
     document.execCommand("copy");
     document.body.removeChild(ta);
   });
-}
-
-function CopyButton(props: { text: string }) {
-  const { t } = useT();
-  const [copied, setCopied] = useState(false);
-
-  const onCopy = useCallback(async () => {
-    try {
-      await copyTextToClipboard(props.text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 900);
-    } catch {
-      setCopied(false);
-    }
-  }, [props.text]);
-
-  return (
-    <button
-      type="button"
-      className="md-copy"
-      onClick={() => void onCopy()}
-      aria-label={t("messages.copyCode")}
-    >
-      {copied ? t("messages.copied") : t("messages.copy")}
-    </button>
-  );
 }
 
 function InlineCode(props: { className?: string; children?: unknown }) {
@@ -149,7 +139,7 @@ function MarkdownPre(props: PreProps) {
   return (
     <MarkdownPreContext.Provider value={true}>
       <div className="md-code">
-        <CopyButton text={txt.replace(/\n$/, "")} />
+        <CodeBlockCopyButton textToCopy={txt.replace(/\n$/, "")} />
         <pre>{props.children as any}</pre>
       </div>
     </MarkdownPreContext.Provider>
@@ -180,6 +170,16 @@ function MarkdownBase(props: { text: string }) {
             </span>
           );
         }
+        // A page of the built-in documentation, as pages link to each other
+        // and as the agent quotes them: open it in the reader.
+        const docsHref = docsHrefFromFoxxyCodeLink(href);
+        if (docsHref) {
+          return (
+            <a href={docsHref} className="md-docs-link">
+              {p.children as any}
+            </a>
+          );
+        }
         const external = /^https?:\/\//i.test(href);
         return (
           <a
@@ -192,22 +192,43 @@ function MarkdownBase(props: { text: string }) {
           </a>
         );
       },
+      img: (p: ImgProps) =>
+        p.src && VIDEO_SRC.test(p.src) ? (
+          <video
+            className="md-video"
+            // #t=0.1 shows a first frame before it plays, not a black box.
+            src={p.src.includes("#") ? p.src : `${p.src}#t=0.1`}
+            controls
+            preload="metadata"
+            playsInline
+            aria-label={p.alt || undefined}
+          />
+        ) : (
+          <img
+            src={p.src}
+            alt={p.alt || ""}
+            {...(p.title ? { title: p.title } : {})}
+            loading="lazy"
+          />
+        ),
     }),
     [],
   );
 
-  const urlTransform = useCallback((url: string, key: string, node: any) => {
-    if (url.startsWith("foxxycode-skill:")) {
+  const urlTransform = useCallback((url: string) => {
+    if (url.startsWith("foxxycode-skill:") || url.startsWith("foxxycode:")) {
       return url;
     }
-    return defaultUrlTransform(url, key, node);
+    // react-markdown's defaultUrlTransform takes the url alone; the key and node
+    // it passes to a UrlTransform are not part of that helper's signature.
+    return defaultUrlTransform(url);
   }, []);
 
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={[remarkGfm, remarkDocMentions]}
+        rehypePlugins={[[rehypeHighlight, syntaxHighlightOptions]]}
         components={components}
         urlTransform={urlTransform}
       >

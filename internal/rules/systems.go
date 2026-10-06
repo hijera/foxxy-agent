@@ -10,8 +10,12 @@ func ParseSystems(ss []string) []Source {
 	var out []Source
 	for _, raw := range ss {
 		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "user":
+			out = append(out, SourceUser)
 		case "foxxycode":
 			out = append(out, SourceFoxxyCode)
+		case "agents-dir":
+			out = append(out, SourceAgentsDir)
 		case "cursor":
 			out = append(out, SourceCursor)
 		case "claude":

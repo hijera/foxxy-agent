@@ -18,22 +18,27 @@ var invokedMidLineSlashRE = regexp.MustCompile(`(?:^|[\t ])\/([a-zA-Z0-9][a-zA-Z
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Hint        string `json:"hint,omitempty"`
 }
 
 // BuiltinCommands returns the deterministic built-in slash commands (they run
 // without an LLM turn, unlike skills). Shared by the ACP available-commands
 // update and the HTTP commands endpoint so both surfaces stay in sync. compact
-// is included only when the coddy compaction engine is active (it owns the
-// manual /compact command); the opencode engine compacts automatically. plugin
-// is always present (skill/marketplace management).
+// is included while compaction is enabled: both engines answer the manual
+// /compact command. plugin
+// is always present (skill/marketplace management), and so is export.
 func BuiltinCommands(compactEnabled bool) []SkillSummary {
-	cmds := make([]SkillSummary, 0, 2)
+	cmds := make([]SkillSummary, 0, 3)
 	if compactEnabled {
 		cmds = append(cmds, SkillSummary{
 			Name:        "compact",
 			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
 		})
 	}
+	cmds = append(cmds, SkillSummary{
+		Name:        "export",
+		Description: "Export the session history to a file in the workspace: /export [md|html|json|jsonl|pdf|docx] [path] [--no-tools] [--no-thinking]",
+	})
 	cmds = append(cmds, SkillSummary{
 		Name:        "plugin",
 		Description: "Manage skill plugins and marketplaces: marketplace list|add|remove|sync, install, remove, enable, disable",

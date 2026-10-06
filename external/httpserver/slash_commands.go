@@ -16,6 +16,9 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
+// slashListCacheEntry caches one skill catalog per resolved workspace cwd
+// (not per session): two sessions rooted in the same folder share it, and the
+// signature over the expanded skill directories invalidates it on change.
 type slashListCacheEntry struct {
 	signature string
 	sums      []skills.SkillSummary
@@ -65,7 +68,13 @@ func (s *Server) listSkillSummariesCached(cwdAbs string) ([]skills.SkillSummary,
 	return sums, nil
 }
 
-func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
+// resolveSessionCWD picks the workspace a cwd-scoped listing describes (skills,
+// slash commands, workspace context and files): the cwd of the session named
+// by X-FoxxyCode-Session-ID, loading a persisted session on demand, or the server
+// default cwd without the header. A malformed id is answered with 400 and an
+// unknown session with 404; the function writes that response itself and
+// reports false so the handler returns.
+func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
 	sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID"))
 	if sid == "" {
 		cwd, err := session.EffectiveSessionCWD("", s.sessionDefaultCWD())
@@ -90,7 +99,6 @@ func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (st
 		if fs != nil && fs.HasPersistedSnapshot(sid) {
 			if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 				SessionID: sid,
-				CWD:       s.sessionDefaultCWD(),
 			}); err != nil {
 				http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 				return "", false
@@ -133,7 +141,7 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cwdAbs, ok := s.resolveSlashListCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}
@@ -143,11 +151,19 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":{"message":"failed to load skills"}}`, http.StatusInternalServerError)
 		return
 	}
-	// Built-in slash commands (e.g. /compact) lead the catalog so the composer
-	// menu surfaces them above skills.
+	// The fork's unified catalog puts settings and deterministic actions ahead
+	// of skills so every client sees the same commands in one slash menu.
 	cfg := s.activeCfg()
-	builtins := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled() && cfg.Compaction.EngineIsCoddy())
-	sums = append(append([]skills.SkillSummary(nil), builtins...), sums...)
+	var st *session.State
+	if sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); sid != "" {
+		st = s.mgr.SessionByID(sid)
+	}
+	builtins := session.BuiltinCommandRows(cfg, st, session.ActionCommandRows(cfg))
+	rows := make([]skills.SkillSummary, 0, len(builtins)+len(sums))
+	for _, row := range builtins {
+		rows = append(rows, skills.SkillSummary{Name: row.Name, Description: row.Description, Hint: row.Hint})
+	}
+	sums = append(rows, sums...)
 	prefix := strings.TrimSpace(q.Get("prefix"))
 	filtered := skills.FilterSummariesByPrefix(sums, prefix)
 	pageItems, total, hasMore := skills.PaginateSkillSummaries(filtered, page, pageSize)
@@ -160,5 +176,35 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 		"has_more":  hasMore,
 		"page":      page,
 		"page_size": pageSize,
+	})
+}
+
+// foxxycodeCommandsGet lists settings commands with session-specific choices
+// and deterministic actions. The unified slash catalog also contains these
+// commands ahead of skill rows.
+func (s *Server) foxxycodeCommandsGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	cfg := s.activeCfg()
+	var st *session.State
+	if sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); sid != "" {
+		st = s.mgr.SessionByID(sid)
+	}
+	items := session.BuiltinCommandRows(cfg, st, session.ActionCommandRows(cfg))
+	if prefix := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(r.URL.Query().Get("prefix")), "/")); prefix != "" {
+		filtered := items[:0:0]
+		for _, it := range items {
+			if strings.HasPrefix(it.Name, prefix) {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "foxxycode.commands",
+		"items":  items,
 	})
 }

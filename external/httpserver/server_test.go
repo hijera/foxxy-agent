@@ -3,10 +3,15 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log/slog"
 	"net"
@@ -16,17 +21,25 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/tidwall/gjson"
+
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/version"
+	"golang.org/x/text/encoding/charmap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -60,7 +73,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -85,6 +98,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		{id: string(session.ModePlan), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeDocs), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeAsk), ownedBy: ownedByFoxxyCodeSession},
+		{id: string(session.ModeDebug), ownedBy: ownedByFoxxyCodeSession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -135,7 +149,7 @@ func TestResponsesDocsProfileSetsSessionMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, body)
@@ -180,13 +194,130 @@ func TestResponsesAskProfileSetsSessionMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, body)
 	}
 	if got := mgr.SessionByID(sn.SessionID).GetMode(); got != string(session.ModeAsk) {
 		t.Fatalf("session mode: want ask got %q", got)
+	}
+}
+
+func TestResponsesDebugProfileSetsSessionMode(t *testing.T) {
+	cfg := &config.Config{
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+	}
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		if st.GetMode() != string(session.ModeDebug) {
+			t.Errorf("runner mode: want %q got %q", session.ModeDebug, st.GetMode())
+		}
+		return "ok", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"debug","input":"why does this panic","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sn.SessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+	if got := mgr.SessionByID(sn.SessionID).GetMode(); got != string(session.ModeDebug) {
+		t.Fatalf("session mode: want debug got %q", got)
+	}
+}
+
+// Each model row carries the context window a session on that model measures
+// its compaction threshold against: its own max_context_tokens, the window its
+// provider's listing reports, or the default - never the default agent
+// model's number borrowed for a model that has none (#245).
+func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
+	listing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"qwen3.8-27b","limit":{"context":262144}},{"id":"no-window"}]}`)
+	}))
+	defer listing.Close()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "openai", Type: "openai", APIKey: "k"},
+			{Name: "hub", Type: "openai", APIKey: "k", APIBase: listing.URL},
+		},
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxContextTokens: 32000},
+			{Model: "openai/gpt-4o-mini"},
+			{Model: "hub/qwen3.8-27b"},
+			{Model: "hub/no-window"},
+		},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Data []struct {
+			ID               string `json:"id"`
+			MaxContextTokens int    `json:"max_context_tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{
+		string(session.ModeAgent): 32000,
+		string(session.ModePlan):  32000,
+		string(session.ModeDocs):  32000,
+		string(session.ModeAsk):   32000,
+		string(session.ModeDebug): 32000,
+		"openai/gpt-4o":           32000,
+		"openai/gpt-4o-mini":      config.DefaultContextWindowTokens,
+		"hub/qwen3.8-27b":         262144,
+		"hub/no-window":           config.DefaultContextWindowTokens,
+	}
+	if len(body.Data) != len(want) {
+		t.Fatalf("want %d rows, got %+v", len(want), body.Data)
+	}
+	for _, row := range body.Data {
+		if row.MaxContextTokens != want[row.ID] {
+			t.Errorf("%s: max_context_tokens = %d, want %d", row.ID, row.MaxContextTokens, want[row.ID])
+		}
+		if httpModelIsFoxxyCodeProfile(row.ID) {
+			continue
+		}
+		if tokens, _ := mgr.ContextWindow(cfg, row.ID); tokens != row.MaxContextTokens {
+			t.Errorf("%s: the model list says %d, a session on it measures against %d", row.ID, row.MaxContextTokens, tokens)
+		}
 	}
 }
 
@@ -211,7 +342,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Data []struct {
 			ID         string `json:"id"`
@@ -231,6 +362,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		{id: string(session.ModePlan)},
 		{id: string(session.ModeDocs)},
 		{id: string(session.ModeAsk)},
+		{id: string(session.ModeDebug)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}
@@ -264,9 +396,54 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/providers/{name}/models", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
+		}
+	}
+	// The cookie a browser signs in with is a security scheme of its own, or a
+	// generated client has no way to describe an authenticated browser call.
+	components, _ := doc["components"].(map[string]interface{})
+	schemes, _ := components["securitySchemes"].(map[string]interface{})
+	for _, must := range []string{"bearerAuth", "cookieAuth"} {
+		if _, ok := schemes[must]; !ok {
+			t.Fatalf("securitySchemes missing %s", must)
+		}
+	}
+}
+
+// Remote clients (the console's --remote, internal/remote) read the built-in
+// command list and the session-scoped skills list, so both contracts belong in
+// the served spec: GET /foxxycode/commands exists, and GET /foxxycode/skills
+// names the 400 and 404 an X-FoxxyCode-Session-ID header can produce.
+func TestOpenAPISpecDocumentsCommandsAndSkillSessionErrors(t *testing.T) {
+	paths, ok := openAPISpec()["paths"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing paths map")
+	}
+	responsesOf := func(path, method string) map[string]interface{} {
+		t.Helper()
+		item, ok := paths[path].(map[string]interface{})
+		if !ok {
+			t.Fatalf("paths missing key %s", path)
+		}
+		op, ok := item[method].(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s has no %s operation", path, method)
+		}
+		responses, ok := op["responses"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s %s has no responses", method, path)
+		}
+		return responses
+	}
+	if _, ok := responsesOf("/foxxycode/commands", "get")["200"]; !ok {
+		t.Fatal("GET /foxxycode/commands does not document 200")
+	}
+	skillsList := responsesOf("/foxxycode/skills", "get")
+	for _, code := range []string{"200", "400", "404"} {
+		if _, ok := skillsList[code]; !ok {
+			t.Fatalf("GET /foxxycode/skills does not document %s", code)
 		}
 	}
 }
@@ -298,10 +475,15 @@ func (p *capturingHTTPProvider) Stream(_ context.Context, messages []llm.Message
 	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
 }
 
-func TestFoxxyCodeDescribeEchoesShortCommand(t *testing.T) {
+// A two-word first message used to be echoed back without asking the model,
+// which was cheap while a title was all this call produced. The tags ride on it
+// now, so the shortest conversations would have been the only unfiled ones.
+func TestFoxxyCodeDescribeAsksTheModelAboutAShortCommandToo(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
+	asked := 0
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
-		return fakeProvider{reply: "should not be used"}, nil
+		asked++
+		return fakeProvider{reply: "Check the repository state\ntags: git, status"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -318,14 +500,21 @@ func TestFoxxyCodeDescribeEchoesShortCommand(t *testing.T) {
 		t.Fatalf("status %d body %s", res.StatusCode, b)
 	}
 	var out struct {
-		Object string `json:"object"`
-		Short  string `json:"short"`
+		Object string   `json:"object"`
+		Short  string   `json:"short"`
+		Tags   []string `json:"tags"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Object != "foxxycode.describe" || out.Short != "git status" {
+	if asked != 1 {
+		t.Fatalf("the model was asked %d times, want once", asked)
+	}
+	if out.Object != "foxxycode.describe" || out.Short != "Check the repository state" {
 		t.Fatalf("unexpected %+v", out)
+	}
+	if strings.Join(out.Tags, ",") != "git,status" {
+		t.Fatalf("tags = %v", out.Tags)
 	}
 }
 
@@ -468,7 +657,7 @@ func enhancePost(t *testing.T, url, sid, body string) (*http.Response, []byte) {
 func TestFoxxyCodeEnhancePromptUsesSessionModel(t *testing.T) {
 	mgr, srv, cfg := enhanceTestServer(t)
 	var gotSel string
-	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string, _ llm.RequestOptions) (llm.Provider, error) {
 		gotSel = sel
 		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
 	}
@@ -498,7 +687,7 @@ func TestFoxxyCodeEnhancePromptUsesSessionModel(t *testing.T) {
 func TestFoxxyCodeEnhancePromptFallsBackToAgentModel(t *testing.T) {
 	_, srv, cfg := enhanceTestServer(t)
 	var gotSel string
-	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string, _ llm.RequestOptions) (llm.Provider, error) {
 		gotSel = sel
 		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
 	}
@@ -520,7 +709,7 @@ func TestFoxxyCodeEnhancePromptFallsBackToFirstModelWhenAgentModelEmpty(t *testi
 	_, srv, cfg := enhanceTestServer(t)
 	cfg.Agent.Model = ""
 	var gotSel string
-	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string, _ llm.RequestOptions) (llm.Provider, error) {
 		gotSel = sel
 		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
 	}
@@ -540,7 +729,7 @@ func TestFoxxyCodeEnhancePromptNoModelConfigured(t *testing.T) {
 	_, srv, cfg := enhanceTestServer(t)
 	cfg.Agent.Model = ""
 	cfg.Models = nil
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		t.Error("makeLLMFromYAML must not be called without a configured model")
 		return nil, fmt.Errorf("no model")
 	}
@@ -557,7 +746,7 @@ func TestFoxxyCodeEnhancePromptNoModelConfigured(t *testing.T) {
 func TestFoxxyCodeEnhancePromptUnknownSessionFallsBack(t *testing.T) {
 	_, srv, cfg := enhanceTestServer(t)
 	var gotSel string
-	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string, _ llm.RequestOptions) (llm.Provider, error) {
 		gotSel = sel
 		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
 	}
@@ -578,7 +767,7 @@ func TestFoxxyCodeEnhancePromptUnknownSessionFallsBack(t *testing.T) {
 
 func TestFoxxyCodeEnhancePromptRewrites(t *testing.T) {
 	_, srv, _ := enhanceTestServer(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return fakeProvider{reply: "```\n\"Refactor the memory endpoint and add tests.\"\n```"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
@@ -722,7 +911,7 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound && res.StatusCode != http.StatusMovedPermanently {
 		t.Fatalf("expected redirect, got %d", res.StatusCode)
 	}
@@ -733,15 +922,6 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 
 func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	t.Helper()
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	sessRoot := filepath.Join(root, "sessions")
-	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		var sb strings.Builder
 		for _, b := range prompt {
@@ -752,6 +932,22 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
 		return string(acp.StopReasonEndTurn), nil
+	}
+	return testHTTPServerPersistWithRunner(t, runner)
+}
+
+// testHTTPServerPersistWithRunner is testHTTPServerPersist with a caller-supplied agent
+// runner, for tests that need a turn to block or to push updates through the sender.
+func testHTTPServerPersistWithRunner(t *testing.T, runner session.AgentRunner) (*session.Manager, *Server, string) {
+	t.Helper()
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: "/tmp"},
@@ -829,7 +1025,7 @@ func TestFoxxyCodeSessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 			return
 		}
 		_, _ = io.Copy(io.Discard, res.Body)
-		res.Body.Close()
+		_ = res.Body.Close()
 		reqErr <- nil
 	}()
 
@@ -861,6 +1057,19 @@ func TestFoxxyCodeSessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	if err := <-reqErr; err != nil {
 		t.Fatal(err)
 	}
+}
+
+// lastHistoryMessageSeen is the newest message of a request that belongs to the
+// replayed conversation. FoxxyCode appends a <turn_context> block after the history
+// on every request (internal/agent/turn_context.go); it is part of no transcript.
+func lastHistoryMessageSeen(msgs []llm.Message) llm.Message {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.Contains(msgs[i].Content, "<turn_context>") {
+			continue
+		}
+		return msgs[i]
+	}
+	return llm.Message{}
 }
 
 func TestFoxxyCodeSessionPermissionPostRejectResumesPersistedGateAfterRestart(t *testing.T) {
@@ -968,7 +1177,7 @@ func TestFoxxyCodeSessionPermissionPostRejectResumesPersistedGateAfterRestart(t 
 			if len(provider.seen) == 0 {
 				t.Fatal("provider was not called")
 			}
-			lastSeen := provider.seen[len(provider.seen)-1]
+			lastSeen := lastHistoryMessageSeen(provider.seen)
 			if lastSeen.Role != llm.RoleTool || lastSeen.ToolCallID != "call_blocked" || lastSeen.Content != "permission denied by user" {
 				t.Fatalf("provider latest message %+v", lastSeen)
 			}
@@ -1078,6 +1287,85 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	}
 	if !parsed.UnreadComplete {
 		t.Fatal("expected unreadComplete true after a completed turn with read cursor at zero")
+	}
+}
+
+// activitySeq only moves when a turn completes, so a client watching a long
+// turn cannot tell from it whether the transcript grew. messageSeq answers
+// that - for a session live in this process; a cold one is left alone, because
+// this route must stay a cheap disk probe.
+func TestFoxxyCodeSessionActivityReportsMessageSeqForLiveSessions(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	read := func(id string) map[string]interface{} {
+		t.Helper()
+		resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions/" + url.PathEscape(id) + "/activity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("activity status %d: %s", resHTTP.StatusCode, b)
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatalf("body %s: %v", b, err)
+		}
+		return parsed
+	}
+
+	body := read(sid)
+	first, ok := body["messageSeq"].(float64)
+	if !ok || first < 1 {
+		t.Fatalf("messageSeq = %v, want the live transcript size", body["messageSeq"])
+	}
+	beforeActivity := body["activitySeq"]
+
+	// One more message, no completed turn: activitySeq stands still while
+	// messageSeq moves. That difference is the whole point of the new field.
+	st := mgr.SessionByID(sid)
+	if st == nil {
+		t.Fatal("session is not live")
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "and another"})
+	body = read(sid)
+	if second, _ := body["messageSeq"].(float64); second != first+1 {
+		t.Fatalf("messageSeq %v -> %v, want +1", first, second)
+	}
+	if body["activitySeq"] != beforeActivity {
+		t.Fatalf("activitySeq moved without a completed turn: %v -> %v", beforeActivity, body["activitySeq"])
+	}
+
+	// A bundle that is only on disk answers without the key rather than being
+	// loaded: this route is polled, and loading a bundle per poll is not.
+	mgr.ForgetLiveSession(sid)
+	if mgr.SessionByID(sid) != nil {
+		t.Fatal("the session is still live after ForgetLiveSession")
+	}
+	body = read(sid)
+	if _, present := body["messageSeq"]; present {
+		t.Fatalf("a cold session reported messageSeq: %v", body["messageSeq"])
+	}
+	if mgr.SessionByID(sid) != nil {
+		t.Fatal("the activity probe loaded the bundle")
 	}
 }
 
@@ -1474,7 +1762,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res1.Body)
+	_, _ = ioReadAllClose(res1.Body)
 
 	payload2 := strings.NewReader(`{"model":"agent","input":"two","stream":false}`)
 	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload2)
@@ -1483,7 +1771,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res2.Body)
+	_, _ = ioReadAllClose(res2.Body)
 	if res2.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res2.StatusCode)
 	}
@@ -1520,7 +1808,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 
 func TestResponsesDirectCompletionRejectsMetadataModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return fakeProvider{reply: "ok"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
@@ -1664,7 +1952,7 @@ func TestFoxxyCodeSessionMessagesIncludesSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(resA.Body)
+	_, _ = ioReadAllClose(resA.Body)
 	if resA.StatusCode != http.StatusOK {
 		t.Fatalf("session A status %d", resA.StatusCode)
 	}
@@ -1682,7 +1970,7 @@ func TestFoxxyCodeSessionMessagesIncludesSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(resB.Body)
+	_, _ = ioReadAllClose(resB.Body)
 	if resB.StatusCode != http.StatusOK {
 		t.Fatalf("session B status %d", resB.StatusCode)
 	}
@@ -1801,9 +2089,74 @@ func TestFoxxyCodeSessionPatchSelectedModelId(t *testing.T) {
 	}
 }
 
+// The happy path lives in features/session_mode_model_sync.feature; these are
+// the edge cases that keep a bad mode out of session.json.
+func TestFoxxyCodeSessionPatchModeRejectsUnknownValues(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	patch := func(payload string) (int, []byte) {
+		req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		resHTTP, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resHTTP.StatusCode, b
+	}
+
+	if status, b := patch(`{"mode":"plan"}`); status != http.StatusOK {
+		t.Fatalf("patch mode status %d %s", status, b)
+	}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Mode != "plan" {
+		t.Fatalf("disk mode %q, want plan", snap.Meta.Mode)
+	}
+
+	// A bad mode must not land on the session: the reload guard in the manager
+	// would silently rewrite it to agent, losing the user's real choice.
+	if status, b := patch(`{"mode":"wizard"}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for unknown mode got %d %s", status, b)
+	}
+	if status, b := patch(`{"mode":"  "}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for blank mode got %d %s", status, b)
+	}
+	if st := mgr.SessionByID(sid); st == nil || st.GetMode() != "plan" {
+		t.Fatalf("a refused patch changed the session mode: %v", st)
+	}
+
+	// An empty body still names every writable key, mode included.
+	status, b := patch(`{}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("want 400 for an empty patch got %d %s", status, b)
+	}
+	if !strings.Contains(string(b), "mode") {
+		t.Fatalf("the required-keys error does not mention mode: %s", b)
+	}
+}
+
 func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return fakeProvider{reply: "direct-reply"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
@@ -1817,7 +2170,7 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -1925,10 +2278,10 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	// 3 skills (apples, zebra, bundled generate-rules) plus the built-in compact and
-	// plugin commands, which lead the catalog (compact first while the coddy engine is on).
-	if r1.StatusCode != http.StatusOK || page1.Total != 5 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
-		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
+	// Settings and deterministic actions lead the catalog ahead of skills.
+	wantTotal := 2 + len(skills.Bundled()) + len(session.BuiltinCommandRows(cfg, nil, session.ActionCommandRows(cfg)))
+	if r1.StatusCode != http.StatusOK || page1.Total != wantTotal || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "model" {
+		t.Fatalf("page1: status=%d want total %d, got %+v", r1.StatusCode, wantTotal, page1)
 	}
 
 	rp, err := http.Get(ts.URL + "/foxxycode/slash-commands?page=1&page_size=10&prefix=z")
@@ -1945,6 +2298,78 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 	_ = rp.Body.Close()
 	if rp.StatusCode != http.StatusOK || pref.Total != 1 || len(pref.Items) != 1 || pref.Items[0]["name"] != "zebra" {
 		t.Fatalf("prefix: status=%d %+v", rp.StatusCode, pref)
+	}
+}
+
+// TestFoxxyCodeCommandsEndpoint verifies /foxxycode/commands surfaces the built-in
+// deterministic commands (compact, export, plugin) for the composer's "Commands" group.
+func TestFoxxyCodeCommandsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	for _, d := range []string{filepath.Join(home, "memory"), defaultCWD} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	enabled := true
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: home, CWD: defaultCWD},
+		Compaction: config.CompactionConfig{Enabled: &enabled},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(url string) (int, string, []map[string]interface{}) {
+		res, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Object string                   `json:"object"`
+			Items  []map[string]interface{} `json:"items"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode, body.Object, body.Items
+	}
+
+	code, obj, items := get("/foxxycode/commands")
+	if code != http.StatusOK || obj != "foxxycode.commands" {
+		t.Fatalf("status=%d object=%q", code, obj)
+	}
+	var names []string
+	for _, it := range items {
+		names = append(names, fmt.Sprint(it["name"]))
+	}
+	want := "model reasoning think nothink agent plan ask debug permissions compact export plugin"
+	if strings.Join(names, " ") != want {
+		t.Fatalf("commands = %v, want %s", names, want)
+	}
+	if items[0]["kind"] != "setting" || items[len(items)-1]["kind"] != "action" {
+		t.Fatalf("kinds = %v / %v", items[0]["kind"], items[len(items)-1]["kind"])
+	}
+	if items[0]["hint"] != "<model id> [--once|--count=N]" {
+		t.Fatalf("model hint = %v", items[0]["hint"])
+	}
+	for _, it := range items {
+		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {
+			t.Fatalf("command %q missing description", it["name"])
+		}
+	}
+
+	_, _, pl := get("/foxxycode/commands?prefix=plug")
+	if len(pl) != 1 || pl[0]["name"] != "plugin" {
+		t.Fatalf("prefix filter = %+v, want only plugin", pl)
 	}
 }
 
@@ -2185,7 +2610,7 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -2197,6 +2622,87 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 	if blocks[0].Type != "text" || blocks[1].Type != "resource" || blocks[1].Resource == nil || blocks[1].Resource.Text != "inside" {
 		t.Fatalf("blocks %+v", blocks)
+	}
+}
+
+// TestResponsesAttachmentEncodings covers the two ends of attachment decoding
+// over HTTP: a Windows-1251 file is transcoded and reaches the runner as
+// readable text, while a binary file is refused with 400 rather than 500.
+func TestResponsesAttachmentEncodings(t *testing.T) {
+	const russian = "Первая строка заметки в кодировке Windows-1251.\n" +
+		"Вторая строка нужна, чтобы кодировка определялась уверенно.\n" +
+		"Третья строка завершает пример русского текста.\n"
+
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	wd := filepath.Join(root, "wd")
+	sessRoot := filepath.Join(root, "sessions")
+	for _, d := range []string{filepath.Join(home, "memory"), sessRoot, wd} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cp1251, err := charmap.Windows1251.NewEncoder().Bytes([]byte(russian))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), cp1251, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 32)...)
+	if err := os.WriteFile(filepath.Join(wd, "logo.png"), blob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, payload string) int {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	code := post("sess_http_attach_cp1251", `{"model":"agent","input":"read @note.txt","stream":false,"attachments":[{"path":"note.txt"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("windows-1251 attachment status %d, want 200", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) < 2 || blocks[1].Type != "resource" || blocks[1].Resource == nil {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if blocks[1].Resource.Text != russian {
+		t.Fatalf("resource text %q, want %q", blocks[1].Resource.Text, russian)
+	}
+
+	code = post("sess_http_attach_binary", `{"model":"agent","input":"read @logo.png","stream":false,"attachments":[{"path":"logo.png"}]}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("binary attachment status %d, want 400", code)
 	}
 }
 
@@ -2283,7 +2789,9 @@ agent:
 func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	// inline_files are forwarded only for a model that declares multimodal.
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -2295,7 +2803,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", res.StatusCode)
 	}
@@ -2371,7 +2879,7 @@ func TestResolveDirectYAMLMaxTokens(t *testing.T) {
 }
 
 func ioReadAllClose(b io.ReadCloser) ([]byte, error) {
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	return io.ReadAll(b)
 }
 
@@ -2489,8 +2997,8 @@ agent:
 			return noopSender{}
 		},
 		EnsureHome: func(string) error { return nil },
-		OpenStore: func(root string, cfg *config.Config) (*session.FileStore, error) {
-			root = filepath.Join(home, "sessions")
+		OpenStore: func(_ string, cfg *config.Config) (*session.FileStore, error) {
+			root := filepath.Join(home, "sessions")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				return nil, err
 			}
@@ -2554,7 +3062,7 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", res.StatusCode)
 	}
@@ -2577,9 +3085,45 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res2.Body.Close()
+	defer func() { _ = res2.Body.Close() }()
 	if res2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
+	}
+}
+
+// ---- HTTP bearer auth (Phase 1a of the Remote Control roadmap) ----
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
 	}
 }
 
@@ -2607,7 +3151,7 @@ func TestHTTPAuthChallengeHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d want 401", res.StatusCode)
 	}
@@ -2745,7 +3289,7 @@ func TestHTTPCORSPreflightAllowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("preflight status %d want 204", res.StatusCode)
 	}
@@ -2766,7 +3310,7 @@ func TestHTTPCORSDisallowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("disallowed origin got ACAO %q, want none", got)
 	}
@@ -2780,7 +3324,7 @@ func TestHTTPCORSWildcardActualRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d want 200", res.StatusCode)
 	}
@@ -2797,7 +3341,7 @@ func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("CORS disabled but ACAO set: %q", got)
 	}
@@ -2821,56 +3365,24 @@ func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 	}
 }
 
-func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
-	t.Helper()
-	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
-		return "", nil
-	}
-	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
-	srv := New(cfg, mgr, slog.Default(), "/tmp")
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	return srv, ts
-}
-
-func authGET(t *testing.T, rawURL, token string) int {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	return res.StatusCode
-}
-
-func cfgWithAuth(token string) *config.Config {
-	return &config.Config{
-		Agent:      config.Agent{Model: "openai/gpt-4o"},
-		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
-		HTTPServer: config.HTTPServerConfig{AuthToken: token},
-	}
-}
 func cfgWithCORS(origins ...string) *config.Config {
 	c := cfgWithAuth("")
 	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowedOrigins: origins}
 	return c
 }
 
-func TestIsProtectedPatternExemptsIDERoutes(t *testing.T) {
-	// The local IDE integration routes stay public even when auth is enabled, so the editor
-	// plugin keeps working without a bearer token.
+func TestIsProtectedPatternKeepsIDERoutesBehindTheGate(t *testing.T) {
+	// The local IDE integration routes are protected like the rest of the API: authGate opens
+	// them to a direct loopback client without a credential (auth_loopback_test.go), and only
+	// to that client, since GET /foxxycode/ide/events streams the contents of open files.
 	cases := []struct {
 		pattern    string
 		publicDocs bool
 		want       bool
 	}{
-		{"POST /foxxycode/ide/editor-state", false, false},
-		{"POST /foxxycode/ide/terminal-state", false, false},
-		{"GET /foxxycode/ide/events", false, false},
+		{"POST /foxxycode/ide/editor-state", false, true},
+		{"POST /foxxycode/ide/terminal-state", false, true},
+		{"GET /foxxycode/ide/events", false, true},
 		{"POST /v1/responses", false, true},
 		{"GET /foxxycode/sessions/{id}/messages", false, true},
 		{"", false, false},
@@ -2882,5 +3394,1624 @@ func TestIsProtectedPatternExemptsIDERoutes(t *testing.T) {
 		if got := isProtectedPattern(tc.pattern, tc.publicDocs); got != tc.want {
 			t.Errorf("isProtectedPattern(%q, %v) = %v, want %v", tc.pattern, tc.publicDocs, got, tc.want)
 		}
+	}
+}
+
+// TestFoxxyCodeMCPRoutesEdgeCases covers error paths of the /foxxycode/mcp surface;
+// the happy path lives in features/mcp_management.feature.
+func TestFoxxyCodeMCPRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FOXXYCODE_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+mcp_servers:
+  - name: broken
+    command: /nonexistent-mcp-binary
+  - name: remote
+    type: websocket
+    url: https://example.com/ws
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	do := func(method, path string, body string) (int, []byte) {
+		t.Helper()
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, ts.URL+path, rdr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, b
+	}
+
+	// The list reports both servers: broken stdio probes to an error status,
+	// the http entry is unsupported without probing. Config.yaml entries are
+	// global-scoped, config-owned, and read-only for edit/delete.
+	status, b := do(http.MethodGet, "/foxxycode/mcp", "")
+	if status != http.StatusOK {
+		t.Fatalf("GET /foxxycode/mcp status %d %s", status, b)
+	}
+	var list struct {
+		Items []struct {
+			Name     string `json:"name"`
+			Source   string `json:"source"`
+			Origin   string `json:"origin"`
+			Readonly bool   `json:"readonly"`
+			Status   string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("items = %+v, want 2", list.Items)
+	}
+	byName := map[string]string{}
+	for _, it := range list.Items {
+		if it.Source != "global" || it.Origin != "config" || !it.Readonly {
+			t.Errorf("server %q = %s/%s readonly=%v, want global/config readonly", it.Name, it.Source, it.Origin, it.Readonly)
+		}
+		byName[it.Name] = it.Status
+	}
+	if byName["broken"] != "error" {
+		t.Errorf("broken status = %q, want error", byName["broken"])
+	}
+	if byName["remote"] != "unsupported" {
+		t.Errorf("remote status = %q, want unsupported", byName["remote"])
+	}
+
+	// Toggling an unknown server or tool fails with 400.
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/ghost/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable unknown server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/ghost/tools/echo/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable tool of unknown server status %d, want 400", status)
+	}
+
+	// PUT rejects names that break the __ namespace, bad bodies, entries with
+	// neither command nor url, and unknown scopes.
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/bad__name", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT bad name status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/okname", `{broken`); status != http.StatusBadRequest {
+		t.Errorf("PUT invalid body status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/okname", `{}`); status != http.StatusBadRequest {
+		t.Errorf("PUT empty entry status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/okname?scope=nope", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT unknown scope status %d, want 400", status)
+	}
+
+	// PUT with scope=global lands in <home>/mcp.json and lists as global/home.
+	if status, body := do(http.MethodPut, "/foxxycode/mcp/homer?scope=global", `{"command":"home-mcp"}`); status != http.StatusOK {
+		t.Fatalf("PUT scope=global status %d %s", status, body)
+	}
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil || entries["homer"].Command != "home-mcp" {
+		t.Errorf("global mcp.json entries = %+v err=%v, want homer", entries, err)
+	}
+	_, b = do(http.MethodGet, "/foxxycode/mcp", "")
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	foundHomer := false
+	for _, it := range list.Items {
+		if it.Name == "homer" {
+			foundHomer = true
+			if it.Source != "global" || it.Origin != "home" || it.Readonly {
+				t.Errorf("homer = %s/%s readonly=%v, want global/home editable", it.Source, it.Origin, it.Readonly)
+			}
+		}
+	}
+	if !foundHomer {
+		t.Error("homer missing from list after scope=global PUT")
+	}
+
+	// Config-defined servers cannot be deleted over the API; mcp.json ones can.
+	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/broken", ""); status != http.StatusBadRequest {
+		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/homer", ""); status != http.StatusOK {
+		t.Errorf("DELETE home-sourced status %d, want 200", status)
+	}
+
+	// Trust applies to project entries only: config.yaml servers are the
+	// operator's own, so approving one is refused rather than silently stored.
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/broken/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust a config.yaml server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/ghost/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust unknown server status %d, want 400", status)
+	}
+	// Withdrawing an approval that was never granted is a no-op, not an error.
+	status, b = do(http.MethodPost, "/foxxycode/mcp/broken/untrust", "")
+	if status != http.StatusOK || !strings.Contains(string(b), `"removed":false`) {
+		t.Errorf("untrust without an approval = %d %s, want 200 removed:false", status, b)
+	}
+
+	// The project-trust policy is set through this surface (the MCP tab owns
+	// it) and rejects values the loader would not accept.
+	if status, body := do(http.MethodPost, "/foxxycode/mcp/project-trust", `{"policy":"nonsense"}`); status != http.StatusBadRequest {
+		t.Errorf("unknown policy status %d %s, want 400", status, body)
+	}
+	if status, body := do(http.MethodPost, "/foxxycode/mcp/project-trust", `{"policy":"deny"}`); status != http.StatusOK {
+		t.Fatalf("set policy status %d %s", status, body)
+	}
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got := reloaded.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Errorf("config.yaml project_trust = %q, want %q", got, config.ProjectTrustDeny)
+	}
+	_, b = do(http.MethodGet, "/foxxycode/mcp", "")
+	if !strings.Contains(string(b), `"project_trust":"deny"`) {
+		t.Errorf("list does not report the new policy: %s", b)
+	}
+}
+
+// subagentChildFixture creates a parent session and a child spawned by it on a
+// persisted test server, the way the runtime does inside the pool's launch
+// callback, and returns both ids.
+func subagentChildFixture(t *testing.T, mgr *session.Manager, cwd string) (parentID, childID string) {
+	t.Helper()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID = testSessionID(t)
+	if _, err := mgr.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID:              childID,
+		ParentSessionID: res.SessionID,
+		Name:            "explore",
+		TaskID:          "bg_7",
+		CWD:             cwd,
+		Mode:            "agent",
+		Depth:           1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return res.SessionID, childID
+}
+
+// httpJSON issues one request and decodes a JSON object body when there is one.
+func httpJSON(t *testing.T, ts *httptest.Server, method, path, body string, headers map[string]string) (int, map[string]interface{}) {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, ts.URL+path, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var parsed map[string]interface{}
+	_ = json.NewDecoder(res.Body).Decode(&parsed)
+	return res.StatusCode, parsed
+}
+
+func TestSubagentSessionRoutesAnswerReadOnlyConflict(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	parentID, childID := subagentChildFixture(t, mgr, "/tmp")
+
+	wantConflict := func(name string, status int, body map[string]interface{}) {
+		t.Helper()
+		if status != http.StatusConflict {
+			t.Fatalf("%s: status %d, want 409 (%v)", name, status, body)
+		}
+		errObj, _ := body["error"].(map[string]interface{})
+		msg, _ := errObj["message"].(string)
+		if !strings.Contains(msg, "read-only") || !strings.Contains(msg, parentID) {
+			t.Fatalf("%s: message %q does not say read-only and name the parent %s", name, msg, parentID)
+		}
+	}
+	childHeader := map[string]string{"X-FoxxyCode-Session-ID": childID}
+	cases := []struct {
+		name, method, path, body string
+		headers                  map[string]string
+	}{
+		{"responses", http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello"}`, childHeader},
+		{"responses stream", http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello","stream":true}`, childHeader},
+		{"chat completions", http.MethodPost, "/v1/chat/completions", `{"model":"agent","messages":[{"role":"user","content":"hello"}]}`, childHeader},
+		{"direct completion", http.MethodPost, "/v1/chat/completions", `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hello"}]}`, childHeader},
+		{"compact", http.MethodPost, "/foxxycode/sessions/" + childID + "/compact", `{}`, nil},
+		{"plan run", http.MethodPatch, "/foxxycode/sessions/" + childID + "/plans/demo", `{"runPlan":true}`, nil},
+		{"permission", http.MethodPost, "/foxxycode/sessions/" + childID + "/permission", `{"toolCallId":"tc_1","optionId":"allow"}`, nil},
+	}
+	for _, tc := range cases {
+		status, body := httpJSON(t, ts, tc.method, tc.path, tc.body, tc.headers)
+		wantConflict(tc.name, status, body)
+	}
+
+	// The transcript itself stays readable and tells the client it is a child.
+	status, body := httpJSON(t, ts, http.MethodGet, "/foxxycode/sessions/"+childID+"/messages", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("messages: status %d (%v)", status, body)
+	}
+	if body["readOnly"] != true {
+		t.Fatalf("messages: readOnly missing: %v", body)
+	}
+	link, _ := body["subagent"].(map[string]interface{})
+	if link["parentSessionId"] != parentID || link["name"] != "explore" || link["taskId"] != "bg_7" {
+		t.Fatalf("messages: subagent link %v", link)
+	}
+
+	// A retired child is served from its bundle and refuses the same way.
+	mgr.RetireSubagentSession(childID)
+	status, body = httpJSON(t, ts, http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello"}`, childHeader)
+	wantConflict("responses after retire", status, body)
+	status, body = httpJSON(t, ts, http.MethodGet, "/foxxycode/sessions/"+childID+"/messages", "", nil)
+	if status != http.StatusOK || body["readOnly"] != true {
+		t.Fatalf("messages after retire: status %d body %v", status, body)
+	}
+
+	// The parent is an ordinary session and still takes prompts.
+	status, body = httpJSON(t, ts, http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello"}`, map[string]string{"X-FoxxyCode-Session-ID": parentID})
+	if status != http.StatusOK {
+		t.Fatalf("parent prompt: status %d (%v)", status, body)
+	}
+}
+
+func TestFoxxyCodeSessionDeleteRemovesRetiredChildAndToleratesMissing(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	parentID, childID := subagentChildFixture(t, mgr, "/tmp")
+	mgr.RetireSubagentSession(childID)
+
+	status, body := httpJSON(t, ts, http.MethodDelete, "/foxxycode/sessions/"+parentID, "", nil)
+	if status != http.StatusOK || body["object"] != "foxxycode.session_deleted" || body["id"] != parentID {
+		t.Fatalf("delete parent: status %d body %v", status, body)
+	}
+	for _, id := range []string{parentID, childID} {
+		if _, err := os.Stat(filepath.Join(sessRoot, id)); !os.IsNotExist(err) {
+			t.Fatalf("bundle %s still exists (err %v)", id, err)
+		}
+	}
+
+	status, body = httpJSON(t, ts, http.MethodDelete, "/foxxycode/sessions/never_existed", "", nil)
+	if status != http.StatusOK || body["object"] != "foxxycode.session_deleted" {
+		t.Fatalf("delete missing: status %d body %v", status, body)
+	}
+}
+
+func TestFoxxyCodeSubagentsCatalogAndTrustRoutes(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	ws := filepath.Join(root, "ws")
+	other := filepath.Join(root, "other")
+	for _, dir := range []string{filepath.Join(home, "agents"), sessRoot, filepath.Join(ws, ".foxxycode", "agents"), filepath.Join(other, ".foxxycode", "agents")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	definition := func(name string) []byte {
+		return []byte("---\nname: " + name + "\ndescription: unit helper " + name + "\n---\nYou are " + name + ".\n")
+	}
+	if err := os.WriteFile(filepath.Join(home, "agents", "helper.md"), definition("helper"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{ws, other} {
+		if err := os.WriteFile(filepath.Join(dir, ".foxxycode", "agents", "reviewer.md"), definition("reviewer"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: ws},
+		Models:    []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:     config.Agent{Model: "openai/gpt-4o"},
+		Subagents: config.Subagents{Dirs: config.DefaultSubagentDirs()},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), ws, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), ws)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	item := func(body map[string]interface{}, name string) map[string]interface{} {
+		t.Helper()
+		items, _ := body["items"].([]interface{})
+		for _, raw := range items {
+			row, _ := raw.(map[string]interface{})
+			if row["name"] == name {
+				return row
+			}
+		}
+		t.Fatalf("catalog does not list %q: %v", name, body)
+		return nil
+	}
+
+	status, body := httpJSON(t, ts, http.MethodGet, "/foxxycode/subagents", "", nil)
+	if status != http.StatusOK || body["object"] != "foxxycode.subagent_list" || body["policy"] != "ask" {
+		t.Fatalf("catalog: status %d body %v", status, body)
+	}
+	if ws, _ := body["workspace"].(string); !filepath.IsAbs(ws) || filepath.Base(ws) != "ws" {
+		t.Fatalf("catalog workspace %q is not the canonical server workspace", ws)
+	}
+	if row := item(body, "general"); row["scope"] != "builtin" || row["builtin"] != true || row["trusted"] != true {
+		t.Fatalf("general: %v", row)
+	}
+	if row := item(body, "helper"); row["scope"] != "user" || row["trusted"] != true {
+		t.Fatalf("helper: %v", row)
+	}
+	if row := item(body, "reviewer"); row["scope"] != "project" || row["needs_approval"] != true || row["trust"] != "needs_approval" || row["digest"] == "" {
+		t.Fatalf("reviewer: %v", row)
+	}
+
+	if status, _ := httpJSON(t, ts, http.MethodGet, "/foxxycode/subagents?cwd=relative/path", "", nil); status != http.StatusBadRequest {
+		t.Fatalf("relative cwd: status %d, want 400", status)
+	}
+	if status, _ := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/nope/trust", `{}`, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown name: status %d, want 404", status)
+	}
+	if status, body := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/explore/trust", "", nil); status != http.StatusBadRequest {
+		t.Fatalf("built-in trust: status %d, want 400 (%v)", status, body)
+	}
+	if status, body := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/helper/trust", `{}`, nil); status != http.StatusBadRequest {
+		t.Fatalf("user-scope trust: status %d, want 400 (%v)", status, body)
+	}
+	if status, _ := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/trust", `{"cwd":`, nil); status != http.StatusBadRequest {
+		t.Fatalf("malformed body: status %d, want 400", status)
+	}
+	if status, _ := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/trust", `{"cwd":"rel"}`, nil); status != http.StatusBadRequest {
+		t.Fatalf("relative body cwd: status %d, want 400", status)
+	}
+
+	status, body = httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/trust", fmt.Sprintf(`{"cwd":%q}`, ws), nil)
+	if status != http.StatusOK || body["object"] != "foxxycode.subagent" {
+		t.Fatalf("trust: status %d body %v", status, body)
+	}
+	if row, _ := body["item"].(map[string]interface{}); row["trusted"] != true || row["trust"] != "trusted" {
+		t.Fatalf("trust item: %v", body["item"])
+	}
+	if _, err := os.Stat(filepath.Join(home, "subagents-trust.json")); err != nil {
+		t.Fatalf("receipt file: %v", err)
+	}
+	// Receipts are keyed by workspace: the same file in another checkout is
+	// still unapproved.
+	status, body = httpJSON(t, ts, http.MethodGet, "/foxxycode/subagents?cwd="+url.QueryEscape(other), "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("other catalog: status %d", status)
+	}
+	if row := item(body, "reviewer"); row["needs_approval"] != true {
+		t.Fatalf("other workspace reviewer: %v", row)
+	}
+
+	status, body = httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/untrust", `{}`, nil)
+	if status != http.StatusOK {
+		t.Fatalf("untrust: status %d body %v", status, body)
+	}
+	if row, _ := body["item"].(map[string]interface{}); row["needs_approval"] != true {
+		t.Fatalf("untrust item: %v", body["item"])
+	}
+	status, body = httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/explore/untrust", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("untrust built-in: status %d body %v", status, body)
+	}
+	if row, _ := body["item"].(map[string]interface{}); row["trusted"] != true {
+		t.Fatalf("untrust built-in item: %v", body["item"])
+	}
+}
+
+func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	const sid = "sess_non_multimodal_direct"
+	payload := `{"model":"openai/gpt-4o","input":"hello","stream":true,` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+
+	var userMsg *llm.Message
+	for i := range cp.seen {
+		if cp.seen[i].Role == llm.RoleUser {
+			userMsg = &cp.seen[i]
+		}
+	}
+	if userMsg == nil {
+		t.Fatal("no user message found")
+	}
+	if len(userMsg.ImageParts) != 0 {
+		t.Fatalf("non-multimodal provider received %d image parts", len(userMsg.ImageParts))
+	}
+
+	store := &session.FileStore{Root: sessRoot}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 0 {
+		t.Fatalf("non-multimodal history retained image parts: %+v", snap.Messages)
+	}
+}
+
+func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	src := image.NewRGBA(image.Rect(0, 0, 320, 80))
+	for y := 0; y < 80; y++ {
+		for x := 0; x < 320; x++ {
+			src.Set(x, y, color.RGBA{R: 40, G: uint8(y), B: uint8(x % 255), A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, src); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+	payload, err := json.Marshal(map[string]interface{}{
+		"model":  "openai/gpt-4o",
+		"input":  "describe",
+		"stream": false,
+		"inline_files": []map[string]string{{
+			"name":     "wide.png",
+			"data_url": dataURL,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := "sess_persisted_thumbnail"
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+
+	store := &session.FileStore{Root: sessRoot}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 1 {
+		t.Fatalf("persisted messages missing image part: %+v", snap.Messages)
+	}
+	if snap.Messages[0].ImageParts[0].ThumbnailPath == "" {
+		t.Fatal("persisted image part is missing ThumbnailPath")
+	}
+
+	msgRes, err := http.Get(ts.URL + "/foxxycode/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var history struct {
+		Messages []struct {
+			Files []struct {
+				Name       string `json:"name"`
+				MimeType   string `json:"mime_type"`
+				PreviewURL string `json:"preview_url"`
+			} `json:"files"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(msgRes.Body).Decode(&history); err != nil {
+		_ = msgRes.Body.Close()
+		t.Fatal(err)
+	}
+	_ = msgRes.Body.Close()
+	if msgRes.StatusCode != http.StatusOK {
+		t.Fatalf("messages status %d", msgRes.StatusCode)
+	}
+	if len(history.Messages) == 0 || len(history.Messages[0].Files) != 1 {
+		t.Fatalf("history missing file metadata: %+v", history.Messages)
+	}
+	file := history.Messages[0].Files[0]
+	if file.Name != "wide.png" || file.MimeType != "image/png" || file.PreviewURL == "" {
+		t.Fatalf("unexpected file metadata: %+v", file)
+	}
+
+	thumbRes, err := http.Get(ts.URL + file.PreviewURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = thumbRes.Body.Close() }()
+	if thumbRes.StatusCode != http.StatusOK {
+		t.Fatalf("thumbnail status %d", thumbRes.StatusCode)
+	}
+	if got := thumbRes.Header.Get("Content-Type"); got != "image/png" {
+		t.Fatalf("thumbnail Content-Type = %q", got)
+	}
+	cfg, err := png.DecodeConfig(thumbRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Width != 160 || cfg.Height != 40 {
+		t.Fatalf("thumbnail size = %dx%d, want 160x40", cfg.Width, cfg.Height)
+	}
+}
+
+func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
+	var imageParts []llm.ImagePart
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		imageParts = st.TakePendingImageParts()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models = append(srv.activeCfg().Models, config.ModelEntry{
+		Model: "openai/text-only", MaxTokens: 100, Temperature: 0.2,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := `{"model":"agent","input":"hi","stream":false,` +
+		`"metadata":{"model":"openai/text-only"},` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+	if len(imageParts) != 0 {
+		t.Fatalf("non-multimodal agent runner received %d image parts", len(imageParts))
+	}
+}
+
+// The ask pseudo-model runs the session as an ask turn, the same way agent and
+// plan select their profile.
+func TestResponsesAskProfileRunsSessionInAskMode(t *testing.T) {
+	var seenMode string
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		seenMode = st.GetMode()
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ask reply"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json",
+		strings.NewReader(`{"model":"ask","input":"hi","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	if seenMode != string(session.ModeAsk) {
+		t.Fatalf("runner saw mode %q, want ask", seenMode)
+	}
+	if !strings.Contains(string(body), `"model":"ask"`) {
+		t.Fatalf("response does not echo the ask profile: %s", body)
+	}
+}
+
+// Pairing the read-only ask profile with runPlanSlug is refused before the
+// turn lock, the relay, or SSE headers, so streaming and non-streaming callers
+// both get a plain 409 instead of a 500 (or a committed 200) from the manager.
+func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
+	runs := 0
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name, path, payload string
+	}{
+		{"responses non-stream", "/v1/responses", `{"model":"ask","input":"go","stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+		{"responses stream", "/v1/responses", `{"model":"ask","input":"go","stream":true,"metadata":{"runPlanSlug":"demo"}}`},
+		{"chat completions", "/v1/chat/completions", `{"model":"ask","messages":[{"role":"user","content":"go"}],"stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+	}
+	for _, tc := range cases {
+		res, err := http.Post(ts.URL+tc.path, "application/json", strings.NewReader(tc.payload))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusConflict {
+			t.Fatalf("%s: status %d, want 409: %s", tc.name, res.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "ask mode") {
+			t.Fatalf("%s: error does not explain the refusal: %s", tc.name, body)
+		}
+		if ct := res.Header.Get("Content-Type"); strings.Contains(ct, "text/event-stream") {
+			t.Fatalf("%s: refusal was streamed as SSE", tc.name)
+		}
+	}
+	if runs != 0 {
+		t.Fatalf("a turn ran %d time(s) despite the refusal", runs)
+	}
+}
+
+// GET /foxxycode/skills accepts the optional X-FoxxyCode-Session-ID header the way
+// /foxxycode/slash-commands does: a malformed id is a 400, an unknown session a
+// 404, and the header-less call keeps listing the server default workspace.
+func TestFoxxyCodeSkillsListSessionHeaderErrors(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(defaultCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: defaultCWD},
+		Skills: config.Skills{Dirs: []string{"${CWD}/.agents/skills"}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(header string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/skills", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header != "" {
+			req.Header.Set("X-FoxxyCode-Session-ID", header)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(b)
+	}
+	if code, body := get("../escape"); code != http.StatusBadRequest {
+		t.Fatalf("malformed session id: status %d body %s", code, body)
+	}
+	if code, body := get("sess_0123456789abcdef"); code != http.StatusNotFound {
+		t.Fatalf("unknown session: status %d body %s", code, body)
+	}
+	if code, body := get(""); code != http.StatusOK {
+		t.Fatalf("no header: status %d body %s", code, body)
+	}
+}
+
+// TestBackgroundWakeSurvivesATurnStillInFlight is the end-to-end half of
+// features/background_wake.feature, taken through the real composer turn lock
+// rather than a stand-in for it.
+//
+// The reported failure was a `git submodule update` that exited 1 three seconds
+// after the model handed it off: the task was still inside the turn that started
+// it, the turn lock refused the wake, and the outcome the model had been
+// promised never arrived. The waker harness could not have caught that - it
+// calls its runner directly - so the guard belongs here, where beginTurn and
+// flock are the real ones.
+func TestBackgroundWakeSurvivesATurnStillInFlight(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	woken := make(chan string, 4)
+	release := make(chan struct{})
+	var turns atomic.Int32
+	runner := func(_ context.Context, _ *session.State, blocks []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var text strings.Builder
+		for _, b := range blocks {
+			text.WriteString(b.Text)
+		}
+		if turns.Add(1) == 1 {
+			// The operator's turn is still running while the task dies.
+			<-release
+			return string(acp.StopReasonEndTurn), nil
+		}
+		woken <- text.String()
+		return string(acp.StopReasonEndTurn), nil
+	}
+
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), root)
+	defer srv.Drain()
+	// Nothing else in this test owns a waker; `foxxycode serve` hands the server's
+	// wake path to its runtime instead.
+	srv.AttachBackgroundWaker()
+	defer bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := res.SessionID
+	defer bgtask.Default().StopSession(sessionID)
+	bgtask.Default().SetSessionDir(sessionID, mgr.SessionByID(sessionID).GetPersistedSessionDir())
+
+	turnDone := make(chan struct{})
+	go func() {
+		defer close(turnDone)
+		_, _ = mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sessionID,
+			Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "update the submodules"}},
+		})
+	}()
+
+	// Wait for the turn to actually hold the lock before the task can finish.
+	deadline := time.Now().Add(5 * time.Second)
+	for turns.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if turns.Load() == 0 {
+		t.Fatal("the operator turn never started")
+	}
+
+	if _, err := bgtask.Default().Start(bgtask.Spec{
+		SessionID:       sessionID,
+		Kind:            bgtask.KindCommand,
+		Command:         bddFailingAuthCommand(),
+		CWD:             root,
+		ExpectedSeconds: 60,
+		NotifyOnFinish:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Give the waker time to be refused by the busy session, then end the turn.
+	time.Sleep(2 * time.Second)
+	close(release)
+	<-turnDone
+
+	select {
+	case text := <-woken:
+		if !strings.Contains(text, "failed") || !strings.Contains(text, "did not succeed") {
+			t.Fatalf("woken turn %q does not report the failure", text)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the failed task never woke the agent after the turn ended")
+	}
+}
+
+// bddFailingAuthCommand echoes the refusal git reports for an unusable SSH key
+// and exits non-zero, without needing git or a network.
+func bddFailingAuthCommand() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Error 'git@github.com: Permission denied (publickey).'; exit 1"
+	}
+	return "echo 'git@github.com: Permission denied (publickey).' >&2; exit 1"
+}
+
+// TestFoxxyCodeSessionsListFiltersByWorkspace: the cwd query narrows the list to
+// one workspace, matching the folder however its path is spelled (an editor
+// sends the physical path of a checkout the console stored through a symlink).
+func TestFoxxyCodeSessionsListFiltersByWorkspace(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	real := filepath.Join(root, "real", "project")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	inWorkspace, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: filepath.Join(root, "link", "project")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions?cwd=" + url.QueryEscape(real))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(parsed.Sessions))
+	for _, row := range parsed.Sessions {
+		ids = append(ids, row.ID)
+	}
+	if len(ids) != 1 || ids[0] != inWorkspace.SessionID {
+		t.Fatalf("cwd=%q listed %v, want only %s (not %s)", real, ids, inWorkspace.SessionID, elsewhere.SessionID)
+	}
+}
+
+// POST /v1/chat/completions as a passthrough for a direct model (the happy path is
+// features/openai_passthrough.feature): the boundaries of what the client may send.
+
+func TestOpenAIContentReadsStringsNullAndParts(t *testing.T) {
+	for name, tc := range map[string]struct {
+		raw    string
+		text   string
+		images int
+		err    string
+	}{
+		"string":         {raw: `"hello"`, text: "hello"},
+		"null":           {raw: `null`},
+		"empty":          {raw: ``},
+		"text parts":     {raw: `[{"type":"text","text":"a"},{"type":"text","text":"b"}]`, text: "a\nb"},
+		"image object":   {raw: `[{"type":"text","text":"see"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]`, text: "see", images: 1},
+		"image string":   {raw: `[{"type":"image_url","image_url":"https://example.test/a.png"}]`, images: 1},
+		"image without":  {raw: `[{"type":"image_url","image_url":{}}]`, err: "image_url part without a url"},
+		"unknown part":   {raw: `[{"type":"input_audio","input_audio":{}}]`, err: `unsupported content part type "input_audio"`},
+		"object content": {raw: `{"text":"x"}`, err: "message content must be a string or an array of parts"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			text, images, err := openAIContent(json.RawMessage(tc.raw))
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("err = %v, want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if text != tc.text || len(images) != tc.images {
+				t.Fatalf("got text %q, %d images; want %q, %d", text, len(images), tc.text, tc.images)
+			}
+		})
+	}
+}
+
+func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
+	weather := `[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]`
+	tools, err := openAIToolsToLLM(json.RawMessage(weather), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Name != "get_weather" || tools[0].Description != "Weather" {
+		t.Fatalf("tools = %+v", tools)
+	}
+	if schema, _ := tools[0].InputSchema.(map[string]interface{}); schema["type"] != "object" {
+		t.Fatalf("schema = %#v", tools[0].InputSchema)
+	}
+	// No parameters: an empty object schema, which every provider accepts.
+	tools, err = openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{"name":"ping"}}]`), nil)
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("tools = %+v, err = %v", tools, err)
+	}
+	if schema, _ := tools[0].InputSchema.(map[string]interface{}); schema["type"] != "object" {
+		t.Fatalf("default schema = %#v", tools[0].InputSchema)
+	}
+	// tool_choice "none" withholds the tools; anything else leaves them offered.
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`)); err != nil || tools != nil {
+		t.Fatalf("tool_choice none: tools = %+v, err = %v", tools, err)
+	}
+	// Withheld tools are still read: a broken list is refused whatever the choice.
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), json.RawMessage(`"none"`)); err == nil {
+		t.Fatal("tool_choice none must not hide a broken tool list")
+	}
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`)); err != nil || len(tools) != 1 {
+		t.Fatalf("tool_choice object: tools = %+v, err = %v", tools, err)
+	}
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), nil); err == nil || !strings.Contains(err.Error(), `unsupported tool type "web_search"`) {
+		t.Fatalf("unknown tool type: err = %v", err)
+	}
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{}}]`), nil); err == nil || !strings.Contains(err.Error(), "tool without a function name") {
+		t.Fatalf("nameless tool: err = %v", err)
+	}
+}
+
+// passthroughCaptureProvider records what a direct completion offered the model.
+type passthroughCaptureProvider struct {
+	seen  []llm.Message
+	tools []llm.ToolDefinition
+}
+
+func (p *passthroughCaptureProvider) Complete(_ context.Context, messages []llm.Message, tools []llm.ToolDefinition) (*llm.Response, error) {
+	p.seen, p.tools = append([]llm.Message(nil), messages...), append([]llm.ToolDefinition(nil), tools...)
+	return &llm.Response{Content: "ok", StopReason: "end_turn"}, nil
+}
+
+func (p *passthroughCaptureProvider) Stream(ctx context.Context, messages []llm.Message, tools []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, err := p.Complete(ctx, messages, tools)
+	onChunk(llm.StreamChunk{TextDelta: "ok"})
+	return resp, err
+}
+
+func TestChatCompletionsPassthroughBoundaries(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	capture := &passthroughCaptureProvider{}
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return capture, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	const model = "openai/gpt-4o"
+	post := func(body string) (int, string) {
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+	weather := `{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}`
+
+	// tool_choice "none" keeps the tools from the model.
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + weather + `],"tool_choice":"none","stream":false}`); code != http.StatusOK {
+		t.Fatalf("tool_choice none: %d %s", code, body)
+	}
+	if len(capture.tools) != 0 {
+		t.Fatalf("tool_choice none still offered %+v", capture.tools)
+	}
+
+	// A picture reaches the model only when the model is configured multimodal;
+	// otherwise the text goes and the picture is dropped rather than flattened.
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}],"stream":false}`); code != http.StatusOK {
+		t.Fatalf("image: %d %s", code, body)
+	}
+	last := capture.seen[len(capture.seen)-1]
+	if last.Content != "look" {
+		t.Fatalf("user text = %q, want the text part alone", last.Content)
+	}
+	if want := configuredModelMultimodal(srv.activeCfg(), model); (len(last.ImageParts) > 0) != want {
+		t.Fatalf("image parts = %d, multimodal = %v", len(last.ImageParts), want)
+	}
+
+	// What the endpoint refuses, and why.
+	for name, tc := range map[string]struct{ body, want string }{
+		"unknown part":            {`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"input_audio"}]}]}`, `unsupported content part type "input_audio"`},
+		"unknown tool":            {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search"}]}`, `unsupported tool type "web_search"`},
+		"tool result for profile": {`{"model":"agent","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c1","content":"done"}]}`, "last message must be user"},
+		"tool result without id":  {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"tool","content":"done"}]}`, "tool message requires tool_call_id"},
+		"image on assistant":      {`{"model":"` + model + `","messages":[{"role":"assistant","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]},{"role":"user","content":"hi"}]}`, "image parts are only accepted on user messages"},
+		"assistant last (direct)": {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}]}`, "last message must be user or tool"},
+	} {
+		code, body := post(tc.body)
+		var payload struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal([]byte(body), &payload)
+		if code != http.StatusBadRequest || !strings.Contains(payload.Error.Message, tc.want) {
+			t.Fatalf("%s: %d %s, want 400 with %q", name, code, body, tc.want)
+		}
+	}
+}
+
+// toolCallingProvider answers every request with one call of the client's tool.
+type toolCallingProvider struct{}
+
+func (toolCallingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "get_weather", InputJSON: `{"city":"Paris"}`}}, StopReason: "tool_use"}, nil
+}
+
+func (p toolCallingProvider) Stream(ctx context.Context, m []llm.Message, t []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, _ := p.Complete(ctx, m, t)
+	onChunk(llm.StreamChunk{ToolCall: &resp.ToolCalls[0]})
+	return resp, nil
+}
+
+func TestChatCompletionsPassthroughToolAnswerAndBounds(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+		return toolCallingProvider{}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	const model = "openai/gpt-4o"
+	post := func(body string) (int, string) {
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+	weather := `{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}`
+
+	// A JSON answer made of tool calls has no content, the way OpenAI renders it.
+	code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + weather + `],"stream":false}`)
+	if code != http.StatusOK {
+		t.Fatalf("tool answer: %d %s", code, body)
+	}
+	var answer struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Content   *string          `json:"content"`
+				ToolCalls []map[string]any `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal([]byte(body), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if len(answer.Choices) != 1 || answer.Choices[0].FinishReason != "tool_calls" || len(answer.Choices[0].Message.ToolCalls) != 1 || answer.Choices[0].Message.Content != nil {
+		t.Fatalf("tool answer = %s", body)
+	}
+
+	// A replayed call may carry its arguments as an object; it still needs an id and a name.
+	replay := func(call string) string {
+		return `{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null,"tool_calls":[` + call + `]},{"role":"tool","tool_call_id":"call_1","content":"18"}],"stream":false}`
+	}
+	if code, body := post(replay(`{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Paris"}}}`)); code != http.StatusOK {
+		t.Fatalf("object arguments: %d %s", code, body)
+	}
+	if code, body := post(replay(`{"id":"","type":"function","function":{"name":"get_weather","arguments":"{}"}}`)); code != http.StatusBadRequest || !strings.Contains(body, "requires an id and a function name") {
+		t.Fatalf("nameless call: %d %s", code, body)
+	}
+
+	// Bounds: the tool count, a schema's size, the pictures per message and a picture's size.
+	tools := strings.Repeat(weather+",", maxClientTools) + weather
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + tools + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 128 tools") {
+		t.Fatalf("too many tools: %d %s", code, body)
+	}
+	big := `{"type":"function","function":{"name":"big","parameters":{"type":"object","description":"` + strings.Repeat("x", maxClientToolSchemaBytes) + `"}}}`
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + big + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "parameters exceed") {
+		t.Fatalf("huge schema: %d %s", code, body)
+	}
+	image := `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`
+	parts := strings.Repeat(image+",", maxImagePartsPerMessage) + image
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[` + parts + `]}]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 16 images") {
+		t.Fatalf("too many images: %d %s", code, body)
+	}
+	// The picture bound is checked on the parser: a request that size is not
+	// worth building for the round trip.
+	huge := `[{"type":"image_url","image_url":{"url":"data:image/png;base64,` + strings.Repeat("A", maxImagePartBytes) + `"}}]`
+	if _, _, err := openAIContent(json.RawMessage(huge)); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("huge image: err = %v", err)
+	}
+}
+
+func TestChatCompletionsToolCallsFinishOnThemWhateverTheProviderSaid(t *testing.T) {
+	// Some servers say stop next to their tool_calls; the client must still
+	// see finish_reason tool_calls, or it would not run them.
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+		return stopSayingToolProvider{}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	body := `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"get_weather"}}],"stream":%v}`
+	res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(fmt.Sprintf(body, false)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if got := gjson.GetBytes(b, "choices.0.finish_reason").String(); got != "tool_calls" {
+		t.Fatalf("JSON finish_reason = %q: %s", got, b)
+	}
+	res, err = http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(fmt.Sprintf(body, true)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = ioReadAllClose(res.Body)
+	if !strings.Contains(string(b), `"finish_reason":"tool_calls"`) {
+		t.Fatalf("stream never finished on tool_calls:\n%s", b)
+	}
+}
+
+// stopSayingToolProvider returns a tool call under a stop reason of end_turn.
+type stopSayingToolProvider struct{}
+
+func (stopSayingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "get_weather", InputJSON: `{}`}}, StopReason: "end_turn"}, nil
+}
+
+func (p stopSayingToolProvider) Stream(ctx context.Context, m []llm.Message, t []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, _ := p.Complete(ctx, m, t)
+	onChunk(llm.StreamChunk{ToolCall: &resp.ToolCalls[0]})
+	return resp, nil
+}
+
+// The describe call that names a new chat answers seconds after the turn it
+// belongs to started, and that turn may have named the session itself - the
+// operator in the header, or the model through session_describe. The suggestion
+// then applies its tags and leaves the name alone.
+func TestFoxxyCodeSessionPatchTitleIfUnpinnedDoesNotOverwriteAName(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	patch := func(body string) map[string]interface{} {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resHTTP, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("status %d %s", resHTTP.StatusCode, b)
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+
+	// Nothing named it yet, so the suggestion is what the session is called.
+	if got := patch(`{"title":"Suggested by describe","titleIfUnpinned":true}`)["title"]; got != "Suggested by describe" {
+		t.Fatalf("title = %v, want the suggestion", got)
+	}
+	// Named during the first turn, then the second suggestion arrives.
+	patch(`{"title":"Named during the turn"}`)
+	after := patch(`{"title":"Suggested by describe","titleIfUnpinned":true,"tags":["backend"]}`)
+	if got := after["title"]; got != "Named during the turn" {
+		t.Fatalf("title = %v, want the name the turn wrote", got)
+	}
+	tags, _ := after["tags"].([]interface{})
+	if len(tags) != 1 || tags[0] != "backend" {
+		t.Fatalf("the tags of the same request did not land: %v", after["tags"])
+	}
+	// A rename without the flag still renames.
+	if got := patch(`{"title":"Renamed by hand"}`)["title"]; got != "Renamed by hand" {
+		t.Fatalf("title = %v", got)
+	}
+}
+
+// directOptionsTestServer serves three direct models - openai, anthropic and
+// codex - whose providers all point at one recording backend, so a test can
+// tell whether a refused request reached any of them.
+func directOptionsTestServer(t *testing.T) (*Server, *httptest.Server, *recordingOpenAIBackend, string) {
+	t.Helper()
+	backend := &recordingOpenAIBackend{}
+	backendTS := httptest.NewServer(backend)
+	t.Cleanup(backendTS.Close)
+	t.Setenv("FOXXYCODE_CODEX_BASE_URL", backendTS.URL)
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	for _, dir := range []string{home, sessRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home, CWD: root},
+		Providers: []config.ProviderConfig{
+			{Name: "local", Type: "openai", APIBase: backendTS.URL, APIKey: "k"},
+			{Name: "claude", Type: "anthropic", APIBase: backendTS.URL, APIKey: "k"},
+			{Name: "codex", Type: "codex"},
+		},
+		Models: []config.ModelEntry{
+			{Model: "local/llama-3.1-8b", MaxTokens: 8192, Temperature: 0.2},
+			{Model: "local/o4-mini", ReasoningDefault: "medium"},
+			{Model: "local/o3"},
+			{Model: "claude/claude-3-5-haiku", MaxTokens: 8192, Temperature: 0.2},
+			{Model: "claude/claude-sonnet-4-5", MaxTokens: 8192, ReasoningDefault: "medium"},
+			{Model: "codex/gpt-5.5"},
+		},
+		Agent: config.Agent{Model: "local/llama-3.1-8b"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, nil, slog.Default(), root, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), root)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts, backend, sessRoot
+}
+
+func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) {
+	_, ts, backend, sessRoot := directOptionsTestServer(t)
+	for name, tc := range map[string]struct{ model, options, want string }{
+		"zero max_tokens":                        {"local/llama-3.1-8b", `"max_tokens":0`, "max_tokens must be a positive integer"},
+		"negative max_tokens":                    {"local/llama-3.1-8b", `"max_tokens":-5`, "max_tokens must be a positive integer"},
+		"zero max_completion_tokens":             {"local/llama-3.1-8b", `"max_completion_tokens":0`, "max_tokens must be a positive integer"},
+		"disagreeing caps":                       {"local/llama-3.1-8b", `"max_tokens":100,"max_completion_tokens":200`, "max_tokens (100) and max_completion_tokens (200) disagree"},
+		"openai temperature above 2":             {"local/llama-3.1-8b", `"temperature":2.5`, "temperature must be between 0 and 2"},
+		"negative temperature":                   {"local/llama-3.1-8b", `"temperature":-0.1`, "temperature must be between 0 and 2"},
+		"anthropic temperature 1.5":              {"claude/claude-3-5-haiku", `"temperature":1.5`, "temperature must be between 0 and 1"},
+		"anthropic thinking temperature":         {"claude/claude-sonnet-4-5", `"reasoning_effort":"high","temperature":0.5`, "temperature must be 1 when Anthropic thinking is enabled"},
+		"anthropic default thinking temperature": {"claude/claude-sonnet-4-5", `"temperature":0.5`, "temperature must be 1 when Anthropic thinking is enabled"},
+		"codex max_tokens":                       {"codex/gpt-5.5", `"max_tokens":256`, "max_tokens is not supported by a codex model"},
+		"codex temperature":                      {"codex/gpt-5.5", `"temperature":0.5`, "temperature is not supported by a codex model"},
+		"level the model lacks":                  {"local/o4-mini", `"reasoning_effort":"minimal"`, `reasoning_effort "minimal" is not offered by model "local/o4-mini" (offered: low, medium, high)`},
+		"level on a plain model":                 {"local/llama-3.1-8b", `"reasoning_effort":"low"`, `model "local/llama-3.1-8b" offers no reasoning levels`},
+		"minimal on codex":                       {"codex/gpt-5.5", `"reasoning_effort":"minimal"`, "(offered: none, low, medium, high)"},
+		"reasoning_effort not text":              {"local/o4-mini", `"reasoning_effort":3`, "invalid JSON"},
+		"cap under thinking budget":              {"claude/claude-sonnet-4-5", `"reasoning_effort":"low","max_tokens":1024`, `max_tokens must exceed 1024 at reasoning level "low"`},
+	} {
+		for _, stream := range []bool{false, true} {
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],%s,"stream":%v}`, tc.model, tc.options, stream)
+			res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != http.StatusBadRequest || !strings.Contains(gjson.GetBytes(raw, "error.message").String(), tc.want) {
+				t.Fatalf("%s (stream %v): %d %s, want 400 with %q", name, stream, res.StatusCode, raw, tc.want)
+			}
+			if sid := res.Header.Get("X-FoxxyCode-Session-ID"); sid != "" {
+				t.Fatalf("%s (stream %v): a refused request created session %s", name, stream, sid)
+			}
+		}
+	}
+	if n := len(backend.requests); n != 0 {
+		t.Fatalf("refused requests reached a provider %d times: %v", n, backend.requests)
+	}
+	if entries, _ := os.ReadDir(sessRoot); len(entries) != 0 {
+		t.Fatalf("refused requests left %d session bundles behind", len(entries))
+	}
+}
+
+func TestChatCompletionsDirectSendsZeroTemperatureAndCompletionTokens(t *testing.T) {
+	_, ts, backend, _ := directOptionsTestServer(t)
+	for _, tc := range []struct{ model, maxField string }{
+		{"local/llama-3.1-8b", "max_tokens"},
+		// The recording backend answers the anthropic dialect with nothing it
+		// can parse; only the request that left foxxycode matters here.
+		{"claude/claude-3-5-haiku", "max_tokens"},
+	} {
+		body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"max_completion_tokens":64,"temperature":0,"stream":false}`, tc.model)
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		last := backend.last()
+		if got := gjson.Get(last, tc.maxField); got.Int() != 64 {
+			t.Fatalf("%s: upstream %s = %s, want 64 from max_completion_tokens: %s", tc.model, tc.maxField, got.Raw, last)
+		}
+		if got := gjson.Get(last, "temperature"); !got.Exists() || got.Float() != 0 {
+			t.Fatalf("%s: upstream temperature = %q, want an explicit 0: %s", tc.model, got.Raw, last)
+		}
+	}
+}
+
+func TestChatCompletionsDirectOptionsStayOnTheirOwnRequest(t *testing.T) {
+	srv, ts, backend, _ := directOptionsTestServer(t)
+	const n = 12
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := fmt.Sprintf(`{"model":"local/llama-3.1-8b","messages":[{"role":"user","content":"req-%d"}],"max_tokens":%d,"temperature":%g,"stream":%v}`,
+				i, 100+i, float64(i)/10, i%2 == 0)
+			res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+			if err != nil {
+				errs <- err
+				return
+			}
+			raw, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != http.StatusOK {
+				errs <- fmt.Errorf("req-%d: %d %s", i, res.StatusCode, raw)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	backend.mu.Lock()
+	requests := append([]string(nil), backend.requests...)
+	backend.mu.Unlock()
+	if len(requests) != n {
+		t.Fatalf("upstream saw %d requests, want %d", len(requests), n)
+	}
+	for _, raw := range requests {
+		var i int
+		if _, err := fmt.Sscanf(gjson.Get(raw, "messages.0.content").String(), "req-%d", &i); err != nil {
+			t.Fatalf("unrecognised upstream request: %s", raw)
+		}
+		if got := gjson.Get(raw, "max_tokens").Int(); got != int64(100+i) {
+			t.Fatalf("req-%d reached the provider with max_tokens %d: %s", i, got, raw)
+		}
+		if got := gjson.Get(raw, "temperature"); !got.Exists() || got.Float() != float64(i)/10 {
+			t.Fatalf("req-%d reached the provider with temperature %s: %s", i, got.Raw, raw)
+		}
+	}
+	if ent := srv.activeCfg().FindModelEntry("local/llama-3.1-8b"); ent.MaxTokens != 8192 || ent.Temperature != 0.2 {
+		t.Fatalf("configuration changed under the requests: max_tokens %d, temperature %g", ent.MaxTokens, ent.Temperature)
+	}
+}
+
+func TestChatCompletionsDirectReasoningEffortPrecedence(t *testing.T) {
+	_, ts, backend, _ := directOptionsTestServer(t)
+	post := func(body string) string {
+		t.Helper()
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := ioReadAllClose(res.Body)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %d %s", body, res.StatusCode, raw)
+		}
+		return string(raw)
+	}
+	for name, tc := range map[string]struct {
+		model, options, wantLevel string
+	}{
+		"requested level wins":            {"local/o4-mini", `"reasoning_effort":"low",`, "low"},
+		"omitted takes the default":       {"local/o4-mini", ``, "medium"},
+		"null takes the default":          {"local/o4-mini", `"reasoning_effort":null,`, "medium"},
+		"empty takes the default":         {"local/o4-mini", `"reasoning_effort":"",`, "medium"},
+		"no default sends no level":       {"local/o3", ``, ""},
+		"no levels sends no level either": {"local/llama-3.1-8b", ``, ""},
+	} {
+		answer := post(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],%s"stream":false}`, tc.model, tc.options))
+		last := backend.last()
+		if got := gjson.Get(last, "reasoning_effort"); got.String() != tc.wantLevel || (tc.wantLevel == "") == got.Exists() {
+			t.Fatalf("%s: upstream reasoning_effort = %s, want %q: %s", name, got.Raw, tc.wantLevel, last)
+		}
+		if got := gjson.Get(answer, "metadata.reasoning_effort"); got.String() != tc.wantLevel || (tc.wantLevel == "") == got.Exists() {
+			t.Fatalf("%s: metadata.reasoning_effort = %s, want %q: %s", name, got.Raw, tc.wantLevel, answer)
+		}
+	}
+
+	// A requested temperature travels next to the level; the configured cap
+	// of a reasoning model goes out as max_completion_tokens.
+	post(`{"model":"local/o4-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high","temperature":0.6,"max_tokens":512,"stream":false}`)
+	last := backend.last()
+	if gjson.Get(last, "reasoning_effort").String() != "high" || gjson.Get(last, "temperature").Float() != 0.6 || gjson.Get(last, "max_completion_tokens").Int() != 512 {
+		t.Fatalf("reasoning, temperature and cap did not all reach the provider: %s", last)
+	}
+}
+
+// TestChatCompletionsDirectCodexFinishReasons follows a Codex response's
+// terminal state to the finish_reason an OpenAI client reads: an output cap is
+// length, the content filter is content_filter, and a stream cut before any
+// terminal event is an error, never a finished choice.
+func TestChatCompletionsDirectCodexFinishReasons(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		codexSSE(w, "response.output_text.delta", map[string]any{"delta": "Partial answer"})
+		incomplete := func(reason string) {
+			codexSSE(w, "response.incomplete", map[string]any{"response": map[string]any{
+				"status": "incomplete", "incomplete_details": map[string]any{"reason": reason},
+			}})
+		}
+		switch prompt := gjson.GetBytes(raw, "input.0.content.0.text").String(); prompt {
+		case "cap":
+			incomplete("max_output_tokens")
+		case "filter":
+			incomplete("content_filter")
+		case "cut":
+			// The connection closes cleanly with no terminal event.
+		default:
+			codexSSE(w, "response.completed", map[string]any{"response": map[string]any{"status": "completed"}})
+		}
+	}))
+	defer backend.Close()
+	t.Setenv("FOXXYCODE_CODEX_BASE_URL", backend.URL)
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auth := fmt.Sprintf(`{"auth_mode":"chatgpt","tokens":{"access_token":%q,"refresh_token":"rt","account_id":"acct"}}`,
+		codexE2ETestJWT(map[string]any{"exp": 4_102_444_800}))
+	if err := os.WriteFile(authPath, []byte(auth), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: root},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5"}},
+		Agent:     config.Agent{Model: "codex/gpt-5.5", LLMRetryMax: new(int)},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, nil, slog.Default(), root, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), root)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(prompt string, stream bool) (int, string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"model":"codex/gpt-5.5","messages":[{"role":"user","content":%q}],"stream":%v}`, prompt, stream)
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(raw)
+	}
+	finishes := func(sse string) []string {
+		var out []string
+		for _, f := range parseSSEFrames(sse) {
+			if f.event == "" && f.data != "[DONE]" {
+				if reason := gjson.Get(f.data, "choices.0.finish_reason"); reason.Type == gjson.String {
+					out = append(out, reason.String())
+				}
+			}
+		}
+		return out
+	}
+
+	for prompt, want := range map[string]string{"done": "stop", "cap": "length", "filter": "content_filter"} {
+		code, body := post(prompt, false)
+		if code != http.StatusOK || gjson.Get(body, "choices.0.finish_reason").String() != want {
+			t.Fatalf("%s (JSON): %d %s, want finish_reason %q", prompt, code, body, want)
+		}
+		if got := gjson.Get(body, "choices.0.message.content").String(); got != "Partial answer" {
+			t.Fatalf("%s (JSON): content %q, want the text the model wrote", prompt, got)
+		}
+		_, sse := post(prompt, true)
+		if got := finishes(sse); len(got) != 1 || got[0] != want {
+			t.Fatalf("%s (stream): finish reasons %v, want [%s]:\n%s", prompt, got, want, sse)
+		}
+	}
+
+	code, body := post("cut", false)
+	if code != http.StatusInternalServerError || !strings.Contains(gjson.Get(body, "error.message").String(), "stream truncated") {
+		t.Fatalf("cut (JSON): %d %s, want a 500 naming the truncation", code, body)
+	}
+	_, sse := post("cut", true)
+	if got := finishes(sse); len(got) != 0 {
+		t.Fatalf("cut (stream): a truncated answer finished its choice with %v:\n%s", got, sse)
+	}
+	if !strings.Contains(sse, "stream truncated") {
+		t.Fatalf("cut (stream): the truncation never reached the client:\n%s", sse)
+	}
+}
+
+// A wake that lands while a turn holds the session is refused as busy - the
+// waker asks again - and must leave that turn's relay alone: its watchers keep
+// their stream, and a watcher that arrives later can still attach to it.
+func TestBackgroundWakeOnABusySessionLeavesTheRunningRelay(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), root)
+	defer srv.Drain()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+
+	// A composer turn in flight: it holds the lock and publishes to its relay.
+	unlock, err := mgr.AcquireComposerTurnLock(res.SessionID, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := srv.beginComposerRelay(res.SessionID)
+	defer func() {
+		unlock()
+		srv.endComposerRelay(res.SessionID, running)
+	}()
+
+	end := time.Now()
+	handled, err := srv.RunBackgroundWake(context.Background(), agent.Wake{SessionID: res.SessionID, Tasks: []bgtask.Snapshot{{
+		ID: "bg_1", SessionID: res.SessionID, Status: bgtask.StatusFailed, StartedAt: end.Add(-time.Second), FinishedAt: &end,
+	}}})
+	if !handled || !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("wake on a busy session = %v, %v; want handled and ErrSessionTurnBusy", handled, err)
+	}
+	if srv.peekComposerRelay(res.SessionID) != running {
+		t.Fatal("the refused wake evicted the running turn's relay")
+	}
+}
+
+// Only the first message of a woken turn carries the marker in the transcript
+// a reloaded tab reads; a message somebody typed carries none.
+func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
+	two := 2
+	rows := llmMsgsToFoxxyCodeOpenAIForSession("sess_x", []llm.Message{
+		{Role: llm.RoleUser, Content: "start the tests"},
+		{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
+			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},
+		}},
+	})
+	if _, ok := rows[0]["background_wake"]; ok {
+		t.Fatalf("a typed message is marked as a wake: %+v", rows[0])
+	}
+	raw, err := json.Marshal(rows[1]["background_wake"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"id":"bg_1"`) || !strings.Contains(string(raw), `"exit_code":2`) || !strings.Contains(string(raw), `"duration_ms":1200`) {
+		t.Fatalf("background_wake = %s", raw)
 	}
 }

@@ -1,0 +1,76 @@
+/*
+ * Brand tokens of the FoxxyCode website. The values follow the embedded UI
+ * (external/ui/src/styles.css, DESIGN.md § Color): the dark theme is the UI's
+ * default, the light theme its light counterpart. The boot script in
+ * scripts/lib/boot.mjs sets data-theme on <html> before this file loads.
+ */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121212;
+  --bg-glow-1: rgba(147, 51, 234, 0.2);
+  --bg-glow-2: rgba(79, 70, 229, 0.12);
+  --surface: #1a1a1e;
+  --surface-2: #222227;
+  --surface-hover: #26262c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #ffffff;
+  --text-2: #d4d4d8;
+  --muted: #9ca3af;
+  --accent: #9333ea;
+  --accent-hover: #a855f7;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(147, 51, 234, 0.16);
+  --accent-text: #c4b5fd;
+  --hero-accent: #a585c9;
+  --link: rgba(167, 139, 250, 0.95);
+  --code-bg: rgba(255, 255, 255, 0.07);
+  --header-bg: rgba(18, 18, 18, 0.78);
+  --yes: #4ade80;
+  --partial: #fbbf24;
+  --no: #f87171;
+  --unknown: #71717a;
+  --self-row: rgba(147, 51, 234, 0.12);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f8f8fa;
+  --bg-glow-1: rgba(124, 58, 237, 0.12);
+  --bg-glow-2: rgba(79, 70, 229, 0.08);
+  --surface: #ffffff;
+  --surface-2: #f1f1f5;
+  --surface-hover: #f4f2fb;
+  --border: rgba(24, 24, 27, 0.09);
+  --border-strong: rgba(24, 24, 27, 0.18);
+  --text: #18181b;
+  --text-2: #3f3f46;
+  --muted: #5f5f6b;
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(124, 58, 237, 0.1);
+  --accent-text: #6d28d9;
+  --hero-accent: #7c3aed;
+  --link: #6d28d9;
+  --code-bg: rgba(24, 24, 27, 0.06);
+  --header-bg: rgba(248, 248, 250, 0.82);
+  --yes: #15803d;
+  --partial: #b45309;
+  --no: #b91c1c;
+  --unknown: #71717a;
+  --self-row: rgba(124, 58, 237, 0.07);
+  --shadow: 0 18px 44px rgba(24, 24, 27, 0.1);
+}
+
+:root {
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --radius: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --container: 1120px;
+  --gutter: 20px;
+}

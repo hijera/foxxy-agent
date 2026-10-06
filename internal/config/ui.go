@@ -20,17 +20,31 @@ type UIConfig struct {
 	// Enabled toggles serving the embedded SPA at GET / (http,ui builds). A nil pointer means the
 	// default (true). Set false to run foxxycode http as an API-only server (no SPA); /v1/* and
 	// /foxxycode/* stay available. Use IsEnabled to read the effective value.
-	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
+	Enabled *bool `yaml:"enable" json:"enable,omitempty"`
 	// Locale is the UI language: empty (auto-detect), "en", or "ru".
 	Locale string `yaml:"locale" json:"locale"`
 	// SendMode controls how the main composer submits: "enter" (default),
 	// "ctrl_enter", or "off".
 	SendMode string `yaml:"send_mode" json:"send_mode"`
+	// StatusLine toggles the live status label next to the typing dots. A nil pointer means
+	// the default (true). Use IsStatusLineEnabled to read the effective value.
+	StatusLine *bool `yaml:"status_line" json:"status_line,omitempty"`
+	// Effects toggles the web UI's visual effects: the long-lived animations and the
+	// translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings -> Appearance and
+	// shared by every client. A nil pointer means each client's default: off in the IntelliJ
+	// panel (JCEF renders it off-screen and copies every frame into the IDE), on elsewhere.
+	Effects *bool `yaml:"effects" json:"effects,omitempty"`
 }
 
 // IsEnabled reports whether the embedded SPA is served. Unset (nil) defaults to true.
 func (u *UIConfig) IsEnabled() bool {
 	return u.Enabled == nil || *u.Enabled
+}
+
+// IsStatusLineEnabled reports whether the SPA shows the live status label next to the
+// typing dots. Unset (nil) defaults to true.
+func (u *UIConfig) IsStatusLineEnabled() bool {
+	return u.StatusLine == nil || *u.StatusLine
 }
 
 // Normalize trims locale and normalizes send_mode (empty -> "enter").

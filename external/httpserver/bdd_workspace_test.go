@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,14 +71,20 @@ func (s *wsFeatureState) close() {
 	}
 }
 
-func bddGit(dir string, args ...string) error {
+// bddGitCmd builds a git invocation that ignores the machine's own git
+// configuration, so a scenario behaves the same on every developer's box.
+func bddGitCmd(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_SYSTEM="+os.DevNull,
 	)
-	out, err := cmd.CombinedOutput()
+	return cmd
+}
+
+func bddGit(dir string, args ...string) error {
+	out, err := bddGitCmd(dir, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git %v: %w\n%s", args, err, out)
 	}
@@ -203,7 +210,7 @@ func (s *wsFeatureState) do(req *http.Request) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	s.body = nil
 	var parsed map[string]interface{}
@@ -281,6 +288,111 @@ func (s *wsFeatureState) browseFolders(name string) error {
 		return err
 	}
 	return s.do(req)
+}
+
+func (s *wsFeatureState) createFolder(name, parent string) error {
+	dir, ok := s.folders[parent]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", parent)
+	}
+	payload, err := json.Marshal(map[string]string{"path": dir, "name": name})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost,
+		s.ts.URL+"/foxxycode/workspace/folders", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.do(req)
+}
+
+// folderListingPointsAtNewFolder checks the create answer: it is the listing of
+// the folder that was just made, so the picker can step straight into it.
+func (s *wsFeatureState) folderListingPointsAtNewFolder(name, parent string) error {
+	dir, ok := s.folders[parent]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", parent)
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("create folder returned %d: %v", s.status, s.body)
+	}
+	want := filepath.Join(dir, name)
+	got, _ := s.body["path"].(string)
+	if bddNormPath(got) != bddNormPath(want) {
+		return fmt.Errorf("listing path = %q, want the new folder %q", got, want)
+	}
+	if gotParent, _ := s.body["parent"].(string); bddNormPath(gotParent) != bddNormPath(dir) {
+		return fmt.Errorf("listing parent = %q, want %q", gotParent, dir)
+	}
+	fi, err := os.Stat(want)
+	if err != nil || !fi.IsDir() {
+		return fmt.Errorf("folder %q was not created on disk: %v", want, err)
+	}
+	return nil
+}
+
+// hostReportsDrives stubs the machine's drive roots so the volume level of the
+// picker is exercised on every OS, not only on a Windows runner.
+func (s *wsFeatureState) hostReportsDrives(list string) error {
+	if s.srv == nil {
+		return fmt.Errorf("server not started")
+	}
+	drives := bddSplitList(list)
+	s.srv.drives = func() []string { return drives }
+	return nil
+}
+
+func (s *wsFeatureState) browseDrives() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/foxxycode/workspace/folders?path="+url.QueryEscape(workspaceDrivesPath), nil)
+	if err != nil {
+		return err
+	}
+	return s.do(req)
+}
+
+// browseFilesystemRoot browses "/", which filepath.Abs resolves to the root of
+// the current volume - the folder a Windows user gets stuck in today.
+func (s *wsFeatureState) browseFilesystemRoot() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/foxxycode/workspace/folders?path="+url.QueryEscape("/"), nil)
+	if err != nil {
+		return err
+	}
+	return s.do(req)
+}
+
+func (s *wsFeatureState) folderListingParent() (path, parent string, err error) {
+	if s.status != http.StatusOK {
+		return "", "", fmt.Errorf("folder listing returned %d: %v", s.status, s.body)
+	}
+	path, _ = s.body["path"].(string)
+	parent, _ = s.body["parent"].(string)
+	return path, parent, nil
+}
+
+func (s *wsFeatureState) folderListingHasNoParent() error {
+	path, parent, err := s.folderListingParent()
+	if err != nil {
+		return err
+	}
+	if path != parent {
+		return fmt.Errorf("listing of %q reports a parent %q above it", path, parent)
+	}
+	return nil
+}
+
+func (s *wsFeatureState) folderListingParentIsDriveList() error {
+	path, parent, err := s.folderListingParent()
+	if err != nil {
+		return err
+	}
+	if parent != workspaceDrivesPath {
+		return fmt.Errorf("parent of %q is %q, want the drive list %q", path, parent, workspaceDrivesPath)
+	}
+	return nil
 }
 
 // freshContext re-fetches the workspace context so Then-steps always assert
@@ -388,6 +500,45 @@ func (s *wsFeatureState) worktreePathDiffersFromRoot() error {
 	return nil
 }
 
+// worktreePathInsideRepo asserts the session landed on rel (a slash-separated
+// path) below the repository folder, which is where FoxxyCode keeps its worktrees.
+func (s *wsFeatureState) worktreePathInsideRepo(rel, name string) error {
+	dir, ok := s.folders[name]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", name)
+	}
+	ctxBody, err := s.freshContext()
+	if err != nil {
+		return err
+	}
+	path, _ := ctxBody["path"].(string)
+	if path == "" {
+		return fmt.Errorf("context misses path: %v", ctxBody)
+	}
+	want := filepath.Join(append([]string{dir}, strings.Split(rel, "/")...)...)
+	if bddNormPath(path) != bddNormPath(want) {
+		return fmt.Errorf("worktree path = %q, want %q", path, want)
+	}
+	return nil
+}
+
+// repoHasNoUntrackedFiles is the reason the worktrees live where they do: the
+// operator should not have to add an ignore rule of their own.
+func (s *wsFeatureState) repoHasNoUntrackedFiles(name string) error {
+	dir, ok := s.folders[name]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", name)
+	}
+	out, err := bddGitCmd(dir, "status", "--porcelain").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git status: %w\n%s", err, out)
+	}
+	if dirty := strings.TrimSpace(string(out)); dirty != "" {
+		return fmt.Errorf("repository %q is not clean:\n%s", name, dirty)
+	}
+	return nil
+}
+
 func (s *wsFeatureState) sessionCwdPersistedAs(name string) error {
 	dir, ok := s.folders[name]
 	if !ok {
@@ -454,6 +605,7 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a session rooted at folder "([^"]+)"$`, s.sessionRootedAt)
 	sc.Step(`^the session switched to branch "([^"]+)" in a worktree$`, s.alreadySwitchedToWorktree)
 	sc.Step(`^the session already has a user message$`, s.sessionHasUserMessage)
+	sc.Step(`^the host reports drives "([^"]+)"$`, s.hostReportsDrives)
 
 	sc.Step(`^I request the workspace context$`, s.requestContext)
 	sc.Step(`^I switch the session workspace to folder "([^"]+)"$`, s.switchToFolder)
@@ -461,6 +613,9 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I switch the session to branch "([^"]+)" in a worktree$`, s.switchToBranchInWorktree)
 	sc.Step(`^I switch the session to branch "([^"]+)"$`, s.switchToBranch)
 	sc.Step(`^I browse workspace folders under "([^"]+)"$`, s.browseFolders)
+	sc.Step(`^I browse the workspace drive list$`, s.browseDrives)
+	sc.Step(`^I browse workspace folders under the filesystem root$`, s.browseFilesystemRoot)
+	sc.Step(`^I create the folder "([^"]+)" under "([^"]+)"$`, s.createFolder)
 
 	sc.Step(`^the context path points to folder "([^"]+)"$`, s.contextPathPointsTo)
 	sc.Step(`^the context reports it is not a git repository$`, s.contextNotGitRepo)
@@ -468,9 +623,14 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the context lists branches "([^"]+)"$`, s.contextListsBranches)
 	sc.Step(`^the context reports the session is (not )?in a worktree$`, s.contextWorktreeFlag)
 	sc.Step(`^the worktree path differs from the repository root$`, s.worktreePathDiffersFromRoot)
+	sc.Step(`^the worktree path is "([^"]+)" inside repository "([^"]+)"$`, s.worktreePathInsideRepo)
+	sc.Step(`^repository "([^"]+)" reports no untracked files$`, s.repoHasNoUntrackedFiles)
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.sessionCwdPersistedAs)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)
+	sc.Step(`^the folder listing points at "([^"]+)" inside "([^"]+)"$`, s.folderListingPointsAtNewFolder)
+	sc.Step(`^the folder listing has no folder above it$`, s.folderListingHasNoParent)
+	sc.Step(`^the folder listing offers the drive list above it$`, s.folderListingParentIsDriveList)
 }
 
 func TestWorkspaceSwitchingFeature(t *testing.T) {

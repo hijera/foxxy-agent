@@ -16,10 +16,11 @@ const (
 	defaultAgentTplFile = "agent.md"
 	defaultPlanTplFile  = "plan.md"
 	defaultDocsTplFile  = "docs.md"
+	defaultAskTplFile   = "ask.md"
 )
 
 func TestRenderAgentPrompt(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -38,13 +39,37 @@ func TestRenderAgentPrompt(t *testing.T) {
 	if strings.Contains(result, "### Current todo checklist") {
 		t.Error("todo checklist section should be omitted when .TodoList is empty")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("agent prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("agent prompt must not carry a wall clock reading")
+	}
+}
+
+// The agent invents a place for a git worktree unless the prompt names one,
+// and what it invents ends up untracked at the repository root.
+func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render agent: %v", err)
+	}
+	for _, want := range []string{
+		".foxxycode/worktrees",            // the directory itself
+		"main checkout",                   // resolved, not relative to a linked worktree
+		"feature-login",                   // the branch name is mapped to a folder name
+		".foxxycode/worktrees/.gitignore", // the ignore file sits beside the worktrees
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("agent prompt should mention %q so worktrees land where FoxxyCode puts them", want)
+		}
 	}
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
-	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -72,13 +97,15 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "MCP") {
 		t.Error("plan prompt should mention MCP servers")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("plan prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("plan prompt must not carry a wall clock reading")
 	}
 }
 
 func TestRenderDocsPrompt(t *testing.T) {
-	result, err := prompts.Render("docs", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("docs", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/docs-workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -115,7 +142,7 @@ func TestRenderDocsPrompt(t *testing.T) {
 }
 
 func TestRenderAskPrompt(t *testing.T) {
-	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/ask-workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -140,8 +167,32 @@ func TestRenderAskPrompt(t *testing.T) {
 	}
 }
 
+func TestRenderDebugPrompt(t *testing.T) {
+	result, err := prompts.Render("debug", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
+		CWD:    "/tmp/debug-workspace",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render debug: %v", err)
+	}
+	for _, want := range []string{
+		"/tmp/debug-workspace",
+		"Mode: Debug",
+		"5-7",
+		"confirm the diagnosis",
+		"verify the fix",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("Debug prompt should contain %q", want)
+		}
+	}
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("debug prompt must not carry a wall clock reading")
+	}
+}
+
 func TestEmbeddedAskModelVariants(t *testing.T) {
-	base, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	base, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/p",
 		UTCNow: fixtureUTC,
 	})
@@ -153,7 +204,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 		want   []string
 	}{
 		{family: "openai", want: []string{"Mode: Ask", "GPT", "tool-call interface"}},
-		{family: "gpt-oss", want: []string{"Mode: Ask", "gpt-oss-120b", "tool-call channel"}},
+		{family: "gpt-oss", want: []string{"Mode: Ask", "Harmony-native gpt-oss guidance", "native tool interface"}},
 	} {
 		t.Run(tc.family, func(t *testing.T) {
 			got, err := prompts.RenderForFamily(
@@ -163,6 +214,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 				defaultAgentTplFile,
 				defaultPlanTplFile,
 				defaultDocsTplFile,
+				defaultAskTplFile,
 				prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
 			)
 			if err != nil {
@@ -178,10 +230,39 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 			}
 		})
 	}
+
+	// A family-only render (no model-slug variant) must not activate a per-model
+	// profile: model_notes_<variant> only renders when that variant is in the
+	// resolution list. This guards the boundary between the family path
+	// (RenderForFamily) and the per-model path covered by
+	// TestEmbeddedGPTOSSModelVariantsAcrossModes.
+	t.Run("gpt-oss_family_only_no_model_profile", func(t *testing.T) {
+		got, err := prompts.RenderForFamily(
+			"ask",
+			"gpt-oss",
+			"",
+			defaultAgentTplFile,
+			defaultPlanTplFile,
+			defaultDocsTplFile,
+			defaultAskTplFile,
+			prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, modelMarker := range []string{
+			"### gpt-oss-20b profile",
+			"### gpt-oss-120b profile",
+		} {
+			if strings.Contains(got, modelMarker) {
+				t.Errorf("family-only gpt-oss ask prompt must not include per-model profile %q", modelMarker)
+			}
+		}
+	})
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		Skills: "## Active Skills\n\nstub",
 		Tools:  "- `read`: read",
@@ -199,7 +280,7 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 }
 
 func TestRenderEmptyOptionalSections(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		UTCNow: fixtureUTC,
 	})
@@ -220,22 +301,58 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 	}
 }
 
-func TestRenderTodoListWhenNonempty(t *testing.T) {
+// The checklist is rewritten by every foxxycode_todo_* call, so a built-in template
+// keeps it out of the system prompt: it travels in the turn context block after
+// the history instead. The template field stays, for an operator's own template.
+func TestBuiltinTemplatesKeepTheTodoListOutOfTheSystemPrompt(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
-	a, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
-	if err != nil {
-		t.Fatalf("Render agent: %v", err)
+	for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+		if err != nil {
+			t.Fatalf("Render %s: %v", mode, err)
+		}
+		if strings.Contains(out, "- [ ] alpha") || strings.Contains(out, "Current todo checklist") {
+			t.Errorf("%s prompt should not carry the session todo checklist", mode)
+		}
+		// A wall clock in the system prompt breaks the provider's prefix cache on
+		// every request; the turn context block carries it after the history now.
+		if strings.Contains(out, fixtureUTC) {
+			t.Errorf("%s prompt must not carry a wall clock reading", mode)
+		}
 	}
-	if !strings.Contains(a, "### Current todo checklist") || !strings.Contains(a, "- [ ] alpha") || !strings.Contains(a, "- [x] beta") {
-		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
-	}
+}
 
-	p, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
-	if err != nil {
-		t.Fatalf("Render plan: %v", err)
+// The fork assembles a mode's template from sections and picks a footer per
+// provider family, so "no built-in template is volatile" has to hold for every
+// mode and every variant: one footer that still prints the clock would put that
+// family back on a cache miss per request without any test noticing.
+func TestNoBuiltinTemplateIsVolatile(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
+		for _, variants := range [][]string{nil, {"openai"}, {"gpt-oss"}, {"anthropic"}, {"gpt-oss-20b", "gpt-oss"}, {"gpt-oss-120b", "gpt-oss"}} {
+			if prompts.RendersVolatile(mode, variants, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile) {
+				t.Errorf("built-in %s template (variants %v) prints the clock or the todo list", mode, variants)
+			}
+		}
 	}
-	if strings.Contains(p, "### Current todo checklist") {
-		t.Error("plan prompt should not include session todo checklist section")
+}
+
+// An operator's own template may still render both fields, at the cost of the
+// provider's prefix cache, so the data stays available to it.
+func TestCustomTemplateStillRendersClockAndTodoList(t *testing.T) {
+	tmp := t.TempDir()
+	body := "{{.UTCNow}}\n{{.TodoList}}\n"
+	if err := os.WriteFile(filepath.Join(tmp, "custom.tpl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := prompts.Render("agent", tmp, "custom.tpl", defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: "- [ ] alpha", UTCNow: fixtureUTC})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, fixtureUTC) || !strings.Contains(out, "- [ ] alpha") {
+		t.Errorf("custom template lost UTCNow or TodoList: %q", out)
+	}
+	if !prompts.RendersVolatile("agent", nil, tmp, "custom.tpl", defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile) {
+		t.Error("a template that prints the clock must be reported as volatile")
 	}
 }
 
@@ -246,11 +363,27 @@ func TestRenderUsesCustomTemplateFilenames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, customAgent), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := prompts.Render("agent", tmp, customAgent, "ignored-plan.tpl", "ignored-docs.tpl", prompts.TemplateData{CWD: "/x"})
+	got, err := prompts.Render("agent", tmp, customAgent, "ignored-plan.tpl", "ignored-docs.tpl", "ignored-ask.tpl", prompts.TemplateData{CWD: "/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "Hello /x" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// prompts.ask_prompt names the on-disk ask template the same way agent_prompt,
+// plan_prompt and docs_prompt do for their modes.
+func TestRenderUsesCustomAskTemplateFilename(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "my-ask.tpl"), []byte("Ask {{.CWD}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := prompts.Render("ask", tmp, "ignored-agent.tpl", "ignored-plan.tpl", "ignored-docs.tpl", "my-ask.tpl", prompts.TemplateData{CWD: "/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Ask /x" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -263,7 +396,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/my/project",
 		Skills: "S1",
 	})
@@ -277,7 +410,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 
 func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 	tmp := t.TempDir()
-	_, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	_, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD: "/project",
 	})
 	if err == nil {
@@ -286,8 +419,8 @@ func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 }
 
 func TestRenderUnknownModeFallsBackToAgent(t *testing.T) {
-	agent, _ := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
-	unknown, err := prompts.Render("unknown_mode", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	agent, _ := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	unknown, err := prompts.Render("unknown_mode", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render unknown mode: %v", err)
 	}
@@ -307,11 +440,13 @@ func TestDefaultSource(t *testing.T) {
 	if !strings.Contains(agentSrc, "{{.Skills}}") {
 		t.Error("agent source should contain {{.Skills}}")
 	}
-	if !strings.Contains(agentSrc, "{{if .TodoList}}") {
-		t.Error("agent source should conditionalize TodoList injection")
+	// Neither belongs in a built-in template: both move between the steps of a
+	// turn and would throw away the provider's cached copy of the conversation.
+	if strings.Contains(agentSrc, "{{.TodoList}}") {
+		t.Error("agent source should not render the todo checklist into the system prompt")
 	}
-	if !strings.Contains(agentSrc, "{{.UTCNow}}") {
-		t.Error("agent source should expose UTCNow for clock grounding")
+	if strings.Contains(agentSrc, "{{.UTCNow}}") {
+		t.Error("agent source should not render a wall clock into the system prompt")
 	}
 
 	planSrc := prompts.DefaultSource("plan")
@@ -337,6 +472,14 @@ func TestDefaultSource(t *testing.T) {
 	if askSrc == agentSrc || askSrc == planSrc || askSrc == docsSrc {
 		t.Error("ask source should differ from agent, plan, and docs")
 	}
+
+	debugSrc := prompts.DefaultSource("debug")
+	if debugSrc == "" {
+		t.Error("debug source should not be empty")
+	}
+	if debugSrc == agentSrc || debugSrc == planSrc || debugSrc == docsSrc || debugSrc == askSrc {
+		t.Error("debug source should differ from agent, plan, docs, and ask")
+	}
 }
 
 func TestRenderForFamilyDirVariantSelected(t *testing.T) {
@@ -347,7 +490,7 @@ func TestRenderForFamilyDirVariantSelected(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "agent.anthropic.md"), []byte("ANTHROPIC {{.CWD}}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := prompts.RenderForFamily("agent", "anthropic", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForFamily("agent", "anthropic", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +505,7 @@ func TestRenderForFamilyDirFallsBackToBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No agent.gemini.md present: must fall back to agent.md.
-	got, err := prompts.RenderForFamily("agent", "gemini", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForFamily("agent", "gemini", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,11 +516,11 @@ func TestRenderForFamilyDirFallsBackToBase(t *testing.T) {
 
 func TestRenderForFamilyEmbeddedFallsBackToBase(t *testing.T) {
 	// A family with no embedded variant must render the same as the base agent prompt.
-	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam, err := prompts.RenderForFamily("agent", "no-such-family", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	fam, err := prompts.RenderForFamily("agent", "no-such-family", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +536,7 @@ func TestRenderForVariantsPrefersMostSpecific(t *testing.T) {
 	mustWrite(t, filepath.Join(tmp, "agent.anthropic-claude-x.md"), "MODEL {{.CWD}}")
 
 	// Model slug is first in the list, so it wins over the family variant.
-	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +551,7 @@ func TestRenderForVariantsFallsThroughToFamilyThenBase(t *testing.T) {
 	mustWrite(t, filepath.Join(tmp, "agent.anthropic.md"), "FAMILY {{.CWD}}")
 
 	// No per-model file: falls through to the family variant.
-	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +560,7 @@ func TestRenderForVariantsFallsThroughToFamilyThenBase(t *testing.T) {
 	}
 
 	// Neither model nor family file: falls through to base.
-	got2, err := prompts.RenderForVariants("agent", []string{"gemini-2", "gemini"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got2, err := prompts.RenderForVariants("agent", []string{"gemini-2", "gemini"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,13 +578,13 @@ func mustWrite(t *testing.T, path, content string) {
 
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
-	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, fam := range families {
 		t.Run(fam, func(t *testing.T) {
-			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
 				UTCNow: fixtureUTC,
 			})
@@ -455,15 +598,137 @@ func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 				t.Errorf("family %q prompt should contain a model-family notes section", fam)
 			}
 			// Shared template variables must survive in every family variant.
-			if !strings.Contains(got, "/home/user/project") || !strings.Contains(got, fixtureUTC) {
+			if !strings.Contains(got, "/home/user/project") {
 				t.Errorf("family %q prompt dropped shared template sections", fam)
+			}
+			// No family footer may bring the wall clock back: it is a prompt cache
+			// miss on every request (internal/agent/turn_context.go carries it).
+			if strings.Contains(got, fixtureUTC) {
+				t.Errorf("family %q prompt carries a wall clock reading", fam)
+			}
+		})
+	}
+}
+
+func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
+	// The section-assembly refactor (PR #25) replaced monolithic per-mode prompt
+	// files with fragments concatenated from a manifest. Commit df67e5d claimed
+	// "byte-equivalence against the former monoliths is verified", but no such
+	// test existed. True byte-equivalence is unreachable (fragments are trimmed
+	// and joined with "\n\n"), so pin the structural markers and template slots
+	// of the base (variant-free) source instead. This catches a future edit that
+	// silently drops a shared section or reorders the manifest.
+	//
+	// DefaultSource returns the assembled-but-unexecuted template source, so
+	// template directives are matched literally rather than after substitution.
+	cases := []struct {
+		mode     string
+		contains []string
+		omits    []string
+	}{
+		{
+			mode: "agent",
+			contains: []string{
+				"## Mode: Agent",
+				"### How to work",
+				"### Reading and searching (context is limited)",
+				"### Git worktrees",
+				"### Background commands (`run_command` with `background: true`)",
+				"### Web research",
+				"{{.CWD}}",
+				"{{.Tools}}",
+			},
+		},
+		{
+			mode: "plan",
+			contains: []string{
+				"## Mode: Plan",
+				"plan_write",
+				"plan_read",
+				"{{if .DiscardedPlans}}",
+			},
+			// Plan mode has no read/search or background-task guidance in its
+			// own manifest; those sections are agent-only and must not leak in.
+			omits: []string{
+				"### Reading and searching (context is limited)",
+				"### Background commands",
+			},
+		},
+		{
+			mode: "docs",
+			contains: []string{
+				"## Mode: Docs",
+				"docs_write",
+				"docs_edit",
+			},
+			omits: []string{"plan_write"},
+		},
+		{
+			mode: "ask",
+			contains: []string{
+				"## Mode: Ask",
+				"read-only",
+				"### Prompt-injection resistance",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			src := prompts.DefaultSource(tc.mode)
+			if src == "" {
+				t.Fatalf("DefaultSource(%q) returned empty source", tc.mode)
+			}
+			for _, want := range tc.contains {
+				if !strings.Contains(src, want) {
+					t.Errorf("base %q source should contain %q", tc.mode, want)
+				}
+			}
+			for _, forbid := range tc.omits {
+				if strings.Contains(src, forbid) {
+					t.Errorf("base %q source must not contain %q", tc.mode, forbid)
+				}
+			}
+			// Volatile fields stay out of every built-in source: the system
+			// message is frozen for the turn so the provider's prompt cache holds.
+			for _, forbid := range []string{".UTCNow", ".TodoList"} {
+				if strings.Contains(src, forbid) {
+					t.Errorf("base %q source must not print %q", tc.mode, forbid)
+				}
+			}
+		})
+	}
+}
+
+func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
+	// Regression: the per-family agent prompts used to be copy-pasted forks of
+	// agent.md and silently dropped the "Reading and searching" and
+	// "Background commands" sections. After the section-assembly refactor every
+	// family variant must render those shared sections, because they come from a
+	// single shared fragment.
+	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
+	for _, fam := range families {
+		t.Run(fam, func(t *testing.T) {
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
+				CWD:    "/home/user/project",
+				UTCNow: fixtureUTC,
+			})
+			if err != nil {
+				t.Fatalf("render family %q: %v", fam, err)
+			}
+			for _, want := range []string{
+				"Reading and searching (context is limited)",
+				"Background commands (`run_command` with `background: true`)",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("family %q agent prompt dropped shared section %q", fam, want)
+				}
 			}
 		})
 	}
 }
 
 func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
-	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -484,14 +749,14 @@ func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
 }
 
 func TestEmbeddedOpenAIPlanVariantRender(t *testing.T) {
-	base, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	base, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("render base plan prompt: %v", err)
 	}
-	got, err := prompts.RenderForFamily("plan", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	got, err := prompts.RenderForFamily("plan", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -514,9 +779,91 @@ func TestEmbeddedOpenAIPlanVariantRender(t *testing.T) {
 	}
 }
 
+func TestEmbeddedGPTOSSModelVariantsAcrossModes(t *testing.T) {
+	models := []struct {
+		slug   string
+		marker string
+	}{
+		{slug: "gpt-oss-20b", marker: "### gpt-oss-20b profile"},
+		{slug: "gpt-oss-120b", marker: "### gpt-oss-120b profile"},
+	}
+	modes := []string{"agent", "plan", "ask", "docs"}
+
+	for _, model := range models {
+		for _, mode := range modes {
+			t.Run(model.slug+"/"+mode, func(t *testing.T) {
+				got, err := prompts.RenderForVariants(
+					mode,
+					[]string{model.slug, "gpt-oss"},
+					"",
+					defaultAgentTplFile,
+					defaultPlanTplFile,
+					defaultDocsTplFile,
+					defaultAskTplFile,
+					prompts.TemplateData{CWD: "/home/user/project", UTCNow: fixtureUTC},
+				)
+				if err != nil {
+					t.Fatalf("render %s %s prompt: %v", model.slug, mode, err)
+				}
+				for _, want := range []string{"Harmony-native gpt-oss guidance", model.marker} {
+					if !strings.Contains(got, want) {
+						t.Errorf("%s %s prompt should contain %q", model.slug, mode, want)
+					}
+				}
+				for _, other := range models {
+					if other.slug != model.slug && strings.Contains(got, other.marker) {
+						t.Errorf("%s %s prompt should not contain %q", model.slug, mode, other.marker)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestRenderWithFallbackNoPanic(t *testing.T) {
-	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if result == "" {
 		t.Error("RenderWithFallback should return non-empty string even on error")
+	}
+}
+
+// Every spawning mode template renders the subagent role block when a role is
+// set, so a child never loses its preamble because of the mode it runs in.
+// The fork spawns from agent, plan and debug (ask and docs delegate nothing
+// and are never a child's mode).
+func TestEverySpawningModeTemplateRendersTheSubagentRole(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "debug"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/w", SubagentRole: "You are the unit subagent."})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if !strings.Contains(out, "## Your role as a subagent") || !strings.Contains(out, "You are the unit subagent.") {
+			t.Fatalf("%s template drops the subagent role block:\n%s", mode, out[:min(len(out), 400)])
+		}
+		plain, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/w"})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if strings.Contains(plain, "Your role as a subagent") {
+			t.Fatalf("%s template renders the role heading without a role", mode)
+		}
+	}
+}
+
+// The subagent catalog block lands in the same spawning modes and nowhere
+// else: a read-only mode never advertises delegation.
+func TestSubagentCatalogRendersOnlyInSpawningModes(t *testing.T) {
+	data := prompts.TemplateData{CWD: "/w", Subagents: "## Subagents\n\ncatalog-marker"}
+	for _, mode := range []string{"agent", "plan", "debug"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, data)
+		if err != nil || !strings.Contains(out, "catalog-marker") {
+			t.Fatalf("%s template drops the subagent catalog (err=%v)", mode, err)
+		}
+	}
+	for _, mode := range []string{"ask", "docs"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, data)
+		if err != nil || strings.Contains(out, "catalog-marker") {
+			t.Fatalf("%s template must not render the subagent catalog (err=%v)", mode, err)
+		}
 	}
 }

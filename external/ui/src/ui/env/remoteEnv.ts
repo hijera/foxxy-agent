@@ -1,11 +1,35 @@
-// Environment selector: lets the bundled UI talk to a remote foxxycode http server instead of
+// Environment selector: lets the bundled UI talk to a remote foxxycode serve server instead of
 // its own origin. A single global fetch shim rewrites same-origin API requests (/v1/*, /foxxycode/*,
 // /openapi*) to the selected remote base URL and attaches its bearer token, so every existing
 // call site becomes environment-aware without changes. The choice is persisted in localStorage.
 
 export type FoxxyCodeEnv =
   | { mode: "local" }
-  | { mode: "remote"; baseUrl: string; token: string; name?: string };
+  | {
+      mode: "remote";
+      baseUrl: string;
+      token: string;
+      name?: string;
+      /**
+       * The relay this environment was reached through, when it was.
+       *
+       * Entering a node means pointing the base URL at that node's mount, and
+       * from there the relay's own routes are no longer under it - so without
+       * remembering where we came from there is no way back to the swarm but
+       * to type its address again.
+       */
+      swarmRelay?: string;
+      /** The node path inside that relay, for showing where we are. */
+      swarmNode?: string;
+      /**
+       * On the relay itself: the node last entered through it.
+       *
+       * Leaving a node throws its base URL away, and with it the only record of
+       * where the app has been. The map needs that record to say "you are
+       * here" and to draw the path that got there.
+       */
+      swarmFrom?: string;
+    };
 
 const STORAGE_KEY = "foxxycode_env";
 
@@ -40,6 +64,9 @@ export function getEnv(): FoxxyCodeEnv {
         baseUrl?: string;
         token?: string;
         name?: string;
+        swarmRelay?: string;
+        swarmNode?: string;
+        swarmFrom?: string;
       };
       if (
         parsed &&
@@ -53,6 +80,15 @@ export function getEnv(): FoxxyCodeEnv {
           token: typeof parsed.token === "string" ? parsed.token : "",
         };
         if (typeof parsed.name === "string") remote.name = parsed.name;
+        if (typeof parsed.swarmRelay === "string" && parsed.swarmRelay) {
+          remote.swarmRelay = normalizeBase(parsed.swarmRelay);
+        }
+        if (typeof parsed.swarmNode === "string" && parsed.swarmNode) {
+          remote.swarmNode = parsed.swarmNode;
+        }
+        if (typeof parsed.swarmFrom === "string" && parsed.swarmFrom) {
+          remote.swarmFrom = parsed.swarmFrom;
+        }
         resolved = remote;
       }
     }
@@ -142,7 +178,7 @@ export function connectLocal(): void {
   window.location.reload();
 }
 
-/** connectRemote points the UI at a remote foxxycode http (persisting its token) and reloads. */
+/** connectRemote points the UI at a remote foxxycode serve (persisting its token) and reloads. */
 export function connectRemote(url: string, token: string, name?: string): void {
   const base = normalizeBase(url);
   if (!base) return;
@@ -155,12 +191,122 @@ export function connectRemote(url: string, token: string, name?: string): void {
   window.location.reload();
 }
 
+/**
+ * connectSwarmNode drives one node of a swarm as if it were an ordinary remote.
+ *
+ * A node's mount is a base URL with a path, which is all the rest of the app
+ * has ever needed - so from here every existing screen works against that node
+ * without knowing a relay is in the middle. The relay is remembered so there is
+ * a way back to the swarm afterwards.
+ *
+ * `hash` optionally lands on a particular session once the reload is done.
+ */
+export function connectSwarmNode(
+  relayUrl: string,
+  nodePath: string[],
+  token: string,
+  hash?: string,
+): void {
+  const relay = normalizeBase(relayUrl);
+  if (!relay || nodePath.length === 0) return;
+  const base = relay + nodePath.map((n) => `/swarm/nodes/${n}`).join("");
+  setRemoteToken(base, token);
+  setEnv({
+    mode: "remote",
+    baseUrl: base,
+    token,
+    name: nodePath[nodePath.length - 1] ?? relay,
+    swarmRelay: relay,
+    swarmNode: nodePath.join("/"),
+  });
+  // Leaving the hash alone would keep us on the swarm route, which then asks a
+  // node whether it is a relay and is told no. Entering a node means going to
+  // that node's own screens.
+  window.location.hash = hash || "#/";
+  window.location.reload();
+}
+
+/** returnToSwarm points the UI back at the relay a node was reached through. */
+export function returnToSwarm(): void {
+  const env = getEnv();
+  if (env.mode !== "remote" || !env.swarmRelay) return;
+  const relay = env.swarmRelay;
+  setEnv({
+    mode: "remote",
+    baseUrl: relay,
+    token: getRemoteToken(relay) || env.token,
+    name: "swarm",
+    // Carried over, not dropped: on the relay this is the node the map marks
+    // as where we are, and the path it highlights to get there.
+    ...(env.swarmNode ? { swarmFrom: env.swarmNode } : {}),
+  });
+  window.location.hash = "#/swarm";
+  window.location.reload();
+}
+
 export function isApiPath(path: string): boolean {
   return (
     path.startsWith("/v1/") ||
     path.startsWith("/foxxycode/") ||
+    // A relay answers under /swarm/ and mounts each node beneath it, so these
+    // have to reach the selected environment like any other API call.
+    path.startsWith("/swarm/") ||
     path.startsWith("/openapi")
   );
+}
+
+// Listeners for a 401 from this origin's own API. The sign-in state lives in
+// ui/auth and subscribes here, rather than this module importing it: the shim
+// has to install before anything else runs, and a cycle between the two would
+// be a startup order nobody can reason about.
+const unauthorizedListeners = new Set<() => void>();
+
+/**
+ * onLocalApiUnauthorized reports a local API call refused with 401.
+ *
+ * The sign-in routes are excluded: a wrong password is answered by the form
+ * itself, and treating it as "the session ended" would loop.
+ */
+export function onLocalApiUnauthorized(cb: () => void): () => void {
+  unauthorizedListeners.add(cb);
+  return () => {
+    unauthorizedListeners.delete(cb);
+  };
+}
+
+/**
+ * notifyLocalApiUnauthorized tells the listeners that a local API call was refused
+ * with 401. The fetch shim calls it for the page's own requests; the shared events
+ * stream calls it for a refusal another context received on this page's behalf.
+ */
+export function notifyLocalApiUnauthorized(): void {
+  unauthorizedListeners.forEach((cb) => cb());
+}
+
+/** isAuthPath reports the sign-in routes, which never signal a lost session. */
+export function isAuthPath(path: string): boolean {
+  return path.startsWith("/foxxycode/auth/");
+}
+
+/** requestPath extracts the same-origin path of a fetch argument, or null. */
+function requestPath(input: RequestInfo | URL): string | null {
+  if (typeof input === "string") {
+    return input.startsWith("/") ? input : null;
+  }
+  if (input instanceof URL) {
+    return input.origin === window.location.origin
+      ? input.pathname + input.search
+      : null;
+  }
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    try {
+      const u = new URL(input.url, window.location.origin);
+      return u.origin === window.location.origin ? u.pathname + u.search : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** installRemoteFetchShim rewrites same-origin API requests to the selected remote. Idempotent. */
@@ -175,15 +321,22 @@ export function installRemoteFetchShim(): void {
     init?: RequestInit,
   ): Promise<Response> => {
     const env = getEnv();
-    if (env.mode !== "remote") return nativeFetch(input, init);
-
-    let path: string | null = null;
-    if (typeof input === "string") {
-      if (input.startsWith("/")) path = input;
-    } else if (input instanceof URL) {
-      if (input.origin === window.location.origin)
-        path = input.pathname + input.search;
+    const path = requestPath(input);
+    if (env.mode !== "remote") {
+      // Local origin: nothing is rewritten, but a refusal is worth noticing.
+      // The cookie a signed-in browser carries can stop being valid while the
+      // page is open, and this is where the app learns that.
+      if (path == null || !isApiPath(path) || isAuthPath(path)) {
+        return nativeFetch(input, init);
+      }
+      return nativeFetch(input, init).then((res) => {
+        if (res.status === 401) {
+          notifyLocalApiUnauthorized();
+        }
+        return res;
+      });
     }
+
     if (path == null || !isApiPath(path)) return nativeFetch(input, init);
 
     const headers = new Headers(init?.headers ?? undefined);

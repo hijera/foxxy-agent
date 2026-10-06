@@ -5,31 +5,84 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // ModelEntry is one model advertised by a provider's model-listing endpoint.
+// Vision reports that the catalog advertises image input. It is advisory only -
+// hubs are known to under-report it - so it seeds a models[].multimodal default
+// the user can override rather than gating anything at request time.
 type ModelEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	ID     string `json:"id"`
+	Name   string `json:"name,omitempty"`
+	Vision bool   `json:"vision,omitempty"`
+	// ContextWindow is the context window the listing reports for the model,
+	// 0 when it reports none. It stays out of the JSON the provider models
+	// route serves; the session manager reads it for models whose
+	// max_context_tokens is unset.
+	ContextWindow int `json:"-"`
+}
+
+// modelEntryVision reports whether one catalog entry advertises image input.
+// Two shapes are recognized: capabilities.vision (published by the NeuralDeep
+// hub) and modalities.input containing "image" (the OpenAI-compatible
+// convention). Both are decoded leniently on their own - a provider that puts an
+// unexpected shape in either key must not fail the whole catalog.
+func modelEntryVision(capabilities, modalities json.RawMessage) bool {
+	if len(capabilities) > 0 {
+		var caps struct {
+			Vision bool `json:"vision"`
+		}
+		if err := json.Unmarshal(capabilities, &caps); err == nil && caps.Vision {
+			return true
+		}
+	}
+	if len(modalities) > 0 {
+		var mods struct {
+			Input []string `json:"input"`
+		}
+		if err := json.Unmarshal(modalities, &mods); err == nil {
+			for _, in := range mods.Input {
+				if strings.EqualFold(strings.TrimSpace(in), "image") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // modelListTimeout bounds a single provider model-listing request.
 const modelListTimeout = 15 * time.Second
+
+// catalogModelIDRe accepts the catalog ids a provider publishes. A login that
+// writes a catalog into config.yaml interpolates the id into a UCI config path
+// (`models[model=<provider>/<id>]`), so anything outside this safe alphabet is
+// skipped rather than staged.
+var catalogModelIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// codexModelsClientVersion is the numeric compatibility sentinel accepted by
+// the Codex models endpoint and used by Codex source/test builds. It is a Codex
+// protocol version, not the independently versioned FoxxyCode application version.
+const codexModelsClientVersion = "0.0.0"
 
 // defaultModelListBaseURL returns the base URL used for model listing when the
 // provider config leaves api_base empty.
 func defaultModelListBaseURL(providerType string) string {
 	switch providerType {
 	case "anthropic":
-		return "https://api.anthropic.com"
+		return anthropicDefaultAPIBase
 	case "neuraldeep":
 		return neuralDeepBaseURL
 	default: // openai and openai-compatible
-		return "https://api.openai.com/v1"
+		return openAIDefaultAPIBase
 	}
 }
 
@@ -41,6 +94,18 @@ func defaultModelListBaseURL(providerType string) string {
 // error so callers can surface auth or connectivity failures (and fall back to
 // manual entry).
 func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
+	if in.Type == "devin" {
+		ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
+		defer cancel()
+		return listDevinModels(ctx, in)
+	}
+	if in.Type == "codex" {
+		entries, err := fetchCodexCatalog(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeCodexModels(entries), nil
+	}
 	var url string
 	switch in.Type {
 	case "openai", "anthropic", "neuraldeep":
@@ -53,16 +118,18 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		} else {
 			url = base + "/models"
 		}
+		if in.Type == "neuraldeep" {
+			// Same credential order as completions: explicit key wins, the
+			// stored hub login fills in when the key is absent.
+			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
+		}
 	default:
 		return nil, &UnsupportedProviderError{Provider: in.Type}
 	}
 
-	hc, err := HTTPClientForOptionalProxy(in.ProxyURL)
+	hc, err := HTTPClientForProviderProxy(in.ProxyURL)
 	if err != nil {
 		return nil, err
-	}
-	if hc == nil {
-		hc = &http.Client{}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
@@ -95,9 +162,19 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 
 	var parsed struct {
 		Data []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			DisplayName string `json:"display_name"`
+			ID           string          `json:"id"`
+			Name         string          `json:"name"`
+			DisplayName  string          `json:"display_name"`
+			Capabilities json.RawMessage `json:"capabilities"`
+			Modalities   json.RawMessage `json:"modalities"`
+			// The context window, in the spellings OpenAI-compatible
+			// servers use. Raw, so a value in an unexpected shape is
+			// ignored instead of failing the whole listing.
+			Limit            json.RawMessage `json:"limit"`
+			ContextLength    json.RawMessage `json:"context_length"`
+			MaxModelLen      json.RawMessage `json:"max_model_len"`
+			MaxContextLength json.RawMessage `json:"max_context_length"`
+			ContextWindow    json.RawMessage `json:"context_window"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
@@ -119,8 +196,188 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		if name == "" {
 			name = strings.TrimSpace(m.DisplayName)
 		}
-		out = append(out, ModelEntry{ID: id, Name: name})
+		out = append(out, ModelEntry{
+			ID:            id,
+			Name:          name,
+			Vision:        modelEntryVision(m.Capabilities, m.Modalities),
+			ContextWindow: reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// reportedContextWindow reads the context window a listing row reports:
+// limit.context (the NeuralDeep hub, the models.dev shape), then
+// context_length (OpenRouter), max_model_len (vLLM), max_context_length
+// (LM Studio) and context_window. The first positive value wins; 0 means the
+// row reports none.
+func reportedContextWindow(limit json.RawMessage, fields ...json.RawMessage) int {
+	var lim struct {
+		Context json.RawMessage `json:"context"`
+	}
+	if len(limit) > 0 && json.Unmarshal(limit, &lim) == nil {
+		if n := positiveTokenCount(lim.Context); n > 0 {
+			return n
+		}
+	}
+	for _, raw := range fields {
+		if n := positiveTokenCount(raw); n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// positiveTokenCount reads a token count written as a JSON number or a quoted
+// number; anything else, zero and negatives read as 0.
+func positiveTokenCount(raw json.RawMessage) int {
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if s == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < 1 || f > math.MaxInt32 {
+		return 0
+	}
+	return int(f)
+}
+
+// fetchCodexCatalog returns the raw Codex model catalog: fetched online with
+// the signed-in credential when the provider has one, read from the Codex CLI
+// cache otherwise.
+func fetchCodexCatalog(ctx context.Context, in ProviderInput) ([]codexModelCacheEntry, error) {
+	if strings.TrimSpace(in.AuthPath) != "" {
+		return fetchCodexCatalogOnline(ctx, in, codexBaseURL())
+	}
+	return readCodexCatalogCache()
+}
+
+// fetchCodexCatalogOnline fetches the model catalog with the same OAuth
+// credential used for completions. The base URL is a parameter only for tests;
+// fetchCodexCatalog always supplies the fixed official Codex backend.
+func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL string) ([]codexModelCacheEntry, error) {
+	hc, err := HTTPClientForProviderProxy(in.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
+	defer cancel()
+	cred, err := newManagedCodexAuthSource(in.AuthPath, hc).Credential(ctx)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := strings.TrimRight(baseURL, "/") + "/models?client_version=" + codexModelsClientVersion
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cred.AccessToken)
+	req.Header.Set("OpenAI-Beta", "responses=experimental")
+	req.Header.Set("originator", "codex_cli_rs")
+	if strings.TrimSpace(cred.AccountID) != "" {
+		req.Header.Set("chatgpt-account-id", cred.AccountID)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("list models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	var parsed struct {
+		Models []codexModelCacheEntry `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("list models: decode: %w", err)
+	}
+	return parsed.Models, nil
+}
+
+// codexModelCacheEntry is one row of the Codex model catalog, as served by the
+// backend and cached by the Codex CLI.
+type codexModelCacheEntry struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"display_name"`
+	// Visibility is "list" for the models Codex offers in its own picker and
+	// "hide" for the internal ones (gpt-reserve, codex-auto-review). An empty
+	// value means the catalog does not say, which is not the same as hidden:
+	// caches written by older Codex builds carry no visibility at all.
+	Visibility string `json:"visibility"`
+	// Priority is how Codex itself ranks the catalog, lowest first. It decides
+	// which model a fresh sign-in adopts as the default.
+	Priority int `json:"priority"`
+}
+
+// codexVisibilityHidden marks a catalog row Codex keeps out of its own picker.
+const codexVisibilityHidden = "hide"
+
+// visibleCodexModels drops the hidden rows, the unnamed ones, and the
+// duplicates, keeping the catalog order for callers that rank it themselves.
+func visibleCodexModels(models []codexModelCacheEntry) []codexModelCacheEntry {
+	seen := make(map[string]struct{}, len(models))
+	out := make([]codexModelCacheEntry, 0, len(models))
+	for _, m := range models {
+		id := strings.TrimSpace(m.Slug)
+		if id == "" || m.Visibility == codexVisibilityHidden {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		m.Slug = id
+		out = append(out, m)
+	}
+	return out
+}
+
+// rankedCodexModels orders the offered catalog the way Codex ranks it, lowest
+// priority number first, with the id breaking ties so the order is stable for
+// a cache that carries no priorities at all.
+func rankedCodexModels(models []codexModelCacheEntry) []codexModelCacheEntry {
+	out := visibleCodexModels(models)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+		return out[i].Slug < out[j].Slug
+	})
+	return out
+}
+
+// normalizeCodexModels renders the offered catalog as model entries, sorted by
+// id like every other provider's list.
+func normalizeCodexModels(models []codexModelCacheEntry) []ModelEntry {
+	visible := visibleCodexModels(models)
+	out := make([]ModelEntry, 0, len(visible))
+	for _, m := range visible {
+		out = append(out, ModelEntry{ID: m.Slug, Name: strings.TrimSpace(m.DisplayName)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// readCodexCatalogCache reads the models the Codex CLI advertises from its local
+// cache (~/.codex/models_cache.json), which is maintained by `codex`. It is the
+// model source when no FoxxyCode-managed credential exists to query the backend with.
+func readCodexCatalogCache() ([]codexModelCacheEntry, error) {
+	path := codexModelsCachePath()
+	if path == "" {
+		return nil, fmt.Errorf("list models: could not locate Codex models cache (set CODEX_HOME)")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("list models: read %s (run `codex` once to populate): %w", path, err)
+	}
+	var cache struct {
+		Models []codexModelCacheEntry `json:"models"`
+	}
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, fmt.Errorf("list models: parse %s: %w", path, err)
+	}
+	return cache.Models, nil
 }

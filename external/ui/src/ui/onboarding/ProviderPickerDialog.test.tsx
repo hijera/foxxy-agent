@@ -1,14 +1,17 @@
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  cleanup,
+} from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { I18nProvider } from "../i18n/I18nProvider";
 import { initLocale } from "../i18n/i18n";
 import { ProviderPickerDialog } from "./ProviderPickerDialog";
 import { shouldShowOnboarding } from "./onboardingStatus";
 
-function renderPicker(props: {
-  onSaved?: () => void;
-  onSkip?: () => void;
-}) {
+function renderPicker(props: { onSaved?: () => void; onSkip?: () => void }) {
   return render(
     <I18nProvider>
       <ProviderPickerDialog
@@ -29,6 +32,7 @@ describe("shouldShowOnboarding", () => {
         has_providers: false,
         has_models: false,
         has_agent_model: false,
+        has_agent_credentials: false,
         missing_api_keys: [],
       }),
     ).toBe(true);
@@ -42,9 +46,44 @@ describe("shouldShowOnboarding", () => {
         has_providers: true,
         has_models: true,
         has_agent_model: true,
+        has_agent_credentials: true,
         missing_api_keys: [],
       }),
     ).toBe(false);
+  });
+
+  it("ignores a keyless provider the agent does not use", () => {
+    // A second provider row saved without a key (openai next to a keyed
+    // neuraldeep) is reported in missing_api_keys but must not reopen the picker.
+    expect(
+      shouldShowOnboarding({
+        first_run: false,
+        has_config: true,
+        has_providers: true,
+        has_models: true,
+        has_agent_model: true,
+        has_agent_credentials: true,
+        missing_api_keys: ["openai"],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when the agent's own provider has no credentials", () => {
+    expect(
+      shouldShowOnboarding({
+        first_run: false,
+        has_config: true,
+        has_providers: true,
+        has_models: true,
+        has_agent_model: true,
+        has_agent_credentials: false,
+        missing_api_keys: ["neuraldeep"],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when the status could not be fetched", () => {
+    expect(shouldShowOnboarding(null)).toBe(false);
   });
 });
 
@@ -82,11 +121,51 @@ describe("ProviderPickerDialog", () => {
         );
       }
       if (url === "/foxxycode/providers/models-probe") {
+        const body = JSON.parse(String(init?.body || "{}"));
+        if (body.type === "codex") {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              models: [{ id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+            }),
+            { status: 200 },
+          );
+        }
         return new Response(
           JSON.stringify({
             ok: true,
-            models: [{ id: "neuraldeep-chat" }, { id: "qwen-3" }],
+            models: [{ id: "neuraldeep-chat" }, { id: "qwen-3", vision: true }],
           }),
+          { status: 200 },
+        );
+      }
+      if (
+        url === "/foxxycode/providers/codex/codex-auth" &&
+        (!init || init.method === "GET" || init.method === undefined)
+      ) {
+        return new Response(JSON.stringify({ connected: false }), {
+          status: 200,
+        });
+      }
+      if (
+        url === "/foxxycode/providers/codex/codex-auth/device" &&
+        init?.method === "POST"
+      ) {
+        return new Response(
+          JSON.stringify({
+            login_id: "login-onboarding",
+            verification_url: "https://auth.example.test/codex/device",
+            user_code: "CHAT-CODE",
+            status: "pending",
+          }),
+          { status: 200 },
+        );
+      }
+      if (
+        url === "/foxxycode/providers/codex/codex-auth/device/login-onboarding"
+      ) {
+        return new Response(
+          JSON.stringify({ status: "completed", connected: true }),
           { status: 200 },
         );
       }
@@ -97,6 +176,7 @@ describe("ProviderPickerDialog", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -218,10 +298,11 @@ describe("ProviderPickerDialog", () => {
       api_key: "sk-nd",
       proxy: "",
     });
-    // Open the combobox dropdown and pick the fetched model from the list.
+    // Open the combobox dropdown and pick the fetched model from the list. The
+    // option label carries the catalog's vision badge, so match on the id.
     fireEvent.focus(modelInput);
     const option = await waitFor(() =>
-      screen.getByRole("option", { name: "qwen-3" }),
+      screen.getByRole("option", { name: /qwen-3/ }),
     );
     fireEvent.mouseDown(option);
     expect((modelInput as HTMLInputElement).value).toBe("qwen-3");
@@ -234,6 +315,7 @@ describe("ProviderPickerDialog", () => {
     expect(body.providers[0].type).toBe("neuraldeep");
     expect(body.providers[0].api_base).toBeUndefined();
     expect(body.models[0].model).toBe("neuraldeep/qwen-3");
+    // From the catalog entry for qwen-3, not from the neuraldeep preset.
     expect(body.models[0].multimodal).toBe(true);
     expect(body.agent.model).toBe("neuraldeep/qwen-3");
   });
@@ -266,6 +348,44 @@ describe("ProviderPickerDialog", () => {
     expect(body.providers[0].proxy).toBe("socks5h://127.0.0.1:1080");
   });
 
+  // The reported case: a proxy password with an @ in it. Built in the proxy
+  // editor, it is saved percent-encoded and shown with the password hidden.
+  it("builds a proxy with a password in the editor and saves it encoded", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-proxy-edit"));
+    fireEvent.change(screen.getByTestId("proxy-editor-host"), {
+      target: { value: "vm-squid3.corp" },
+    });
+    fireEvent.change(screen.getByTestId("proxy-editor-port"), { target: { value: "3128" } });
+    fireEvent.change(screen.getByTestId("proxy-editor-user"), { target: { value: "vlasov" } });
+    fireEvent.change(screen.getByTestId("proxy-editor-password"), {
+      target: { value: "p@ss" },
+    });
+    fireEvent.submit(screen.getByTestId("proxy-editor"));
+
+    expect((screen.getByTestId("provider-proxy") as HTMLInputElement).value).toBe(
+      "http://vlasov:••••••@vm-squid3.corp:3128",
+    );
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.find((c) => c[0] === "/foxxycode/providers/models-probe"),
+      ).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].proxy).toBe("http://vlasov:p%40ss@vm-squid3.corp:3128");
+  });
+
   it("omits proxy from the saved provider when left empty", async () => {
     const onSaved = vi.fn();
     renderPicker({ onSaved });
@@ -279,6 +399,98 @@ describe("ProviderPickerDialog", () => {
     );
     const body = JSON.parse(String(putCall![1]?.body));
     expect(body.providers[0].proxy).toBeUndefined();
+  });
+
+  // A hub serves vision and text-only models side by side, so the per-provider
+  // preset constant is the wrong source for models[].multimodal: it saved
+  // multimodal:true under gpt-oss-20b, which rejects images with HTTP 405.
+  it("takes multimodal from the picked model's catalog entry, not the preset", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    const modelInput = screen.getByTestId("provider-model-id");
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+        "Refresh",
+      ),
+    );
+
+    fireEvent.focus(modelInput);
+    fireEvent.mouseDown(
+      await screen.findByRole("option", { name: /neuraldeep-chat/ }),
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.models[0].model).toBe("neuraldeep/neuraldeep-chat");
+    // The neuraldeep preset says multimodal: true; this model does not.
+    expect(body.models[0].multimodal).toBe(false);
+  });
+
+  it("badges catalog models that accept images and explains the saved flag", async () => {
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+        "Refresh",
+      ),
+    );
+
+    const modelInput = screen.getByTestId("provider-model-id");
+    fireEvent.focus(modelInput);
+    const vision = await screen.findByRole("option", { name: /qwen-3/ });
+    expect(vision.textContent).toMatch(/vision/i);
+    expect(
+      screen.getByRole("option", { name: /neuraldeep-chat/ }).textContent,
+    ).not.toMatch(/vision/i);
+
+    fireEvent.mouseDown(vision);
+    expect(
+      (await screen.findByTestId("provider-multimodal-note")).textContent,
+    ).toMatch(/on/i);
+  });
+
+  it("falls back to the preset for a model id the catalog does not list", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+        "Refresh",
+      ),
+    );
+
+    fireEvent.change(screen.getByTestId("provider-model-id"), {
+      target: { value: "typed-by-hand" },
+    });
+    // Nothing is known about a hand-typed id, so no note claims otherwise.
+    expect(screen.queryByTestId("provider-multimodal-note")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.models[0].model).toBe("neuraldeep/typed-by-hand");
+    // The neuraldeep preset default stands in when the catalog says nothing.
+    expect(body.models[0].multimodal).toBe(true);
   });
 
   it("saves the anthropic preset as a non-multimodal model", async () => {
@@ -296,6 +508,68 @@ describe("ProviderPickerDialog", () => {
     const body = JSON.parse(String(putCall![1]?.body));
     expect(body.providers[0].type).toBe("anthropic");
     expect(body.models[0].multimodal).toBe(false);
+  });
+
+  it("onboards Codex with ChatGPT OAuth and no API key in config", async () => {
+    const onSaved = vi.fn();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPicker({ onSaved });
+
+    // Switching from a preset that seeds api_base/api_key must not leak those
+    // fields into the Codex provider.
+    fireEvent.click(screen.getByTestId("provider-card-ollama"));
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("provider-api-base") as HTMLInputElement).value,
+      ).toContain("11434"),
+    );
+    fireEvent.click(screen.getByTestId("provider-card-codex"));
+
+    expect(screen.queryByTestId("provider-api-key")).toBeNull();
+    expect(screen.getByTestId("codex-auth-sign-in")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("codex-auth-sign-in"));
+    expect(await screen.findByText("CHAT-CODE")).toBeTruthy();
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://auth.example.test/codex/device",
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    const modelInput = await waitFor(() =>
+      screen.getByTestId("provider-model-id"),
+    );
+    fireEvent.focus(modelInput);
+    const option = await waitFor(() =>
+      screen.getByRole("option", { name: "GPT-5.6 Sol" }),
+    );
+    fireEvent.mouseDown(option);
+
+    const probeCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/providers/models-probe",
+    );
+    expect(probeCall).toBeTruthy();
+    expect(JSON.parse(String(probeCall![1]?.body))).toEqual({
+      type: "codex",
+      provider_name: "codex",
+      api_base: "",
+      api_key: "",
+      proxy: "",
+    });
+
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0]).toEqual({
+      name: "codex",
+      type: "codex",
+    });
+    expect(body.models[0].model).toBe("codex/gpt-5.6-sol");
+    expect(body.models[0].multimodal).toBe(false);
+    expect(body.agent.model).toBe("codex/gpt-5.6-sol");
   });
 
   it("falls back to manual model entry when the probe fails", async () => {

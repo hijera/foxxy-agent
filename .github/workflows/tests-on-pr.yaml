@@ -1,4 +1,5 @@
-# Run full test matrix and golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination), the race detector and
+# golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -12,8 +13,162 @@ defaults:
     shell: bash
 
 jobs:
+  # The tag combinations are written down once, in the Makefile (TEST_TAG_SETS),
+  # and read from there so this file cannot drift from `make test-matrix`. The
+  # The OpenCode rules plugin test rides along; it needs Node and nothing else.
+  plan:
+    name: Test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      sets: ${{ steps.sets.outputs.sets }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Test the OpenCode rules plugin
+        run: make test-opencode-rules
+
+      - name: Read the tag combinations
+        id: sets
+        run: echo "sets=$(make -s print-test-tag-sets)" >> "$GITHUB_OUTPUT"
+
+  # The SPA has its own suite and its own type-check, and no `go test` reaches
+  # either. It runs once, beside the matrix rather than ahead of it: a type error
+  # in the UI must not hide which Go tag combination is broken.
+  ui:
+    name: SPA suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Run the SPA tests and type-check
+        run: make ui-test
+
+  # The website under site/: type-check, tests (the plugin changelogs and their English twins
+  # included), a production build and the Pages artifact with docs/ laid under it. The release
+  # data comes from a fixture, so the job needs no network or token.
+  site:
+    name: Website
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build and test the website
+        run: make site-check
+
+  # One job per combination, none cancelled by another's failure, so a broken
+  # stub behind one tag is reported by name instead of hiding the combinations
+  # a sequential run never reached. Locally `make test` is the express run over
+  # the shipped tag set only; this matrix is where the partial builds are proven.
   test:
-    name: Test suite
+    name: Test suite (${{ matrix.tags || 'untagged' }})
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: ${{ fromJSON(needs.plan.outputs.sets) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The ui tag embeds assets that exist only after the SPA is bundled.
+      - name: Set up Node.js
+        if: contains(matrix.tags, 'ui')
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Build the embedded UI
+        if: contains(matrix.tags, 'ui')
+        run: make ui-build
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      # proxy.golang.org occasionally drops a stream mid-download, and the job then
+      # fails on a module fetch rather than on code. Warming the module cache with
+      # retries turns such a hiccup into a pause instead of a red check.
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
+      - name: Run tests
+        run: go test -tags=${{ matrix.tags }} ./...
+
+      # The console suite drives the app over a fake terminal. In the one
+      # combination that is the console alone, this opens the real binary on a
+      # real pty and checks the first frame, the keyboard and the exit, so the
+      # tty path is proven on Linux too (test-macos does the same on macOS).
+      - name: Build the console
+        if: matrix.tags == 'cli'
+        run: make build TAGS=cli
+
+      - name: Drive the console through a real pty
+        if: matrix.tags == 'cli'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r examples/cli/requirements.txt
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+      # The gateway suite runs the bot against the fake Bot API in-process. In
+      # the combination that is the gateway alone, the real binary is started
+      # against cmd/tgfake on a port and has to answer a message, so the
+      # offline stand of docs/surfaces/gateway.md is proven on every pull
+      # request without a Telegram token or a model.
+      - name: Build the gateway
+        if: matrix.tags == 'gateway'
+        run: make build TAGS=gateway
+
+      - name: Run the bot against the offline Telegram stand
+        if: matrix.tags == 'gateway'
+        run: FOXXYCODE_BIN="$PWD/build/foxxycode" examples/gateway/tg_e2e_offline.sh
+
+  # The suite above runs on Linux, so nothing behind //go:build windows is ever
+  # compiled by it. This job type-checks that half across every tag combination
+  # for the price of a cross-build, and catches a shared signature that only one
+  # platform still satisfies.
+  cross-build-windows:
+    name: Windows cross-build
     runs-on: ubuntu-latest
 
     steps:
@@ -26,19 +181,215 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
+      - name: Type-check the Windows build
+        run: make check-windows
+
+  # Cross-building proves the Windows code compiles, not that it works. These
+  # packages own the behaviour that differs by platform - the process group
+  # probe, the console shell, the background task pool that starts real
+  # processes through it, and the svn client, whose output arrives in the system
+  # ANSI code page - and their Windows-only tests have no other place to run.
+  # The scope is deliberately narrow; widen it as the rest of the tree is shown
+  # to hold on Windows.
+  test-windows:
+    name: Test suite (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
+      - name: Run platform-dependent tests
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+
+  # Nothing gated formatting before: `gofmt -l` is unusable on a Windows checkout
+  # (core.autocrlf=true rewrites .go files to CRLF, which gofmt reports as
+  # unformatted), so it could not live in `make lint`. This runner checks out LF,
+  # which is also what the repository stores, so the check is meaningful here.
+  gofmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # proxy.golang.org occasionally drops a stream mid-download, and the job then
+      # fails on a module fetch rather than on code. Warming the module cache with
+      # retries turns such a hiccup into a pause instead of a red check.
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            echo "Run: gofmt -w <files>"
+            exit 1
+          fi
+
+  # The suite runs without -race, so a data race in the session manager, the
+  # background task pool or the SSE fan-out only ever shows up as a flake in
+  # production. -race needs cgo, which is unavailable on some contributor
+  # machines but always present here. The full non-UI tag set runs through
+  # make test-race.
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # proxy.golang.org occasionally drops a stream mid-download, and the job then
+      # fails on a module fetch rather than on code. Warming the module cache with
+      # retries turns such a hiccup into a pause instead of a red check.
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
+      - name: Run tests under the race detector
+        env:
+          CGO_ENABLED: "1"
+        run: make test-race
+
+  # The console is a raw-mode terminal program, and nothing above runs it on
+  # macOS, where bare `foxxycode` opens on a Terminal.app pty. A hang there was
+  # reported by users before it was seen in any test. This job runs the
+  # platform packages and the console suite on a macOS runner, then builds the
+  # console and drives the binary through a real pty: first frame, keys, exit
+  # and the restored terminal.
+  test-macos:
+    name: Test suite (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run platform tests
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+
+      - name: Run console TUI tests (fake terminal, no pty)
+        run: go test -tags=cli ./external/cli/...
+
+      - name: Build the console
+        run: make build TAGS=cli
+
+      - name: Drive the console through a real pty
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r examples/cli/requirements.txt
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+  # The packages are only built on a release tag, so without this job a broken
+  # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
+  # this proves the packaging, not the binary, and skipping the npm step keeps
+  # the job short.
+  packages:
+    name: Distribution packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build deb and rpm
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
+
+      # Same reasoning one step further: the Homebrew cask is rendered only by
+      # the release job and the formula only by hand, so a template that stopped
+      # being valid Ruby would surface at the worst moment. Rendering needs a
+      # published tag; parsing does not, and the placeholders sit inside strings.
+      - name: Parse the Homebrew templates
+        run: ruby -c packaging/homebrew/foxxycode.rb.tmpl && ruby -c packaging/homebrew/foxxycode-formula.rb.tmpl
+
+  # The documentation follows the code: docs/nav.yaml, the config schema and the
+  # --help screens drive the generated pages, every relative link and anchor must
+  # resolve, and every asset must be used. `make docs-check` is the same gate the
+  # pre-commit hook runs for documentation commits (there without the CLI build).
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: external/ui/package-lock.json
 
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Check the generated pages, the links and the assets
+        run: make docs-check
 
-      - name: Run tests
-        run: make test
-
+  # The Makefile derives lint passes from the full tag list: untagged, all but
+  # ui, and the shipped set. Windows also checks the desktop shell. The SPA
+  # type check runs in make lint.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -53,8 +404,33 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+      # proxy.golang.org occasionally drops a stream mid-download, and the job then
+      # fails on a module fetch rather than on code. Warming the module cache with
+      # retries turns such a hiccup into a pause instead of a red check.
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          version: v2.12.2
-          args: ./...
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      # Installed from the module proxy (checksum-verified) at the version the
+      # repo pins, instead of curl | sh.
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Lint Go and type-check the SPA
+        run: make lint
+
+      - name: Run golangci-lint against the Windows build
+        run: make lint-windows

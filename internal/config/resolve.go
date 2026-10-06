@@ -2,21 +2,30 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
 // ResolvedLLM is provider settings merged with one model entry for llm.NewProvider.
 type ResolvedLLM struct {
+	ProviderName string
 	ProviderType string
 	Model        string
 	APIKey       string
 	BaseURL      string
 	ProxyURL     string
+	AuthPath     string
 	MaxTokens    int
 	// MaxContextTokens is the model's context window (models[].max_context_tokens), 0 when unset.
 	// Used by auto-compaction to detect when history approaches the window.
 	MaxContextTokens int
 	Temperature      float64
+	// TimeoutMS, when positive, bounds each HTTP request to this provider
+	// (providers[].timeout_ms), including the streamed body read.
+	TimeoutMS int
+	// Stream is the transport chosen for this model (models[].stream); false means
+	// one blocking request instead of an SSE stream.
+	Stream bool
 }
 
 // FindProvider returns the provider with the given name, or nil.
@@ -57,15 +66,72 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		return nil, fmt.Errorf("model %q: provider %q not found", ref, provName)
 	}
 	return &ResolvedLLM{
+		ProviderName:     prov.Name,
 		ProviderType:     prov.Type,
 		Model:            entry.APIModel(),
 		APIKey:           prov.EffectiveAPIKey(),
 		BaseURL:          prov.APIBase,
 		ProxyURL:         prov.Proxy,
+		AuthPath:         ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		MaxTokens:        entry.MaxTokens,
 		MaxContextTokens: entry.MaxContextTokens,
 		Temperature:      entry.Temperature,
+		TimeoutMS:        prov.TimeoutMS,
+		Stream:           entry.EffectiveStream(),
 	}, nil
+}
+
+// UnsentModelSetting is a models[] setting the provider serving the model never
+// sends, so it bounds nothing.
+type UnsentModelSetting struct {
+	// Model is the models[].model selector the setting sits on.
+	Model string
+	// Key is the setting's key inside that entry.
+	Key string
+	// Message says what the setting fails to do and why.
+	Message string
+}
+
+// Path is the setting's config path, in the selector form the config check and
+// the dry run place a finding with.
+func (u UnsentModelSetting) Path() string { return "models[" + u.Model + "]." + u.Key }
+
+// UnsentModelSettings reports the models[] settings their provider never sends:
+// today max_tokens on a model served by a codex provider, whose backend rejects
+// an output cap (max_output_tokens). The loader still accepts them, unlike
+// stream: false on the same provider: the settings form seeds max_tokens on
+// every model row it adds, and refusing to load would stop a server over a
+// value that never did anything. The config check, the dry run and the startup
+// log name each one instead, so the value is not taken for a bound.
+func (c *Config) UnsentModelSettings() []UnsentModelSetting {
+	if c == nil {
+		return nil
+	}
+	var out []UnsentModelSetting
+	for i := range c.Models {
+		m := &c.Models[i]
+		prov := c.FindProvider(m.ProviderName())
+		if prov == nil || prov.Type != "codex" || m.MaxTokens <= 0 {
+			continue
+		}
+		out = append(out, UnsentModelSetting{
+			Model:   m.Model,
+			Key:     "max_tokens",
+			Message: "max_tokens bounds nothing on a codex model: the Codex backend takes no output cap, so no request carries it",
+		})
+	}
+	return out
+}
+
+// LogUnsentModelSettings writes a startup warning for every setting
+// UnsentModelSettings reports. Nothing is logged when there is none.
+func (c *Config) LogUnsentModelSettings(log *slog.Logger) {
+	if log == nil {
+		return
+	}
+	for _, u := range c.UnsentModelSettings() {
+		log.Warn("model setting has no effect", "setting", u.Path(), "detail", u.Message)
+	}
 }
 
 // ValidateModelsProvidersAndAgent checks providers, models, and agent.model references.
@@ -93,8 +159,15 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 		}
 		seenModel[c.Models[i].Model] = struct{}{}
 		pn := c.Models[i].ProviderName()
-		if c.FindProvider(pn) == nil {
+		prov := c.FindProvider(pn)
+		if prov == nil {
 			return fmt.Errorf("models[%s]: unknown provider %q", c.Models[i].Model, pn)
+		}
+		// The Codex backend serves the Responses API over SSE only, so it cannot honor
+		// the documented meaning of stream: false (one blocking request). Refuse the
+		// combination instead of quietly buffering a stream and calling it non-streaming.
+		if prov.Type == "codex" && !c.Models[i].EffectiveStream() {
+			return fmt.Errorf("models[%s]: stream: false is unsupported by the codex provider, whose backend is streaming-only", c.Models[i].Model)
 		}
 	}
 

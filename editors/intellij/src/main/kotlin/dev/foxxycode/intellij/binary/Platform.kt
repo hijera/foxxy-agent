@@ -24,6 +24,9 @@ object Platform {
 
     fun binaryFileName(): String = if (SystemInfo.isWindows) "foxxycode.exe" else "foxxycode"
 
+    /** The `<goos>-<goarch>` directory the plugin bundles this platform's binary in. */
+    fun platformDirName(): String = "${goos()}-${goarch()}"
+
     /** Relative path under `foxxycode-bin/` for the current platform, e.g. `linux-amd64/foxxycode`. */
-    fun bundledRelativePath(): String = "${goos()}-${goarch()}/${binaryFileName()}"
+    fun bundledRelativePath(): String = "${platformDirName()}/${binaryFileName()}"
 }

@@ -4,7 +4,8 @@ import { t } from "../i18n/i18n";
 import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
 import { Combobox } from "./Combobox";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
-import { Switch } from "./Switch";
+import { ProxyUrlField } from "./ProxyUrlField";
+import { SwitchField } from "./SwitchField";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
 export function IconTrash(props: { className?: string }) {
@@ -35,6 +36,12 @@ export function IconTrash(props: { className?: string }) {
  * not included), e.g. `model` for the `model` field of a logical-model item, or
  * `model` for `agent.model` when the agent sub-schema is rendered as the root.
  * Return a node to render it instead of the default control, or null to fall back.
+ *
+ * `onChange` writes this field alone. `patchParent` merges several keys into the
+ * object holding it in one update, which is how a custom control reaches a
+ * sibling field it must keep in step (picking a model seeds `multimodal`).
+ * Patching is a single write, so the edited field is never lost to a stale copy
+ * of the row the way two chained onChange calls would lose it.
  */
 export type FieldOverride = (ctx: {
   path: string;
@@ -42,6 +49,7 @@ export type FieldOverride = (ctx: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  patchParent?: ((patch: Record<string, unknown>) => void) | undefined;
 }) => ReactNode | null;
 
 export type JsonSchema = {
@@ -58,6 +66,14 @@ export type JsonSchema = {
   "x-foxxycode-property-order"?: string[];
   "x-foxxycode-provider-api-key-env-placeholder"?: boolean;
   "x-foxxycode-secret"?: boolean;
+  /** A proxy URL: the password is hidden and an editor builds the URL (ProxyUrlField). */
+  "x-foxxycode-proxy-url"?: boolean;
+  /** Build tag this section's feature needs, e.g. "browser". Present regardless of
+   * how the serving binary was built — it describes the feature, not the build. */
+  "x-foxxycode-requires-build-tag"?: string;
+  /** The serving binary was compiled WITHOUT the tag above, so nothing in this
+   * section can take effect here. Set by the process serving the schema. */
+  "x-foxxycode-build-tag-missing"?: boolean;
 };
 
 function entriesInSchemaOrder(
@@ -147,13 +163,27 @@ function SchemaField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  patchParent?: ((patch: Record<string, unknown>) => void) | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
   focusPath?: string | undefined;
+  /** Inherited from an ancestor section the running binary cannot support. */
+  disabled?: boolean | undefined;
 }) {
-  const { name, schema, value, onChange, parentObj, fieldOverride, focusPath } =
-    props;
+  const {
+    name,
+    schema,
+    value,
+    onChange,
+    parentObj,
+    patchParent,
+    fieldOverride,
+    focusPath,
+  } = props;
   const path = props.path ?? name;
+  // A section missing its build tag disables itself and everything under it.
+  const missingTag = schema["x-foxxycode-build-tag-missing"] === true;
+  const disabled = props.disabled === true || missingTag;
   const label = tSchemaText(schema.title) || name;
   const desc = tSchemaText(schema.description);
   // Do not name this `t`: it would shadow the imported i18n t() used below.
@@ -181,6 +211,7 @@ function SchemaField(props: {
       value,
       onChange,
       parentObj,
+      patchParent,
     });
     if (override != null) {
       return <>{override}</>;
@@ -204,10 +235,25 @@ function SchemaField(props: {
         ? (value as Record<string, unknown>)
         : (defaultForSchema(schema) as Record<string, unknown>);
     return (
-      <fieldset className="settings-fieldset">
+      <fieldset
+        className={
+          disabled ? "settings-fieldset settings-fieldset-disabled" : "settings-fieldset"
+        }
+        disabled={disabled || undefined}
+      >
         <legend>{label}</legend>
         {desc ? (
           <p className="settings-field-desc">{desc}</p>
+        ) : null}
+        {missingTag ? (
+          <p
+            className="settings-build-tag-notice"
+            data-testid="settings-build-tag-notice"
+          >
+            {t("settings.buildTagMissing", {
+              tag: schema["x-foxxycode-requires-build-tag"] ?? "",
+            })}
+          </p>
         ) : null}
         <div className="settings-nested">
           {entriesInSchemaOrder(
@@ -220,9 +266,11 @@ function SchemaField(props: {
               schema={sub}
               value={obj[k]}
               parentObj={obj}
+              patchParent={(patch) => onChange({ ...obj, ...patch })}
               path={path ? `${path}.${k}` : k}
               fieldOverride={fieldOverride}
               focusPath={focusPath}
+              disabled={disabled}
               onChange={(nv) => onChange({ ...obj, [k]: nv })}
             />
           ))}
@@ -235,7 +283,12 @@ function SchemaField(props: {
     const arr = Array.isArray(value) ? [...value] : [];
     const itemSchema = schema.items;
     return (
-      <fieldset className="settings-fieldset">
+      <fieldset
+        className={
+          disabled ? "settings-fieldset settings-fieldset-disabled" : "settings-fieldset"
+        }
+        disabled={disabled || undefined}
+      >
         <legend>{label}</legend>
         {desc ? (
           <p className="settings-field-desc">{desc}</p>
@@ -247,6 +300,7 @@ function SchemaField(props: {
                 <SchemaField
                   name={`${name}[${i}]`}
                   schema={itemSchema}
+                  disabled={disabled}
                   value={row}
                   path={path}
                   fieldOverride={fieldOverride}
@@ -268,6 +322,7 @@ function SchemaField(props: {
               </div>
               <button
                 type="button"
+                disabled={disabled}
                 className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
                 aria-label={t("settings.remove")}
                 title={t("settings.remove")}
@@ -283,6 +338,7 @@ function SchemaField(props: {
         </ul>
         <button
           type="button"
+          disabled={disabled}
           className="settings-btn"
           onClick={() => {
             const seed = defaultForSchema(itemSchema);
@@ -296,23 +352,21 @@ function SchemaField(props: {
   }
 
   if (fieldType === "boolean") {
-    const checked = Boolean(value);
+    // A key the configuration never set is not automatically off: the schema says
+    // what its absence means (models[].stream defaults to true), and a switch drawn
+    // from Boolean(undefined) would report the opposite of how the agent behaves.
+    const checked =
+      value === undefined || value === null
+        ? Boolean(schema.default)
+        : Boolean(value);
     return (
-      <div className="settings-row">
-        <div className="settings-row-inline">
-          <Switch
-            checked={checked}
-            onChange={(next) => onChange(next)}
-            ariaLabel={label}
-          />
-          <span>{label}</span>
-        </div>
-        {desc ? (
-          <p className="settings-field-desc settings-field-desc-below-checkbox">
-            {desc}
-          </p>
-        ) : null}
-      </div>
+      <SwitchField
+        checked={checked}
+        onChange={(next) => onChange(next)}
+        label={label}
+        description={desc || undefined}
+        disabled={disabled}
+      />
     );
   }
 
@@ -331,6 +385,7 @@ function SchemaField(props: {
           <p className="settings-field-desc">{desc}</p>
         ) : null}
         <Combobox
+          disabled={disabled}
           value={v}
           ariaLabel={label}
           showOptionLabel
@@ -369,6 +424,7 @@ function SchemaField(props: {
         <input
           className="settings-input"
           type="number"
+          disabled={disabled}
           value={Number.isFinite(n) ? n : 0}
           min={schema.minimum}
           max={schema.maximum}
@@ -390,12 +446,33 @@ function SchemaField(props: {
         ? String(schema.default)
         : ""
       : String(value);
+  if (schema["x-foxxycode-proxy-url"] === true) {
+    return (
+      <div className="settings-row">
+        <span className="settings-label">{label}</span>
+        {desc ? <p className="settings-field-desc">{desc}</p> : null}
+        <ProxyUrlField
+          inputRef={focusRef}
+          value={s}
+          onChange={onChange}
+          ariaLabel={label}
+          placeholder={ph}
+          title={desc || undefined}
+          disabled={disabled}
+          inputClassName="settings-input"
+          rowClassName="settings-key-row"
+          buttonClassName="settings-key-toggle settings-proxy-edit"
+        />
+      </div>
+    );
+  }
   const secret = schema["x-foxxycode-secret"] === true;
   const input = (
     <input
       ref={focusRef}
       className="settings-input"
       type={secret ? (reveal ? "text" : "password") : "text"}
+      disabled={disabled}
       value={s}
       placeholder={ph}
       pattern={schema.pattern}
@@ -439,8 +516,29 @@ export function SchemaForm(props: {
   if (schema.type !== "object" || !schema.properties) {
     return <p className="settings-muted">{t("settings.unsupportedSchema")}</p>;
   }
+  // A settings tab hands its section's sub-schema in as the root (the tab heading
+  // already names it), so the build-tag marker arrives here rather than on a nested
+  // field. Handle it in both places: this covers whole sections, SchemaField covers
+  // sections nested inside another one.
+  const missingTag = schema["x-foxxycode-build-tag-missing"] === true;
   return (
-    <div className="settings-schema-root">
+    <div
+      className={
+        missingTag
+          ? "settings-schema-root settings-fieldset-disabled"
+          : "settings-schema-root"
+      }
+    >
+      {missingTag ? (
+        <p
+          className="settings-build-tag-notice"
+          data-testid="settings-build-tag-notice"
+        >
+          {t("settings.buildTagMissing", {
+            tag: schema["x-foxxycode-requires-build-tag"] ?? "",
+          })}
+        </p>
+      ) : null}
       {entriesInSchemaOrder(
         schema.properties,
         schema["x-foxxycode-property-order"],
@@ -451,9 +549,11 @@ export function SchemaForm(props: {
           schema={sub}
           value={value[k]}
           parentObj={value}
+          patchParent={(patch) => onChange({ ...value, ...patch })}
           path={k}
           fieldOverride={fieldOverride}
           focusPath={focusPath}
+          disabled={missingTag}
           onChange={(nv) => onChange({ ...value, [k]: nv })}
         />
       ))}

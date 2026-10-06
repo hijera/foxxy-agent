@@ -62,3 +62,19 @@ describe("deferred assistant turn reconstruction", () => {
     expect(deferredAssistantItem(emptyDeferredAssistant(), 1)).toBeNull();
   });
 });
+
+describe("assistant bubble ids", () => {
+  // A turn that speaks, calls a tool, then speaks again yields more than one bubble. They
+  // must not collide on their React key, or the second render reuses the first one's DOM.
+  it("bubbles within one turn get distinct ids", () => {
+    const first = deferredAssistantItem({ content: "let me check" }, 1, 0);
+    const second = deferredAssistantItem({ content: "found it" }, 1, 1);
+    expect(first?.id).toBe("as_1");
+    expect(second?.id).toBe("as_1_1");
+    expect(first?.id).not.toBe(second?.id);
+  });
+
+  it("the first bubble of a turn keeps its historical id", () => {
+    expect(deferredAssistantItem({ content: "hi" }, 3)?.id).toBe("as_3");
+  });
+});

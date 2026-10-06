@@ -30,15 +30,15 @@ test("user bubble does not treat path slashes as skill chips without knownSkillN
 });
 
 test("user bubble renders known skill as chip when knownSkillNames provided", () => {
-  const known = new Set(["generate-rules"]);
-  render(<UserMessage content="please /generate-rules for me" knownSkillNames={known} />);
+  const known = new Set(["rpa-gen-rules"]);
+  render(<UserMessage content="please /rpa-gen-rules for me" knownSkillNames={known} />);
   const chip = screen.getByTestId("foxxycode-skill-span");
-  expect(chip).toHaveTextContent("/generate-rules");
-  expect(chip).toHaveAttribute("data-skill-name", "generate-rules");
+  expect(chip).toHaveTextContent("/rpa-gen-rules");
+  expect(chip).toHaveAttribute("data-skill-name", "rpa-gen-rules");
 });
 
 test("user bubble does not chip /name absent from knownSkillNames", () => {
-  const known = new Set(["generate-rules"]);
+  const known = new Set(["rpa-gen-rules"]);
   render(<UserMessage content="see /unknown-cmd here" knownSkillNames={known} />);
   expect(screen.queryByTestId("foxxycode-skill-span")).toBeNull();
   expect(screen.getByTestId("user-message-body")).toHaveTextContent(
@@ -70,11 +70,11 @@ test("edit button is visible when onEdit is provided", () => {
   expect(screen.getByTestId("user-message-edit")).toBeInTheDocument();
 });
 
-test("edit button calls onEdit with message content", () => {
+test("edit button calls onEdit with message content and index", () => {
   const onEdit = vi.fn();
-  render(<UserMessage content="edit me" onEdit={onEdit} />);
+  render(<UserMessage content="edit me" onEdit={onEdit} userMsgIndex={2} />);
   screen.getByTestId("user-message-edit").click();
-  expect(onEdit).toHaveBeenCalledWith("edit me");
+  expect(onEdit).toHaveBeenCalledWith("edit me", 2);
 });
 
 test("persisted hydrated attachments render as compact @ paths", () => {
@@ -87,4 +87,49 @@ test("persisted hydrated attachments render as compact @ paths", () => {
   expect(screen.getByText(/read this/)).toBeInTheDocument();
   expect(screen.getByText(/@note\.txt/)).toBeInTheDocument();
   expect(screen.queryByText(/secret body/)).toBeNull();
+});
+
+test("image files with previewUrl render a thumbnail chip; others keep the icon", () => {
+  render(
+    <UserMessage
+      content="look at this"
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "blob:foxxycode-user-thumb-1",
+        },
+        { name: "notes.txt", mimeType: "text/plain", sizeBytes: 4 },
+      ]}
+    />,
+  );
+  const thumbs = screen.getAllByTestId("msg-user-file-thumb");
+  expect(thumbs).toHaveLength(1);
+  expect(thumbs[0]).toHaveAttribute("src", "blob:foxxycode-user-thumb-1");
+  expect(thumbs[0]!.closest(".msg-user-file-chip")).toHaveClass(
+    "msg-user-file-chip--image",
+  );
+  expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  // Metadata-only entry (e.g. after reload) renders no thumbnail element.
+  expect(
+    screen.getByText("notes.txt").closest(".msg-user-file-chip"),
+  ).not.toHaveClass("msg-user-file-chip--image");
+});
+
+// A page of the documentation the user mentioned is a link in the sent
+// bubble: it opens the reader at that page and section.
+test("an @foxxycode: mention in the sent message opens the documentation reader", () => {
+  render(
+    <UserMessage
+      content="@foxxycode:operate/swarm как настроить рой? and @foxxycode:features/mentions#completion, not user@example.com"
+      knownSkillNames={new Set(["demo"])}
+    />,
+  );
+  const links = Array.from(document.querySelectorAll("a.foxxycode-doc-mention"));
+  expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+    ["@foxxycode:operate/swarm", "#/docs/operate/swarm"],
+    ["@foxxycode:features/mentions#completion", "#/docs/features/mentions#completion"],
+  ]);
+  expect(screen.getByTestId("user-message-body").textContent).toContain("как настроить рой?");
 });

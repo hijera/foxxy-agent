@@ -1,0 +1,5 @@
+node_modules/
+dist/
+_site/
+# Baked by scripts/build-data.mjs before every build.
+src/generated/

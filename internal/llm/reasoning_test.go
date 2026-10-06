@@ -13,7 +13,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
 	p := newOpenAIProvider("gpt-5", "", "", nil, 1024, 0.5, "high")
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	if params.ReasoningEffort != openai.ReasoningEffort("high") {
 		t.Errorf("reasoning_effort = %q, want high", params.ReasoningEffort)
 	}
@@ -30,7 +30,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 
 	// Empty reasoning effort is omitted; non-reasoning models keep max_tokens + temperature.
 	none := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0.5, "")
-	npar := none.buildParams(msgs, nil)
+	npar := none.buildParams(msgs, nil, true)
 	if npar.ReasoningEffort != "" {
 		t.Errorf("reasoning_effort = %q, want empty", npar.ReasoningEffort)
 	}
@@ -42,6 +42,57 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	}
 	if !npar.Temperature.Valid() {
 		t.Error("expected temperature for non-reasoning model")
+	}
+}
+
+func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
+	qpar := qwen.buildParams(msgs, nil, true)
+	if qpar.ReasoningEffort != openai.ReasoningEffort("medium") {
+		t.Errorf("reasoning_effort = %q, want medium", qpar.ReasoningEffort)
+	}
+	if !qpar.MaxCompletionTokens.Valid() {
+		t.Error("expected max_completion_tokens for reasoning model")
+	}
+	qb, err := json.Marshal(qpar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(qb), `"chat_template_kwargs":{"enable_thinking":true}`) {
+		t.Errorf("qwen reasoning request must pin enable_thinking on: %s", qb)
+	}
+
+	// gpt-oss maps to reasoning_effort only; chat_template_kwargs is a Qwen
+	// chat-template switch and must not leak to other model families.
+	oss := newOpenAIProvider("gpt-oss-120b", "", "", nil, 1024, 0.5, "high")
+	obar, err := json.Marshal(oss.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(obar), `"reasoning_effort":"high"`) {
+		t.Errorf("gpt-oss reasoning_effort missing: %s", obar)
+	}
+	if strings.Contains(string(obar), "chat_template_kwargs") {
+		t.Errorf("chat_template_kwargs must not be set for non-qwen models: %s", obar)
+	}
+
+	// Qwen without a reasoning level keeps the plain chat path (no effort, no kwargs).
+	plain := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "")
+	ppar := plain.buildParams(msgs, nil, true)
+	if ppar.ReasoningEffort != "" {
+		t.Errorf("reasoning_effort = %q, want empty", ppar.ReasoningEffort)
+	}
+	if !ppar.MaxTokens.Valid() {
+		t.Error("expected max_tokens for no-level qwen request")
+	}
+	pb, err := json.Marshal(ppar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pb), "chat_template_kwargs") {
+		t.Errorf("no-level qwen request must stay plain: %s", pb)
 	}
 }
 
@@ -148,5 +199,197 @@ func TestAnthropicThinkingBudgetBumpsMaxTokens(t *testing.T) {
 	}
 	if params.Thinking.OfEnabled.BudgetTokens >= params.MaxTokens {
 		t.Errorf("budget %d must be < max_tokens %d", params.Thinking.OfEnabled.BudgetTokens, params.MaxTokens)
+	}
+}
+
+// TestOpenAIReplaysReasoningOnAPlainAssistantMessage covers the partial answer a
+// stalled stream leaves behind: it often carries reasoning and no text at all,
+// and dropping the reasoning here left the model looking at an empty assistant
+// turn followed by "continue from exactly where it stops" - which it answers by
+// starting the whole reply over. The tool-call branch has always replayed it.
+func TestOpenAIReplaysReasoningOnAPlainAssistantMessage(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleUser, Content: "fix the constants"},
+		{Role: RoleAssistant, Content: "", Reasoning: "The constant names are wrong."},
+	}
+	p := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
+	b, err := json.Marshal(p.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "reasoning_content") {
+		t.Errorf("params = %s, want the stalled reasoning replayed", b)
+	}
+	if !strings.Contains(string(b), "The constant names are wrong.") {
+		t.Errorf("params = %s, want the reasoning text itself", b)
+	}
+
+	// A message with neither reasoning nor tool calls keeps the plain shape.
+	plain := []Message{{Role: RoleAssistant, Content: "done"}}
+	pb, err := json.Marshal(p.buildParams(plain, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pb), "reasoning_content") {
+		t.Errorf("params = %s, want no reasoning field when there is no reasoning", pb)
+	}
+}
+
+// TestBuildParamsSendsARequestedZeroTemperature pins the difference between a
+// configured temperature, where zero means "not configured", and one a caller
+// asked for, where zero is a value like any other.
+func TestBuildParamsSendsARequestedZeroTemperature(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	configured := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "")
+	if configured.buildParams(msgs, nil, true).Temperature.Valid() {
+		t.Error("openai: an unconfigured temperature must stay off the request")
+	}
+	requested := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "")
+	requested.tempSet = true
+	if got := requested.buildParams(msgs, nil, true).Temperature; !got.Valid() || got.Value != 0 {
+		t.Errorf("openai: requested temperature 0 = %+v, want an explicit 0", got)
+	}
+
+	anthConfigured := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "")
+	if anthConfigured.buildParams("", nil, nil).Temperature.Valid() {
+		t.Error("anthropic: an unconfigured temperature must stay off the request")
+	}
+	anthRequested := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "")
+	anthRequested.tempSet = true
+	if got := anthRequested.buildParams("", nil, nil).Temperature; !got.Valid() || got.Value != 0 {
+		t.Errorf("anthropic: requested temperature 0 = %+v, want an explicit 0", got)
+	}
+}
+
+func TestRequestOptionsValidateAndApply(t *testing.T) {
+	intp := func(v int) *int { return &v }
+	floatp := func(v float64) *float64 { return &v }
+	for name, tc := range map[string]struct {
+		providerType string
+		opts         RequestOptions
+		wantErr      string
+	}{
+		"nothing asked":                          {"codex", RequestOptions{}, ""},
+		"openai cap and temperature":             {"openai", RequestOptions{MaxTokens: intp(1), Temperature: floatp(2)}, ""},
+		"neuraldeep temperature 0":               {"neuraldeep", RequestOptions{Temperature: floatp(0)}, ""},
+		"anthropic temperature 1":                {"anthropic", RequestOptions{Temperature: floatp(1)}, ""},
+		"anthropic temperature without thinking": {"anthropic", RequestOptions{Temperature: floatp(0.5)}, ""},
+		"anthropic thinking temperature 1":       {"anthropic", RequestOptions{Temperature: floatp(1), ReasoningEffort: "high"}, ""},
+		"anthropic thinking temperature below 1": {"anthropic", RequestOptions{Temperature: floatp(0.5), ReasoningEffort: "high"}, "temperature must be 1 when Anthropic thinking is enabled"},
+		"zero cap":                               {"openai", RequestOptions{MaxTokens: intp(0)}, "max_tokens must be a positive integer"},
+		"openai temperature too high":            {"openai", RequestOptions{Temperature: floatp(2.01)}, "between 0 and 2"},
+		"anthropic temperature 1.01":             {"anthropic", RequestOptions{Temperature: floatp(1.01)}, "between 0 and 1"},
+		"codex cap":                              {"codex", RequestOptions{MaxTokens: intp(64)}, "max_tokens is not supported by a codex model"},
+		"codex temperature":                      {"codex", RequestOptions{Temperature: floatp(0)}, "temperature is not supported by a codex model"},
+	} {
+		err := tc.opts.Validate(tc.providerType)
+		if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: Validate = %v, want %q", name, err, tc.wantErr)
+		}
+	}
+
+	in := ProviderInput{MaxTokens: 8192, Temperature: 0.2}
+	RequestOptions{}.Apply(&in)
+	if in.MaxTokens != 8192 || in.Temperature != 0.2 || in.TemperatureSet {
+		t.Fatalf("empty options changed the input: %+v", in)
+	}
+	RequestOptions{MaxTokens: intp(256), Temperature: floatp(0)}.Apply(&in)
+	if in.MaxTokens != 256 || in.Temperature != 0 || !in.TemperatureSet {
+		t.Fatalf("options not applied: %+v", in)
+	}
+}
+
+// TestBuildParamsSendsARequestedTemperatureNextToReasoning pins that a
+// configured temperature stays off a reasoning request while one the caller
+// asked for is sent, leaving the verdict to the backend.
+func TestBuildParamsSendsARequestedTemperatureNextToReasoning(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	oai := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.6, "high")
+	oai.tempSet = true
+	if got := oai.buildParams(msgs, nil, true).Temperature; !got.Valid() || got.Value != 0.6 {
+		t.Errorf("openai: requested temperature next to reasoning = %+v, want 0.6", got)
+	}
+
+	anth := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 1, "high")
+	anth.tempSet = true
+	params := anth.buildParams("", nil, nil)
+	if params.Thinking.OfEnabled == nil {
+		t.Fatal("anthropic: thinking must stay enabled")
+	}
+	if got := params.Temperature; !got.Valid() || got.Value != 1 {
+		t.Errorf("anthropic: requested temperature next to thinking = %+v, want 1", got)
+	}
+}
+
+func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
+	intp := func(v int) *int { return &v }
+	for name, tc := range map[string]struct {
+		providerType, level string
+		maxTokens           int
+		wantErr             string
+	}{
+		"room above the budget":    {"anthropic", "high", 4096, ""},
+		"no reasoning, tiny cap":   {"anthropic", "", 16, ""},
+		"cap equal to the minimum": {"anthropic", "low", 1024, "max_tokens must exceed 1024"},
+		"cap below the minimum":    {"anthropic", "high", 1000, "max_tokens must exceed 1024"},
+		"openai has no budget":     {"openai", "high", 16, ""},
+	} {
+		err := RequestOptions{MaxTokens: intp(tc.maxTokens), ReasoningEffort: tc.level}.Validate(tc.providerType)
+		if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: Validate = %v, want %q", name, err, tc.wantErr)
+		}
+	}
+
+	in := ProviderInput{ReasoningEffort: ""}
+	RequestOptions{ReasoningEffort: "none"}.Apply(&in)
+	if in.ReasoningEffort != "none" {
+		t.Fatalf("reasoning level not applied: %+v", in)
+	}
+}
+
+// TestBuildParamsReasoningOff pins what the "off" pseudo level becomes on each
+// wire: Qwen3 turns the chat-template switch off and sends no effort, another
+// OpenAI-compatible model is asked for "none", Anthropic sends no thinking
+// block, and the Codex backend is asked for "none".
+func TestBuildParamsReasoningOff(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "off")
+	qpar := qwen.buildParams(msgs, nil, true)
+	if qpar.ReasoningEffort != "" {
+		t.Errorf("qwen off: reasoning_effort = %q, want empty", qpar.ReasoningEffort)
+	}
+	if !qpar.MaxTokens.Valid() {
+		t.Error("qwen off: expected max_tokens, the request is a plain chat request")
+	}
+	qb, err := json.Marshal(qpar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(qb), `"chat_template_kwargs":{"enable_thinking":false}`) {
+		t.Errorf("qwen off must turn thinking off in the template: %s", qb)
+	}
+
+	gpt := newOpenAIProvider("gpt-5.1", "", "", nil, 1024, 0.5, "off")
+	gb, err := json.Marshal(gpt.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gb), `"reasoning_effort":"none"`) {
+		t.Errorf("off on an OpenAI reasoning model asks for none: %s", gb)
+	}
+	if strings.Contains(string(gb), "chat_template_kwargs") {
+		t.Errorf("chat_template_kwargs must not leak to non-qwen models: %s", gb)
+	}
+
+	claude := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "off")
+	if params := claude.buildParams("", nil, nil); params.Thinking.OfEnabled != nil {
+		t.Error("anthropic off must not enable thinking")
+	}
+
+	if got := codexReasoningEffort("off"); got != "none" {
+		t.Errorf("codex off = %q, want none", got)
 	}
 }

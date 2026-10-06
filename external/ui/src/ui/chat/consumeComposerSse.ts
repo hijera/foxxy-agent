@@ -1,7 +1,21 @@
+import type { MemoryRunEvt } from "./memoryRun";
+import { backgroundWakeItem } from "./backgroundWake";
 import type { MutableRefObject } from "react";
-import { openAIStreamErrorMessage } from "./streamError";
+import {
+  namedErrorEventMessage,
+  openAIStreamErrorCode,
+  openAIStreamErrorMessage,
+} from "./streamError";
 import { parseSSEBlocks } from "./sse";
+import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import type { TokenUsage, TranscriptItem } from "./types";
+import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
+import type { ProviderUsage } from "./providerUsage";
+import {
+  sessionSettingsEventOf,
+  type SessionSettingsEvent,
+} from "./sessionSettings";
+import { t } from "../i18n/i18n";
 
 export type ContextUsageUpdate = {
   used: number;
@@ -22,6 +36,7 @@ type ToolCallStatusUpdate = {
   _meta?: {
     foxxycode?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
+      todoPlan?: unknown;
     };
   };
 };
@@ -31,78 +46,21 @@ function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   return !!(p && p.truncated === true);
 }
 
-export type MemoryPhaseEvt = {
-  memoryRowId: string;
-  phase: string;
-  status: string;
-  userTurnIndex?: number;
-  durationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
+function todoPlanFromToolStatus(u: ToolCallStatusUpdate) {
+  return normalizeTodoPlanSnapshot(u._meta?.foxxycode?.todoPlan);
+}
 
-export type MemoryChunkEvt = {
-  memoryRowId: string;
-  phase: string;
-  kind: string;
-  delta: string;
-};
+/**
+ * Shortest gap between the first reasoning frame and the end of thinking that is
+ * still a measurement rather than one flush of a non-streamed response.
+ */
+export const minMeasurableThinkingMs = 5;
+
+/** Longest a queued tool row waits for an animation frame before a timer lands it. */
+export const toolFlushFallbackMs = 250;
 
 function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
-}
-
-function freezeMemoryWallWhenThinkingAfterRecall(
-  items: TranscriptItem[],
-  freezeAtMs: number,
-): TranscriptItem[] {
-  let userIdx = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (it && it.type === "user_message") {
-      userIdx = i;
-      break;
-    }
-  }
-  if (userIdx < 0) return items;
-
-  let memIdx = -1;
-  let thinkingIdx = -1;
-  for (let i = userIdx + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it) continue;
-    if (it.type === "user_message") break;
-    if (it.type === "memory_copilot") memIdx = i;
-    if (
-      it.type === "thinking" &&
-      "status" in it &&
-      it.status === "in_progress"
-    ) {
-      thinkingIdx = i;
-      break;
-    }
-  }
-  if (memIdx < 0 || thinkingIdx < 0) return items;
-
-  const m = items[memIdx];
-  if (!m || m.type !== "memory_copilot") return items;
-
-  const memBusy =
-    m.memoryStatus === "in_progress" ||
-    m.recallStatus === "in_progress" ||
-    m.persistStatus === "in_progress";
-  if (!memBusy || typeof m.memoryWallLiveCapMs === "number") return items;
-
-  const startMs = m.memoryWallStartedAtMs;
-  if (typeof startMs !== "number") return items;
-
-  const cap = Math.max(0, freezeAtMs - startMs);
-  const next = [...items];
-  next[memIdx] = { ...m, memoryWallLiveCapMs: cap };
-  return next;
 }
 
 export type ConsumeComposerSseParams = {
@@ -120,13 +78,10 @@ export type ConsumeComposerSseParams = {
   }>;
   reasoningDurationMsByContentRef: MutableRefObject<Map<string, number>>;
   newId: (prefix: string) => string;
-  applyMemoryPhaseToItems: (
+  /** FoxxyCode extension. The memory subagent run of the turn (`event: memory_run`). */
+  applyMemoryRunToItems: (
     prev: TranscriptItem[],
-    p: MemoryPhaseEvt,
-  ) => TranscriptItem[];
-  applyMemoryChunkToItems: (
-    prev: TranscriptItem[],
-    p: MemoryChunkEvt,
+    e: MemoryRunEvt,
   ) => TranscriptItem[];
   /** FoxxyCode extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
   onQuestion?: (payload: Record<string, unknown>) => void;
@@ -136,7 +91,62 @@ export type ConsumeComposerSseParams = {
   onCompaction?: (payload: Record<string, unknown>) => void;
   /** FoxxyCode extension. Fired with the plan slug when plan_write publishes a design plan. */
   onDesignPlan?: (slug: string) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is held up waiting for the session's configured
+   * MCP servers (**`true`**) and when they are up (**`false`**). Transient status only — the
+   * backend sends nothing at all once the servers are connected.
+   */
+  onMcpConnecting?: (connecting: boolean) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is parked between two attempts at the same
+   * model call because the provider produced no output at all (**`true`**), and when the
+   * next attempt starts (**`false`**). Transient status only — a call that answers sends
+   * nothing at all.
+   */
+  onLlmRetrying?: (retrying: boolean) => void;
+  /** FoxxyCode extension. The provider account snapshot when the turn stream carries one (`event: provider_usage`). */
+  onProviderUsage?: (usage: ProviderUsage) => void;
+  /**
+   * FoxxyCode extension. Fired when the backend switched the session profile on
+   * its own — a plan run, or the model calling `plan_exit`. Without it the
+   * composer keeps the pill the user last picked and the next turn posts a
+   * profile the session has already left.
+   */
+  onModeChanged?: (mode: string) => void;
+  /** FoxxyCode extension. What the session message queue holds now (`event: message_queue`). */
+  onMessageQueue?: (queue: QueuedMessageSnapshot) => void;
+  /** FoxxyCode extension. The session's settings changed during this turn - a
+   *  command, the permission dialog, the model's own switch
+   *  (`event: session_settings`). */
+  onSessionSettings?: (event: SessionSettingsEvent) => void;
+  /** FoxxyCode extension. The running turn's clock and generated tokens (`event: turn_progress`). */
+  onTurnProgress?: (progress: TurnProgress) => void;
+  /** FoxxyCode extension. The input was only settings commands: no turn ran and
+   *  nothing of the exchange is in the history (`foxxycode_meta` carries
+   *  `settings_only`); the transcript's log keeps the notice. */
+  onSettingsOnly?: () => void;
 };
+
+/** One follow-up still waiting for the running turn to read it. */
+export type QueuedMessageEvt = { id: string; text: string; createdAt?: string };
+
+/** A whole queue plus the version that orders it against other deliveries. */
+export type QueuedMessageSnapshot = {
+  messages: QueuedMessageEvt[];
+  version: number;
+};
+
+/** Profile id of a `event: mode` payload (ACP `current_mode_update`), or "". */
+export function sessionModeFromEvent(data: string): string {
+  try {
+    const payload = JSON.parse(data) as { currentModeId?: unknown };
+    return typeof payload.currentModeId === "string"
+      ? payload.currentModeId.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
 const PLAN_META_KIND = "foxxycode.dev/planKind";
@@ -163,6 +173,12 @@ function designPlanSlugFromEvent(data: string): string {
 
 export type ConsumeComposerSseResult = {
   streamErrorMessage: string | null;
+  /** Machine-readable `error.code` of the frame that ended the stream, when it carried one. */
+  streamErrorCode: string | null;
+  /** Sequence of the last relay frame consumed, for resuming after a dropped connection. */
+  lastEventId: string;
+  /** True when the relay reported it had already dropped frames this client never saw. */
+  desynced: boolean;
   /**
    * True when the reader closed before the terminating `[DONE]` and without a
    * reported stream error — i.e. the connection was cut mid-turn (e.g. the
@@ -197,12 +213,19 @@ export async function consumeComposerSseReader(
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
-    applyMemoryPhaseToItems,
-    applyMemoryChunkToItems,
+    applyMemoryRunToItems,
     onQuestion,
     onPermission,
     onCompaction,
+    onMcpConnecting,
+    onLlmRetrying,
     onDesignPlan,
+    onProviderUsage,
+    onModeChanged,
+    onMessageQueue,
+    onSessionSettings,
+    onTurnProgress,
+    onSettingsOnly,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -220,8 +243,13 @@ export async function consumeComposerSseReader(
         }
       > = [];
       let raf = 0;
+      let flushTimer = 0;
       const flushToolQueue = () => {
         raf = 0;
+        if (flushTimer) {
+          window.clearTimeout(flushTimer);
+          flushTimer = 0;
+        }
         if (toolQueue.length === 0) return;
         const pending = toolQueue.splice(0, toolQueue.length);
         applyStreamItems((prev) => {
@@ -248,6 +276,7 @@ export async function consumeComposerSseReader(
                 it.resultWasTruncated = upd.resultWasTruncated;
               if (upd.fullResultText !== undefined)
                 it.fullResultText = upd.fullResultText;
+              if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
               if (upd.startedAtMs !== undefined)
                 it.startedAtMs = upd.startedAtMs;
               if (upd.finishedAtMs !== undefined)
@@ -291,15 +320,20 @@ export async function consumeComposerSseReader(
               merged.resultWasTruncated = upd.resultWasTruncated;
             if (upd.fullResultText !== undefined)
               merged.fullResultText = upd.fullResultText;
+            if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
             arr[idx] = merged;
             next = arr;
           }
           return next;
         });
       };
+      // A frame batches a burst of tool updates into one render. A tab that gets no
+      // frames - hidden, or a window the browser treats as occluded - would hold the
+      // rows back indefinitely, so a timer lands them regardless.
       const scheduleToolFlush = () => {
-        if (raf) return;
+        if (raf || flushTimer) return;
         raf = window.requestAnimationFrame(flushToolQueue);
+        flushTimer = window.setTimeout(flushToolQueue, toolFlushFallbackMs);
       };
 
       const ensureAssistant = (
@@ -339,6 +373,27 @@ export async function consumeComposerSseReader(
         if (currentAssistantHasContent) pendingBubbleRotation = true;
       };
 
+      /**
+       * A follow-up from the message queue, read by the agent between two steps.
+       * What is still pending lands above it first - tool rows waiting for a frame,
+       * an open thinking row - and the answer to it starts a bubble of its own below.
+       */
+      const appendQueuedUserMessage = (text: string) => {
+        if (toolQueue.length > 0) flushToolQueue();
+        finishThinking();
+        applyStreamItems((prev) => [
+          ...prev,
+          {
+            id: newId("u"),
+            type: "user_message" as const,
+            content: text,
+            queued: true,
+            createdAtUtc: new Date().toISOString(),
+          },
+        ]);
+        markRowAppendedAfterAssistant();
+      };
+
       /** Starts a fresh bubble below the last appended row when one is pending. */
       const beginAssistantChunk = () => {
         if (!pendingBubbleRotation) return;
@@ -355,27 +410,51 @@ export async function consumeComposerSseReader(
         pendingBubbleRotation = false;
       };
 
+      /**
+       * Whitespace that would be the first thing in a segment is held back until
+       * text follows it. A model calling several tools in one answer puts "\n\n"
+       * between the calls, and opening a bubble for that alone left an empty,
+       * zero-height row between the tool rows that still took the column's gap.
+       */
+      let pendingWhitespace = "";
+
       /** Appends assistant text in chronological position. */
       const appendAssistantContent = (c: string) => {
         // Land any queued tool rows first so they keep their arrival position.
         if (toolQueue.length > 0) flushToolQueue();
+        if (
+          !/\S/.test(c) &&
+          (pendingBubbleRotation || !currentAssistantHasContent)
+        ) {
+          pendingWhitespace += c;
+          return;
+        }
+        const text = pendingWhitespace + c;
+        pendingWhitespace = "";
         beginAssistantChunk();
         ensureAssistant();
         const target = currentAssistantId;
         applyStreamItems((prev) =>
           prev.map((it) =>
             it.type === "assistant_message" && it.id === target
-              ? { ...it, content: it.content + c }
+              ? { ...it, content: it.content + text }
               : it,
           ),
         );
         currentAssistantHasContent = true;
       };
 
+      // When the frame being handled happened. A frame the relay replays after a
+      // reload carries its age, and dating it on arrival restarted a reasoning
+      // block's clock at the reload and read 0ms for a tool call whose start and end
+      // were replayed in the same burst. Outside a frame it is simply now.
+      let frameAt: number | null = null;
+      const eventNow = () => frameAt ?? Date.now();
+
       let activeThinkingId: string | null = null;
       let activeThinkingStarted = 0;
       const appendThinking = (delta: string) => {
-        const freezeAt = Date.now();
+        const freezeAt = eventNow();
         if (!activeThinkingId) {
           activeThinkingId = newId("r");
           activeThinkingStarted = freezeAt;
@@ -384,6 +463,9 @@ export async function consumeComposerSseReader(
           markRowAppendedAfterAssistant();
         }
         const id = activeThinkingId;
+        // Queued tool rows came first in the stream; they land before a new
+        // reasoning row does, not after it.
+        flushToolQueue();
         applyStreamItems((prev) => {
           const known = prev.some(
             (it) => it.type === "thinking" && it.id === id,
@@ -401,13 +483,18 @@ export async function consumeComposerSseReader(
               ? { ...it, content: it.content + delta }
               : it,
           );
-          return freezeMemoryWallWhenThinkingAfterRecall(next, freezeAt);
+          return next;
         });
       };
       const finishThinking = () => {
         if (!activeThinkingId) return;
         const id = activeThinkingId;
-        const dur = Math.max(0, Date.now() - activeThinkingStarted);
+        const dur = Math.max(0, eventNow() - activeThinkingStarted);
+        // A model configured with stream: false delivers its reasoning and its answer
+        // in the same flush, so this clock measures the gap between two frames rather
+        // than how long the model thought. Below the floor there is nothing to report:
+        // the row shows "-" instead of a fabricated millisecond.
+        const measured = dur >= minMeasurableThinkingMs;
         applyStreamItems((prev) =>
           prev.map((it) => {
             if (it.type !== "thinking" || it.id !== id) {
@@ -416,10 +503,10 @@ export async function consumeComposerSseReader(
             const nextIt = {
               ...it,
               status: "completed" as const,
-              durationMs: dur,
+              ...(measured ? { durationMs: dur } : {}),
             };
             const dk = reasoningDurationCacheKey(nextIt.content);
-            if (dk.length > 0) {
+            if (measured && dk.length > 0) {
               reasoningDurationMsByContentRef.current.set(dk, dur);
             }
             return nextIt;
@@ -430,6 +517,9 @@ export async function consumeComposerSseReader(
 
       let sawDone = false;
       let streamErrorMessage: string | null = null;
+      let streamErrorCode: string | null = null;
+      let lastEventId = "";
+      let desynced = false;
       let streamHalted = false;
       while (true) {
         const step = await reader.read();
@@ -441,8 +531,42 @@ export async function consumeComposerSseReader(
           carry,
         );
         for (const ev of events) {
+          frameAt =
+            typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
+          if (ev.id) {
+            lastEventId = ev.id;
+          }
           if (ev.data === "[DONE]") {
             sawDone = true;
+            break;
+          }
+
+          // The relay trimmed frames this client never received, so what follows would
+          // render with a hole in it. Reporting it lets the caller reload the transcript.
+          if (ev.event === "desync") {
+            desynced = true;
+            continue;
+          }
+
+          // A failed turn - and the relay's "there is nothing to watch" answer -
+          // arrives as a NAMED error event, so it never reaches the unnamed-data
+          // branch below. Left unhandled, the reader just keeps looping.
+          if (ev.event === "error") {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            streamErrorMessage =
+              namedErrorEventMessage(parsed) ?? t("app.requestFailed");
+            streamErrorCode = openAIStreamErrorCode(parsed);
+            streamHalted = true;
+            try {
+              await reader.cancel();
+            } catch {
+              // ignore
+            }
             break;
           }
 
@@ -456,6 +580,7 @@ export async function consumeComposerSseReader(
             const sseErr = openAIStreamErrorMessage(delta);
             if (sseErr) {
               streamErrorMessage = sseErr;
+              streamErrorCode = openAIStreamErrorCode(delta);
               streamHalted = true;
               try {
                 await reader.cancel();
@@ -507,6 +632,36 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "foxxycode_meta") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                metadata?: { settings_only?: unknown };
+              };
+              if (String(raw.metadata?.settings_only) === "true") {
+                onSettingsOnly?.();
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "turn_progress") {
+            try {
+              const progress = turnProgressFromFrame(
+                JSON.parse(ev.data),
+                ev.ageMs,
+                Date.now(),
+              );
+              if (progress) {
+                onTurnProgress?.(progress);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "usage_update") {
             try {
               const raw = JSON.parse(ev.data) as ContextUsageUpdate;
@@ -519,6 +674,65 @@ export async function consumeComposerSseReader(
                 size > 0
               ) {
                 setContextUsage({ used, size });
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "mode") {
+            const modeId = sessionModeFromEvent(ev.data);
+            if (modeId) {
+              onModeChanged?.(modeId);
+            }
+            continue;
+          }
+
+          if (ev.event === "mcp_phase") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              onMcpConnecting?.(payload.phase === "connecting");
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "llm_retry") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              // "waiting" is a pause before replaying a call that delivered
+              // nothing; "continuing" is a turn parked behind a half-written
+              // answer. Both mean nothing is arriving, which is what the status
+              // line reports - and the second is the one the operator sees most,
+              // because the bubble stays on screen through it.
+              //
+              // Only "resumed" takes the label away. "retrying" says the next
+              // attempt went out, not that anything came back, and an attempt can
+              // hang for its whole request timeout - clearing on it made the label
+              // blink out while the turn was still parked.
+              if (payload.phase === "resumed") {
+                onLlmRetrying?.(false);
+              } else if (
+                payload.phase === "waiting" ||
+                payload.phase === "continuing"
+              ) {
+                onLlmRetrying?.(true);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "provider_usage") {
+            // Reserved on this stream today (the events stream carries the
+            // snapshot between turns); a frame that does arrive is applied.
+            try {
+              const raw = JSON.parse(ev.data) as ProviderUsage;
+              if (raw && typeof raw.provider === "string") {
+                onProviderUsage?.(raw);
               }
             } catch {
               // ignore
@@ -544,36 +758,86 @@ export async function consumeComposerSseReader(
             continue;
           }
 
-          if (ev.event === "memory_phase") {
+          // A turn nobody typed opens with the wake: an item that shows
+          // nothing but opens the turn where the user's message would stand,
+          // before anything the turn says.
+          if (ev.event === "background_wake") {
+            const wake = backgroundWakeItem(ev.data, newId("wake"));
+            if (wake) {
+              applyStreamItems((prev) => [...prev, wake]);
+              markRowAppendedAfterAssistant();
+            }
+            continue;
+          }
+
+          // A queued follow-up the agent has just read enters the conversation
+          // here, where it was read - not at the end, where a transcript reload
+          // would otherwise be the first place it appears.
+          if (ev.event === "user_message") {
             try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
+              const raw = JSON.parse(ev.data) as {
+                content?: { text?: string };
+              };
+              const text = String(raw?.content?.text || "");
+              if (text.trim()) {
+                appendQueuedUserMessage(text);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "session_settings") {
+            const parsed = sessionSettingsEventOf(ev.data);
+            if (parsed) {
+              onSessionSettings?.(parsed);
+            }
+            continue;
+          }
+
+          if (ev.event === "message_queue") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                messages?: unknown;
+                version?: unknown;
+              };
+              const rows = Array.isArray(raw.messages) ? raw.messages : [];
+              onMessageQueue?.({
+                messages: rows
+                  .map((r) => r as QueuedMessageEvt)
+                  .filter(
+                    (r) =>
+                      r && typeof r.id === "string" && typeof r.text === "string",
+                  ),
+                version: typeof raw.version === "number" ? raw.version : 0,
+              });
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "memory_run") {
+            try {
+              const raw = JSON.parse(ev.data) as MemoryRunEvt;
               applyStreamItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
+                applyMemoryRunToItems(prev, {
                   status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
+                  ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
+                  ...(raw.childSessionId
+                    ? { childSessionId: String(raw.childSessionId) }
+                    : {}),
+                  ...(raw.taskStatus
+                    ? { taskStatus: String(raw.taskStatus) }
                     : {}),
                   ...(typeof raw.durationMs === "number"
                     ? { durationMs: raw.durationMs }
                     : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
+                  ...(typeof raw.delivered === "boolean"
+                    ? { delivered: raw.delivered }
                     : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
+                  ...(raw.reason ? { reason: String(raw.reason) } : {}),
                 }),
               );
             } catch {
@@ -581,24 +845,6 @@ export async function consumeComposerSseReader(
             }
             continue;
           }
-
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              applyStreamItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
           if (ev.event === "permission") {
             try {
               // tool_call rows are batched to the next animation frame. A
@@ -631,7 +877,7 @@ export async function consumeComposerSseReader(
               // New action row: later assistant text starts a new bubble below it.
               markRowAppendedAfterAssistant();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
+              const now = eventNow();
               const patch: Partial<
                 Extract<TranscriptItem, { type: "tool_call" }>
               > & { toolCallId: string } = {
@@ -654,7 +900,7 @@ export async function consumeComposerSseReader(
               const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
               const status = (u.status as any) || "in_progress";
               const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
+              const now = eventNow();
               if (status === "in_progress" && text0) {
                 toolQueue.push({
                   toolCallId: u.toolCallId,
@@ -670,12 +916,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -711,6 +959,7 @@ export async function consumeComposerSseReader(
           break;
         }
       }
+      frameAt = null;
       if (sawDone) {
         try {
           await reader.cancel();
@@ -722,7 +971,28 @@ export async function consumeComposerSseReader(
       if (carry.buf.trim()) {
         const tailEvents = parseSSEBlocks("\n\n", carry);
         for (const ev of tailEvents) {
+          frameAt =
+            typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
+          if (ev.id) {
+            lastEventId = ev.id;
+          }
           if (ev.data === "[DONE]") continue;
+          if (ev.event === "desync") {
+            desynced = true;
+            continue;
+          }
+          if (ev.event === "error") {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            streamErrorMessage =
+              namedErrorEventMessage(parsed) ?? t("app.requestFailed");
+            streamErrorCode = openAIStreamErrorCode(parsed);
+            break;
+          }
           if (!ev.event) {
             let delta: unknown;
             try {
@@ -733,6 +1003,7 @@ export async function consumeComposerSseReader(
             const sseErr = openAIStreamErrorMessage(delta);
             if (sseErr) {
               streamErrorMessage = sseErr;
+              streamErrorCode = openAIStreamErrorCode(delta);
               break;
             }
             const d = delta as {
@@ -759,52 +1030,86 @@ export async function consumeComposerSseReader(
             }
             continue;
           }
-          if (ev.event === "memory_phase") {
+          // A turn nobody typed opens with the wake: an item that shows
+          // nothing but opens the turn where the user's message would stand,
+          // before anything the turn says.
+          if (ev.event === "background_wake") {
+            const wake = backgroundWakeItem(ev.data, newId("wake"));
+            if (wake) {
+              applyStreamItems((prev) => [...prev, wake]);
+              markRowAppendedAfterAssistant();
+            }
+            continue;
+          }
+
+          // A queued follow-up the agent has just read enters the conversation
+          // here, where it was read - not at the end, where a transcript reload
+          // would otherwise be the first place it appears.
+          if (ev.event === "user_message") {
             try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              applyStreamItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
-                    : {}),
-                  ...(typeof raw.durationMs === "number"
-                    ? { durationMs: raw.durationMs }
-                    : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
-                    : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
-                }),
-              );
+              const raw = JSON.parse(ev.data) as {
+                content?: { text?: string };
+              };
+              const text = String(raw?.content?.text || "");
+              if (text.trim()) {
+                appendQueuedUserMessage(text);
+              }
             } catch {
               // ignore
             }
             continue;
           }
-          if (ev.event === "memory_chunk") {
+
+          if (ev.event === "session_settings") {
+            const parsed = sessionSettingsEventOf(ev.data);
+            if (parsed) {
+              onSessionSettings?.(parsed);
+            }
+            continue;
+          }
+
+          if (ev.event === "message_queue") {
             try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
+              const raw = JSON.parse(ev.data) as {
+                messages?: unknown;
+                version?: unknown;
+              };
+              const rows = Array.isArray(raw.messages) ? raw.messages : [];
+              onMessageQueue?.({
+                messages: rows
+                  .map((r) => r as QueuedMessageEvt)
+                  .filter(
+                    (r) =>
+                      r && typeof r.id === "string" && typeof r.text === "string",
+                  ),
+                version: typeof raw.version === "number" ? raw.version : 0,
+              });
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "memory_run") {
+            try {
+              const raw = JSON.parse(ev.data) as MemoryRunEvt;
               applyStreamItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
+                applyMemoryRunToItems(prev, {
+                  status: String(raw.status || ""),
+                  ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
+                  ...(raw.childSessionId
+                    ? { childSessionId: String(raw.childSessionId) }
+                    : {}),
+                  ...(raw.taskStatus
+                    ? { taskStatus: String(raw.taskStatus) }
+                    : {}),
+                  ...(typeof raw.durationMs === "number"
+                    ? { durationMs: raw.durationMs }
+                    : {}),
+                  ...(typeof raw.delivered === "boolean"
+                    ? { delivered: raw.delivered }
+                    : {}),
+                  ...(raw.reason ? { reason: String(raw.reason) } : {}),
                 }),
               );
             } catch {
@@ -816,6 +1121,13 @@ export async function consumeComposerSseReader(
             const slug = designPlanSlugFromEvent(ev.data);
             if (slug) {
               onDesignPlan?.(slug);
+            }
+            continue;
+          }
+          if (ev.event === "mode") {
+            const modeId = sessionModeFromEvent(ev.data);
+            if (modeId) {
+              onModeChanged?.(modeId);
             }
             continue;
           }
@@ -845,7 +1157,7 @@ export async function consumeComposerSseReader(
               // New action row: later assistant text starts a new bubble below it.
               markRowAppendedAfterAssistant();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
+              const now = eventNow();
               const patch: Partial<
                 Extract<TranscriptItem, { type: "tool_call" }>
               > & { toolCallId: string } = {
@@ -867,7 +1179,7 @@ export async function consumeComposerSseReader(
               const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
               const status = (u.status as any) || "in_progress";
               const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
+              const now = eventNow();
               if (status === "in_progress" && text0) {
                 toolQueue.push({
                   toolCallId: u.toolCallId,
@@ -883,12 +1195,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -921,8 +1235,12 @@ export async function consumeComposerSseReader(
 
   const endedWithoutDone = !sawDone && !streamHalted && !streamErrorMessage;
 
+  frameAt = null;
   return {
     streamErrorMessage,
+    streamErrorCode,
+    lastEventId,
+    desynced,
     endedWithoutDone,
     finalAssistantId: currentAssistantId,
     flushToolQueue,

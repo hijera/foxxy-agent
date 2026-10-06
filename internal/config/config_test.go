@@ -1,10 +1,14 @@
 package config_test
 
 import (
+	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
@@ -165,8 +169,8 @@ logger:
 	if cfg.Agent.MaxTurns != 7 {
 		t.Errorf("agent.max_turns: got %d want 7", cfg.Agent.MaxTurns)
 	}
-	if cfg.Agent.LLMRetryMax != config.AgentDefaultLLMRetryMax {
-		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.LLMRetryMax)
+	if got := cfg.Agent.EffectiveLLMRetryMax(); got != config.AgentDefaultLLMRetryMax {
+		t.Errorf("agent.llm_retry_max default: got %d", got)
 	}
 
 	wantPrompts := filepath.Clean("/tmp/foxxycode-e2e-prompts")
@@ -300,7 +304,9 @@ logger:
 	if cfg.Logger.Outputs[0] != config.LogOutputStderr || cfg.Logger.Outputs[1] != config.LogOutputFile {
 		t.Fatalf("unexpected outputs: %v", cfg.Logger.Outputs)
 	}
-	if cfg.Logger.File != "/tmp/foxxycode-legacy.log" {
+	// logger.file is process-scoped now, so applyDefaults cleans it; on Windows
+	// that turns the separators around without changing the path.
+	if filepath.ToSlash(cfg.Logger.File) != "/tmp/foxxycode-legacy.log" {
 		t.Fatalf("file: %q", cfg.Logger.File)
 	}
 }
@@ -370,6 +376,46 @@ agent:
 	}
 	if cfg.Models[0].Model != "openai/gpt-4o" {
 		t.Errorf("model: got %q", cfg.Models[0].Model)
+	}
+}
+
+func TestLoadNeuralDeepProviderWithMirrorAPIBase(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "nd-test-key")
+
+	content := `
+providers:
+  - name: neuraldeep
+    type: neuraldeep
+    api_base: "https://api.neuraldeep.tech/v1"
+    api_key: "${NEURALDEEP_API_KEY}"
+
+models:
+  - model: "neuraldeep/default"
+
+agent:
+  model: "neuraldeep/default"
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The mirror is a legitimate NeuralDeep deployment, so the row keeps it and
+	// ResolveLLM carries it to the provider constructor.
+	if got := cfg.Providers[0].APIBase; got != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("api_base = %q, want the mirror", got)
+	}
+	rm, err := cfg.ResolveLLM("neuraldeep/default")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.BaseURL != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("resolved base URL = %q, want the mirror", rm.BaseURL)
 	}
 }
 
@@ -491,7 +537,7 @@ memory:
 		t.Fatal(err)
 	}
 	if cfg.Memory.Enabled {
-		t.Fatal("expected memory.enabled false")
+		t.Fatal("expected memory.enable false")
 	}
 }
 
@@ -570,7 +616,7 @@ agent:
 	}
 	cfg.Scheduler.Enabled = true
 	if !cfg.SchedulerEffectiveEnabled() {
-		t.Fatal("scheduler.enabled should be observable")
+		t.Fatal("scheduler.enable should be observable")
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		t.Fatal(err)
@@ -619,4 +665,781 @@ agent:
 	if cfg.Models[1].Multimodal {
 		t.Errorf("models[1] (gpt-4o-mini): want multimodal=false (default)")
 	}
+}
+
+func TestHTTPRequestAllowlistJSONRoundTrip(t *testing.T) {
+	// A save from the settings screen goes through the JSON DTO: an allowlist
+	// set in YAML must survive it, or the next request to those hosts asks again.
+	c := &config.Config{Tools: config.Tools{HTTPRequest: config.ToolHTTPRequest{Allowlist: []string{"api.github.com", "http://localhost:8080"}}}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(c), config.Paths{})
+	if got := strings.Join(back.Tools.HTTPRequest.Allowlist, ","); got != "api.github.com,http://localhost:8080" {
+		t.Fatalf("allowlist after the round-trip = %q", got)
+	}
+}
+
+func TestSettingsSaveKeepsWebSearchAndSSHTimeout(t *testing.T) {
+	// PUT /foxxycode/config rebuilds the whole file from the JSON DTO. A key the DTO
+	// does not carry comes back empty, so an unrelated save from the settings
+	// screen used to erase the search engines, the SearXNG address, the Brave key
+	// and the SSH timeout the operator had set. This walks the same path the
+	// handler does: load, DTO, JSON, parse over the live config, render, reload.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := `providers:
+  - name: p
+    type: openai
+models:
+  - model: p/m
+agent:
+  model: p/m
+tools:
+  ssh_connect_timeout: 77
+  websearch:
+    engines: [searxng, brave]
+    engine_timeout_seconds: 5
+    total_timeout_seconds: 12
+    max_concurrent_engines: 2
+    snippet_chars: 200
+    cache_ttl_seconds: -1
+    searxng_url: http://127.0.0.1:8888
+    brave_api_key: BSA-secret
+`
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: path, Home: dir, CWD: dir}
+	live, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(config.ConfigToJSONDTO(live))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.MarshalConfigYAMLForFile(next, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("the saved file does not load: %v\n%s", err, saved)
+	}
+	if got := reloaded.Tools.SSHConnectTimeout; got != 77 {
+		t.Errorf("tools.ssh_connect_timeout after a save = %d, want 77", got)
+	}
+	want := live.Tools.WebSearch
+	if got := reloaded.Tools.WebSearch; !reflect.DeepEqual(got, want) {
+		t.Errorf("tools.websearch after a save = %+v, want %+v\n%s", got, want, saved)
+	}
+}
+
+func TestSettingsSaveKeepsEnvironmentReferences(t *testing.T) {
+	// A key the operator keeps in the environment is written as ${VAR} in
+	// config.yaml, or not written at all. The load expands the reference, so the
+	// config the settings screen saves holds the secret itself; a save that wrote
+	// that value back turned every reference into the key in plain text.
+	t.Setenv("FOXXYCODE_TEST_PROVIDER_KEY", "sk-from-env")
+	t.Setenv("FOXXYCODE_TEST_BRAVE_KEY", "BSA-from-env")
+	t.Setenv(config.WebSearchBraveAPIKeyEnv, "BSA-fallback")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := `providers:
+  - name: p
+    type: openai
+    api_key: "${FOXXYCODE_TEST_PROVIDER_KEY}"
+  - name: q
+    type: openai
+    api_key: ${FOXXYCODE_TEST_PROVIDER_KEY}
+models:
+  - model: p/m
+agent:
+  model: p/m
+tools:
+  websearch:
+    brave_api_key: ${FOXXYCODE_TEST_BRAVE_KEY}
+`
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: path, Home: dir, CWD: dir}
+	save := func(edit func(*config.ConfigJSON)) string {
+		t.Helper()
+		live, err := config.LoadWithPaths(paths)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dto := config.ConfigToJSONDTO(live)
+		if edit != nil {
+			edit(dto)
+		}
+		body, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved, err := config.MarshalConfigYAMLForFile(next, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, saved, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return string(saved)
+	}
+
+	saved := save(nil)
+	for _, secret := range []string{"sk-from-env", "BSA-from-env", "BSA-fallback"} {
+		if strings.Contains(saved, secret) {
+			t.Fatalf("a save wrote the secret %q into config.yaml:\n%s", secret, saved)
+		}
+	}
+	if strings.Count(saved, "${FOXXYCODE_TEST_PROVIDER_KEY}") != 2 || !strings.Contains(saved, "${FOXXYCODE_TEST_BRAVE_KEY}") {
+		t.Fatalf("a save dropped the environment references:\n%s", saved)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Providers[0].APIKey != "sk-from-env" || reloaded.Tools.WebSearch.BraveAPIKey != "BSA-from-env" {
+		t.Fatalf("the references no longer resolve: %+v %+v", reloaded.Providers[0], reloaded.Tools.WebSearch)
+	}
+
+	// A value the operator changed on the settings screen is written as changed.
+	saved = save(func(dto *config.ConfigJSON) { dto.Tools.WebSearch.BraveAPIKey = "BSA-typed-in" })
+	if strings.Contains(saved, "${FOXXYCODE_TEST_BRAVE_KEY}") || !strings.Contains(saved, "BSA-typed-in") {
+		t.Fatalf("an edited key was not written:\n%s", saved)
+	}
+}
+
+func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
+	f := false
+	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
+	dto := config.ConfigToJSONDTO(c)
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if back.Skills.AutoDiscoveryEnabled() {
+		t.Fatal("auto_discovery=false must survive the JSON DTO round-trip")
+	}
+}
+
+func TestApplySkillsAutoDiscoveryFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *bool) {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		v := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Flag not provided → config value untouched (stays nil = default-on).
+	fs, v := newFS(nil)
+	cfg := &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery != nil {
+		t.Fatalf("unset flag must not touch config, got %v", *cfg.Skills.AutoDiscovery)
+	}
+
+	// -skills-auto-discovery=false → overrides to false.
+	fs, v = newFS([]string{"-skills-auto-discovery=false"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=false must disable auto_discovery")
+	}
+
+	// -skills-auto-discovery=true → explicit enable.
+	fs, v = newFS([]string{"-skills-auto-discovery=true"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery == nil || !cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=true must explicitly enable auto_discovery")
+	}
+}
+
+func TestMCPProjectTrustDefaultsToAskAndRejectsUnknown(t *testing.T) {
+	// An empty or unrecognised value must never widen the policy.
+	for _, in := range []string{"", "   ", "nonsense"} {
+		var c config.MCP
+		c.ProjectTrust = in
+		if got := c.ResolvedProjectTrust(); got != config.ProjectTrustAsk {
+			t.Errorf("ResolvedProjectTrust(%q) = %q, want %q", in, got, config.ProjectTrustAsk)
+		}
+	}
+
+	var c config.MCP
+	if err := c.Validate(); err != nil || c.ProjectTrust != config.ProjectTrustAsk {
+		t.Fatalf("empty Validate = %v, project_trust %q", err, c.ProjectTrust)
+	}
+	c.ProjectTrust = "ALLOW"
+	if err := c.Validate(); err != nil || c.ProjectTrust != config.ProjectTrustAllow {
+		t.Fatalf("case-insensitive Validate = %v, project_trust %q", err, c.ProjectTrust)
+	}
+	c.ProjectTrust = "sometimes"
+	if err := c.Validate(); err == nil {
+		t.Fatal("unknown project_trust must be rejected")
+	}
+}
+
+func TestMCPProjectTrustRoundTripsThroughConfigJSON(t *testing.T) {
+	// The Settings UI PUTs the whole document back; a key missing from the
+	// JSON DTO would silently reset the policy to the default.
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+	if got := back.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Fatalf("project_trust after round trip = %q, want %q", got, config.ProjectTrustDeny)
+	}
+}
+
+func TestApplyProjectTrustFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *string) {
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		v := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Unset flag must not touch config, or every launch would reset the policy.
+	fs, v := newFS(nil)
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err != nil {
+		t.Fatalf("unset flag: %v", err)
+	}
+	if cfg.MCP.ProjectTrust != config.ProjectTrustDeny {
+		t.Fatalf("unset flag changed policy to %q", cfg.MCP.ProjectTrust)
+	}
+
+	fs, v = newFS([]string{"-" + config.ProjectTrustFlagName + "=allow"})
+	cfg = &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err != nil {
+		t.Fatalf("allow: %v", err)
+	}
+	if cfg.MCP.ProjectTrust != config.ProjectTrustAllow {
+		t.Fatalf("flag=allow left policy %q", cfg.MCP.ProjectTrust)
+	}
+
+	// A typo must fail loudly instead of silently falling back to ask.
+	fs, v = newFS([]string{"-" + config.ProjectTrustFlagName + "=allo"})
+	cfg = &config.Config{}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err == nil {
+		t.Fatal("unknown flag value must be rejected")
+	}
+}
+
+// TestModelStreamToggleYAMLAndDTO covers the tri-state of models[].stream: an
+// omitted key means streaming, an explicit false must survive both the YAML load
+// and the Settings JSON round trip without becoming "unset" or vice versa.
+func TestModelStreamToggleYAMLAndDTO(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvFOXXYCODEHome, home)
+
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/streamed"
+  - model: "local/blocking"
+    stream: false
+  - model: "local/explicit-true"
+    stream: true
+
+agent:
+  model: "local/streamed"
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Config: path})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+
+	for _, tc := range []struct {
+		ref        string
+		wantStream bool
+		wantSet    bool
+	}{
+		{"local/streamed", true, false},
+		{"local/blocking", false, true},
+		{"local/explicit-true", true, true},
+	} {
+		entry := cfg.FindModelEntry(tc.ref)
+		if entry == nil {
+			t.Fatalf("model %q missing from config", tc.ref)
+		}
+		if got := entry.EffectiveStream(); got != tc.wantStream {
+			t.Fatalf("%s: EffectiveStream() = %v, want %v", tc.ref, got, tc.wantStream)
+		}
+		if (entry.Stream != nil) != tc.wantSet {
+			t.Fatalf("%s: key set = %v, want %v", tc.ref, entry.Stream != nil, tc.wantSet)
+		}
+		rm, err := cfg.ResolveLLM(tc.ref)
+		if err != nil {
+			t.Fatalf("%s: ResolveLLM: %v", tc.ref, err)
+		}
+		if rm.Stream != tc.wantStream {
+			t.Fatalf("%s: ResolvedLLM.Stream = %v, want %v", tc.ref, rm.Stream, tc.wantStream)
+		}
+	}
+
+	// Opening and saving Settings must not turn an omitted key into an explicit false.
+	dto := config.ConfigToJSONDTO(cfg)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	if strings.Contains(string(raw), `"model":"local/streamed","stream"`) {
+		t.Fatalf("the omitted key was materialized in the DTO: %s", raw)
+	}
+	back, err := config.ParseAndValidateConfigJSON(raw, cfg.Paths)
+	if err != nil {
+		t.Fatalf("ParseAndValidateConfigJSON: %v", err)
+	}
+	if e := back.FindModelEntry("local/streamed"); e == nil || e.Stream != nil {
+		t.Fatalf("round trip materialized stream on an omitted key: %+v", e)
+	}
+	if e := back.FindModelEntry("local/blocking"); e == nil || e.Stream == nil || *e.Stream {
+		t.Fatalf("round trip lost an explicit stream: false: %+v", e)
+	}
+}
+
+// TestCodexRejectsStreamFalse pins the one unsupported combination: the Codex
+// Responses backend is streaming-only, so it cannot honor one blocking request.
+func TestCodexRejectsStreamFalse(t *testing.T) {
+	blocking := false
+	streaming := true
+
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5", Stream: &blocking}},
+		Agent:     config.Agent{Model: "codex/gpt-5.5"},
+	}
+	err := cfg.ValidateModelsProvidersAndAgent()
+	if err == nil {
+		t.Fatal("codex with stream: false must be rejected")
+	}
+	if !strings.Contains(err.Error(), "streaming-only") {
+		t.Fatalf("error %q does not explain why", err)
+	}
+
+	// An omitted key and an explicit true stay valid for codex.
+	for name, entry := range map[string]config.ModelEntry{
+		"omitted":  {Model: "codex/gpt-5.5"},
+		"explicit": {Model: "codex/gpt-5.5", Stream: &streaming},
+	} {
+		cfg.Models = []config.ModelEntry{entry}
+		if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
+			t.Fatalf("%s stream key rejected for codex: %v", name, err)
+		}
+	}
+}
+
+// The Settings UI reads the configuration as JSON and writes it back as YAML.
+// A skills.dirs entry with ${CWD} must survive that round trip verbatim on
+// both legs: GET reports the placeholder, PUT stores it, and the next load
+// still leaves it to the session (hijera/foxxy-agent#146).
+func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	paths := config.Paths{Home: home, CWD: launch, ConfigPath: path}
+	body := `{"providers":[{"name":"local","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"local/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"local/gpt-4o"},` +
+		`"skills":{"dirs":["${CWD}/.agents/skills","${FOXXYCODE_HOME}/skills"]}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if got := next.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("PUT lost the placeholder before writing: %q", got)
+	}
+	if got := config.ConfigToJSONDTO(next).Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("GET must report the placeholder verbatim, got %q", got)
+	}
+	yb, err := config.MarshalConfigYAML(next)
+	if err != nil {
+		t.Fatalf("marshal yaml: %v", err)
+	}
+	if err := os.WriteFile(path, yb, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("reload after PUT baked the placeholder: %q", got)
+	}
+	if got, want := filepath.ToSlash(reloaded.Skills.Dirs[1]), filepath.ToSlash(filepath.Join(home, "skills")); got != want {
+		t.Fatalf("reload after PUT: skills.dirs[1] got %q want %q", got, want)
+	}
+}
+
+// TestUISchemaModelStreamDefault pins the one boolean in the settings schema whose
+// absence means true. The form seeds a new entry from schema defaults and draws an
+// unset switch from them, so a missing default here would make the UI write and
+// display the opposite of how the agent behaves.
+func TestUISchemaModelStreamDefault(t *testing.T) {
+	schema := config.UISchemaMap()
+	models, ok := schema["properties"].(map[string]interface{})["models"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models section missing from the UI schema")
+	}
+	items := models["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+
+	stream, ok := props["stream"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models[].stream missing from the UI schema")
+	}
+	if def, ok := stream["default"].(bool); !ok || !def {
+		t.Fatalf("models[].stream default = %v, want true", stream["default"])
+	}
+	// Field order drives the rendered form; a field absent from it is not shown.
+	order, _ := items["x-foxxycode-property-order"].([]interface{})
+	found := false
+	for _, name := range order {
+		if s, _ := name.(string); s == "stream" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("stream missing from the models field order: %v", order)
+	}
+}
+
+// TestAgentLLMRetryAndTimeoutKnobs pins the unset/explicit-zero distinction
+// for llm_retry_max and llm_first_token_timeout_ms, and the providers[]
+// timeout_ms plumbing into ResolvedLLM.
+func TestAgentLLMRetryAndTimeoutKnobs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvFOXXYCODEHome, home)
+
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+    timeout_ms: 120000
+
+models:
+  - model: "local/gpt-4o"
+
+agent:
+  model: "local/gpt-4o"
+  llm_retry_max: 0
+  llm_first_token_timeout_ms: 0
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Agent.EffectiveLLMRetryMax(); got != 0 {
+		t.Errorf("explicit llm_retry_max: 0 resolved to %d, want 0 (retries disabled)", got)
+	}
+	if got := cfg.Agent.EffectiveLLMFirstTokenTimeout(); got != 0 {
+		t.Errorf("explicit llm_first_token_timeout_ms: 0 resolved to %v, want 0 (guard disabled)", got)
+	}
+
+	rm, err := cfg.ResolveLLM("local/gpt-4o")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.TimeoutMS != 120000 {
+		t.Errorf("resolved provider timeout_ms = %d, want 120000", rm.TimeoutMS)
+	}
+
+	unset := config.Agent{}
+	if got := unset.EffectiveLLMRetryMax(); got != config.AgentDefaultLLMRetryMax {
+		t.Errorf("unset llm_retry_max resolved to %d, want default %d", got, config.AgentDefaultLLMRetryMax)
+	}
+	if got := unset.EffectiveLLMFirstTokenTimeout(); got != config.AgentDefaultLLMFirstTokenTimeoutMS*time.Millisecond {
+		t.Errorf("unset llm_first_token_timeout_ms resolved to %v, want 90s", got)
+	}
+}
+
+// TestAgentLLMKnobsValidation rejects negative values for the new knobs.
+func TestAgentLLMKnobsValidation(t *testing.T) {
+	neg := -1
+	a := config.Agent{LLMRetryMax: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_retry_max must fail validation")
+	}
+	a = config.Agent{LLMFirstTokenTimeoutMS: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_first_token_timeout_ms must fail validation")
+	}
+	p := config.ProviderConfig{Name: "x", Type: "openai", TimeoutMS: -5}
+	if err := p.Validate(); err == nil {
+		t.Error("negative providers timeout_ms must fail validation")
+	}
+}
+
+// TestAgentStallRetryKnobs covers the stall-retry family: the master switch, the
+// delay ladder (whose last entry repeats for every later attempt), and the
+// wall-clock budget where an explicit 0 means unbounded.
+func TestAgentStallRetryKnobs(t *testing.T) {
+	unset := config.Agent{}
+	if !unset.LLMStallRetryEnabled() {
+		t.Error("stall retry must default to on")
+	}
+	if got := unset.EffectiveLLMStreamIdleTimeout(); got != 5*time.Minute {
+		t.Errorf("unset llm_stream_idle_timeout_ms = %v, want 5m", got)
+	}
+	if got := unset.EffectiveLLMStallRetryMaxWait(); got != config.AgentDefaultLLMStallRetryMaxWaitMS*time.Millisecond {
+		t.Errorf("unset llm_stall_retry_max_wait_ms = %v, want 1h", got)
+	}
+	want := []time.Duration{time.Minute, 3 * time.Minute, 5 * time.Minute}
+	if got := unset.EffectiveLLMStallRetryDelays(); !reflect.DeepEqual(got, want) {
+		t.Errorf("unset ladder = %v, want %v", got, want)
+	}
+
+	off := false
+	if (&config.Agent{LLMStallRetry: &off}).LLMStallRetryEnabled() {
+		t.Error("llm_stall_retry: false must disable the retry")
+	}
+
+	zero := 0
+	if got := (&config.Agent{LLMStallRetryMaxWaitMS: &zero}).EffectiveLLMStallRetryMaxWait(); got != 0 {
+		t.Errorf("explicit 0 max wait = %v, want 0 (unbounded)", got)
+	}
+	if got := (&config.Agent{LLMStreamIdleTimeoutMS: &zero}).EffectiveLLMStreamIdleTimeout(); got != 0 {
+		t.Errorf("explicit 0 stall timeout = %v, want 0 (guard disabled)", got)
+	}
+
+	custom := config.Agent{LLMStallRetryDelaysMS: []int{40, 120}}
+	wantCustom := []time.Duration{40 * time.Millisecond, 120 * time.Millisecond}
+	if got := custom.EffectiveLLMStallRetryDelays(); !reflect.DeepEqual(got, wantCustom) {
+		t.Errorf("custom ladder = %v, want %v", got, wantCustom)
+	}
+}
+
+// TestAgentStallRetryValidation rejects the malformed combinations, including the
+// one pathological pairing: unbounded retries whose final pause is zero would spin
+// against the provider with no gap at all.
+func TestAgentStallRetryValidation(t *testing.T) {
+	neg := -1
+	if err := (&config.Agent{LLMStreamIdleTimeoutMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stream_idle_timeout_ms must fail validation")
+	}
+	if err := (&config.Agent{LLMStallRetryMaxWaitMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stall_retry_max_wait_ms must fail validation")
+	}
+	if err := (&config.Agent{LLMStallRetryDelaysMS: []int{1000, -5}}).Validate(); err == nil {
+		t.Error("negative entry in llm_stall_retry_delays_ms must fail validation")
+	}
+	zero := 0
+	a := &config.Agent{LLMStallRetryMaxWaitMS: &zero, LLMStallRetryDelaysMS: []int{0}}
+	if err := a.Validate(); err == nil {
+		t.Error("unbounded retries with a zero final delay must fail validation")
+	}
+}
+
+// Regression for hijera/foxxy-agent#146: ${CWD} is a session placeholder.
+// A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
+// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// resolves it against its own workspace, while the process-scoped directories
+// (sessions, scheduler, memory, log file) still resolve it against the default
+// working directory at load time. An environment variable that happens to be
+// named CWD must not be mistaken for the placeholder either.
+func TestLoadFromYAML_SessionCWDPlaceholderSurvivesLoad(t *testing.T) {
+	t.Setenv("CWD", filepath.Join("decoy", "env"))
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "local/gpt-4o"
+
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+    - "${FOXXYCODE_HOME}/skills"
+
+subagents:
+  dirs:
+    - "${CWD}/.foxxycode/agents"
+
+hooks:
+  files:
+    - "${CWD}/.foxxycode/hooks.json"
+
+prompts:
+  dir: "${CWD}/prompts"
+
+mcp_servers:
+  - name: fs
+    command: "${CWD}/bin/mcp-fs"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
+    env:
+      - name: PROJECT
+        value: "${CWD}"
+  - name: docs
+    type: http
+    url: "http://127.0.0.1:8080/mcp?root=${CWD}"
+    headers:
+      - name: X-Workspace
+        value: "${CWD}"
+
+sessions:
+  dir: "${CWD}/sessions"
+
+scheduler:
+  dir: "${CWD}/.scheduler"
+
+memory:
+  dir: "${CWD}/memory"
+
+logger:
+  file: "${CWD}/foxxycode.log"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: path})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+
+	perSession := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"skills.dirs[0]", cfg.Skills.Dirs[0], "${CWD}/.agents/skills"},
+		{"skills.dirs[1]", cfg.Skills.Dirs[1], filepath.Join(home, "skills")},
+		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.foxxycode/agents"},
+		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.foxxycode/hooks.json"},
+		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
+		{"mcp_servers[0].command", cfg.MCPServers[0].Command, "${CWD}/bin/mcp-fs"},
+		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
+		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
+		{"mcp_servers[1].url", cfg.MCPServers[1].URL, "http://127.0.0.1:8080/mcp?root=${CWD}"},
+		{"mcp_servers[1].headers[0].value", cfg.MCPServers[1].Headers[0].Value, "${CWD}"},
+	}
+	for _, tc := range perSession {
+		// ${FOXXYCODE_HOME} is substituted with forward slashes; compare slash-normalised.
+		if filepath.ToSlash(tc.got) != filepath.ToSlash(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+
+	// The consumers resolve the placeholder against the session that asks.
+	sessionCWD := filepath.Join(dir, "project")
+	if got, want := cfg.Prompts.ResolvedDir(sessionCWD), filepath.Join(sessionCWD, "prompts"); got != want {
+		t.Errorf("prompts.ResolvedDir(session): got %q want %q", got, want)
+	}
+	// internal/mcp resolves command, args, env, url and headers with the same
+	// config.ExpandCWD at connect time (see stdioSpec and expandHeaders there).
+	if got, want := config.ExpandCWD(cfg.MCPServers[0].Args[2], sessionCWD), sessionCWD; got != want {
+		t.Errorf("mcp arg ExpandCWD(session): got %q want %q", got, want)
+	}
+	if got, want := config.ExpandCWD(cfg.MCPServers[1].URL, sessionCWD), "http://127.0.0.1:8080/mcp?root="+sessionCWD; got != want {
+		t.Errorf("mcp url ExpandCWD(session): got %q want %q", got, want)
+	}
+
+	processScoped := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
+		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
+		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
+		{"logger.file", cfg.Logger.File, filepath.Join(launch, "foxxycode.log")},
+	}
+	for _, tc := range processScoped {
+		if filepath.Clean(tc.got) != filepath.Clean(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// TestInstructionsDefaultMatchesTheSchema is the guard against the drift this
+// test was written for: the loader, the UI defaults and the embedded schema all
+// have to name the same pair, or a config.yaml validates against a default the
+// binary does not apply.
+func TestInstructionsDefaultMatchesTheSchema(t *testing.T) {
+	want := []string{"AGENTS.md", "DESIGN.md"}
+	assertFiles := func(what string, got []string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s = %v, want %v", what, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s = %v, want %v", what, got, want)
+			}
+		}
+	}
+
+	// An absent key and an explicit empty list are the same thing, as they are
+	// for skills.dirs and hooks.files.
+	for _, tc := range []struct {
+		name  string
+		start config.Instructions
+	}{
+		{"key absent", config.Instructions{}},
+		{"files: []", config.Instructions{Files: []string{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := tc.start
+			c.ApplyDefaults()
+			assertFiles("instructions.files", c.Files)
+		})
+	}
+
+	assertFiles("the loader defaults", config.DocDefaults(config.Paths{Home: filepath.FromSlash("/agent/home")}).Instructions.Files)
+	assertFiles("the UI example config", config.SchemaExampleConfigJSON().Instructions.Files)
+
+	var schema struct {
+		Properties struct {
+			Instructions struct {
+				Properties struct {
+					Files struct {
+						Default []string `json:"default"`
+					} `json:"files"`
+				} `json:"properties"`
+			} `json:"instructions"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(config.ConfigSchemaJSON(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	assertFiles("the embedded schema default", schema.Properties.Instructions.Properties.Files.Default)
 }

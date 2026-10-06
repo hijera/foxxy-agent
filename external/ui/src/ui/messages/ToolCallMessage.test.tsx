@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,11 +9,66 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
+import { setLocale } from "../i18n/i18n";
+import { setHostShell } from "../chat/hostShell";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 function openToolDetails() {
   fireEvent.click(screen.getByLabelText("Tool summary"));
+}
+
+function mockPreviewOverflow() {
+  const scrollHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
+  const clientHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "clientHeight",
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return (this as HTMLElement).dataset.testid ===
+        "permission-preview-viewport"
+        ? 520
+        : 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return (this as HTMLElement).dataset.testid ===
+        "permission-preview-viewport"
+        ? 120
+        : 0;
+    },
+  });
+  return () => {
+    if (scrollHeight) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollHeight",
+        scrollHeight,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+    }
+    if (clientHeight) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "clientHeight",
+        clientHeight,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+    }
+  };
 }
 
 test("truncated tool shows the shared More button, fetches once, then Less restores preview", async () => {
@@ -140,8 +196,55 @@ test("summary matches thinking-row pattern: chevron, tool name, duration", () =>
       ".thinking-row.foxxycode-tool-call-row .thinking-chevron",
     ),
   ).toBeTruthy();
-  expect(screen.getByText("glob")).toBeInTheDocument();
+  expect(screen.getByText("looking for files")).toBeInTheDocument();
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("125ms");
+});
+
+test("todo update renders the saved plan row and omits a successful boilerplate result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-todo-update"
+      title="foxxycode_todo_item_update"
+      kind="todo"
+      status="completed"
+      argsText={JSON.stringify({ index: 1, status: "completed" })}
+      todoPlan={[
+        { content: "Inspect existing cards", status: "pending" },
+        { content: "Render structured preview", status: "completed" },
+        { content: "Add interaction tests", status: "pending" },
+      ]}
+      resultText="updated item 1"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Updated item")).toBeInTheDocument();
+  expect(screen.getByText("2 of 3")).toBeInTheDocument();
+  expect(screen.getByText("Render structured preview")).toBeInTheDocument();
+  expect(screen.queryByText("Inspect existing cards")).toBeNull();
+  expect(container.querySelector(".todo-tool-preview-row--completed")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
+test("plan exit shows the completed mode transition without its boilerplate result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-plan-exit"
+      title="plan_exit"
+      status="completed"
+      argsText="{}"
+      resultText="switched session to agent mode"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Plan mode")).toBeInTheDocument();
+  expect(screen.getAllByText("Agent mode")).toHaveLength(2);
+  expect(screen.getByText("Switched to Agent mode")).toBeInTheDocument();
+  expect(container.querySelector(".plan-exit-preview--completed")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
 });
 
 test("completed mkdir uses the rich tool preview without approval actions", () => {
@@ -173,7 +276,7 @@ test("completed mkdir uses the rich tool preview without approval actions", () =
   ).toContain("created directory H:\\workspace\\build");
 });
 
-test("question tool omits duration from summary row", () => {
+test("question tool names the act and omits duration from its summary row", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-q"
@@ -187,12 +290,112 @@ test("question tool omits duration from summary row", () => {
     />,
   );
   expect(container.querySelector(".thinking-dur")).toBeNull();
+  // Every other row names what the call is doing; this one used to name the noun.
   expect(container.querySelector(".thinking-label")?.textContent?.trim()).toBe(
-    "question",
+    "asking",
   );
   openToolDetails();
   expect(screen.getByText("Continue?")).toBeInTheDocument();
-  expect(screen.getByText("Yes")).toBeInTheDocument();
+  // The taken letter is the answer; nothing repeats it underneath.
+  const row = container.querySelector(".question-tool-offer-row");
+  expect(row?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(row?.textContent).toContain("Yes");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// The card in the transcript keeps only the question and the answer, so this row
+// is the one place the offer survives: what the reader was choosing between, and
+// what the options they did not take said.
+test("the question row records the whole offer, with the taken letters marked", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-offer"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          {
+            question: "Which scheduler did you mean?",
+            options: [
+              { label: "Todo plan", description: "A checklist of tasks" },
+              { label: "Background tasks" },
+              { label: "Cron" },
+            ],
+            custom: true,
+          },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Background tasks"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  // Three options plus the free-answer slot, each behind its own letter.
+  expect(rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent)).toEqual([
+    "A",
+    "B",
+    "C",
+    "D",
+  ]);
+  expect(rows[0]?.textContent).toContain("A checklist of tasks");
+  expect(rows[3]?.textContent).toContain("an answer of their own");
+
+  const taken = rows.filter((r) =>
+    r.classList.contains("question-tool-offer-row--taken"),
+  );
+  expect(taken).toHaveLength(1);
+  expect(taken[0]?.textContent).toContain("Background tasks");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// An answer the reader wrote belongs in the slot they wrote it in: the free row
+// carries their words, not the name of the row.
+test("the free slot carries what the reader typed into it", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-own"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which one?", options: [{ label: "A one" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["something else entirely"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[1]?.textContent).toContain("something else entirely");
+  expect(rows[1]?.textContent).not.toContain("an answer of their own");
+  // The words are in the row, so nothing repeats them below it.
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+test("an unanswered question still says so under the offer", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-waiting"
+      title="question"
+      status="in_progress"
+      argsText={JSON.stringify({
+        questions: [{ question: "Which one?", options: [{ label: "A one" }], custom: true }],
+      })}
+      resultText=""
+    />,
+  );
+  openToolDetails();
+
+  const slot = [...container.querySelectorAll(".question-tool-offer-row")].pop();
+  expect(slot?.textContent).toContain("an answer of their own");
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "Awaiting answer",
+  );
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {
@@ -429,4 +632,1483 @@ test("apply_patch with error shows diff alongside error text", () => {
   expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
   expect(container.querySelector(".tool-result-pre")).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
+});
+
+const BG_START_MS = Date.parse("2026-07-29T12:00:00Z");
+
+function backgroundTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return {
+    id: "bg_1",
+    session_id: "s1",
+    kind: "command",
+    label: "make test",
+    command: "make test",
+    status: "running",
+    started_at: new Date(BG_START_MS).toISOString(),
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 0,
+    overdue: false,
+    running: true,
+    ...over,
+  };
+}
+
+test("a backgrounded run_command reads like any command row, in the background", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      argsText='{"command":"make test","background":true,"expected_seconds":120}'
+      resultText="Started background task bg_1: make test"
+      durationMs={0}
+      backgroundTask={backgroundTask({ expected_seconds: 120 })}
+      backgroundNowMs={BG_START_MS + 30_000}
+    />,
+  );
+
+  expect(screen.getByText("running a command in the background")).toBeInTheDocument();
+
+  // The call returned the instant the task started, so its own 0ms is replaced
+  // by the task's clock - in the duration slot every other row uses.
+  const duration = container.querySelector(".thinking-dur");
+  expect(duration).toHaveTextContent("30s");
+  expect(duration?.closest(".thinking-head")).not.toBeNull();
+
+  // How the run is going belongs to the task, and is read in the Tasks panel:
+  // the transcript row carries no status, estimate or exit code.
+  const row = container.querySelector(".foxxycode-tool-call-row") as HTMLElement;
+  expect(container.querySelector(".tool-bgtask-state")).toBeNull();
+  expect(container.querySelector(".tool-bgtask-chip")).toBeNull();
+  expect(row.querySelector(".thinking-summary")?.textContent).not.toMatch(
+    /Running|est\.|exit/,
+  );
+});
+
+test("a finished background task shows its total time and nothing about how it ended", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      backgroundTask={backgroundTask({
+        running: false,
+        status: "timed_out",
+        elapsed_seconds: 900,
+        exit_code: 2,
+      })}
+      backgroundNowMs={BG_START_MS + 9_000_000}
+    />,
+  );
+  const summary = container.querySelector(".thinking-summary") as HTMLElement;
+  expect(container.querySelector(".thinking-dur")).toHaveTextContent("15m");
+  expect(summary.textContent).not.toMatch(/Timed out|exit 2/);
+});
+
+test("expanded background row offers Open in Tasks, and Stop only while running", () => {
+  const onOpen = vi.fn();
+  const onStop = vi.fn();
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      backgroundTask={backgroundTask()}
+      backgroundNowMs={BG_START_MS + 1_000}
+      onOpenBackgroundTask={onOpen}
+      onStopBackgroundTask={onStop}
+    />,
+  );
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-bgtask-open-bg_1"));
+  expect(onOpen).toHaveBeenCalledWith("bg_1");
+  fireEvent.click(screen.getByTestId("tool-bgtask-stop-bg_1"));
+  expect(onStop).toHaveBeenCalledWith("bg_1");
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      backgroundTask={backgroundTask({
+        running: false,
+        status: "succeeded",
+        exit_code: 0,
+      })}
+      backgroundNowMs={BG_START_MS + 1_000}
+      onOpenBackgroundTask={onOpen}
+      onStopBackgroundTask={onStop}
+    />,
+  );
+  expect(screen.queryByTestId("tool-bgtask-stop-bg_1")).toBeNull();
+  expect(screen.getByTestId("tool-bgtask-open-bg_1")).toBeInTheDocument();
+});
+
+test("an ordinary tool row keeps its own duration", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-plain"
+      title="read"
+      status="completed"
+      resultText="file contents"
+      durationMs={12}
+    />,
+  );
+  expect(screen.queryByTestId(/^tool-bgtask-elapsed-/)).toBeNull();
+  expect(container.querySelector(".thinking-dur")).toHaveTextContent("12ms");
+});
+
+test("large write preview scrolls inside the tool card until Less is clicked", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `export const value${i + 1} = ${i + 1};`,
+    ).join("\n");
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-write-large"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/generated.ts", content })}
+        resultText="Wrote src/generated.ts"
+        durationMs={12}
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(screen.getByText("More…")).toHaveClass("tool-overflow-toggle");
+    expect(container.querySelector(".permission-preview .md-copy")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    viewport.scrollTop = 80;
+    fireEvent.click(screen.getByRole("button", { name: "Less" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(viewport.scrollTop).toBe(0);
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("restored large write fetches full arguments before showing More", async () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const fetchSpy = vi.fn();
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `restored line ${i + 1} with enough content for the viewport`,
+    ).join("\n");
+
+    function Harness() {
+      const [argsText, setArgsText] = useState(
+        '{"path":"restored.txt","content":"restored line 1...',
+      );
+      const onFetch = useCallback(async (id: string) => {
+        fetchSpy(id);
+        await Promise.resolve();
+        setArgsText(JSON.stringify({ path: "restored.txt", content }));
+      }, []);
+      return (
+        <ToolCallMessage
+          toolCallId="tc-write-restored"
+          title="write"
+          kind="write"
+          status="completed"
+          argsText={argsText}
+          resultText="Wrote restored.txt"
+          onFetchToolCallFull={onFetch}
+        />
+      );
+    }
+
+    render(<Harness />);
+    openToolDetails();
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith("tc-write-restored"),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "More…" })).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/restored line 48/)).toBeInTheDocument();
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("large apply_patch preview uses the same internal overflow controls", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const body = Array.from(
+      { length: 40 },
+      (_, i) => `+new line ${i + 1}`,
+    ).join("\n");
+    const patch = [
+      "--- a/src/large.ts",
+      "+++ b/src/large.ts",
+      "@@ -0,0 +1,40 @@",
+      body,
+    ].join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-patch-large"
+        title="apply_patch"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ filePath: "src/large.ts", patch })}
+        resultText="Patch applied successfully"
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    expect(screen.getByRole("button", { name: "Less" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("large edit preview is capped like write and apply_patch", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const oldString = Array.from(
+      { length: 60 },
+      (_, i) => `const before${i + 1} = ${i + 1};`,
+    ).join("\n");
+    const newString = Array.from(
+      { length: 60 },
+      (_, i) => `const after${i + 1} = ${i + 1};`,
+    ).join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-edit-large"
+        title="edit"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({
+          path: "src/edited.ts",
+          oldString,
+          newString,
+        })}
+        resultText="Edited src/edited.ts"
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    viewport.scrollTop = 64;
+    fireEvent.click(screen.getByRole("button", { name: "Less" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(viewport.scrollTop).toBe(0);
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("restored edit recovers the diff from truncated list arguments", async () => {
+  const fetchSpy = vi.fn();
+  const oldString = Array.from(
+    { length: 30 },
+    (_, i) => `const before${i + 1} = ${i + 1};`,
+  ).join("\n");
+  const newString = Array.from(
+    { length: 30 },
+    (_, i) => `const after${i + 1} = ${i + 1};`,
+  ).join("\n");
+
+  function Harness() {
+    const [argsText, setArgsText] = useState(
+      '{"path":"src/edited.ts","oldString":"const before1 = 1;\\nconst befo',
+    );
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setArgsText(
+        JSON.stringify({ path: "src/edited.ts", oldString, newString }),
+      );
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-edit-restored"
+        title="edit"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Edited src/edited.ts"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+
+  const { container } = render(<Harness />);
+  openToolDetails();
+
+  // Truncated args parse to nothing, so the card starts with an empty "+0 −0" preview.
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-edit-restored"),
+  );
+  // The path is on both the summary row and the preview bar; assert the bar.
+  await waitFor(() =>
+    expect(
+      container.querySelector(".permission-preview-location"),
+    ).toHaveTextContent("src/edited.ts"),
+  );
+  expect(screen.getByText(/const after30/)).toBeInTheDocument();
+});
+
+test("restored in_progress write still fetches full arguments", async () => {
+  const fetchSpy = vi.fn(async () => {});
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-inflight"
+      title="write"
+      kind="write"
+      status="in_progress"
+      argsText={'{"path":"restored.txt","content":"start of a long'}
+      onFetchToolCallFull={fetchSpy}
+    />,
+  );
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-write-inflight"),
+  );
+});
+
+test("arguments re-truncated by a reconcile trigger a second fetch", async () => {
+  const full = JSON.stringify({
+    path: "reconciled.txt",
+    content: "line\n".repeat(60),
+  });
+  const truncated = full.slice(0, 200) + "...";
+  const fetchSpy = vi.fn();
+  let setArgsExternal: (v: string) => void = () => {};
+  function Harness() {
+    const [argsText, setArgsText] = useState(truncated);
+    setArgsExternal = setArgsText;
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setArgsText(full);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-write-reconcile"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Wrote reconciled.txt"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+  // A later loadMessages reconcile overwrites the recovered args with the
+  // truncated list preview again; the card must fetch once more, not go blank.
+  act(() => setArgsExternal(truncated));
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+});
+
+test("overflow toggle appears after a collapsed foldout is opened", async () => {
+  let revealed = false;
+  const sh = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
+  const ch = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "clientHeight",
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return revealed &&
+        (this as HTMLElement).dataset.testid === "permission-preview-viewport"
+        ? 520
+        : 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return revealed &&
+        (this as HTMLElement).dataset.testid === "permission-preview-viewport"
+        ? 120
+        : 0;
+    },
+  });
+  try {
+    const content = Array.from({ length: 48 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-write-foldout"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/foldout.ts", content })}
+        resultText="Wrote src/foldout.ts"
+      />,
+    );
+    // Collapsed foldout: the hidden viewport measures 0, so no toggle is offered.
+    expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+    revealed = true;
+    openToolDetails();
+    // The <details> toggle event is what real browsers deliver when the body
+    // stops being display:none; ResizeObserver is unavailable here like in
+    // engines that miss the un-hide resize.
+    const details = container.querySelector("details");
+    fireEvent(details!, new Event("toggle"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-preview-more")).toBeInTheDocument(),
+    );
+  } finally {
+    if (sh) {
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", sh);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+    }
+    if (ch) {
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", ch);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+    }
+  }
+});
+
+test("preview and result toggles expose distinct test ids", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `export const value${i + 1} = ${i + 1};`,
+    ).join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-write-testids"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/ids.ts", content })}
+        resultText={"line\n".repeat(20)}
+        resultWasTruncated={true}
+        onFetchToolCallFull={vi.fn(async () => {})}
+      />,
+    );
+    openToolDetails();
+    expect(screen.getByTestId("tool-preview-more")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("tool-preview-more"));
+    expect(screen.getByTestId("tool-preview-less")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("write_file cards render the shared write preview", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-write-file"
+      title="write_file"
+      status="completed"
+      argsText={JSON.stringify({ filePath: "src/wf.ts", content: "hello" })}
+      resultText="ok"
+    />,
+  );
+  openToolDetails();
+  expect(
+    container.querySelector(".permission-preview-location"),
+  ).toHaveTextContent("src/wf.ts");
+  expect(screen.getByText("hello")).toBeInTheDocument();
+});
+
+test("short write previews never offer overflow controls without real overflow", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-short"
+      title="write"
+      status="completed"
+      argsText={'{"path":"n.txt","content":"short"}'}
+      resultText="ok"
+    />,
+  );
+  openToolDetails();
+  expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+  expect(screen.queryByText("More…")).toBeNull();
+});
+
+test("plan exit shows the completed mode transition without its boilerplate result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-plan-exit"
+      title="plan_exit"
+      status="completed"
+      argsText="{}"
+      resultText="switched session to agent mode"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Plan mode")).toBeInTheDocument();
+  expect(screen.getAllByText("Agent mode")).toHaveLength(2);
+  expect(screen.getByText("Switched to Agent mode")).toBeInTheDocument();
+  expect(container.querySelector(".plan-exit-preview--completed")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
+// A foreground spawn_agent blocks the parent turn for as long as the child
+// runs — up to half an hour — and the child's progress goes to its own
+// transcript. The parent row is the only place that wait is visible.
+test("a spawn_agent row names the agent and opens its transcript", () => {
+  const onOpenSubagentTranscript = vi.fn();
+  render(
+    <ToolCallMessage
+      toolCallId="tc-spawn"
+      title="spawn_agent"
+      status="in_progress"
+      argsText='{"agent":"explore","prompt":"survey the repo"}'
+      backgroundTask={backgroundTask({
+        id: "bg_9",
+        kind: "agent",
+        label: "agent explore: survey the repo",
+        agent: { name: "explore", session_id: "sess_0a1b" },
+        command: "",
+      })}
+      backgroundNowMs={BG_START_MS + 45_000}
+      onOpenSubagentTranscript={onOpenSubagentTranscript}
+    />,
+  );
+
+  expect(screen.getByTestId("tool-bgtask-chip-bg_9")).toHaveTextContent("explore");
+  // The chip names the agent, so the row does not repeat it as its target.
+  expect(screen.queryByTestId("tool-summary-target")).toBeNull();
+  openToolDetails();
+  fireEvent.click(screen.getByTestId("tool-bgtask-transcript-bg_9"));
+  expect(onOpenSubagentTranscript).toHaveBeenCalledWith("sess_0a1b");
+});
+
+test("a command task offers no transcript link", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-cmd"
+      title="run_command"
+      status="completed"
+      argsText='{"command":"make test","background":true}'
+      backgroundTask={backgroundTask()}
+      backgroundNowMs={BG_START_MS + 1000}
+      onOpenSubagentTranscript={() => {}}
+    />,
+  );
+  openToolDetails();
+  expect(screen.queryByTestId("tool-bgtask-transcript-bg_1")).toBeNull();
+});
+
+test("todo update without a saved plan still renders the todo card from its arguments", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-todo-update-nosnap"
+      title="foxxycode_todo_item_update"
+      kind="todo"
+      status="completed"
+      argsText={JSON.stringify({ index: 5, status: "in_progress" })}
+      resultText="updated item 5"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Updated item")).toBeInTheDocument();
+  expect(screen.getByText("item 6")).toBeInTheDocument();
+  expect(screen.getByText("Item 6")).toBeInTheDocument();
+  expect(container.querySelector(".todo-tool-preview-row--in_progress")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+  expect(container.querySelector("pre")).toBeNull();
+});
+
+test("the summary row names the action, not the tool id", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-name"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "ls" })}
+      resultText="a.ts"
+      durationMs={4}
+    />,
+  );
+  expect(screen.getByText("running a command")).toHaveClass("thinking-label");
+  expect(screen.queryByText("run_command")).toBeNull();
+});
+
+test("a tool outside the catalogue keeps its own id in the summary row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-mcp"
+      title="mcp__github__create_issue"
+      status="completed"
+      argsText={JSON.stringify({ title: "x" })}
+      resultText="ok"
+      durationMs={4}
+    />,
+  );
+  expect(screen.getByText("mcp__github__create_issue")).toHaveClass(
+    "thinking-label",
+  );
+});
+
+test("a call with no arguments shows an action card instead of an empty JSON object", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-empty"
+      title="foxxycode_todo_plan_archive"
+      status="completed"
+      argsText="{}"
+      resultText="archived plan (3 items)"
+      durationMs={0}
+    />,
+  );
+  openToolDetails();
+
+  // Same bar chrome and same status mark as the other plan tools.
+  const card = screen.getByTestId("tool-action-preview");
+  expect(card).toHaveClass("permission-preview-bar--standalone");
+  expect(card).toHaveTextContent("archiving the plan");
+  expect(card).toHaveTextContent("Done");
+  expect(
+    card.querySelector(".todo-tool-preview-mark--completed"),
+  ).not.toBeNull();
+  expect(container.textContent).not.toContain("{}");
+  expect(container.querySelector(".permission-preview-code")).toBeNull();
+  // The returned output still gets its own panel.
+  expect(screen.getByText("archived plan (3 items)")).toBeTruthy();
+});
+
+test("the action card tracks the call it belongs to", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-empty-run"
+      title="foxxycode_todo_plan_read"
+      status="in_progress"
+      argsText="{}"
+      startedAtMs={Date.now()}
+    />,
+  );
+  openToolDetails();
+  expect(screen.getByTestId("tool-action-preview")).toHaveTextContent(
+    "Running…",
+  );
+});
+
+test("run_command puts the command in a shell block with a prompt and a copy control", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-shell"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "make lint", timeout_seconds: 30 })}
+      resultText="ok"
+      durationMs={1200}
+    />,
+  );
+  openToolDetails();
+
+  const block = container.querySelector(".permission-preview-shell");
+  expect(block).not.toBeNull();
+  expect(
+    block!.querySelector(".permission-preview-shell-prompt"),
+  ).toHaveTextContent("$");
+  expect(
+    block!.querySelector(".permission-preview-shell-code"),
+  ).toHaveTextContent("make lint");
+  // The copy control lives on the command line, not in the card header above it.
+  const copy = screen.getByTestId("tool-preview-copy");
+  expect(block!.contains(copy)).toBe(true);
+  expect(copy).toHaveAttribute("title", "Copy");
+  expect(copy.textContent).toBe("");
+  expect(
+    container.querySelector(".permission-preview-bar .md-copy"),
+  ).toBeNull();
+});
+
+test("previews that are not a shell command keep the transcript free of copy controls", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-write-no-copy"
+      title="write"
+      kind="write"
+      status="completed"
+      argsText={JSON.stringify({ path: "src/a.ts", content: "hello" })}
+      resultText="Wrote src/a.ts"
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".permission-preview .md-copy")).toBeNull();
+});
+
+test("load_skill names the skill next to the label and renders its markdown body", () => {
+  const body = "# Subagent-Driven Development\n\nExecute the plan per task.";
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill"
+      title="load_skill"
+      status="completed"
+      argsText={JSON.stringify({ name: "subagent-driven-development" })}
+      resultText={body}
+      durationMs={0}
+    />,
+  );
+  expect(screen.getByText("loading a skill")).toHaveClass("thinking-label");
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "subagent-driven-development",
+  );
+
+  openToolDetails();
+  // The skill name is already on the summary row, so the call needs no argument card,
+  // and the instructions are the card - no section strip above them.
+  expect(container.querySelector(".permission-preview")).toBeNull();
+  expect(container.querySelector(".tool-call-result-head")).toBeNull();
+  expect(screen.queryByText("Result")).toBeNull();
+  const heading = container.querySelector(".tool-call-result-content h1");
+  expect(heading).toHaveTextContent("Subagent-Driven Development");
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a skill body renders its markdown lists, not raw dashes", () => {
+  const body = "# Loop\n\n- first step;\n- second step.\n\n1. one\n2. two\n";
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill-lists"
+      title="load_skill"
+      status="completed"
+      argsText={JSON.stringify({ name: "executing-plans" })}
+      resultText={body}
+      durationMs={0}
+    />,
+  );
+  openToolDetails();
+  const card = container.querySelector(".tool-call-result-content--markdown")!;
+  expect(card.querySelectorAll("ul > li")).toHaveLength(2);
+  expect(card.querySelectorAll("ol > li")).toHaveLength(2);
+  expect(card.textContent).not.toContain("- first step");
+});
+
+test("load_skill without parseable arguments still renders the body", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill-raw"
+      title="load_skill"
+      status="completed"
+      argsText='{"name":"code-rev'
+      resultText="# Code review"
+      durationMs={0}
+    />,
+  );
+  expect(screen.queryByTestId("tool-summary-target")).toBeNull();
+  openToolDetails();
+  expect(container.querySelector(".tool-call-result-content h1")).toHaveTextContent(
+    "Code review",
+  );
+});
+
+test("the row names what the call acts on, clipped rather than wrapped", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-target"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "external/ui/src/ui/messages/Tool.tsx" })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  expect(target).toHaveTextContent("external/ui/src/ui/messages/Tool.tsx");
+  // The full value stays reachable as the native tooltip when the row clips it.
+  expect(target).toHaveAttribute(
+    "title",
+    "external/ui/src/ui/messages/Tool.tsx",
+  );
+  expect(screen.getByText("reading a file")).toHaveClass("thinking-label");
+});
+
+test("the row spells a path against the worktree it lives in, the tooltip keeps it whole", () => {
+  // Work inside a worktree repeats the path to that worktree on every row, which
+  // pushes the file name past the ellipsis. The row shows what tells the files
+  // apart; the absolute path stays one hover (and one click) away.
+  render(
+    <ToolCallMessage
+      toolCallId="tc-relative"
+      title="read"
+      kind="read"
+      status="completed"
+      pathRoots={[
+        "/storage/Repository/foxxycode/foxxy-agent",
+        "/storage/Repository/foxxycode/foxxy-agent/.foxxycode/worktrees/fix-session-stop-queue",
+      ]}
+      argsText={JSON.stringify({
+        path: "/storage/Repository/foxxycode/foxxy-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  // Exact: the absolute path contains the relative one, so a substring match
+  // would pass without the rewrite ever happening.
+  expect(target.textContent).toBe("DESIGN.md");
+  expect(target).toHaveAttribute(
+    "title",
+    "/storage/Repository/foxxycode/foxxy-agent/.foxxycode/worktrees/fix-session-stop-queue/DESIGN.md",
+  );
+});
+
+test("a command is never respelt against the session directory", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-command"
+      title="run_command"
+      kind="run_command"
+      status="completed"
+      pathRoots={["/storage/Repository/foxxycode/foxxy-agent"]}
+      argsText={JSON.stringify({
+        command: "/storage/Repository/foxxycode/foxxy-agent/scripts/checks.sh",
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByTestId("tool-summary-target").textContent).toBe(
+    "/storage/Repository/foxxycode/foxxy-agent/scripts/checks.sh",
+  );
+});
+
+test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
+  // background_output takes a task id and a line count: no path, no command,
+  // nothing for the header bar to say. The bar was rendered anyway, so the card
+  // opened with a 34px empty strip above the arguments.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-bgout"
+      title="background_output"
+      kind="background_output"
+      status="completed"
+      argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
+      resultText="bg_3 [running] go test ./..."
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+
+  expect(
+    container.querySelector(".permission-preview-bar"),
+    "a header bar with nothing in it is a strip of empty border",
+  ).toBeNull();
+  // With no bar the body carries the whole card, top corners included.
+  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
+    "permission-preview-viewport--headless",
+  );
+  // The arguments themselves still show.
+  expect(
+    container.querySelector(".permission-preview-code")?.textContent,
+  ).toContain("bg_3");});
+
+test("read tells a directory listing apart from a file when its arguments say so", () => {
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-dir"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "external/ui/src/", recursive: true })}
+      resultText="ui/"
+      durationMs={1}
+    />,
+  );
+  expect(screen.getByText("browsing a directory")).toBeInTheDocument();
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-dir"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "external/ui/src/main.tsx" })}
+      resultText="import"
+      durationMs={1}
+    />,
+  );
+  expect(screen.getByText("reading a file")).toBeInTheDocument();
+});
+
+test("a question row stays a bare label, with no target beside it", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-q"
+      title="question"
+      kind="question"
+      status="completed"
+      argsText={JSON.stringify({ questions: [{ question: "which?" }] })}
+      resultText=""
+    />,
+  );
+  expect(screen.queryByTestId("tool-summary-target")).toBeNull();
+});
+
+test("a failed load_skill stays raw text and says so on its row", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill-failed"
+      title="load_skill"
+      status="failed"
+      argsText={JSON.stringify({ name: "nope" })}
+      resultText={'# load_skill: unknown skill "nope"'}
+      durationMs={1}
+    />,
+  );
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent(
+    "(failed)",
+  );
+  openToolDetails();
+
+  // An error is not a skill: it keeps the monospace panel, not a markdown heading.
+  expect(container.querySelector(".tool-call-result-content h1")).toBeNull();
+  expect(container.querySelector(".tool-result-pre")).toHaveTextContent(
+    'load_skill: unknown skill "nope"',
+  );
+});
+
+test("output attaches straight under the call, with no Result strip anywhere", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-no-strip"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "git status" })}
+      resultText="nothing to commit"
+      durationMs={40}
+    />,
+  );
+  openToolDetails();
+
+  expect(container.querySelector(".tool-call-result-head")).toBeNull();
+  expect(container.querySelector(".tool-call-result-dot")).toBeNull();
+  expect(screen.queryByText("Result")).toBeNull();
+  // The output is still its own panel, right below the command block.
+  expect(container.querySelector(".tool-result-pre")).toHaveTextContent(
+    "nothing to commit",
+  );
+});
+
+test("a failed call says so next to its label instead of in the output panel", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-failed"
+      title="run_command"
+      kind="execute"
+      status="failed"
+      argsText={JSON.stringify({ command: "make lint" })}
+      resultText="exit status 1"
+      durationMs={900}
+    />,
+  );
+
+  const marker = screen.getByTestId("tool-failed-marker");
+  expect(marker).toHaveTextContent("(failed)");
+  // It belongs to the summary row, so a collapsed call already reads as failed.
+  expect(marker.closest(".thinking-head")).not.toBeNull();
+  openToolDetails();
+  expect(container.querySelector(".tool-call-result-head")).toBeNull();
+});
+
+test("the failure marker is localized and absent when the call succeeded", () => {
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-ok"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "make lint" })}
+      resultText="ok"
+      durationMs={5}
+    />,
+  );
+  expect(screen.queryByTestId("tool-failed-marker")).toBeNull();
+
+  setLocale("ru");
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-ok"
+      title="run_command"
+      kind="execute"
+      status="failed"
+      argsText={JSON.stringify({ command: "make lint" })}
+      resultText="ошибка"
+      durationMs={5}
+    />,
+  );
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent("(ошибка)");
+  setLocale("en");
+});
+
+test("the shell card names the interpreter the server actually runs", () => {
+  setHostShell("/usr/bin/bash");
+  try {
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-shell-name"
+        title="run_command"
+        kind="execute"
+        status="completed"
+        argsText={JSON.stringify({ command: "ls" })}
+        resultText="a.ts"
+        durationMs={4}
+      />,
+    );
+    openToolDetails();
+    expect(
+      container.querySelector(".permission-preview-location"),
+    ).toHaveTextContent("/usr/bin/bash");
+    expect(screen.queryByText("Shell")).toBeNull();
+  } finally {
+    setHostShell("");
+  }
+});
+
+test("without a reported interpreter the shell card keeps the generic label", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-shell-fallback"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "ls" })}
+      resultText="a.ts"
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+  expect(
+    container.querySelector(".permission-preview-location"),
+  ).toHaveTextContent("Shell");
+});
+
+test("a remote shell is not the local interpreter", () => {
+  setHostShell("/usr/bin/bash");
+  try {
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-ssh"
+        title="ssh_run_command"
+        kind="execute"
+        status="completed"
+        argsText={JSON.stringify({ command: "uptime" })}
+        resultText="up 3 days"
+        durationMs={4}
+      />,
+    );
+    openToolDetails();
+    expect(
+      container.querySelector(".permission-preview-location"),
+    ).toHaveTextContent("SSH shell");
+  } finally {
+    setHostShell("");
+  }
+});
+
+// Expanding a long result, scrolling it, then collapsing used to leave the box
+// clipped around wherever the reader had scrolled to: the card reopened in the
+// middle of the output, first line cut in half. The args preview next to it has
+// always reset; the result body has to as well.
+test("collapsing a long result returns it to the top", async () => {
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(`${"full line\n".repeat(40)}last full line`);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-scroll"
+        title="grep"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ pattern: "iPhone 18 price" })}
+        resultText={`${"preview line\n".repeat(18)}...`}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={2000}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-result-more"));
+  await waitFor(() =>
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
+  );
+
+  const viewport = screen.getByTestId("tool-result-viewport");
+  expect(viewport).toHaveClass("tool-result-viewport--scroll");
+  viewport.scrollTop = 240;
+
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(viewport).toHaveClass("tool-result-viewport--clip");
+  expect(viewport.scrollTop).toBe(0);
+});
+
+// The web tools used to print their own arguments back as a JSON object and their
+// answer as raw source: a search as a wall of braces, a fetched page as Markdown
+// nobody rendered. Both are documents and both now read as documents.
+// The model looks things up in FoxxyCode's own documentation often enough that the
+// raw ids read like a leak of the tool catalogue into the chat.
+test("the documentation tools say what they do and name the query or the page", () => {
+  const { unmount } = render(
+    <ToolCallMessage
+      toolCallId="tc-docs-search"
+      title="foxxycode_docs_search"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ query: "telegram proxy" })}
+      resultText="1. surfaces/gateway#proxy"
+      durationMs={7}
+    />,
+  );
+  expect(screen.getByText("searching the documentation")).toBeInTheDocument();
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("telegram proxy");
+  expect(screen.queryByText("foxxycode_docs_search")).toBeNull();
+  unmount();
+
+  render(
+    <ToolCallMessage
+      toolCallId="tc-docs-read"
+      title="foxxycode_docs_read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ page: "features/mentions#completion" })}
+      resultText="[FoxxyCode documentation] Mentions > Completion"
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByText("reading the documentation")).toBeInTheDocument();
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "features/mentions#completion",
+  );
+});
+
+test("a web search names its query and lists its hits as links", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "iPhone 18 price", page: 2 })}
+      resultText={JSON.stringify({
+        query: "iPhone 18 price",
+        page: 2,
+        results: [
+          {
+            title: "Ostrovok.ru",
+            url: "https://ostrovok.ru/",
+            description: "Hotel booking service.",
+          },
+        ],
+      })}
+      durationMs={2000}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "iPhone 18 price",
+  );
+  // The argument card names the query and carries no JSON body.
+  expect(screen.queryByTestId("permission-preview-viewport")).toBeNull();
+  expect(screen.getByText("page 2")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "Ostrovok.ru" });
+  expect(link).toHaveAttribute("href", "https://ostrovok.ru/");
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+const truncatedSearch = {
+  query: "iPhone 18 announcement September 2026 preorder",
+  page: 1,
+  engines: [
+    {
+      engine: "brave",
+      status: "blocked",
+      results: 0,
+      reason: "http 429",
+      took_ms: 214,
+    },
+    { engine: "bing", status: "ok", results: 10, took_ms: 158 },
+  ],
+  results: Array.from({ length: 12 }, (_, n) => ({
+    title: `Hit ${n + 1}`,
+    url: `https://hit${n + 1}.example/`,
+    description: `Snippet ${n + 1}`,
+    source: "bing",
+  })),
+};
+
+// The row carried the first nineteen lines of the answer, which the engine report
+// fills, so the expanded row printed raw JSON and hid the hits behind More: the
+// reader who opened a search wants its results, not a control that fetches them.
+test("opening a truncated web search loads every hit at once, with no More control", async () => {
+  const pretty = JSON.stringify(truncatedSearch, null, 2);
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(pretty);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-search-full"
+        title="websearch"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ query: truncatedSearch.query })}
+        resultText={pretty.split("\n").slice(0, 19).join("\n") + "\n..."}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={195}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  // A closed row costs no request.
+  expect(fetchSpy).not.toHaveBeenCalled();
+
+  openToolDetails();
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: "Hit 12" })).toBeInTheDocument(),
+  );
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("link", { name: "Hit 1" })).toHaveAttribute(
+    "href",
+    "https://hit1.example/",
+  );
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
+  expect(screen.queryByTestId("tool-result-less")).toBeNull();
+  expect(screen.getByTestId("tool-result-viewport")).not.toHaveClass(
+    "tool-result-viewport--tall",
+  );
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a web search header carries every parameter of the search", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-params"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "go slog", site: "go.dev" })}
+      resultText={JSON.stringify(truncatedSearch)}
+      durationMs={195}
+    />,
+  );
+  openToolDetails();
+
+  const meta = document.querySelector(".permission-preview-meta");
+  // What the tool ran with, defaults included: page 1, fifteen rows, the domain.
+  expect(meta).toHaveTextContent("page 1");
+  expect(meta).toHaveTextContent("max 15");
+  expect(meta).toHaveTextContent("site go.dev");
+  // How each engine answered is read above the hits.
+  const report = screen.getByTestId("web-search-engines");
+  expect(report).toHaveTextContent("brave: blocked (http 429)");
+  expect(report).toHaveTextContent("bing: 10");
+});
+
+// The scheduler tools printed their arguments and their JSON answer as two raw
+// panels. A job action is read as what happened to which job, a job as its fields.
+test("a scheduler action reads as its outcome, not as JSON", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-resume"
+      title="foxxycode_scheduler_job_resume"
+      status="completed"
+      argsText={JSON.stringify({ job_id: "ai-news-digest" })}
+      resultText={'{"job_id":"ai-news-digest","paused":false}'}
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("ai-news-digest");
+  openToolDetails();
+  const card = screen.getByTestId("scheduler-tool-card");
+  expect(card).toHaveTextContent("ai-news-digest");
+  expect(card).toHaveTextContent("resumed");
+  expect(container.textContent).not.toContain('"paused"');
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a scheduled job reads as its fields and its instruction", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-get"
+      title="foxxycode_scheduler_job_get"
+      status="completed"
+      argsText={JSON.stringify({ job_id: "ai-news-digest" })}
+      resultText={JSON.stringify({
+        job_id: "ai-news-digest",
+        description: "Daily AI news digest",
+        schedule: "0 8 * * *",
+        paused: true,
+        running: false,
+        mode: "agent",
+        body: "Collect **the news**",
+      })}
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  const card = screen.getByTestId("scheduler-tool-card");
+  expect(card).toHaveTextContent("Daily AI news digest");
+  expect(card).toHaveTextContent("0 8 * * *");
+  expect(card).toHaveTextContent("paused");
+  expect(screen.getByText("the news").tagName).toBe("STRONG");
+});
+
+test("a fetched page renders as the markdown it already is", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-fetch"
+      title="webfetch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ url: "https://foxxycode.dev/" })}
+      resultText={"# FoxxyCode\n\nAn agent that runs where you work."}
+      durationMs={120}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "https://foxxycode.dev/",
+  );
+  expect(screen.getByRole("heading", { name: "FoxxyCode" })).toBeInTheDocument();
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+// A failed call answers with an error line, not with a document.
+test("a failed web search keeps its error as plain text", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-failed"
+      title="websearch"
+      kind="other"
+      status="failed"
+      argsText={JSON.stringify({ query: "iPhone 18 price" })}
+      resultText="error: http 503"
+      durationMs={80}
+    />,
+  );
+  openToolDetails();
+
+  expect(document.querySelector(".tool-result-pre")?.textContent).toBe(
+    "error: http 503",
+  );
+});
+
+// Cross-review: the same label offered twice used to light both letters for one
+// answer, an offer of nothing but a free slot drew no offer at all, and the
+// whitespace normalisation of answers against labels was worth pinning down.
+test("each answer claims one option, even when two carry the same label", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-dup"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Yes" }, { label: "Yes" }] },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Yes"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(
+    rows.filter((r) => r.classList.contains("question-tool-offer-row--taken")),
+  ).toHaveLength(1);
+});
+
+test("an answer matches a label whose spacing differs", () => {
+  // Both sides come out of the same parser, which collapses runs of whitespace.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-space"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Todo  plan" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Todo   plan"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  // The free slot stays unmarked: the answer was one of the options.
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+});
+
+test("an offer of nothing but a free slot still shows that slot", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-free"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [{ question: "Say anything", options: [], custom: true }],
+      })}
+      resultText={JSON.stringify({ answers: [["hello"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.querySelector(".question-prompt-bubble")?.textContent).toBe("A");
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.textContent).toContain("hello");
 });

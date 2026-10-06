@@ -1,10 +1,12 @@
 package acp
 
+import "encoding/json"
+
 // Protocol version supported by this agent.
 const ProtocolVersion = 1
 
 // AgentName is the agent's identifier.
-const AgentName = "foxxycode-agent"
+const AgentName = "foxxy-agent"
 
 // AgentTitle is the human-readable agent name.
 const AgentTitle = "FoxxyCode Agent"
@@ -251,6 +253,18 @@ type ImagePartRef struct {
 // SessionPromptResult is the response to session/prompt.
 type SessionPromptResult struct {
 	StopReason StopReason `json:"stopReason"`
+
+	// StopNotice says, in words for the user, why a turn that ended with
+	// max_turns or max_tokens stopped before its answer (in-process callers
+	// only, never serialised). The same text was already streamed into the
+	// answer and stored in the transcript, so a surface that shows the stream
+	// does not print it again; the HTTP API hands it on as meta.stop_notice.
+	StopNotice string `json:"-"`
+
+	// SettingsNotice is set when the prompt was only settings commands: no
+	// turn ran, and this is the answer (in-process callers only, never
+	// serialised; a client over the wire got it as an agent message chunk).
+	SettingsNotice string `json:"-"`
 }
 
 // StopReason describes why a prompt turn ended.
@@ -310,16 +324,29 @@ const (
 	UpdateTypeUserMessageChunk        = "user_message_chunk"
 	UpdateTypeToolCall                = "tool_call"
 	UpdateTypeToolCallUpdate          = "tool_call_update"
+	UpdateTypeProviderUsage           = "provider_usage"
 	UpdateTypeCurrentModeUpdate       = "current_mode_update"
 	UpdateTypeConfigOptionUpdate      = "config_option_update"
 	UpdateTypeTokenUsage              = "token_usage"
 	UpdateTypeUsage                   = "usage_update"
-	UpdateTypeMemoryPhase             = "memory_phase"
-	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
+	UpdateTypeMemoryRun               = "memory_run"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeFileEdit                = "file_edit"
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
+	UpdateTypeMCPPhase                = "mcp_phase"
+	UpdateTypeLLMRetry                = "llm_retry"
+	UpdateTypeDebug                   = "debug"
+	UpdateTypeMessageQueue            = "message_queue"
+	UpdateTypeTurnProgress            = "turn_progress"
+	UpdateTypeBackgroundWake          = "background_wake"
+	UpdateTypeSessionSettings         = "session_settings"
+)
+
+// MCP phase values for MCPPhaseUpdate.Phase.
+const (
+	MCPPhaseConnecting = "connecting"
+	MCPPhaseReady      = "ready"
 )
 
 // Compaction phase values for CompactionUpdate.Phase.
@@ -327,6 +354,74 @@ const (
 	CompactionPhaseStart = "start"
 	CompactionPhaseDone  = "done"
 )
+
+// TurnOverride is a setting changed for a number of operator turns rather
+// than for the session (--once, --count=N, a skill's frontmatter, the model's
+// own switch_model call).
+type TurnOverride struct {
+	Setting string `json:"setting"`
+	Value   string `json:"value"`
+	// TurnsLeft counts the turns that have not started yet.
+	TurnsLeft int `json:"turnsLeft"`
+	// Active says the running turn holds this value.
+	Active bool `json:"active,omitempty"`
+}
+
+// SessionSettings is the whole of a session's settings at one moment, what
+// every surface mirrors: the session's own values, the permission mode the
+// configuration would give back after a restart, and what is changed for the
+// running and the next turns.
+type SessionSettings struct {
+	SessionID string `json:"sessionId"`
+	// Version orders snapshots of one session that reach a client down more
+	// than one connection; a client keeps the highest it has seen.
+	Version   uint64 `json:"version"`
+	Model     string `json:"model"`
+	Reasoning string `json:"reasoning,omitempty"`
+	// ReasoningChoices are the levels the session's model offers, "off"
+	// last where its provider can turn thinking off.
+	ReasoningChoices         []string       `json:"reasoningChoices,omitempty"`
+	Mode                     string         `json:"mode"`
+	PermissionMode           string         `json:"permissionMode"`
+	ConfiguredPermissionMode string         `json:"configuredPermissionMode"`
+	Overrides                []TurnOverride `json:"overrides,omitempty"`
+}
+
+// SessionSettingsUpdate announces a change of a session's settings with the
+// whole snapshot, and a one-line notice of what the change was.
+type SessionSettingsUpdate struct {
+	SessionUpdate string          `json:"sessionUpdate"` // "session_settings"
+	Settings      SessionSettings `json:"settings"`
+	// Notice says what changed, for a surface that shows it ("Model:
+	// qwen3.8-27b for the next 2 turns"); empty for a plain resend.
+	Notice string `json:"notice,omitempty"`
+	// Source names who asked for the change.
+	Source string `json:"source,omitempty"`
+}
+
+// QueuedMessage is one follow-up waiting for the running turn to read it.
+type QueuedMessage struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// MessageQueueUpdate publishes what the session's message queue holds now.
+//
+// It is sent on every change - a follow-up queued, one taken back, a batch read
+// by the agent - so a client renders the queue from the update rather than
+// polling, and a second client watching the same turn stays in step with the
+// one that is typing.
+type MessageQueueUpdate struct {
+	SessionUpdate string          `json:"sessionUpdate"` // "message_queue"
+	SessionID     string          `json:"sessionId,omitempty"`
+	Messages      []QueuedMessage `json:"messages"`
+	// Version counts the changes of that session's queue. The same change
+	// reaches a client down more than one connection - the turn's own stream
+	// and the server-wide event stream - so frames can arrive out of order;
+	// a client renders the highest version it has seen and drops the rest.
+	Version uint64 `json:"version"`
+}
 
 // AvailableCommand is one slash command advertised to ACP clients.
 type AvailableCommand struct {
@@ -405,7 +500,7 @@ type FileEditUpdate struct {
 // ModeUpdate notifies the client that the current mode changed.
 type ModeUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "current_mode_update"
-	ModeID        string `json:"modeId"`
+	CurrentModeID string `json:"currentModeId"`
 }
 
 // ConfigOptionUpdate sends the full session configuration options state to the client.
@@ -420,6 +515,27 @@ type TokenUsageUpdate struct {
 	InputTokens   int    `json:"inputTokens"`
 	OutputTokens  int    `json:"outputTokens"`
 	TotalTokens   int    `json:"totalTokens"`
+}
+
+// TurnProgressUpdate reports how far the running turn has come: when it was
+// admitted and how many tokens the model has generated in it so far. A surface
+// renders it as the turn's clock and token count next to what the agent is
+// doing; before the first token it carries the clock alone.
+//
+// It is sent when the turn's loop starts, at most once a second while a model
+// call streams, and after every call. OutputTokens sums what the provider
+// reported for the turn's completed calls and an estimate of what the call in
+// flight has streamed; Estimated says an estimate is part of the number, which
+// stays true for a provider that reports no usage.
+type TurnProgressUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "turn_progress"
+	// StartedAt is when the turn was admitted, RFC3339 with sub-second digits.
+	StartedAt string `json:"startedAt"`
+	// ElapsedMs is the turn's age when the update was written. A client whose
+	// clock disagrees with the server's counts from its own now minus this.
+	ElapsedMs    int64 `json:"elapsedMs"`
+	OutputTokens int   `json:"outputTokens"`
+	Estimated    bool  `json:"estimated"`
 }
 
 // UsageUpdate reports how much of the model context window is currently occupied.
@@ -439,6 +555,47 @@ type CompactionUpdate struct {
 	TokensAfter     int    `json:"tokensAfter,omitempty"`
 }
 
+// MCPPhaseUpdate tells the client that a turn is held up waiting for the session's configured
+// MCP servers to finish connecting, and when they are done. Emitted only when the turn actually
+// has to wait — a warm session goes straight to the model and sends nothing.
+//
+// Transient by design: it drives the live status line next to the typing dots, and is not part
+// of the transcript.
+type MCPPhaseUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "mcp_phase"
+	Phase         string `json:"phase"`         // "connecting" | "ready"
+}
+
+// LLM retry phase values for LLMRetryUpdate.Phase.
+const (
+	LLMRetryPhaseWaiting  = "waiting"
+	LLMRetryPhaseRetrying = "retrying"
+	// LLMRetryPhaseContinuing is a turn parked behind a partial answer: the stream
+	// was cut mid-sentence and the continuation request is in flight. Distinct from
+	// waiting, which is a deliberate pause before replaying a call that delivered
+	// nothing at all, and reported separately because the client is still showing
+	// the half-written answer while it lasts.
+	LLMRetryPhaseContinuing = "continuing"
+	// LLMRetryPhaseResumed says the provider is delivering again. It is what ends a
+	// park, and it is deliberately not LLMRetryPhaseRetrying: that one only says the
+	// next attempt was issued, and an attempt can hang for its whole request timeout
+	// without a byte arriving - during which the turn is still parked.
+	LLMRetryPhaseResumed = "resumed"
+)
+
+// LLMRetryUpdate tells the client that a turn is parked between two attempts at the same
+// model call because the provider produced no output at all. Emitted only while the turn
+// actually waits; a call that answers sends nothing.
+//
+// Transient by design, like MCPPhaseUpdate: it drives the live status line next to the
+// typing dots, and is not part of the transcript.
+type LLMRetryUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "llm_retry"
+	Phase         string `json:"phase"`         // "waiting" | "retrying"
+	Attempt       int    `json:"attempt,omitempty"`
+	DelayMS       int64  `json:"delayMs,omitempty"`
+}
+
 // SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so
 // connected clients can update their session list and header live, without re-fetching.
 type SessionTitleUpdate struct {
@@ -446,30 +603,66 @@ type SessionTitleUpdate struct {
 	Title         string `json:"title"`
 }
 
-// MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.
-type MemoryPhaseUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_phase"
-	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"`  // "memory" (single pass) | "recall" | "persist" (legacy replay)
-	Status        string `json:"status"` // "started" | "completed"
-	UserTurnIndex int    `json:"userTurnIndex,omitempty"`
-	DurationMs    int64  `json:"durationMs,omitempty"`
-	// Recall-only populates when Phase is recall and Status is completed (foxxycode_memory_read paths).
-	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
-	// Persist-only populates when Phase is persist and Status is completed.
-	PersistSaved        bool   `json:"persistSaved,omitempty"`
-	PersistSavedBody    string `json:"persistSavedBody,omitempty"` // markdown persisted when PersistSaved true (truncated for wire)
-	PersistRelativePath string `json:"persistRelativePath,omitempty"`
-	PersistTitle        string `json:"persistTitle,omitempty"`
+// DebugUpdate carries one structured debug-trace event from the agent loop (turn boundaries,
+// LLM request/response, tool start/finish) so connected clients can render a live debug view.
+// Emitted only when the diagnostics layer is on (debug.enable); the raw LLM bodies themselves
+// go to the process log, while this carries lightweight structured metadata.
+type DebugUpdate struct {
+	SessionUpdate string                 `json:"sessionUpdate"` // "debug"
+	Phase         string                 `json:"phase"`         // "turn_start"|"llm_request"|"llm_response"|"tool_start"|"tool_finish"|"loop_guard"
+	Title         string                 `json:"title,omitempty"`
+	Detail        string                 `json:"detail,omitempty"`
+	Meta          map[string]interface{} `json:"_meta,omitempty"`
 }
 
-// MemoryMessageChunkUpdate streams memory copilot model deltas to the client (not part of llm.Messages).
-type MemoryMessageChunkUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_message_chunk"
-	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"` // "memory" | "recall" | "persist"
-	Kind          string `json:"kind"`  // "text" | "reasoning"
-	Delta         string `json:"delta"`
+// MemoryRunUpdate reports the memory subagent run of a user turn: "started"
+// once its task is launched, "finished" once the task settled, "skipped" when
+// no run could be launched. Nothing of the report travels on it: the child
+// transcript and the task log hold the text, and the Tasks drawer is the
+// record. It is neither persisted nor replayed.
+type MemoryRunUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "memory_run"
+	Status        string `json:"status"`        // "started" | "finished" | "skipped"
+	// TaskID and ChildSessionID name the pool task and the child session of
+	// the run; empty on a skip.
+	TaskID         string `json:"taskId,omitempty"`
+	ChildSessionID string `json:"childSessionId,omitempty"`
+	// TaskStatus is the pool's verdict on "finished": succeeded, failed,
+	// timed_out or stopped.
+	TaskStatus string `json:"taskStatus,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	// Delivered says whether a non-empty report reached the main model in
+	// this turn, in the turn context block of the first request or of a
+	// later step.
+	Delivered bool `json:"delivered,omitempty"`
+	// Reason explains a skip, or a run that ended with an error.
+	Reason string `json:"reason,omitempty"`
+}
+
+// BackgroundWakeUpdate opens a turn nobody typed: background tasks the model
+// asked to be notified about (notify_on_finish) finished, and the process
+// started a turn to report them. It is sent once, before the turn's first
+// message, in place of a message from the user: a client knows the turn was
+// not typed, and shows nothing for it or a one-line note naming the tasks;
+// session/load replays it in the same place.
+type BackgroundWakeUpdate struct {
+	SessionUpdate string               `json:"sessionUpdate"` // "background_wake"
+	Tasks         []BackgroundWakeTask `json:"tasks"`
+}
+
+// BackgroundWakeTask is one finished task a woken turn reports.
+type BackgroundWakeTask struct {
+	ID string `json:"id"`
+	// Kind is "command" or "agent".
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Agent names the subagent definition of an agent run.
+	Agent string `json:"agent,omitempty"`
+	// Status is succeeded, failed, timed_out or stopped.
+	Status     string `json:"status"`
+	ExitCode   *int   `json:"exitCode,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	Error      string `json:"error,omitempty"`
 }
 
 // ---- ACP session/request_permission ----
@@ -479,6 +672,22 @@ type PermissionRequestParams struct {
 	SessionID string             `json:"sessionId"`
 	ToolCall  PermissionToolCall `json:"toolCall"`
 	Options   []PermissionOption `json:"options"`
+
+	// EffectivePermissionMode is the permission mode of the agent that asks,
+	// for in-process senders only (never serialised). A subagent's request is
+	// forwarded under its parent's session id, so a sender that decides
+	// "bypass, auto-allow" from the session would apply the parent's mode to a
+	// child whose definition narrowed it; when this is set, the sender uses it
+	// instead of looking the session up.
+	EffectivePermissionMode string `json:"-"`
+
+	// SessionPermissionMode is the permission mode the asking session's gate
+	// decided under - the running turn's, the session's override, or the
+	// configuration's - stamped on every request for in-process senders only
+	// (never serialised). A sender that answers bypass itself reads it
+	// instead of the configuration, so a session switched to ask on a server
+	// configured for bypass is still asked (permission.AutoApproves).
+	SessionPermissionMode string `json:"-"`
 }
 
 // PermissionToolCall describes the tool call needing permission.
@@ -501,6 +710,57 @@ type PermissionOption struct {
 type PermissionResult struct {
 	Outcome  string `json:"outcome"`
 	OptionID string `json:"optionId"`
+	// Reason explains a refusal the user never saw - a subagent's prompt that
+	// reached nobody, say. It is local to this process (the wire shape is
+	// fixed by the protocol) and only ever widens what the model is told.
+	Reason string `json:"-"`
+}
+
+// UnmarshalJSON accepts both response shapes seen from ACP clients.
+//
+// The protocol nests the outcome in its own object, which is what Zed sends:
+//
+//	{"outcome": {"outcome": "selected", "optionId": "allow"}}
+//	{"outcome": {"outcome": "cancelled"}}
+//
+// FoxxyCode's own surfaces (console, web UI, remote client) and some editor
+// extensions send the flat form instead:
+//
+//	{"outcome": "selected", "optionId": "allow"}
+//
+// Decoding the nested form into a plain string used to fail, and the caller
+// read that failure as a cancellation - every approval from a spec-compliant
+// client turned into "permission denied by user".
+func (p *PermissionResult) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Outcome  json.RawMessage `json:"outcome"`
+		OptionID string          `json:"optionId"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	p.Outcome = ""
+	p.OptionID = wire.OptionID
+	if len(wire.Outcome) == 0 {
+		return nil
+	}
+	var flat string
+	if err := json.Unmarshal(wire.Outcome, &flat); err == nil {
+		p.Outcome = flat
+		return nil
+	}
+	var nested struct {
+		Outcome  string `json:"outcome"`
+		OptionID string `json:"optionId"`
+	}
+	if err := json.Unmarshal(wire.Outcome, &nested); err != nil {
+		return err
+	}
+	p.Outcome = nested.Outcome
+	if nested.OptionID != "" {
+		p.OptionID = nested.OptionID
+	}
+	return nil
 }
 
 // ---- ACP session/request_question ----
@@ -536,16 +796,31 @@ type QuestionResult struct {
 // ---- Content blocks ----
 
 // ContentBlock is a polymorphic content item used in prompts and messages.
+//
+// A "resource_link" block (ACP's baseline reference to something the agent
+// can fetch itself) carries its fields at the top level: URI, Name and the
+// optional MimeType, Title, Description and Size.
 type ContentBlock struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	Resource *Resource `json:"resource,omitempty"`
+
+	URI         string `json:"uri,omitempty"`
+	Name        string `json:"name,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
 }
 
 // Content block type values for agent_message_chunk (MessageChunkUpdate).
 const (
 	ContentTypeText      = "text"
 	ContentTypeReasoning = "reasoning"
+	// ContentTypeResource embeds a resource's contents; ContentTypeResourceLink
+	// only names one (URI, Name) for the agent to read.
+	ContentTypeResource     = "resource"
+	ContentTypeResourceLink = "resource_link"
 )
 
 // Resource is a file or other resource referenced in a content block.
@@ -553,6 +828,25 @@ type Resource struct {
 	URI      string `json:"uri"`
 	MimeType string `json:"mimeType,omitempty"`
 	Text     string `json:"text,omitempty"`
+
+	// Mention describes a resource the agent resolved from an "@" reference.
+	// It stays in the process: the model reads it as attributes of the
+	// attachment element, and no client is ever sent it.
+	Mention *ResourceMention `json:"-"`
+}
+
+// ResourceMention is what the attachment element of a resolved mention says
+// besides the path and the body.
+type ResourceMention struct {
+	// Kind is the mention kind (internal/mention Kind*); empty for a file.
+	Kind string
+	// Name is the label; empty means the base name of the path.
+	Name string
+	// Typed is the reference as the user wrote it, without the "@".
+	Typed string
+	// Path is the local file or folder the mention read, empty for a meta
+	// mention. Rules scoped to paths see it the way they see a file:// URI.
+	Path string
 }
 
 // ---- fs methods (agent calls these on client) ----
@@ -571,4 +865,131 @@ type FSReadResult struct {
 type FSWriteParams struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+// ProviderUsageUpdate reports the provider-side account quota behind the
+// session's model: how much of each metered window is spent, when it resets,
+// the wallet balance for wallet keys, and whether a request would be refused
+// right now. Today only the neuraldeep provider type fills it (GET /v1/limits
+// on the hub); consumers branch on ProviderType. The update never carries a
+// credential, a hub URL, or a dollar amount.
+//
+// Relative durations (ResetInSec, RetryInSec, Rate.ResetInSec) are corrected
+// for the snapshot's age when a cached snapshot is delivered, so a client can
+// schedule its refresh from the value as received. Unsupported marks a
+// provider type that has no usage source at all; Error marks a transport or
+// credential failure (the windows, when present, are then Stale).
+type ProviderUsageUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "provider_usage"
+	// Provider is the provider row name; ProviderType its wire type.
+	Provider     string `json:"provider"`
+	ProviderType string `json:"providerType"`
+	// ObservedAt is the hub's own timestamp of the counters; FetchedAt is
+	// the local time of the request that fetched them.
+	ObservedAt string `json:"observedAt,omitempty"`
+	FetchedAt  string `json:"fetchedAt,omitempty"`
+	// Plan is the subscription tier (free, starter, pro); KeyName names the
+	// key on the hub (never its value).
+	Plan    string `json:"plan,omitempty"`
+	KeyName string `json:"keyName,omitempty"`
+	// Windows are the metered volumes: session, week, day.
+	Windows []UsageWindow `json:"windows,omitempty"`
+	// Rate is the live requests-per-minute window of the current minute.
+	Rate *UsageRate `json:"rate,omitempty"`
+	// CooldownSec is the pause the hub imposes after an exhausted session.
+	CooldownSec int `json:"cooldownSec,omitempty"`
+	// Wallet is the account's own balance in rubles, wallet keys only.
+	Wallet *UsageWallet `json:"wallet,omitempty"`
+	// Blocked reports that a chat request would be refused now; Blockers
+	// lists why (session_exhausted, week_exhausted, rpm_exhausted,
+	// session_cooldown, abuse_cooldown, daily_capacity_exhausted,
+	// key_blocked, key_cap_blocked, wallet_empty, user_blocked).
+	Blocked  bool     `json:"blocked"`
+	Blockers []string `json:"blockers,omitempty"`
+	// RetryAt is when the timed blockers lift (hub clock); RetryInSec the
+	// same as a relative, age-corrected duration.
+	RetryAt    string `json:"retryAt,omitempty"`
+	RetryInSec int    `json:"retryInSec,omitempty"`
+	// Unlimited marks a key without volume windows (wallet or bypass keys);
+	// UnlimitedModels lists upstream model ids that bypass the windows on a
+	// metered key. The snapshot is account-wide: a client compares the part
+	// of its model selector after the first slash with this list.
+	Unlimited       bool     `json:"unlimited,omitempty"`
+	UnlimitedModels []string `json:"unlimitedModels,omitempty"`
+	// BlockedModels lists upstream model ids the key may not call now, with
+	// the reason and when the gate lifts. Unlike Blocked, which speaks for
+	// the whole chat class, these gates cover part of the catalogue: the
+	// account keeps answering for every other model, so a client must check
+	// the list against its own selector rather than read Blocked alone.
+	BlockedModels []UsageBlockedModel `json:"blockedModels,omitempty"`
+	// Stale marks windows carried over from an earlier successful fetch
+	// because the latest one failed (see Error).
+	Stale bool `json:"stale,omitempty"`
+	// Error is the failure kind of the latest fetch: "unauthorized",
+	// "unavailable", or "invalid".
+	Error string `json:"error,omitempty"`
+	// Unsupported marks a provider type that has no usage source, or a row
+	// whose usage limits panel is switched off (then Disabled says so).
+	Unsupported bool `json:"unsupported,omitempty"`
+	// Disabled marks a row whose type has a usage source but whose panel is
+	// switched off in config (providers[].usage_limits_panel: false): the
+	// row is never read and every surface stays quiet about it. Always
+	// paired with Unsupported, so a client that knows only the older flag
+	// hides the panel the same way.
+	Disabled bool `json:"disabled,omitempty"`
+	// RefreshPending says the snapshot is older than the turn that asked for
+	// it and a refresh is deferred by the hub's pacing floor; RefreshInSec is
+	// when it fires, so a client can schedule one follow-up read.
+	RefreshPending bool `json:"refreshPending,omitempty"`
+	RefreshInSec   int  `json:"refreshInSec,omitempty"`
+	// Resuming marks the update the agent sends while a turn waits for a hit
+	// limit to lift (agent.wait_for_limit_reset): Blocked with RetryAt from
+	// the provider's own pause, re-sent every 20 s so the countdown stays
+	// visible. It comes from the turn, not from the usage source, and the
+	// next turn-end read replaces it.
+	Resuming bool `json:"resuming,omitempty"`
+}
+
+// UsageWindow is one metered volume window of a ProviderUsageUpdate. The
+// counters are optional: a percent-only window (day) omits them.
+type UsageWindow struct {
+	// ID is "session", "week", or "day"; Label is the display label the
+	// provider uses for it ("3h", "week", "day").
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
+	Used        *int    `json:"used,omitempty"`
+	Limit       *int    `json:"limit,omitempty"`
+	Remaining   *int    `json:"remaining,omitempty"`
+	UsedPercent float64 `json:"usedPercent"`
+	Exhausted   bool    `json:"exhausted,omitempty"`
+	// ResetsAt is the hub's absolute reset time (display); ResetInSec the
+	// age-corrected relative one (local deadlines).
+	ResetsAt   string `json:"resetsAt,omitempty"`
+	ResetInSec int    `json:"resetInSec,omitempty"`
+}
+
+// UsageRate is the live per-minute request window of a ProviderUsageUpdate.
+type UsageRate struct {
+	Used       int `json:"used"`
+	Limit      int `json:"limit"`
+	Remaining  int `json:"remaining"`
+	ResetInSec int `json:"resetInSec"`
+}
+
+// UsageBlockedModel is one model refused right now while the account itself
+// is fine: the provider's own reason and the moment it lifts.
+type UsageBlockedModel struct {
+	Model   string `json:"model"`
+	Blocker string `json:"blocker,omitempty"`
+	// RetryAt is when the gate lifts (provider clock); RetryInSec the same
+	// as a relative duration.
+	RetryAt    string `json:"retryAt,omitempty"`
+	RetryInSec int    `json:"retryInSec,omitempty"`
+}
+
+// UsageWallet is the account's own money on the provider, in rubles. The
+// balance may be negative on post-paid accounts.
+type UsageWallet struct {
+	BalanceRub  float64 `json:"balanceRub"`
+	SpentRub30d float64 `json:"spentRub30d"`
 }

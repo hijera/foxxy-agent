@@ -1,9 +1,10 @@
 import { setLocale } from "./i18n";
 import {
+  clearUiLocaleCookie,
   mapSystemLocaleToSupported,
   readNavigatorLanguage,
-  type UiLocale,
 } from "./localeCookie";
+import { isUiLocale, type UiLocale } from "./locales";
 import { applyUiLocale, readUiLocaleFromUrl } from "./uiLocale";
 
 export type UiLocalePreference = "" | UiLocale;
@@ -24,7 +25,7 @@ export function readUiLocaleFromConfigDoc(
     return "";
   }
   const raw = asUiObject(doc).locale;
-  if (raw === "en" || raw === "ru") {
+  if (typeof raw === "string" && isUiLocale(raw)) {
     return raw;
   }
   return "";
@@ -32,16 +33,25 @@ export function readUiLocaleFromConfigDoc(
 
 /** Resolve stored preference to an active UiLocale. */
 export function resolveEffectiveUiLocale(pref: UiLocalePreference): UiLocale {
-  if (pref === "en" || pref === "ru") {
+  if (pref !== "" && isUiLocale(pref)) {
     return pref;
   }
   return mapSystemLocaleToSupported(readNavigatorLanguage());
 }
 
-/** Apply locale from config preference without persisting. */
+/**
+ * Apply locale from config preference without persisting to config.
+ *
+ * "Auto" drops the language cookie afterwards: `setLocale` writes it as a side
+ * effect, and leaving the resolved language stored there would pin it across a
+ * reload even though the operator asked to follow the system.
+ */
 export function applyUiLocalePreference(pref: UiLocalePreference): UiLocale {
   const effective = resolveEffectiveUiLocale(pref);
   setLocale(effective);
+  if (pref === "") {
+    clearUiLocaleCookie();
+  }
   return effective;
 }
 
@@ -55,7 +65,7 @@ export function applyStartupUiLocaleFromConfig(pref: UiLocalePreference): void {
   if (readUiLocaleFromUrl() !== null) {
     return;
   }
-  if (pref !== "en" && pref !== "ru") {
+  if (pref === "" || !isUiLocale(pref)) {
     return;
   }
   setLocale(pref);

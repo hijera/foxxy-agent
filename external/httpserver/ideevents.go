@@ -14,7 +14,10 @@ import (
 // ideEvent is one structured edit event delivered to native editor clients (e.g. the
 // IntelliJ plugin) over the /foxxycode/ide/events stream.
 type ideEvent struct {
-	Type       string `json:"type"` // "edit_proposed" | "edit_applied"
+	// "edit_proposed" | "edit_applied" | "open_file" | "reveal_file".
+	// open_file opens the path in the editor; reveal_file selects it in the OS
+	// file manager, which is what a downloaded PDF or DOCX needs.
+	Type       string `json:"type"`
 	ToolCallID string `json:"toolCallId,omitempty"`
 	SessionID  string `json:"sessionId,omitempty"`
 	Path       string `json:"path"` // absolute path
@@ -76,9 +79,7 @@ func (s *Server) foxxycodeIdeEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"streaming unsupported"}}`, http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	writeSSEHeaders(w)
 
 	ch := ideEvents.subscribe()
 	defer ideEvents.unsubscribe(ch)

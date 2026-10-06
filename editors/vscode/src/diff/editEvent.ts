@@ -1,9 +1,14 @@
-/** One `edit_proposed` / `edit_applied` / `open_file` event from the foxxycode
- *  `GET /foxxycode/ide/events` SSE stream. Mirrors the Go `ideEvent` struct in
- *  `external/httpserver/ideevents.go` and
+/** One `edit_proposed` / `edit_applied` / `open_file` / `reveal_file` event from
+ *  the foxxycode `GET /foxxycode/ide/events` SSE stream. Mirrors the Go
+ *  `ideEvent` struct in `external/httpserver/ideevents.go` and
  *  `editors/intellij/.../diff/FoxxyCodeEditEvent.kt`. */
 export interface EditEvent {
-  type: "edit_proposed" | "edit_applied" | "open_file" | string;
+  type:
+    | "edit_proposed"
+    | "edit_applied"
+    | "open_file"
+    | "reveal_file"
+    | string;
   toolCallId: string;
   sessionId: string;
   /** Absolute file path. */
@@ -26,6 +31,15 @@ export function isApplied(ev: EditEvent): boolean {
  *  in-project / native-diff filters to it. */
 export function isOpenFile(ev: EditEvent): boolean {
   return ev.type === "open_file";
+}
+
+/** User exported a session transcript and the document is on disk. It is a
+ *  PDF / DOCX / HTML / JSON download rather than source to edit, so it belongs
+ *  in the OS file manager instead of an editor tab. The panel cannot save it
+ *  itself: its webview hosts the SPA in a cross-origin iframe with no download
+ *  permission. */
+export function isRevealFile(ev: EditEvent): boolean {
+  return ev.type === "reveal_file";
 }
 
 /** Parse one SSE `data:` payload into an EditEvent, or `null` if the payload

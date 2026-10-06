@@ -34,17 +34,26 @@ import com.intellij.util.ui.UIUtil
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.FoxxyCodeNotifications
+import dev.foxxycode.intellij.autocomplete.FoxxyCodeAutocompleteService
 import dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService
+import dev.foxxycode.intellij.clipboard.FoxxyCodeCopyBufferService
 import dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import org.cef.browser.CefBrowser
+import org.cef.callback.CefDragData
+import org.cef.handler.CefDragHandler
 import org.cef.browser.CefFrame
+import org.cef.callback.CefBeforeDownloadCallback
+import org.cef.callback.CefDownloadItem
+import org.cef.handler.CefDownloadHandlerAdapter
+import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.awt.datatransfer.DataFlavor
 import java.io.File
+import java.util.Vector
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -62,9 +71,21 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
     private val center = JPanel(BorderLayout())
     private var toolbarComponent: JComponent? = null
 
-    /** True once the SPA page has finished its first load, so JS calls will land. */
+    /**
+     * True once the SPA page has loaded, so JS calls will land.
+     *
+     * Cleared **only** where this panel itself navigates the browser (see [markPageNavigating]),
+     * never from CEF's loading-state callbacks. A live SPA changes loading state on its own all
+     * the time, and a flag cleared by those events but restored only by a full main-frame load
+     * stays false forever - which silently sent every mention to the queue and left it there.
+     */
     @Volatile
     private var browserReady = false
+
+    /** Clears readiness right before this panel loads or reloads the page. */
+    private fun markPageNavigating() {
+        browserReady = false
+    }
 
     /** File mentions requested before the page was ready; flushed on first load end. */
     private val pendingMentions = ArrayList<String>()
@@ -132,6 +153,11 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
                 // Start reporting open terminals + recent output to the agent.
                 FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                // Start reporting in-IDE copies for the composer's paste-to-chip flow.
+                FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                // Pick up the backend's autocomplete settings; inline suggestions stay off
+                // until config.autocomplete enables them.
+                FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
             },
             onError = { msg -> showError(msg) }
         )
@@ -139,11 +165,11 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
 
     private fun loadUrl(url: String) {
         // Append the IDE-matching theme so the SPA applies it before first paint
-        // (contract: docs/intellij-embedding.md). Avoid duplicating the param.
+        // (contract: docs/contributing/intellij-embedding.md). Avoid duplicating the param.
         val themeParam = if (url.contains("theme=")) url
         else url + (if (url.contains("?")) "&" else "?") + "theme=${FoxxyCodeThemeBridge.currentFoxxyCodeTheme()}"
         // Signal the embed mode so the SPA adopts a flatter, more native host-IDE
-        // look (data-embed="intellij" on <html>; see docs/intellij-embedding.md).
+        // look (data-embed="intellij" on <html>; see docs/contributing/intellij-embedding.md).
         var finalUrl = if (themeParam.contains("embed=")) themeParam
         else themeParam + (if (themeParam.contains("?")) "&" else "?") + "embed=intellij"
         finalUrl = appendLangParam(finalUrl)
@@ -161,12 +187,48 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             query.addHandler { value -> onSpaLocale(value); null }
             Disposer.register(it, query)
             localeQuery = query
+            // JS→Kotlin channel for "a file was just dropped on the page"; see onHostDrop.
+            val drop = JBCefJSQuery.create(it as JBCefBrowserBase)
+            drop.addHandler { _ -> onHostDrop(); null }
+            Disposer.register(it, drop)
+            dropQuery = drop
+            installBrowserDragHandler(it)
+            // CEF drops every download nobody claims, which is why a plain
+            // `<a download>` in the panel used to do nothing at all. Claiming it
+            // with showDialog=true hands the user the IDE's native Save As box.
+            it.jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
+                override fun onBeforeDownload(
+                    browser: CefBrowser?,
+                    item: CefDownloadItem?,
+                    suggestedName: String?,
+                    callback: CefBeforeDownloadCallback?,
+                ) {
+                    // Empty path + showDialog: CEF picks the download directory and
+                    // opens the save dialog seeded with the suggested name.
+                    callback?.Continue(suggestedName ?: "", true)
+                }
+            }, it.cefBrowser)
+            // A new-tab link in the SPA (API docs, the website) arrives here as a popup, which
+            // CEF would open as an empty native window. Cancel it and let the system browser
+            // open http(s) links; anything else is simply dropped.
+            it.jbCefClient.addLifeSpanHandler(object : CefLifeSpanHandlerAdapter() {
+                override fun onBeforePopup(
+                    browser: CefBrowser?,
+                    frame: CefFrame?,
+                    targetUrl: String?,
+                    targetFrameName: String?,
+                ): Boolean {
+                    ExternalLinks.systemBrowserUrl(targetUrl)?.let { url -> BrowserUtil.browse(url) }
+                    return true
+                }
+            }, it.cefBrowser)
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.
             it.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
                     if (frame?.isMain == true) {
                         injectBootstrap()
                         injectLocaleBridge()
+                        injectDropBridge()
                         syncTheme()
                         syncLocale()
                         browserReady = true
@@ -175,31 +237,47 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 }
             }, it.cefBrowser)
         }
+        markPageNavigating()
         b.loadURL(finalUrl)
         setCenter(b.component)
         installFileDropTarget(b.component)
         panelMode = PanelMode.BROWSER
     }
 
-    /** Guard so the drop target is registered on the browser component only once. */
-    private var fileDropInstalled = false
+    /** Components that already carry the composer drop target, so it is installed once each. */
+    private val fileDropTargets = HashSet<JComponent>()
+
+    override fun addNotify() {
+        super.addNotify()
+        // The panel itself is a drop target, not just the browser surface: a drag that lands
+        // while the server is still starting (the "Starting FoxxyCode…" label) or while an
+        // error panel is shown has no browser component to hit. Registered here rather than
+        // in the constructor because DnDSupport needs a Disposable already in the Disposer
+        // tree, and the tool window content only becomes this panel's disposer afterwards.
+        installFileDropTarget(this)
+    }
 
     /**
-     * Accepts file drags from the Project view **and the editor tab strip** onto the browser
-     * and inserts each dropped file into the composer as a short `@`-mention (via
-     * [insertFileMention]). Uses the IntelliJ DnD framework so it works over the heavyweight
-     * JCEF component. Best-effort: a drag that carries no files is ignored so normal editor
-     * DnD is unaffected.
+     * Accepts file drags from the Project view **and the editor tab strip** onto the panel's
+     * own chrome — the toolbar row, the status and error cards, the border.
+     *
+     * It deliberately does **not** cover the chat itself. JCEF renders into a native child
+     * window stacked above every Swing component here, so a drag over the chat is delivered to
+     * the browser, not to any target registered on this side (verified in a sandbox IDE: the
+     * targets install, and no drag event ever arrives). The chat's drops are therefore handled
+     * where they actually land — as HTML5 drops in the SPA, see the document-level drop
+     * listener in `Composer.tsx`. Both paths end at the same `@`-mention.
      */
     private fun installFileDropTarget(component: JComponent) {
-        if (fileDropInstalled) return
-        fileDropInstalled = true
-        val browserRef = browser ?: return
+        if (!fileDropTargets.add(component)) return
+        val where = component.javaClass.simpleName
+        LOG.info("FoxxyCode DnD: drop target installed on $where")
         DnDSupport.createBuilder(component)
             .setTargetChecker(
                 DnDTargetChecker { event ->
-                    logDragOnce(event)
-                    if (droppedProjectFiles(event).isNotEmpty()) {
+                    val rels = droppedProjectFiles(event)
+                    logDragGesture(where, event, rels.size)
+                    if (rels.isNotEmpty()) {
                         event.isDropPossible = true
                         true
                     } else {
@@ -210,31 +288,108 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             .setDropHandler(
                 DnDDropHandler { event ->
                     val rels = droppedProjectFiles(event)
-                    LOG.info("FoxxyCode DnD drop: ${rels.size} file(s) over composer")
-                    for (rel in rels) {
-                        insertFileMention(rel)
-                    }
+                    LOG.info(
+                        "FoxxyCode DnD drop #$dnDGesture on $where: ${rels.size} file(s)" +
+                            ", browserReady=$browserReady, paths=$rels",
+                    )
+                    requestInsertFileMentions(rels)
                 },
             )
-            .setDisposableParent(browserRef)
+            .setDisposableParent(this)
             .install()
     }
 
-    /** Last drag payload class we logged, so a hovering drag does not spam the log. */
-    private var lastDnDClass: String? = null
+    /** JS→Kotlin channel telling us the page received a drop (see [installBrowserDragHandler]). */
+    private var dropQuery: JBCefJSQuery? = null
+
+    /** Absolute paths of the files the current drag carries, as reported by CEF. */
+    @Volatile
+    private var draggedNativeFiles: List<String> = emptyList()
 
     /**
-     * Records what a drag over the composer actually carries. Editor-tab / Project-view drags
-     * are intra-IDE, and the heavyweight JCEF surface can swallow the mouse tracking that
-     * `DnDManager` relies on, so this is the only way to tell whether the checker even fires
-     * (and with what `attachedObject`) without a debugger attached to a live IDE.
+     * Reads the **absolute paths** of a file drag out of CEF.
+     *
+     * Dropping onto the chat is an ordinary HTML5 drop — JCEF renders into a native child
+     * window, so no Swing drop target on this side ever sees it. But the page cannot resolve
+     * the paths either: a real OS file drop arrives as `DataTransfer.files`, whose `File`
+     * objects deliberately expose only a base name, and Chromium leaves `text/uri-list` empty
+     * for security. CEF, sitting below that boundary, still has the full paths — this is the
+     * only place they are available.
+     *
+     * The drop itself is then signalled back from the page ([injectDropBridge]), because
+     * `CefDragHandler` has no drop callback at all: it only reports what a drag entered with.
      */
-    private fun logDragOnce(event: DnDEvent) {
+    private fun installBrowserDragHandler(browser: JBCefBrowser) {
+        browser.jbCefClient.addDragHandler(
+            object : CefDragHandler {
+                override fun onDragEnter(b: CefBrowser?, dragData: CefDragData?, mask: Int): Boolean {
+                    val names = Vector<String>()
+                    if (dragData != null && dragData.isFile) {
+                        dragData.getFileNames(names)
+                    }
+                    draggedNativeFiles = names.toList()
+                    LOG.info("FoxxyCode DnD: browser drag entered with ${names.size} file(s)")
+                    // false = let the drag proceed; the page still decides what to do with it.
+                    return false
+                }
+            },
+            browser.cefBrowser,
+        )
+    }
+
+    /**
+     * Adds a capture-phase `drop` listener that pings [onHostDrop]. Capture phase so it runs
+     * whatever the SPA does with the event, and independently of it: the SPA's own handler is
+     * what stops the browser from navigating to the dropped file, this one only reports that a
+     * drop happened so the paths CEF captured can be turned into mentions.
+     */
+    private fun injectDropBridge() {
+        val b = browser ?: return
+        val query = dropQuery ?: return
+        val js = """
+            (function(){ try {
+              if (!window.__foxxycodeDropBridge) {
+                window.__foxxycodeDropBridge = true;
+                document.addEventListener('drop', function () { ${query.inject("''")} }, true);
+              }
+            } catch (e) {} })();
+        """.trimIndent()
+        b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
+    }
+
+    /** Turns the paths captured on drag-enter into composer mentions, once per drop. */
+    private fun onHostDrop() {
+        val files = draggedNativeFiles
+        draggedNativeFiles = emptyList()
+        if (files.isEmpty()) return
+        val rels = ProjectRelativePaths.relativize(project.basePath, files.map { File(it) })
+        LOG.info("FoxxyCode DnD browser drop: ${files.size} file(s), paths=$rels")
+        requestInsertFileMentions(rels)
+    }
+
+    /** Counts drag gestures over the panel, so a log line can be tied to one attempt. */
+    private var dnDGesture = 0
+
+    /** When the target checker last fired; a gap means the user started a new drag. */
+    private var lastCheckerAtMs = 0L
+
+    /**
+     * Logs one line per drag **gesture** — not per mouse move, and not once per payload class:
+     * the question these logs answer is "did the first attempt reach the plugin at all", which
+     * a per-class guard would hide the moment the second attempt carries the same payload.
+     *
+     * Editor-tab / Project-view drags are intra-IDE, and the heavyweight JCEF surface can
+     * swallow the mouse tracking `DnDManager` relies on, so whether the checker fires is the
+     * first thing worth knowing when a drop does nothing.
+     */
+    private fun logDragGesture(where: String, event: DnDEvent, files: Int) {
+        val now = System.currentTimeMillis()
+        val newGesture = now - lastCheckerAtMs > NEW_DRAG_GESTURE_GAP_MS
+        lastCheckerAtMs = now
+        if (!newGesture) return
+        dnDGesture++
         val cls = event.attachedObject?.javaClass?.name ?: "null"
-        if (cls != lastDnDClass) {
-            lastDnDClass = cls
-            LOG.info("FoxxyCode DnD over composer: attachedObject=$cls")
-        }
+        LOG.info("FoxxyCode DnD drag #$dnDGesture over $where: attachedObject=$cls, files=$files")
     }
 
     /** Project-relative POSIX paths for files carried by a DnD event (empty when none). */
@@ -277,14 +432,16 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
 
     /**
      * Inserts one or more workspace-relative paths into the composer as `@`-mentions.
-     * Public entry point for the **Add to FoxxyCode** action (right-click editor tab / file):
-     * a reliable alternative to dragging onto the heavyweight JCEF surface. Paths requested
-     * before the page has loaded are queued and flushed on first load end.
+     * Entry point for both the **Add to FoxxyCode** action (right-click editor tab / file)
+     * and the drop handler. Paths requested before the page has loaded are queued and
+     * flushed on load end — without that, the first drop after the tool window opens
+     * reaches a page whose `window.foxxycodeUi` does not exist yet and is lost silently.
      */
     fun requestInsertFileMentions(paths: List<String>) {
         if (paths.isEmpty()) return
         ApplicationManager.getApplication().invokeLater {
             if (!browserReady || browser == null) {
+                LOG.info("FoxxyCode mention: queued $paths (page not ready)")
                 pendingMentions.addAll(paths)
                 return@invokeLater
             }
@@ -296,11 +453,13 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         if (pendingMentions.isEmpty()) return
         val queued = pendingMentions.toList()
         pendingMentions.clear()
+        LOG.info("FoxxyCode mention: flushing ${queued.size} queued path(s)")
         queued.forEach { insertFileMention(it) }
     }
 
-    /** Pushes a workspace-relative path into the SPA composer as an `@`-mention chip. */
+    /** Pushes a workspace-relative path into the SPA composer as an `@`-mention. */
     private fun insertFileMention(relPath: String) {
+        LOG.info("FoxxyCode mention: pushing to composer: $relPath")
         val b = browser ?: return
         val json = JsonPrimitive(relPath).toString()
         val js =
@@ -398,10 +557,17 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
     private fun showError(msg: String) {
         panelMode = PanelMode.ERROR
         lastErrorDetail = msg
-        FoxxyCodeNotifications.error(project, FoxxyCodeBundle.message("notification.title.startFailed"), msg)
+        FoxxyCodeNotifications.error(
+            project,
+            FoxxyCodeBundle.message("notification.title.startFailed"),
+            asHtmlBody(msg),
+        )
         val panel = JPanel(BorderLayout())
         panel.add(
-            JLabel(FoxxyCodeBundle.message("process.error.startFailedPanel", msg), SwingConstants.CENTER),
+            JLabel(
+                FoxxyCodeBundle.message("process.error.startFailedPanel", asHtmlBody(msg)),
+                SwingConstants.CENTER,
+            ),
             BorderLayout.CENTER
         )
         val south = JPanel()
@@ -410,6 +576,17 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         panel.add(south, BorderLayout.SOUTH)
         setCenter(panel)
     }
+
+    /**
+     * Both the error panel and the notification balloon render HTML, while the message can now
+     * carry quoted backend output: escape it, and keep its line breaks visible.
+     */
+    private fun asHtmlBody(text: String): String =
+        text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br/>")
 
     private fun showFallback(url: String) {
         panelMode = PanelMode.FALLBACK
@@ -446,6 +623,8 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                         FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
                         FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
                         FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                        FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                        FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
                     },
                     onError = { msg -> showError(msg) }
                 )
@@ -458,7 +637,12 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             }
             override fun actionPerformed(e: AnActionEvent) {
                 val b = browser
-                if (b != null) b.cefBrowser.reload() else start()
+                if (b != null) {
+                    markPageNavigating()
+                    b.cefBrowser.reload()
+                } else {
+                    start()
+                }
             }
         })
         group.add(object : AnAction("", "", AllIcons.General.Web) {
@@ -525,6 +709,13 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
 
         /** Must match `<id>` in META-INF/plugin.xml (asserted by plugin_build_test.go). */
         const val PLUGIN_ID = "dev.foxxycode.intellij"
+
+        /**
+         * Quiet time that separates two drag gestures in the log. The target checker fires on
+         * every mouse move, so gestures are told apart by the pause between them rather than by
+         * any event the framework offers.
+         */
+        private const val NEW_DRAG_GESTURE_GAP_MS = 700L
         private const val PRODUCT_NAME = "FoxxyCode"
 
         /** Live panels by project, so an action can reach the composer of the right window. */
@@ -560,17 +751,46 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                       if (!el) {
                         el = document.createElement("div");
                         el.id = "foxxycode-err-overlay";
-                        el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:45vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.45 monospace;padding:10px 12px;white-space:pre-wrap;border-top:2px solid #ef4444";
+                        el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:45vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.45 monospace;padding:10px 32px 10px 12px;white-space:pre-wrap;border-top:2px solid #ef4444";
+                        var btn = document.createElement("button");
+                        btn.id = "foxxycode-err-overlay-close";
+                        btn.type = "button";
+                        btn.textContent = "×";
+                        btn.setAttribute("aria-label", "Close");
+                        btn.style.cssText = "position:absolute;top:4px;right:6px;background:transparent;border:0;color:#fff;font:16px/1 monospace;cursor:pointer;padding:2px 6px";
+                        btn.onclick = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+                        el.appendChild(btn);
+                        var txt = document.createElement("div");
+                        txt.id = "foxxycode-err-overlay-text";
+                        el.appendChild(txt);
                         (document.body || document.documentElement).appendChild(el);
                       }
-                      el.textContent = "FoxxyCode UI error — " + title + "\n" + (detail || "");
+                      var out = document.getElementById("foxxycode-err-overlay-text") || el;
+                      out.textContent = "FoxxyCode UI error — " + title + "\n" + (detail || "");
                     } catch (e) {}
                   };
+                  // "ResizeObserver loop limit exceeded" (Chromium 104) / "...loop completed with
+                  // undelivered notifications." (newer) is the browser saying it deferred a resize
+                  // observation to the next frame, not an exception in the SPA: nothing is lost
+                  // and the page keeps working, so it must not paint the error overlay.
+                  //
+                  // A dropped request to the backend is not a fault of the page either. The SPA
+                  // polls 127.0.0.1 several times a second for the whole length of a turn, so one
+                  // refused or reset connection is routine, and a real outage is already reported
+                  // by the SPA's own offline indicators and by the plugin when the backend exits.
+                  // The filter applies to rejections too: it used to guard only the error event,
+                  // which is how a single "TypeError: Failed to fetch" from a poll could paint a
+                  // permanent bar over the chat.
+                  var benign = /^ResizeObserver loop|Failed to fetch|NetworkError when attempting to fetch|Load failed|The user aborted a request|^AbortError/;
                   window.addEventListener("error", function (ev) {
+                    if (benign.test(ev.message || "")) return;
                     show(ev.message || "error", (ev.error && ev.error.stack) ? ev.error.stack : (ev.filename + ":" + ev.lineno));
                   });
                   window.addEventListener("unhandledrejection", function (ev) {
                     var r = ev.reason;
+                    var name = (r && r.name) ? String(r.name) : "";
+                    var msg = (r && r.message) ? String(r.message) : "";
+                    if (benign.test((name ? name + ": " : "") + msg) || benign.test(String(r))) return;
                     show("unhandled promise rejection", (r && (r.stack || r.message)) ? (r.stack || r.message) : String(r));
                   });
                 }

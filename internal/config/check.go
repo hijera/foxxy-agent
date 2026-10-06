@@ -1,0 +1,838 @@
+package config
+
+// The -t / --test-config check: the file the loader would read, validated
+// against the embedded JSON Schema and then against the loader's own rules,
+// with every problem located in the file and explained. Nothing is written.
+// A normal load falls back to config.yaml.bak and rewrites the file when the
+// document is broken; a check that did the same would hide the very problem
+// it is asked to report.
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Severity tells whether a finding fails the check.
+type Severity int
+
+const (
+	// SeverityError is a problem the loader rejects or silently gets wrong;
+	// one of these makes the check fail.
+	SeverityError Severity = iota
+	// SeverityWarning is a spelling the loader accepts but editors flag, or
+	// a hint that costs nothing to follow; it never fails the check.
+	SeverityWarning
+)
+
+// Finding is one problem in a config file.
+type Finding struct {
+	Severity Severity
+	// Line and Column locate the problem in the file (1-based); 0 when the
+	// finding is about the file as a whole.
+	Line, Column int
+	// Path is the dotted key the finding is about ("httpserver.enable",
+	// "providers[1].type"); empty for a whole-file finding or when Message
+	// already carries it.
+	Path string
+	// Message says what is wrong.
+	Message string
+	// Fix says how to correct it; empty when the message is the fix.
+	Fix string
+	// Doc is the schema description of the field, when one helps.
+	Doc string
+}
+
+// CheckReport is the outcome of checking one config file.
+type CheckReport struct {
+	// File is the config file that was checked, resolved as the loader would.
+	File     string
+	Findings []Finding
+}
+
+// Errors counts the findings that fail the check.
+func (r *CheckReport) Errors() int { return r.count(SeverityError) }
+
+// Warnings counts the findings that do not.
+func (r *CheckReport) Warnings() int { return r.count(SeverityWarning) }
+
+// Valid reports whether the file has no errors.
+func (r *CheckReport) Valid() bool { return r.Errors() == 0 }
+
+func (r *CheckReport) count(sev Severity) int {
+	n := 0
+	for _, f := range r.Findings {
+		if f.Severity == sev {
+			n++
+		}
+	}
+	return n
+}
+
+// Write renders the report as compiler-style lines an editor can jump to:
+// file:line:col: path: message, then an indented fix and doc line, and a
+// summary line last.
+func (r *CheckReport) Write(w io.Writer) {
+	for _, f := range r.Findings {
+		loc := r.File
+		if f.Line > 0 {
+			loc += ":" + strconv.Itoa(f.Line)
+			if f.Column > 0 {
+				loc += ":" + strconv.Itoa(f.Column)
+			}
+		}
+		head := loc + ": "
+		if f.Severity == SeverityWarning {
+			head += "warning: "
+		}
+		if f.Path != "" {
+			head += f.Path + ": "
+		}
+		_, _ = fmt.Fprintln(w, head+f.Message)
+		if f.Fix != "" {
+			_, _ = fmt.Fprintln(w, "    fix: "+f.Fix)
+		}
+		if f.Doc != "" {
+			_, _ = fmt.Fprintln(w, "    doc: "+f.Doc)
+		}
+	}
+	summary := r.File + ": "
+	if r.Valid() {
+		summary += "valid"
+		if n := r.Warnings(); n > 0 {
+			summary += ", " + plural(n, "warning")
+		}
+	} else {
+		summary += plural(r.Errors(), "error")
+		if n := r.Warnings(); n > 0 {
+			summary += ", " + plural(n, "warning")
+		}
+	}
+	_, _ = fmt.Fprintln(w, summary)
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return strconv.Itoa(n) + " " + word + "s"
+}
+
+// The flag every entrypoint offers for checking config.yaml without starting
+// anything: `foxxycode -t`, `foxxycode cli -t`, `foxxycode acp -t`, `foxxycode serve -t`.
+const (
+	CheckFlagName  = "test-config"
+	CheckFlagShort = "t"
+	CheckFlagUsage = "check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything"
+)
+
+// AddCheckFlag registers -t / --test-config on fs.
+func AddCheckFlag(fs *flag.FlagSet) *bool {
+	v := fs.Bool(CheckFlagName, false, CheckFlagUsage)
+	fs.BoolVar(v, CheckFlagShort, false, "alias of --"+CheckFlagName)
+	return v
+}
+
+// Check validates the config file the given flags select - the same file
+// LoadFromCLI would read, <home>/.env loaded first so ${VAR} references see
+// its values - without loading it: no backup is written and none is restored.
+// The error is only about resolving the paths; problems in the file are
+// findings.
+func Check(cli CLIPaths) (*CheckReport, error) {
+	paths, err := resolveConfigFile(cli)
+	if err != nil {
+		return nil, err
+	}
+	rep := &CheckReport{File: paths.ConfigPath}
+	data, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			rep.Findings = append(rep.Findings, Finding{
+				Severity: SeverityError,
+				Message:  "config file not found",
+				Fix:      "create it (config.example.yaml in the repository documents every key), or name another file with --config PATH or another home with --home DIR",
+			})
+			return rep, nil
+		}
+		rep.Findings = append(rep.Findings, Finding{
+			Severity: SeverityError,
+			Message:  "cannot read the config file: " + err.Error(),
+		})
+		return rep, nil
+	}
+	rep.Findings = checkConfigBytes(data, paths)
+	return rep, nil
+}
+
+// RunCheck prints the report for the config file the flags select and fails
+// when the file has errors, so the process exits non-zero. Warnings alone
+// leave it succeeding.
+func RunCheck(w io.Writer, cli CLIPaths) error {
+	rep, err := Check(cli)
+	if err != nil {
+		return err
+	}
+	rep.Write(w)
+	if !rep.Valid() {
+		return errors.New("config test failed")
+	}
+	return nil
+}
+
+// checkConfigBytes runs the stages of the check over the raw file content.
+func checkConfigBytes(data []byte, paths Paths) []Finding {
+	var findings []Finding
+	if enc := utf16Encoding(data); enc != "" {
+		// Read like any other file (see source.go), but the next save writes UTF-8.
+		findings = append(findings, Finding{
+			Severity: SeverityWarning, Line: 1, Column: 1,
+			Message: "the file is " + enc + " text; it is read, but a save from the settings screen writes it back as UTF-8",
+			Fix:     utf16Fix,
+		})
+	}
+	// UTF-16, a byte order mark and Windows line endings are the editor's, not
+	// the operator's: they are undone here so the stages below see one shape and
+	// the modeline behind a mark is still found (see source.go).
+	data = normalizeConfigSource(data)
+	if !hasSchemaModeline(data) {
+		findings = append(findings, Finding{
+			Severity: SeverityWarning, Line: 1, Column: 1,
+			Message: "no schema modeline, so editors do not validate this file",
+			Fix:     "add as the first line: " + SchemaModeline(),
+		})
+	}
+
+	// The same expansion the loader performs: ${FOXXYCODE_HOME}, environment
+	// references and $$ escapes, ${CWD} left in place. Values stay on their
+	// lines, so positions below are positions in the file.
+	expanded := expandConfigBody(string(data), paths)
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(expanded), &doc); err != nil {
+		return append(findings, syntaxFindings(err, expanded)...)
+	}
+	body := configDocumentRoot(&doc)
+	if body == nil {
+		// An empty document (or comments only) is a valid config: every field
+		// has a default.
+		return findings
+	}
+	if body.Kind != yaml.MappingNode {
+		return append(findings, Finding{
+			Severity: SeverityError, Line: body.Line, Column: body.Column,
+			Message: "the top level must be a mapping of keys, got " + describe(body, ""),
+			Fix:     "start each setting at column 1 as key: value (providers:, models:, agent:, ...)",
+		})
+	}
+
+	// the legacy `enabled` is read as `enable` (switch_alias.go); the stages below
+	// see the document the loader decodes.
+	findings = append(findings, switchAliasFindings(normalizeSwitchAliases(body))...)
+
+	schemaFindings, err := validateAgainstSchema(body)
+	if err != nil {
+		return append(findings, Finding{Severity: SeverityError, Message: err.Error()})
+	}
+	findings = append(findings, schemaFindings...)
+	schemaErrors := 0
+	for _, f := range schemaFindings {
+		if f.Severity == SeverityError {
+			schemaErrors++
+		}
+	}
+
+	// The loader's own rules: cross-field checks the schema cannot express
+	// (a model naming a provider that does not exist, a file sink without a
+	// path). Decoding errors repeat what the schema already said, so they are
+	// only reported when the schema had nothing to say.
+	var cfg Config
+	if err := doc.Decode(&cfg); err != nil {
+		if schemaErrors == 0 {
+			findings = append(findings, syntaxFindings(err, expanded)...)
+		}
+		return sortFindings(findings)
+	}
+	cfg.Paths = paths
+	applyDefaults(&cfg)
+	if err := validateSubconfigs(&cfg); err != nil {
+		f := loaderFinding(err, body, &cfg)
+		if !coveredAtLine(findings, f.Line) {
+			findings = append(findings, f)
+		}
+	}
+	findings = append(findings, unsentSettingFindings(&cfg, body)...)
+	findings = append(findings, memoryAddendumFindings(&cfg, body)...)
+	return sortFindings(findings)
+}
+
+// memoryAddendumFindings warns when memory.additional_prompt is longer than
+// memory.additional_prompt_max_chars: the memory subagent reads the cut text,
+// and a cut must never be silent (issue #266).
+func memoryAddendumFindings(cfg *Config, body *yaml.Node) []Finding {
+	if _, cut := cfg.Memory.EffectiveAdditionalPrompt(); !cut {
+		return nil
+	}
+	chars := utf8.RuneCountInString(strings.TrimSpace(cfg.Memory.AdditionalPrompt))
+	f := Finding{
+		Severity: SeverityWarning,
+		Message: fmt.Sprintf("memory.additional_prompt is %d characters and memory.additional_prompt_max_chars is %d: the memory subagent reads the first %d",
+			chars, cfg.Memory.AdditionalPromptMaxChars, cfg.Memory.AdditionalPromptMaxChars),
+		Fix: "shorten memory.additional_prompt, or raise memory.additional_prompt_max_chars (0 removes the cap)",
+	}
+	if n := locatePath(body, "memory.additional_prompt", true); n != nil {
+		f.Line, f.Column = n.Line, n.Column
+	}
+	if root, err := loadSchema(); err == nil {
+		if s := root.lookup("memory.additional_prompt"); s != nil {
+			f.Doc = s.doc()
+		}
+	}
+	return []Finding{f}
+}
+
+// unsentSettingFindings warns about the settings the loader accepts but the
+// provider never sends (Config.UnsentModelSettings), each on its own line.
+func unsentSettingFindings(cfg *Config, body *yaml.Node) []Finding {
+	var out []Finding
+	for _, u := range cfg.UnsentModelSettings() {
+		f := Finding{Severity: SeverityWarning, Message: u.Message, Fix: "remove " + u.Key + " from this model"}
+		if n := locatePath(body, u.Path(), true); n != nil {
+			f.Line, f.Column = n.Line, n.Column
+		}
+		if root, err := loadSchema(); err == nil {
+			if s := root.lookup(selectorRE.ReplaceAllString(u.Path(), "")); s != nil {
+				f.Doc = s.doc()
+			}
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// coveredAtLine reports whether an error is already reported on that line; a
+// loader error there restates it in the loader's words.
+func coveredAtLine(findings []Finding, line int) bool {
+	if line <= 0 {
+		return false
+	}
+	for _, f := range findings {
+		if f.Severity == SeverityError && f.Line == line {
+			return true
+		}
+	}
+	return false
+}
+
+// sortFindings orders findings by position, whole-file findings last, keeping
+// the discovery order within a line.
+func sortFindings(findings []Finding) []Finding {
+	sort.SliceStable(findings, func(i, j int) bool {
+		a, b := findings[i], findings[j]
+		if (a.Line == 0) != (b.Line == 0) {
+			return a.Line != 0
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		return a.Column < b.Column
+	})
+	return findings
+}
+
+var yamlLineRE = regexp.MustCompile(`line (\d+): (.*)`)
+
+// syntaxFindings turns a yaml.v3 error into findings. The library reports
+// either one "yaml: line N: message" or a list of "line N: message" entries.
+//
+// The line of a single parse error is not the line that broke the document:
+// yaml.v3 reports where the block the parser was inside began, counted from
+// zero, so a file whose first key sits under a header of comments has every
+// syntax mistake blamed on one of those comments ("line 18: did not find
+// expected key", line 18 being blank). The body is re-read to find the line
+// that actually stops it parsing. A type error is left alone: it carries one
+// entry per bad value, each already on its own line.
+func syntaxFindings(err error, body string) []Finding {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		if line := locateSyntaxError(body); line > 0 {
+			msg := syntaxMessage(err)
+			return []Finding{{Severity: SeverityError, Line: line, Message: msg, Fix: syntaxFix(msg)}}
+		}
+	}
+	var out []Finding
+	for _, m := range yamlLineRE.FindAllStringSubmatch(err.Error(), -1) {
+		line, _ := strconv.Atoi(m[1])
+		out = append(out, Finding{Severity: SeverityError, Line: line, Message: m[2], Fix: syntaxFix(m[2])})
+	}
+	if len(out) == 0 {
+		msg := strings.TrimPrefix(err.Error(), "yaml: ")
+		out = append(out, Finding{Severity: SeverityError, Message: msg, Fix: syntaxFix(msg)})
+	}
+	return out
+}
+
+// maxSyntaxScanLines bounds the search below. A config file is a few hundred
+// lines; something long enough for the search to be noticeable is not a file
+// somebody hand-edited into this state, and it keeps the parser's own answer.
+const maxSyntaxScanLines = 2000
+
+// locateSyntaxError returns the 1-based line whose arrival stops the document
+// from parsing, or 0 when there is no such line and the parser's own answer is
+// the best there is.
+//
+// The file is read as prefixes: the first line, the first two, and so on. One
+// of them is the last that still parses and the next one is the line to report,
+// and the boundary between the two is found by halving rather than by walking,
+// so a file of any size costs a handful of parses.
+func locateSyntaxError(body string) int {
+	ends := lineEnds(body)
+	n := len(ends)
+	if n == 0 || n > maxSyntaxScanLines {
+		return 0
+	}
+	parses := func(lines int) bool { return prefixParses(body[:ends[lines-1]]) }
+	if parses(n) {
+		// The whole file parses as far as this goes, so the parser gave up on
+		// something it was still waiting for - an unterminated quote or
+		// bracket - and where it gave up is where it says.
+		return 0
+	}
+	good, bad := 0, n
+	for bad-good > 1 {
+		mid := good + (bad-good)/2
+		if parses(mid) {
+			good = mid
+		} else {
+			bad = mid
+		}
+	}
+	return bad
+}
+
+// lineEnds lists the offset just past the end of every line of body, so a
+// prefix of it is a slice rather than a copy.
+func lineEnds(body string) []int {
+	var ends []int
+	for i := 0; i < len(body); i++ {
+		if body[i] == '\n' {
+			ends = append(ends, i+1)
+		}
+	}
+	if len(body) > 0 && body[len(body)-1] != '\n' {
+		ends = append(ends, len(body))
+	}
+	return ends
+}
+
+// prefixParses reports whether the part of the file read so far is still a
+// document a parser accepts. A prefix cut inside a quoted scalar or a flow
+// collection fails for that reason alone, which is what the cut did rather
+// than what the file says, so it counts as parsing.
+func prefixParses(prefix string) bool {
+	var doc yaml.Node
+	err := yaml.NewDecoder(strings.NewReader(prefix)).Decode(&doc)
+	return err == nil || errors.Is(err, io.EOF) || strings.Contains(err.Error(), "end of stream")
+}
+
+// syntaxMessage is the parser's complaint without the "yaml:" prefix and
+// without the line it decided to blame.
+func syntaxMessage(err error) string {
+	msg := strings.TrimPrefix(err.Error(), "yaml: ")
+	if m := yamlLineRE.FindStringSubmatch(msg); m != nil {
+		return m[2]
+	}
+	return msg
+}
+
+// syntaxFix explains the YAML mistakes people actually make behind the
+// parser's wording.
+func syntaxFix(msg string) string {
+	switch {
+	case strings.Contains(msg, "cannot start any token"):
+		return "YAML indents with spaces; replace tabs with spaces on this line"
+	case strings.Contains(msg, "mapping values are not allowed"):
+		return "check the indentation of this line against the one above; a value containing \": \" needs quotes"
+	case strings.Contains(msg, "did not find expected"):
+		return "this line does not belong to the block above it; check its indentation, and that everything after the key is one quoted value"
+	case strings.Contains(msg, "already defined"):
+		return "keep one of the two definitions"
+	case strings.Contains(msg, "cannot unmarshal"):
+		return "give the key a value of the shape the reference documents (https://github.com/hijera/foxxy-agent/blob/main/docs/reference/config.md)"
+	default:
+		return "fix the YAML syntax at this line"
+	}
+}
+
+var (
+	quotedRE      = regexp.MustCompile(`"([^"]+)"`)
+	leadingPathRE = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)*):`)
+	pathTokenRE   = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)*`)
+	// sectionFieldRE matches the shape validateSubconfigs produces: each section
+	// validator returns an error opening with its own field, and the loader wraps
+	// it with the section name - "compaction: threshold_percent: must be within
+	// 1..100". Without this the message locates at the section key, a line above
+	// the value that is actually wrong, and the schema finding for the same value
+	// is then reported beside it instead of covering it.
+	sectionFieldRE = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?): ([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?): `)
+	selectorRE     = regexp.MustCompile(`\[[^\]]*\]`)
+)
+
+// loaderFinding places a validation error of the loader in the file: at the
+// key a path in the message names ("compaction.threshold_percent",
+// "providers[b]"), else at the scalar carrying a value the message quotes,
+// else at the section the message starts with.
+func loaderFinding(err error, body *yaml.Node, cfg *Config) Finding {
+	msg := err.Error()
+	f := Finding{Severity: SeverityError, Message: msg, Fix: loaderFix(msg, cfg)}
+	paths := loaderPaths(msg)
+	for _, p := range paths {
+		if n := locatePath(body, p, true); n != nil {
+			f.Line, f.Column = n.Line, n.Column
+			break
+		}
+	}
+	if f.Line == 0 {
+		f.Line, f.Column = locateQuoted(msg, body)
+	}
+	if f.Line == 0 {
+		if m := leadingPathRE.FindStringSubmatch(msg); m != nil {
+			section := m[1]
+			if i := strings.IndexAny(section, ".["); i >= 0 {
+				section = section[:i]
+			}
+			if k := mappingKey(body, section); k != nil {
+				f.Line, f.Column = k.Line, k.Column
+			}
+		}
+	}
+	if root, err := loadSchema(); err == nil {
+		for _, p := range paths {
+			if s := root.lookup(selectorRE.ReplaceAllString(p, "")); s != nil {
+				f.Doc = s.doc()
+				break
+			}
+		}
+	}
+	return f
+}
+
+// loaderPaths lists the config paths a loader message names, in the order
+// the message names them: the first dotted or selected path is the subject
+// of the sentence ("logger.file: required when 'file' is in logger.outputs"),
+// the later ones are context. The bare section a message opens with comes
+// last as the coarsest fallback.
+func loaderPaths(msg string) []string {
+	var out []string
+	// The most specific reading first: a section wrapping its own field.
+	if m := sectionFieldRE.FindStringSubmatch(msg); m != nil {
+		out = append(out, m[1]+"."+m[2])
+	}
+	for _, tok := range pathTokenRE.FindAllString(msg, -1) {
+		if strings.ContainsAny(tok, ".[") {
+			out = append(out, tok)
+		}
+	}
+	if m := leadingPathRE.FindStringSubmatch(msg); m != nil {
+		section := m[1]
+		if i := strings.IndexAny(section, ".["); i >= 0 {
+			section = section[:i]
+		}
+		out = append(out, section)
+	}
+	return out
+}
+
+// locatePath walks a dotted path with optional selectors ("providers[b]",
+// "logger.levels[0].component") through the document and returns the node
+// that stands for it: a scalar value, a selected list entry, or - for a key
+// whose value is a block section or list - the key itself, which is the line
+// an operator looks for. In lenient mode an absent last key yields the key
+// that introduces the section that should hold it; nil when the path does
+// not fit the document.
+// splitConfigPath splits a dotted config path into its segments, leaving the
+// dots inside a selector alone: models[codex/gpt-5.5].max_tokens is two
+// segments, not four.
+func splitConfigPath(path string) []string {
+	var segments []string
+	depth, start := 0, 0
+	for i := 0; i < len(path); i++ {
+		switch path[i] {
+		case '[':
+			depth++
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		case '.':
+			if depth == 0 {
+				segments = append(segments, path[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(segments, path[start:])
+}
+
+func locatePath(body *yaml.Node, path string, lenient bool) *yaml.Node {
+	cur := body
+	var parentKey *yaml.Node
+	segments := splitConfigPath(path)
+	for i, seg := range segments {
+		key, sel := seg, ""
+		if j := strings.IndexByte(seg, '['); j >= 0 && strings.HasSuffix(seg, "]") {
+			key, sel = seg[:j], seg[j+1:len(seg)-1]
+		}
+		cur = resolveAlias(cur)
+		if cur == nil || cur.Kind != yaml.MappingNode {
+			return nil
+		}
+		k := mappingKey(cur, key)
+		if k == nil {
+			if lenient && i == len(segments)-1 {
+				return parentKey
+			}
+			return nil
+		}
+		val := mappingValueAfterKey(cur, k)
+		if sel != "" {
+			val = resolveAlias(val)
+			if val == nil || val.Kind != yaml.SequenceNode {
+				return nil
+			}
+			if val = sequenceItem(val, sel); val == nil {
+				return nil
+			}
+			parentKey, cur = k, val
+			continue
+		}
+		parentKey, cur = k, val
+	}
+	if n := resolveAlias(cur); n != nil && (n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode) && n.Style != yaml.FlowStyle && parentKey != nil && n.Line != parentKey.Line {
+		// A block section starts on the line after its key; the key is where
+		// the operator wrote it.
+		if len(segments) > 0 && !strings.HasSuffix(segments[len(segments)-1], "]") {
+			return parentKey
+		}
+	}
+	return cur
+}
+
+// mappingKey finds the key node of name in a mapping.
+func mappingKey(m *yaml.Node, name string) *yaml.Node {
+	m = resolveAlias(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if k := m.Content[i]; k.Kind == yaml.ScalarNode && k.Value == name {
+			return k
+		}
+	}
+	return nil
+}
+
+// mappingValueAfterKey returns the value paired with a key node of m.
+func mappingValueAfterKey(m, key *yaml.Node) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i] == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// sequenceItem picks a list entry by index ("0") or by the value of one of
+// its identity keys ("b" for the provider named b, "a/b" for that model).
+func sequenceItem(seq *yaml.Node, sel string) *yaml.Node {
+	if idx, err := strconv.Atoi(sel); err == nil {
+		if idx >= 0 && idx < len(seq.Content) {
+			return seq.Content[idx]
+		}
+		return nil
+	}
+	for _, item := range seq.Content {
+		for _, idKey := range append([]string{"component"}, identityKeys...) {
+			if k := mappingKey(item, idKey); k != nil {
+				if v := resolveAlias(mappingValueAfterKey(resolveAlias(item), k)); v != nil && v.Kind == yaml.ScalarNode && v.Value == sel {
+					return item
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// locateQuoted finds the scalar carrying a value the message quotes: an
+// exact match first, then a value that contains it (a provider name inside
+// "provider/model").
+func locateQuoted(msg string, body *yaml.Node) (int, int) {
+	var quoted []string
+	for _, m := range quotedRE.FindAllStringSubmatch(msg, -1) {
+		quoted = append(quoted, m[1])
+	}
+	scalars := collectScalars(body, nil)
+	for _, q := range quoted {
+		for _, s := range scalars {
+			if s.Value == q {
+				return s.Line, s.Column
+			}
+		}
+	}
+	for _, q := range quoted {
+		for _, s := range scalars {
+			if strings.Contains(s.Value, q) {
+				return s.Line, s.Column
+			}
+		}
+	}
+	return 0, 0
+}
+
+// collectScalars lists the value scalars of a document in file order.
+func collectScalars(n *yaml.Node, out []*yaml.Node) []*yaml.Node {
+	n = resolveAlias(n)
+	if n == nil {
+		return out
+	}
+	switch n.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			out = collectScalars(n.Content[i+1], out)
+		}
+	case yaml.SequenceNode:
+		for _, c := range n.Content {
+			out = collectScalars(c, out)
+		}
+	case yaml.ScalarNode:
+		out = append(out, n)
+	}
+	return out
+}
+
+// loaderFix adds the way out for the loader errors that have one the message
+// does not already spell out.
+func loaderFix(msg string, cfg *Config) string {
+	switch {
+	case strings.Contains(msg, "unknown provider"):
+		names := providerNames(cfg)
+		if len(names) == 0 {
+			return "add a providers entry with that name before a model refers to it"
+		}
+		return fmt.Sprintf("providers configured: %s; add one with that name or point the model at one of these", strings.Join(names, ", "))
+	case strings.Contains(msg, "not found in models list"), strings.Contains(msg, "agent.model is required"):
+		names := modelNames(cfg)
+		if len(names) == 0 {
+			return "add a models entry and set agent.model to its model value"
+		}
+		return fmt.Sprintf("models configured: %s; set agent.model to one of them", strings.Join(names, ", "))
+	case strings.Contains(msg, "duplicate"):
+		return "rename or remove one of the two entries"
+	}
+	return ""
+}
+
+func providerNames(cfg *Config) []string {
+	var out []string
+	for _, p := range cfg.Providers {
+		if n := strings.TrimSpace(p.Name); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func modelNames(cfg *Config) []string {
+	var out []string
+	for _, m := range cfg.Models {
+		if n := strings.TrimSpace(m.Model); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// LoadReadOnly reads and validates the config file the flags select without
+// the side effects of a start: no backup is written and none is restored. It
+// returns the loaded configuration and the raw file bytes, so a caller can
+// locate its findings in the file the configuration came from (NewLocator).
+func LoadReadOnly(cli CLIPaths) (*Config, []byte, error) {
+	paths, err := resolveConfigFile(cli)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
+	}
+	cfg, err := parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+	if err != nil {
+		return nil, nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
+	}
+	return cfg, data, nil
+}
+
+// Locator maps config paths ("providers[b]", "httpserver.port",
+// "skills.dirs[1]") to positions in a config file, so a report about a value
+// can point at the line that set it. A selector picks a list entry by index
+// or by the value of an identity key (name, model, url, ...). A path that is
+// not in the file - an applied default - resolves to nothing.
+type Locator struct {
+	body *yaml.Node
+}
+
+// NewLocator parses the raw file bytes - not the expanded document the
+// loader reads - so a column is the column in the file even on a line where
+// ${FOXXYCODE_HOME} or an environment reference grows when substituted. Values
+// are never read through a locator, only placed, so the unexpanded text is
+// the right one. Unparsable data yields a locator that resolves nothing.
+func NewLocator(data []byte) *Locator {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(normalizeConfigSource(data), &doc); err != nil {
+		return &Locator{}
+	}
+	body := configDocumentRoot(&doc)
+	if body == nil || body.Kind != yaml.MappingNode {
+		return &Locator{}
+	}
+	normalizeSwitchAliases(body)
+	return &Locator{body: body}
+}
+
+// Locate returns the 1-based line and column of path, or ok=false when the
+// path is not in the file.
+func (l *Locator) Locate(path string) (line, col int, ok bool) {
+	if l == nil || l.body == nil {
+		return 0, 0, false
+	}
+	n := locatePath(l.body, path, false)
+	if n == nil {
+		return 0, 0, false
+	}
+	return n.Line, n.Column, true
+}
+
+// relocateSyntaxError restates a parse error at the line that actually breaks
+// the document, the way the check reports it, so the message a start prints
+// sends the operator to the same line as `foxxycode -t`. An error that cannot be
+// placed better, and a type error that is already placed, are returned as they
+// came.
+func relocateSyntaxError(err error, body string) error {
+	var typeErr *yaml.TypeError
+	if err == nil || errors.As(err, &typeErr) {
+		return err
+	}
+	line := locateSyntaxError(body)
+	if line <= 0 {
+		return err
+	}
+	return fmt.Errorf("line %d: %s", line, syntaxMessage(err))
+}

@@ -2,23 +2,23 @@
 
 // Package sessionstore maps stable messenger chat/user keys to FoxxyCode session IDs.
 // Each unique (gateway, chatID, userID, isolation) combination yields a single session ID
-// that is replaced when the user sends /clear.
+// that is replaced when the user sends /clear, or bound to an existing one by /resume.
 //
 // When a save path is supplied via NewPersisted, the map is written atomically to disk on
 // every mutation so the bot can resume existing conversations after a restart.
 package sessionstore
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // Store maps session keys to FoxxyCode session IDs.
@@ -62,27 +62,100 @@ func SessionKey(gateway string, chatID, userID int64, mode config.IsolationMode,
 }
 
 // Get returns the FoxxyCode session ID for key, creating a new random one when absent.
-func (s *Store) Get(key string) string {
+// Minting an id fails only when the system's entropy source does, and the error is
+// returned rather than panicked on: one chat must not take the bot down.
+func (s *Store) Get(key string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id, ok := s.data[key]; ok {
-		return id
+		return id, nil
 	}
-	id := newID()
+	id, err := newID()
+	if err != nil {
+		return "", err
+	}
 	s.data[key] = id
 	s.saveUnlocked()
-	return id
+	return id, nil
+}
+
+// Peek returns the FoxxyCode session ID mapped to key, or "" when the key has none.
+// Unlike Get it never mints one, so a caller that only reports what exists -
+// a log line, a status listing - leaves the store unchanged.
+func (s *Store) Peek(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data[key]
 }
 
 // Reset replaces the session ID for key with a fresh one and returns it.
 // Used by the /clear command.
-func (s *Store) Reset(key string) string {
+func (s *Store) Reset(key string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	id := newID()
+	id, err := newID()
+	if err != nil {
+		return "", err
+	}
 	s.data[key] = id
 	s.saveUnlocked()
-	return id
+	return id, nil
+}
+
+// KeyFor returns the key that maps to sessionID. A background subagent asks
+// about its parent session, not about a chat, and this is how the bot finds the
+// conversation that session belongs to - after a restart too, since the map is
+// persisted.
+func (s *Store) KeyFor(sessionID string) (string, bool) {
+	if sessionID == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, id := range s.data {
+		if id == sessionID {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+// ChatID returns the chat a session key addresses. A private conversation is
+// keyed by the user, and Telegram gives a private chat the id of that user.
+func ChatID(key string) (int64, bool) {
+	parts := strings.Split(key, ":")
+	if len(parts) < 3 {
+		return 0, false
+	}
+	switch parts[1] {
+	case "user", "chat":
+	default:
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+// Bind maps key to a session that already exists - the /resume command, where
+// a chat continues a session it did not start or left with /clear - and
+// persists the mapping like every other mutation. An empty id is ignored:
+// nothing may map a chat to no session, because Get would then answer ""
+// instead of minting one.
+func (s *Store) Bind(key, id string) {
+	id = strings.TrimSpace(id)
+	if key == "" || id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data[key] == id {
+		return
+	}
+	s.data[key] = id
+	s.saveUnlocked()
 }
 
 // KnownIDs returns all session IDs currently held in the store.
@@ -137,11 +210,9 @@ func (s *Store) saveUnlocked() {
 	_ = os.Rename(tmpPath, s.savePath)
 }
 
-// newID generates a random session ID with the gw_ prefix.
-func newID() string {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		panic("gateway sessionstore: crypto/rand unavailable: " + err.Error())
-	}
-	return "gw_" + strings.ToLower(hex.EncodeToString(b))
+// newID generates a session ID. A conversation held in a messenger is an
+// ordinary FoxxyCode session - the same id shape a console run or a browser tab
+// gets - so nothing downstream can tell where the person was sitting.
+func newID() (string, error) {
+	return session.NewSessionID()
 }

@@ -4,15 +4,28 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
+// Sentinel failures of the PUT transaction, mapped to distinct HTTP replies.
+var (
+	errFoxxyCodeConfigUnavailable = errors.New("foxxycode config unavailable")
+	errFoxxyCodeConfigParse       = errors.New("foxxycode config parse failed")
+	errFoxxyCodeConfigSerialize   = errors.New("foxxycode config serialize failed")
+	errFoxxyCodeConfigBackup      = errors.New("foxxycode config backup failed")
+	errFoxxyCodeConfigWrite       = errors.New("foxxycode config write failed")
+)
+
 func (s *Server) registerConfigRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/config/schema", s.foxxycodeConfigSchemaGet)
+	s.mux.HandleFunc("GET /foxxycode/config/reasoning-levels", s.foxxycodeConfigReasoningLevelsGet)
 	s.mux.HandleFunc("GET /foxxycode/config", s.foxxycodeConfigGet)
 	s.mux.HandleFunc("POST /foxxycode/config/validate", s.foxxycodeConfigValidatePost)
 	s.mux.HandleFunc("PUT /foxxycode/config", s.foxxycodeConfigPut)
@@ -23,7 +36,9 @@ func (s *Server) foxxycodeConfigSchemaGet(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	data, err := config.UISchemaJSON()
+	doc := config.UISchemaMap()
+	markMissingBuildTags(doc)
+	data, err := json.Marshal(doc)
 	if err != nil {
 		s.log.Error("foxxycode config schema", "error", err)
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "schema generation failed")
@@ -31,6 +46,31 @@ func (s *Server) foxxycodeConfigSchemaGet(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(data)
+}
+
+// markMissingBuildTags flags every section whose build tag this binary was not
+// compiled with. The schema itself is build-independent (one committed fixture has
+// to match under every tag combination), so availability is decided here, by the
+// process that actually would or would not have the tool.
+func markMissingBuildTags(doc map[string]interface{}) {
+	props, ok := doc["properties"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	compiled := map[string]bool{config.BrowserBuildTag: config.BrowserToolCompiled}
+	for _, raw := range props {
+		section, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tag, ok := section[config.SchemaRequiresBuildTag].(string)
+		if !ok || tag == "" {
+			continue
+		}
+		if have, known := compiled[tag]; known && !have {
+			section[config.SchemaBuildTagMissing] = true
+		}
+	}
 }
 
 func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +84,20 @@ func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dto := config.ConfigToJSONDTO(c)
-	// Reflect the live auth state (config token plus any --auth-token / FOXXYCODE_HTTP_TOKEN).
-	dto.HTTPServer.AuthConfigured = s.authPolicyNow().enabled
+	// Report the effective auth state (YAML token or out-of-band --auth-token / FOXXYCODE_HTTP_TOKEN),
+	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
+	pol := s.authPolicyNow()
+	dto.HTTPServer.AuthConfigured = len(pol.tokens) > 0
+	// The sign-in form is reported the same way and for the same reason: the
+	// account may come from the environment, which is nowhere in this document.
+	dto.HTTPServer.LoginConfigured = pol.login.enabled && !pol.login.broken
+	if dto.HTTPServer.LoginConfigured {
+		dto.HTTPServer.LoginSource = pol.login.account.source
+	}
+	// login.user stays whatever the file says, even when the live account came
+	// from the environment: this document is what a save writes back, and an
+	// environment credential must never end up in it. Who is signed in is
+	// GET /foxxycode/auth/me's answer, not this one's.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(dto); err != nil {
 		s.log.Error("foxxycode config get encode", "error", err)
@@ -85,61 +137,89 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	c := s.activeCfg()
-	if c == nil {
-		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config unavailable")
-		return
-	}
-	paths := c.Paths
-	cfgPath := paths.ConfigPath
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "read body")
 		return
 	}
-	newCfg, err := config.ParseConfigJSONPreservingSecrets(body, paths, c)
-	if err != nil {
+	// The whole transaction - reading the current config the secret-preserving
+	// parse merges into, backup, write, reload, and installing the result into
+	// the server and session manager - runs under the process-wide config file
+	// lock shared with the agent's config_commit / config_rollback tools.
+	// Anything less lets two writers interleave and install runtime state that
+	// no longer matches the file.
+	var cfgPath string
+	txErr := config.WithConfigFileLock(func() error {
+		c := s.activeCfg()
+		if c == nil {
+			return errFoxxyCodeConfigUnavailable
+		}
+		paths := c.Paths
+		cfgPath = paths.ConfigPath
+		newCfg, err := config.ParseConfigJSONPreservingSecrets(body, paths, c)
+		if err != nil {
+			return fmt.Errorf("%w: %s", errFoxxyCodeConfigParse, err.Error())
+		}
+		// Rendered over the file that is there, so the operator's comments and the
+		// editor schema modeline survive a save from the settings screen.
+		yb, err := config.MarshalConfigYAMLForFile(newCfg, cfgPath)
+		if err != nil {
+			return errFoxxyCodeConfigSerialize
+		}
+		if err := config.BackupCurrent(cfgPath); err != nil {
+			s.log.Error("foxxycode config backup", "error", err)
+			return errFoxxyCodeConfigBackup
+		}
+		if err := config.AtomicWriteConfigYAML(cfgPath, yb); err != nil {
+			s.log.Error("foxxycode config write", "error", err)
+			return errFoxxyCodeConfigWrite
+		}
+		reloaded, err := config.LoadWithPaths(paths)
+		if err != nil {
+			s.log.Error("foxxycode config reload after write", "error", err)
+			if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
+				if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
+					s.log.Error("foxxycode config rollback", "error", er3)
+				}
+			}
+			return err
+		}
+		// ReplaceConfig on the manager reaches this server through the config
+		// observer registered in New, which is also how a reload from the agent's
+		// own config_commit tool or from the console gets here.
+		s.mgr.ReplaceConfig(reloaded)
+		return nil
+	})
+	switch {
+	case errors.Is(txErr, errFoxxyCodeConfigUnavailable):
+		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config unavailable")
+		return
+	case errors.Is(txErr, errFoxxyCodeConfigParse):
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok":    false,
-			"error": err.Error(),
+			"error": strings.TrimPrefix(txErr.Error(), errFoxxyCodeConfigParse.Error()+": "),
 		})
 		return
-	}
-	yb, err := config.MarshalConfigYAML(newCfg)
-	if err != nil {
+	case errors.Is(txErr, errFoxxyCodeConfigSerialize):
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "serialize yaml")
 		return
-	}
-	if err := config.BackupCurrent(cfgPath); err != nil {
-		s.log.Error("foxxycode config backup", "error", err)
+	case errors.Is(txErr, errFoxxyCodeConfigBackup):
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "backup failed")
 		return
-	}
-	if err := config.AtomicWriteConfigYAML(cfgPath, yb); err != nil {
-		s.log.Error("foxxycode config write", "error", err)
+	case errors.Is(txErr, errFoxxyCodeConfigWrite):
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "write failed")
 		return
-	}
-	reloaded, err := config.LoadWithPaths(paths)
-	if err != nil {
-		s.log.Error("foxxycode config reload after write", "error", err)
-		if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
-			if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
-				s.log.Error("foxxycode config rollback", "error", er3)
-			}
-		}
+	case txErr != nil:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok":    false,
-			"error": err.Error(),
+			"error": txErr.Error(),
 		})
 		return
 	}
-	s.ReplaceConfig(reloaded)
-	s.mgr.ReplaceConfig(reloaded)
 	s.log.Info("config updated", "path", cfgPath)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})

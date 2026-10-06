@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/textenc"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -50,7 +51,7 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 	path := ResolvePath(args.Path, env.CWD)
 
 	// Existing text files retain their encoding; newly created files use UTF-8.
-	encoding := textEncodingUTF8
+	encoding := textenc.UTF8
 	before, readErr := os.ReadFile(path)
 	if readErr == nil {
 		encoding, err = existingTextEncoding(before)

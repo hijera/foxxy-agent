@@ -1,5 +1,28 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
+import {
+  isReconnecting,
+  serverSnapshotLiveConnection,
+  snapshotLiveConnection,
+  subscribeLiveConnection,
+} from "../chat/liveConnectionState";
+import {
+  isLlmRetrying,
+  serverSnapshotLlmRetry,
+  snapshotLlmRetry,
+  subscribeLlmRetry,
+} from "../chat/llmRetryState";
+import {
+  isMcpConnecting,
+  serverSnapshotMcpConnecting,
+  snapshotMcpConnecting,
+  subscribeMcpConnecting,
+} from "../chat/mcpConnectingState";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
+import {
+  getStatusLineEnabled,
+  onStatusLineChange,
+} from "../chat/statusLineConfig";
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
 import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
@@ -9,31 +32,33 @@ import type { PermissionResolvedState } from "../chat/permissionTypes";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
-import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
+import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
+import { opensTurn } from "../chat/backgroundWake";
 
-/** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
-function mainThinkingOverlapsMemory(
-  items: TranscriptItem[],
-  memIndex: number,
-): boolean {
-  for (let i = memIndex + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it || it.type === "user_message") return false;
-    if (it.type === "thinking" && it.status === "in_progress") return true;
+/**
+ * The turn's clock and tokens for the live line: what the server reported, and until it
+ * has (an older server never does) the creation time of the turn's user message.
+ */
+function turnLineProps(
+  progress: TurnProgress | null | undefined,
+  fallbackStartedAtMs: number | undefined,
+): { turnStartedAtMs?: number; turnTokens?: number } {
+  if (progress) {
+    return {
+      turnStartedAtMs: progress.startedAtMs,
+      turnTokens: progress.outputTokens,
+    };
   }
-  return false;
-}
-
-function hasStreamingAssistant(items: TranscriptItem[]): boolean {
-  return items.some(
-    (it) => it.type === "assistant_message" && it.streaming === true,
-  );
+  return typeof fallbackStartedAtMs === "number"
+    ? { turnStartedAtMs: fallbackStartedAtMs }
+    : {};
 }
 
 export function MessageList(props: {
@@ -57,6 +82,24 @@ export function MessageList(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   onBranchSwitch?: (sessionId: string) => void;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
+  /** Workspace of this session; a refused spawn offers its approval for it. */
+  workspacePath?: string | undefined;
+  /** Opens the child transcript behind a spawn_agent row. */
+  onOpenSubagentTranscript?: (sessionId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
+  /** Background tasks running right now, system runs left out. */
+  runningTasks?: number;
+  /** Opens the Tasks panel from the live line's running-tasks segment. */
+  onOpenTasks?: () => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -73,16 +116,101 @@ export function MessageList(props: {
     return byId;
   }, [props.items]);
 
+  // ui.status_line: when off, the dots render exactly as they did before this feature.
+  const statusLineOn = useSyncExternalStore(
+    onStatusLineChange,
+    getStatusLineEnabled,
+    () => true,
+  );
+  // A dropped stream makes every tool row stale, so the label says so instead.
+  const connectionEpoch = useSyncExternalStore(
+    subscribeLiveConnection,
+    snapshotLiveConnection,
+    serverSnapshotLiveConnection,
+  );
+  const reconnecting =
+    connectionEpoch >= 0 && !!props.sessionId && isReconnecting(props.sessionId);
+  // A turn can be parked before its first model call, waiting for the session's MCP servers.
+  const mcpEpoch = useSyncExternalStore(
+    subscribeMcpConnecting,
+    snapshotMcpConnecting,
+    serverSnapshotMcpConnecting,
+  );
+  const mcpConnecting =
+    mcpEpoch >= 0 && !!props.sessionId && isMcpConnecting(props.sessionId);
+  // A turn can also be parked between two attempts at the same call, waiting out a
+  // provider that produced no output at all.
+  const llmRetryEpoch = useSyncExternalStore(
+    subscribeLlmRetry,
+    snapshotLlmRetry,
+    serverSnapshotLlmRetry,
+  );
+  const llmRetrying =
+    llmRetryEpoch >= 0 && !!props.sessionId && isLlmRetrying(props.sessionId);
+
+  const liveStatus = useMemo(
+    () =>
+      props.generating === true && statusLineOn
+        ? deriveLiveStatus(props.items, {
+            pathRoots: props.pathRoots || [],
+            reconnecting,
+            mcpConnecting,
+            llmRetrying,
+          })
+        : null,
+    [
+      props.generating,
+      statusLineOn,
+      props.items,
+      props.pathRoots,
+      reconnecting,
+      mcpConnecting,
+      llmRetrying,
+    ],
+  );
+
+  // The server numbers every user-role message of the transcript, a woken
+  // turn's first message included, so the wake counts here too: an edit of a
+  // later message must name the message the server knows by that index.
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
     let idx = 0;
     for (const it of props.items) {
       if (it.type === "user_message") {
         m.set(it.id, idx++);
+      } else if (it.type === "background_wake") {
+        idx++;
       }
     }
     return m;
   }, [props.items]);
+
+  // The answer that closes each turn is the only one with an action row: the answers a
+  // turn leaves behind between tool calls would otherwise stack the same copy button and
+  // the same minute down the transcript. Every finished turn keeps its own, so an older
+  // answer stays copyable; the turn still running does not, because its last answer is
+  // not yet the answer.
+  const turnClosingAssistantIds = useMemo(() => {
+    const ids = new Set<string>();
+    let seenInTurn = false;
+    // Walking back, everything after the last user message belongs to the turn in
+    // flight; its answers are not final yet, however many of them have arrived.
+    let inRunningTurn = props.generating === true;
+    for (let i = props.items.length - 1; i >= 0; i--) {
+      const item = props.items[i];
+      if (!item) continue;
+      if (opensTurn(item)) {
+        seenInTurn = false;
+        inRunningTurn = false;
+        continue;
+      }
+      if (item.type !== "assistant_message") continue;
+      if (seenInTurn) continue;
+      seenInTurn = true;
+      if (!inRunningTurn) ids.add(item.id);
+    }
+    return ids;
+  }, [props.generating, props.items]);
 
   return (
     <>
@@ -96,7 +224,7 @@ export function MessageList(props: {
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
               {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
               {...(props.onEdit
-                ? { onEdit: (c) => props.onEdit!(c, myIdx) }
+                ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
             />
@@ -129,62 +257,32 @@ export function MessageList(props: {
             />
           );
         }
-        if (it.type === "memory_copilot") {
-          return (
-            <MemoryCopilotMessage
-              key={it.id}
-              mainThinkingInProgress={mainThinkingOverlapsMemory(
-                props.items,
-                idx,
-              )}
-              {...(typeof it.memoryStatus !== "undefined"
-                ? { memoryStatus: it.memoryStatus }
-                : {})}
-              {...(typeof it.memoryText === "string"
-                ? { memoryText: it.memoryText }
-                : {})}
-              recallStatus={it.recallStatus}
-              persistStatus={it.persistStatus}
-              recallText={it.recallText}
-              persistText={it.persistText}
-              {...(typeof it.recallDurationMs === "number"
-                ? { recallDurationMs: it.recallDurationMs }
-                : {})}
-              {...(typeof it.persistDurationMs === "number"
-                ? { persistDurationMs: it.persistDurationMs }
-                : {})}
-              {...(typeof it.memoryWallStartedAtMs === "number"
-                ? { memoryWallStartedAtMs: it.memoryWallStartedAtMs }
-                : {})}
-              {...(typeof it.memoryWallLiveCapMs === "number"
-                ? { memoryWallLiveCapMs: it.memoryWallLiveCapMs }
-                : {})}
-              {...(typeof it.memoryWallDurationMs === "number"
-                ? { memoryWallDurationMs: it.memoryWallDurationMs }
-                : {})}
-              {...(typeof it.persistSaved === "boolean"
-                ? { persistSaved: it.persistSaved }
-                : {})}
-              {...(it.persistRelativePath !== undefined
-                ? { persistRelativePath: it.persistRelativePath }
-                : {})}
-              {...(it.persistTitle !== undefined
-                ? { persistTitle: it.persistTitle }
-                : {})}
-              {...(it.persistSavedBody !== undefined
-                ? { persistSavedBody: it.persistSavedBody }
-                : {})}
-              {...(it.recallReadPaths !== undefined
-                ? { recallReadPaths: it.recallReadPaths }
-                : {})}
-            />
-          );
+        if (it.type === "compaction") {
+          return <CompactionMessage key={it.id} summary={it.summary} />;
+        }
+        if (it.type === "background_wake") {
+          // Nobody typed the first message of a turn a finished background
+          // task started, and nothing stands in its place: the agent's answer
+          // reads as the work carrying on, and the task's card in the Tasks
+          // panel keeps a bell for what woke it.
+          return null;
+        }
+        if (it.type === "memory_run") {
+          // The memory subagent's run is the live status line's business and
+          // the Tasks drawer's record; the transcript shows nothing for it.
+          return null;
         }
         if (it.type === "assistant_message") {
+          // Whitespace alone is a zero-height row that still takes the column's
+          // gap, a hole between the rows around it; there is nothing in it to copy.
+          if (!it.content.trim()) {
+            return null;
+          }
           return (
             <AssistantMessage
               key={it.id}
               content={it.content}
+              showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}
@@ -198,15 +296,17 @@ export function MessageList(props: {
               key={it.id}
               level={it.level}
               message={it.message}
-              createdAtUtc={it.createdAtUtc}
+              {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
             />
           );
         }
-        if (it.type === "compaction") {
-          return <CompactionMessage key={it.id} summary={it.summary} />;
-        }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
+          // A read-only transcript (a subagent child session) passes neither
+          // handler; the card then renders without Run plan / Discard and its
+          // editor is read-only, instead of showing controls that do nothing.
+          const onPlanRun = props.onPlanDocumentRun;
+          const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
             <div key={it.id} className="message-row-plan">
               <PlanDocumentSection
@@ -222,10 +322,10 @@ export function MessageList(props: {
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
-                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() =>
-                  props.onPlanDocumentDiscard?.(it.id, it.slug)
-                }
+                {...(onPlanRun ? { onRunPlan: () => onPlanRun(it.slug) } : {})}
+                {...(onPlanDiscard
+                  ? { onDiscard: () => onPlanDiscard(it.id, it.slug) }
+                  : {})}
               />
             </div>
           );
@@ -267,11 +367,33 @@ export function MessageList(props: {
             </div>
           );
         }
+        const rowBackgroundTask = props.backgroundTasksByToolCallId?.get(
+          it.toolCallId,
+        );
         return (
           <ToolCallMessage
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
+            {...(props.onOpenSubagentTranscript
+              ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
+              : {})}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
+              : {})}
+            {...(rowBackgroundTask
+              ? { backgroundTask: rowBackgroundTask }
+              : {})}
+            {...(rowBackgroundTask && props.backgroundNowMs !== undefined
+              ? { backgroundNowMs: props.backgroundNowMs }
+              : {})}
+            {...(props.onOpenBackgroundTask
+              ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+              : {})}
+            {...(props.onStopBackgroundTask
+              ? { onStopBackgroundTask: props.onStopBackgroundTask }
+              : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
@@ -284,6 +406,7 @@ export function MessageList(props: {
             {...(it.resultWasTruncated === true
               ? { resultWasTruncated: true }
               : {})}
+            {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}
@@ -300,8 +423,28 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true && !hasStreamingAssistant(props.items) ? (
-        <TypingDotsMessage />
+      {/* The live line stands under the transcript for the whole turn and always
+          says what is happening, in general words at least. It used to vanish once
+          the turn had written any text and to fall silent under a reasoning row,
+          which read as a turn that had stopped. */}
+      {props.generating === true ? (
+        <TypingDotsMessage
+          {...(liveStatus
+            ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
+            : {})}
+          {...(liveStatus && liveStatus.target
+            ? {
+                statusTarget: truncateStatusTarget(liveStatus.target),
+                statusTargetFull: liveStatus.target,
+              }
+            : {})}
+          {...(typeof liveStatus?.startedAtMs === "number"
+            ? { startedAtMs: liveStatus.startedAtMs }
+            : {})}
+          {...turnLineProps(props.turnProgress, liveStatus?.turnStartedAtMs)}
+          {...(props.runningTasks ? { runningTasks: props.runningTasks } : {})}
+          {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
+        />
       ) : null}
     </>
   );

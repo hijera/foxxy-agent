@@ -1,0 +1,291 @@
+//go:build cli
+
+package tui
+
+import (
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+const (
+	defaultPrimaryColumnWidth = 32
+	primaryColumnGap          = 2
+	minDescriptionWidth       = 10
+)
+
+var newlineRunRegex = regexp.MustCompile(`[\r\n]+`)
+
+// SelectItem is one row of a SelectList.
+type SelectItem struct {
+	Value       string
+	Label       string
+	Description string
+	// TruncateLeft cuts a label too wide for its column from the left, so a
+	// path keeps its file name.
+	TruncateLeft bool
+}
+
+// SelectListTheme styles SelectList rows.
+type SelectListTheme struct {
+	SelectedText func(string) string
+	Description  func(string) string
+	ScrollInfo   func(string) string
+	NoMatch      func(string) string
+}
+
+// SelectListLayout tunes the two-column layout.
+type SelectListLayout struct {
+	MinPrimaryColumnWidth int
+	MaxPrimaryColumnWidth int
+	// DescriptionBelow moves descriptions out of the rows: every row spends
+	// the whole width on its label, and the selected item's description is
+	// word-wrapped under the list (port of pi-tui SettingsList's description
+	// block). Sentence-long option texts stay readable that way, where the
+	// column layout would cut both the label and the description.
+	DescriptionBelow bool
+}
+
+// SelectList renders a scrolling selection list with `→ ` cursor prefix and an
+// optional description column (port of pi-tui SelectList).
+type SelectList struct {
+	items         []SelectItem
+	filteredItems []SelectItem
+	// total is how many items matched before the list was cut (0: the list
+	// is complete); the scroll line then says "(3/50 of 1204)".
+	total         int
+	selectedIndex int
+	maxVisible    int
+	theme         SelectListTheme
+	layout        SelectListLayout
+
+	OnSelect          func(item SelectItem)
+	OnCancel          func()
+	OnSelectionChange func(item SelectItem)
+}
+
+// NewSelectList creates a SelectList showing up to maxVisible rows.
+func NewSelectList(items []SelectItem, maxVisible int, theme SelectListTheme, layout SelectListLayout) *SelectList {
+	return &SelectList{
+		items:         items,
+		filteredItems: items,
+		maxVisible:    maxVisible,
+		theme:         theme,
+		layout:        layout,
+	}
+}
+
+// SetItems replaces the item set, keeping the current filter reset.
+func (s *SelectList) SetItems(items []SelectItem) {
+	s.items = items
+	s.filteredItems = items
+	s.selectedIndex = 0
+}
+
+// SetTotal records how many items matched before the list was cut; a total
+// above the item count keeps the scroll line on screen.
+func (s *SelectList) SetTotal(total int) { s.total = total }
+
+// SetFilter keeps items whose value starts with filter, or whose label
+// contains it (case-insensitive) so titled rows stay searchable.
+func (s *SelectList) SetFilter(filter string) {
+	lower := strings.ToLower(filter)
+	var filtered []SelectItem
+	for _, it := range s.items {
+		if strings.HasPrefix(strings.ToLower(it.Value), lower) ||
+			(it.Label != "" && strings.Contains(strings.ToLower(it.Label), lower)) {
+			filtered = append(filtered, it)
+		}
+	}
+	s.filteredItems = filtered
+	s.selectedIndex = 0
+}
+
+// SetSelectedIndex moves the cursor to index, clamped to the filtered range.
+func (s *SelectList) SetSelectedIndex(index int) {
+	if len(s.filteredItems) == 0 {
+		s.selectedIndex = 0
+		return
+	}
+	s.selectedIndex = max(0, min(index, len(s.filteredItems)-1))
+}
+
+// SelectedItem returns the current selection or nil.
+func (s *SelectList) SelectedItem() *SelectItem {
+	if s.selectedIndex < 0 || s.selectedIndex >= len(s.filteredItems) {
+		return nil
+	}
+	it := s.filteredItems[s.selectedIndex]
+	return &it
+}
+
+// MoveUp moves the cursor up, wrapping to the bottom.
+func (s *SelectList) MoveUp() {
+	if len(s.filteredItems) == 0 {
+		return
+	}
+	if s.selectedIndex == 0 {
+		s.selectedIndex = len(s.filteredItems) - 1
+	} else {
+		s.selectedIndex--
+	}
+	s.notifyChange()
+}
+
+// MoveDown moves the cursor down, wrapping to the top.
+func (s *SelectList) MoveDown() {
+	if len(s.filteredItems) == 0 {
+		return
+	}
+	if s.selectedIndex == len(s.filteredItems)-1 {
+		s.selectedIndex = 0
+	} else {
+		s.selectedIndex++
+	}
+	s.notifyChange()
+}
+
+func (s *SelectList) notifyChange() {
+	if s.OnSelectionChange != nil {
+		if it := s.SelectedItem(); it != nil {
+			s.OnSelectionChange(*it)
+		}
+	}
+}
+
+// HandleInput processes select-list keys: up/down/enter/escape/ctrl+c.
+func (s *SelectList) HandleInput(data []byte) {
+	switch {
+	case MatchesKey(data, "up"):
+		s.MoveUp()
+	case MatchesKey(data, "down"):
+		s.MoveDown()
+	case MatchesKey(data, "enter"):
+		if it := s.SelectedItem(); it != nil && s.OnSelect != nil {
+			s.OnSelect(*it)
+		}
+	case MatchesKey(data, "escape"), MatchesKey(data, "ctrl+c"):
+		if s.OnCancel != nil {
+			s.OnCancel()
+		}
+	}
+}
+
+// Invalidate is a no-op (no cached state).
+func (s *SelectList) Invalidate() {}
+
+// Render draws the visible window with the scroll indicator.
+func (s *SelectList) Render(width int) []string {
+	var lines []string
+	if len(s.filteredItems) == 0 {
+		return []string{s.theme.NoMatch("  No matching commands")}
+	}
+	primaryColumnWidth := s.primaryColumnWidth()
+	startIndex := max(0, min(s.selectedIndex-s.maxVisible/2, len(s.filteredItems)-s.maxVisible))
+	endIndex := min(startIndex+s.maxVisible, len(s.filteredItems))
+	for i := startIndex; i < endIndex; i++ {
+		item := s.filteredItems[i]
+		desc := ""
+		if item.Description != "" && !s.layout.DescriptionBelow {
+			desc = strings.TrimSpace(newlineRunRegex.ReplaceAllString(item.Description, " "))
+		}
+		lines = append(lines, s.renderItem(item, i == s.selectedIndex, width, desc, primaryColumnWidth))
+	}
+	cut := s.total > len(s.filteredItems)
+	if startIndex > 0 || endIndex < len(s.filteredItems) || cut {
+		scrollText := "  (" + strconv.Itoa(s.selectedIndex+1) + "/" + strconv.Itoa(len(s.filteredItems))
+		if cut {
+			scrollText += " of " + strconv.Itoa(s.total) + ", type to narrow"
+		}
+		scrollText += ")"
+		lines = append(lines, s.theme.ScrollInfo(TruncateToWidth(scrollText, width-2, "")))
+	}
+	return append(lines, s.descriptionBlock(width)...)
+}
+
+// descriptionBlock renders the selected row's description under the list,
+// wrapped and indented, when the layout asked for it (pi-tui SettingsList).
+func (s *SelectList) descriptionBlock(width int) []string {
+	if !s.layout.DescriptionBelow {
+		return nil
+	}
+	item := s.SelectedItem()
+	if item == nil || strings.TrimSpace(item.Description) == "" {
+		return nil
+	}
+	lines := []string{""}
+	for _, line := range WrapTextWithANSI(item.Description, max(1, width-4)) {
+		lines = append(lines, s.theme.Description("  "+line))
+	}
+	return lines
+}
+
+func (s *SelectList) renderItem(item SelectItem, isSelected bool, width int, desc string, primaryColumnWidth int) string {
+	prefix := "  "
+	if isSelected {
+		prefix = "→ "
+	}
+	prefixWidth := VisibleWidth(prefix)
+
+	if desc != "" && width > 40 {
+		effective := max(1, min(primaryColumnWidth, width-prefixWidth-4))
+		maxPrimaryWidth := max(1, effective-primaryColumnGap)
+		value := s.truncateLabel(item, maxPrimaryWidth, "")
+		valueWidth := VisibleWidth(value)
+		spacing := strings.Repeat(" ", max(1, effective-valueWidth))
+		descStart := prefixWidth + valueWidth + len(spacing)
+		remaining := width - descStart - 2
+		if remaining > minDescriptionWidth {
+			truncatedDesc := TruncateToWidth(desc, remaining, "")
+			if isSelected {
+				return s.theme.SelectedText(prefix + value + spacing + truncatedDesc)
+			}
+			return prefix + value + s.theme.Description(spacing+truncatedDesc)
+		}
+	}
+
+	maxWidth := width - prefixWidth - 2
+	value := s.truncateLabel(item, maxWidth, "...")
+	if isSelected {
+		return s.theme.SelectedText(prefix + value)
+	}
+	return prefix + value
+}
+
+func (s *SelectList) primaryColumnWidth() int {
+	rawMin := s.layout.MinPrimaryColumnWidth
+	rawMax := s.layout.MaxPrimaryColumnWidth
+	if rawMin == 0 {
+		rawMin = rawMax
+	}
+	if rawMax == 0 {
+		rawMax = rawMin
+	}
+	if rawMin == 0 {
+		rawMin, rawMax = defaultPrimaryColumnWidth, defaultPrimaryColumnWidth
+	}
+	lo := max(1, min(rawMin, rawMax))
+	hi := max(1, max(rawMin, rawMax))
+	widest := 0
+	for _, it := range s.filteredItems {
+		widest = max(widest, VisibleWidth(s.displayValue(it))+primaryColumnGap)
+	}
+	return max(lo, min(widest, hi))
+}
+
+func (s *SelectList) truncateLabel(item SelectItem, maxWidth int, ellipsis string) string {
+	if item.TruncateLeft {
+		if ellipsis == "" {
+			ellipsis = "…"
+		}
+		return TruncateLeftToWidth(s.displayValue(item), maxWidth, ellipsis)
+	}
+	return TruncateToWidth(s.displayValue(item), maxWidth, ellipsis)
+}
+
+func (s *SelectList) displayValue(item SelectItem) string {
+	if item.Label != "" {
+		return item.Label
+	}
+	return item.Value
+}

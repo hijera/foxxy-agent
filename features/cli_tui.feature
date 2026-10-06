@@ -1,0 +1,355 @@
+Feature: Interactive console TUI
+  Running foxxycode with no arguments on a terminal starts an interactive console
+  session that renders the conversation with the same machinery every other
+  surface uses: the session manager, the agent runner, and ACP updates.
+
+  Background:
+    Given a foxxycode console app over a stub agent runner
+
+  Scenario: Bare start renders the console chrome
+    When the console app starts
+    Then the screen shows the foxxycode version header
+    And the screen shows the editor between horizontal borders
+    And the footer names the configured default model
+
+  Scenario: The console starts without reading the workspace tree
+    Given the workspace holds a nested AGENTS.md in a folder no tool has entered
+    And rules discovery is switched on for that app
+    When the console app starts
+    Then the screen shows the foxxycode version header
+    And the session catalog holds no nested AGENTS.md
+
+  Scenario: A prompt streams into the transcript
+    When the console app starts
+    And the operator submits the prompt "hello there"
+    And the stub turn streams the text "Hi! How can I help?"
+    Then the transcript shows a user message block containing "hello there"
+    And the transcript shows the assistant text "Hi! How can I help?"
+    And the footer shows accumulated token usage
+
+  Scenario: A tool call renders as a pending box that completes
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    And the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the transcript shows a pending tool box titled "read"
+    When the stub tool call completes with a preview of 14 lines
+    Then the tool box shows the preview "preview line 1"
+    And the tool box shows the expand hint
+
+  Scenario: A subagent call names the agent and shows what was delegated
+    When the console app starts
+    And the operator submits the prompt "delegate the review"
+    And the stub turn starts a spawn_agent call for "general" described as "review the diff" with the prompt "Read react.go and report what changed"
+    Then the transcript shows a pending tool box titled "spawn_agent general"
+    And the tool box shows "review the diff"
+    And the tool box shows "Read react.go and report what changed"
+
+  Scenario: A skill load names the skill it pulled in
+    When the console app starts
+    And the operator submits the prompt "follow the review skill"
+    And the stub turn starts a tool call named "load_skill" with argument name "code-review"
+    Then the transcript shows a pending tool box titled "load_skill code-review"
+
+  Scenario: The status line names what the turn is doing right now
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    Then the status line shows "Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "Reading README.md"
+    When the stub tool call completes without ending the turn
+    Then the status line shows "Waiting for the model"
+
+  Scenario: The status line leads with the turn's clock and the tokens generated in it
+    When the console app starts
+    And the operator submits the prompt "run the long build"
+    Then the status line leads with the turn clock before "Waiting for the model"
+    And the status line shows no token count yet
+    When the agent reports 1200 tokens generated in this turn
+    Then the status line shows "1.2k tokens · Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "1.2k tokens · Reading README.md"
+
+  Scenario: The status line names the subagent that is running
+    When the console app starts
+    And the operator submits the prompt "delegate the review"
+    And the stub turn starts a tool call named "spawn_agent" with argument agent "reviewer"
+    Then the status line shows "Running subagent reviewer"
+
+  Scenario: The status line stays truthful through a permission gate
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "run a gated command"
+    And the stub turn starts a tool call named "run_command" with argument command "sleep 6"
+    And the stub turn requests permission for the tool "run_command"
+    Then the status line shows "Waiting for your approval"
+    When the operator allows the pending permission without ending the turn
+    Then the status line shows "Running sleep 6"
+    When the stub tool call completes without ending the turn
+    Then the status line shows "Waiting for the model"
+
+  Scenario: Ask permission mode renders a modal and allow continues the turn
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "run a command"
+    And the stub turn requests permission for the tool "run_command"
+    Then the screen shows a permission modal with an allow option
+    When the operator confirms the highlighted permission option
+    Then the stub turn observes the permission outcome "selected" with option "allow"
+
+  Scenario: A background subagent asks in the console after the turn that spawned it ended
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "audit the layout in the background"
+    And the stub turn streams the text "The writer keeps working in the background."
+    And the background subagent "writer" asks for permission to run "echo checked"
+    Then the screen shows a permission modal naming the subagent "writer"
+    When the operator answers the subagent's permission with the highlighted option
+    Then the background subagent "writer" is answered "allow"
+
+  Scenario: A subagent's prompt waits for the prompt already on screen
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "run a command"
+    And the stub turn requests permission for the tool "run_command"
+    And the background subagent "writer" asks for permission to run "echo checked"
+    Then the screen shows a permission modal with an allow option
+    When the operator confirms the highlighted permission option
+    Then the stub turn observes the permission outcome "selected" with option "allow"
+    And the screen shows a permission modal naming the subagent "writer"
+    When the operator answers the subagent's permission with the highlighted option
+    Then the background subagent "writer" is answered "allow"
+
+  Scenario: A prompt written during a turn is queued for the agent to read
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    And the stub turn blocks until cancelled
+    And the operator submits the prompt "check the Windows path too"
+    Then the screen shows the queued message "check the Windows path too"
+    When the operator presses escape
+    Then the stub turn observes cancellation
+    And the screen shows nothing queued
+
+  Scenario: Escape cancels the running turn
+    When the console app starts
+    And the operator submits the prompt "long task"
+    And the stub turn blocks until cancelled
+    And the operator presses escape
+    Then the stub turn observes cancellation
+    And the transcript shows an interrupt notice
+
+  Scenario: Model selection through the selector persists on the session
+    When the console app starts
+    And the operator switches the model to the second configured model
+    Then the footer names the second configured model
+    And the session state records the second configured model
+
+  Scenario: /reasoning opens a selector that persists the selected level
+    Given a foxxycode console app over a stub agent runner with a reasoning-capable model
+    When the console app starts
+    And the operator selects the low reasoning level through the /reasoning selector
+    Then the footer names the reasoning level "low"
+    And the session state records the reasoning level "low"
+
+  Scenario: /reasoning low persists the requested level
+    Given a foxxycode console app over a stub agent runner with a reasoning-capable model
+    When the console app starts
+    And the operator submits the command "/reasoning low"
+    Then the footer names the reasoning level "low"
+    And the session state records the reasoning level "low"
+
+  Scenario: Reopening a session replays the transcript
+    Given a previous console session with the prompt "remember me" and the reply "I remember"
+    When the console app starts pinned to that session
+    Then the transcript shows a user message block containing "remember me"
+    And the transcript shows the assistant text "I remember"
+
+  Scenario: Replayed user rows render as user blocks
+    Given a previous console session with the prompt "first question" and the reply "first answer"
+    When the console app starts pinned to that session
+    Then the replayed prompt "first question" renders as a user message block and not as assistant text
+
+  Scenario: A question with a custom answer accepts typed text
+    When the console app starts
+    And the operator submits the prompt "ask me something"
+    And the stub turn asks a question titled "Pick or type" that allows a custom answer
+    And the operator chooses the custom answer and types "my own words"
+    Then the stub turn observes the question answer "my own words"
+
+  Scenario: A failed prompt reports the error and the editor recovers
+    When the console app starts
+    And the operator submits the prompt "boom"
+    And the stub turn fails with the error "provider unavailable"
+    Then the transcript shows an error notice containing "provider unavailable"
+    And the editor accepts new input
+
+  Scenario: Starting a new session drops updates from the old one
+    When the console app starts
+    And the operator submits the prompt "old session work"
+    And the stub turn blocks until cancelled
+    And the operator starts a new session
+    And the cancelled turn emits a late text chunk "stale text"
+    Then the transcript does not show "stale text"
+    When the operator submits the prompt "fresh session work"
+    And the stub turn streams the text "fresh reply"
+    Then the transcript shows the assistant text "fresh reply"
+
+  Scenario: Double ctrl+c exits the console immediately and reports the session
+    When the console app starts
+    And the operator presses ctrl+c twice
+    Then the console app stops within two seconds
+    And the exit hint names the session and the continue command
+
+  Scenario: Continuing reopens the most recent session in this folder
+    Given a previous console session with the prompt "continue me" and the reply "continued"
+    When the console app starts continuing the latest session
+    Then the transcript shows a user message block containing "continue me"
+    And the transcript shows the assistant text "continued"
+
+  Scenario: A !! command runs locally and stays out of the agent context
+    When the console app starts
+    And the operator runs the local command "echo hidden-from-the-model"
+    Then the transcript shows a local shell block for "echo hidden-from-the-model"
+    And the local shell block shows the output "hidden-from-the-model"
+    When the operator submits the prompt "what did I just run?"
+    And the stub turn streams the text "I have no idea"
+    Then no agent turn ever received "hidden-from-the-model"
+    And the persisted session carries no trace of "hidden-from-the-model"
+
+  Scenario: The editor marks the local shell prefix while it is typed
+    When the console app starts
+    And the operator types "!!git status" without sending it
+    Then the editor borders render in the local shell color
+
+  Scenario: A one-shot prompt prints the answer and exits
+    When the operator runs a one-shot prompt "automation ping"
+    And the stub turn streams the text "automation pong"
+    Then the one-shot output contains "automation pong"
+    And the one-shot run ends cleanly
+
+  Scenario: The footer shows the NeuralDeep session and weekly usage
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    Then the footer shows the neuraldeep usage "Pro • 3h 3% (resets"
+    And the footer shows the neuraldeep usage "week 7% (resets"
+    And the footer shows the neuraldeep usage "wallet -1 229 ₽"
+
+  Scenario: The footer warns when the session window is nearly spent
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    And the stand-in limits API reports the session window at 85%
+    When the console app starts
+    Then the footer shows the neuraldeep usage "3h 85%"
+    And the transcript shows a usage notice containing "You've used 85% of your NeuralDeep 3h limit"
+
+  Scenario: A finished turn refreshes the usage line
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the footer shows the neuraldeep usage "3h 3%"
+    And the usage clock moves 20 seconds forward
+    And the stand-in limits API reports the session window at 42%
+    And the operator submits the prompt "spend some quota"
+    And the stub turn streams the text "spent"
+    Then the footer shows the neuraldeep usage "3h 42%"
+
+  Scenario: /usage prints the account breakdown
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the operator submits the command "/usage"
+    Then the usage report shows "NeuralDeep · Pro · key foxxycode"
+    And the usage report shows "407 / 15 000"
+    And the usage report shows "rpm            2 / 120 this minute"
+
+  Scenario: Switching to another provider hides the usage line
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the footer shows the neuraldeep usage "3h 3%"
+    And the operator switches the model to "stub/model-one"
+    Then the footer names the model "(stub) model-one"
+    And the footer does not show the neuraldeep usage
+
+  Scenario: The usage line stays off when the panel is switched off in config
+    Given a foxxycode console app over a stub agent runner with a neuraldeep provider whose usage limits panel is switched off
+    When the console app starts
+    And the operator submits the prompt "spend some quota"
+    And the stub turn streams the text "spent"
+    And the operator submits the command "/usage"
+    Then the usage report shows "usage limits panel is switched off"
+    And the footer does not show the neuraldeep usage
+    And the stand-in limits API was never asked
+
+  Scenario: The operator lists the background tasks of the session, reads one and stops it
+    When the console app starts
+    And the session runs the background command "echo tests started; sleep 30"
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "echo tests started; sleep 30" as running
+    And the footer names 1 running task
+    When the operator opens the selected task
+    Then the tasks overlay shows the output "tests started"
+    When the operator stops the task from the overlay
+    Then the background command is stopped
+    And the tasks overlay lists the task as stopped
+
+  Scenario: A finished background task wakes the console into a turn that carries on the work
+    When the console app starts
+    And the session runs the background command "echo tests failed; exit 2" that wakes the agent
+    Then the woken turn was handed the outcome of that task
+    When the stub turn streams the text "The build failed."
+    Then the transcript shows the assistant text "The build failed."
+    And the transcript shows nothing of the woken turn the operator did not type
+
+  Scenario: The tasks overlay says which running task will wake the agent
+    When the console app starts
+    And the session runs the background command "sleep 30" that wakes the agent
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "sleep 30" as running
+    And the tasks overlay says the selected task wakes the agent
+
+  Scenario: The @ list completes an absolute path outside the workspace
+    Given a folder outside the workspace holding the file "far-notes.md"
+    When the console app starts
+    And the operator types the mention "@<outside folder>/far"
+    Then the mention list offers "far-notes.md"
+    When the operator takes the highlighted mention
+    Then the editor holds "@<outside folder>/far-notes.md "
+
+  Scenario: The @ list offers a file written after the console started
+    Given a file "old_notes.md" appears in the workspace
+    When the console app starts
+    And the operator types the mention "@"
+    And the operator presses escape
+    And a file "fresh_notes.md" appears in the workspace
+    And the operator types the mention " @fresh"
+    Then the mention list offers "fresh_notes.md"
+
+  Scenario: The @ list searches the whole workspace and says how much it cut
+    Given the workspace holds 120 files and "zz/deep/target_handler.go"
+    When the console app starts
+    And the operator types the mention "@targhand"
+    Then the mention list offers "target_handler.go"
+    When the operator takes the highlighted mention
+    Then the editor holds "@zz/deep/target_handler.go "
+    When the operator types the mention "@file"
+    Then the mention list offers "of 120, type to narrow"
+
+  Scenario: F1 opens the built-in documentation, finds a section and reads it
+    When the console app starts
+    And the operator presses F1
+    Then the help lists the page "Quickstart"
+    When the operator types "telegram proxy" into the help
+    Then the help lists the section "Telegram gateway › Proxy"
+    When the operator opens the selected help entry
+    Then the help shows the page "Telegram gateway" at the section "Proxy"
+    When the operator turns to the next page of the help
+    Then the help shows the page after "Telegram gateway"
+    When the operator presses escape
+    And the operator presses escape
+    Then the editor accepts new input
+
+  Scenario: /docs opens a page by its reference
+    When the console app starts
+    And the operator submits the command "/docs features/mentions#completion"
+    Then the help shows the page "Mentions" at the section "Completion"
+
+  Scenario: The @ list completes a page of the documentation
+    When the console app starts
+    And the operator types the mention "@foxxycode:mentions"
+    Then the mention list offers "features/mentions"

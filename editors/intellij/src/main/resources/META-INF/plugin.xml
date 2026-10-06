@@ -17,6 +17,11 @@
 
     <!-- Platform-only dependency: installs in every IntelliJ-based IDE. -->
     <depends>com.intellij.modules.platform</depends>
+    <!-- From build 262 (IDE 2026.2) the embedded browser is the bundled "Web Browser (JCEF)" plugin,
+         and its classes reach only plugins that depend on it: without this the tool window fails
+         with NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowser and stays empty. Optional,
+         because IDEs before 2025.3.1 have no such plugin; foxxycode-jcef.xml is empty on purpose. -->
+    <depends optional="true" config-file="foxxycode-jcef.xml">com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="dev.foxxycode.intellij.settings.FoxxyCodeSettings"/>
@@ -24,6 +29,21 @@
         <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.clipboard.FoxxyCodeCopyBufferService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.autocomplete.FoxxyCodeAutocompleteService"/>
+
+        <!-- Inline code autocomplete. The listener only asks the backend once
+             config.autocomplete enables it (Settings form, Autocomplete tab); Tab and Escape are
+             wrapped rather than rebound, so both keep their normal behaviour with no suggestion
+             on screen. -->
+        <editorFactoryDocumentListener
+                implementation="dev.foxxycode.intellij.autocomplete.AutocompleteDocumentListener"/>
+        <editorActionHandler action="EditorTab"
+                             implementationClass="dev.foxxycode.intellij.autocomplete.AcceptSuggestionHandler"
+                             id="foxxycodeAcceptSuggestion" order="first"/>
+        <editorActionHandler action="EditorEscape"
+                             implementationClass="dev.foxxycode.intellij.autocomplete.DismissSuggestionHandler"
+                             id="foxxycodeDismissSuggestion" order="first"/>
 
         <applicationConfigurable
                 parentId="tools"
@@ -38,7 +58,20 @@
                 factoryClass="dev.foxxycode.intellij.ui.FoxxyCodeToolWindowFactory"/>
 
         <notificationGroup id="FoxxyCode" displayType="BALLOON"/>
+
+        <!-- Git worktrees the agent opens live in <project>/.foxxycode/worktrees; each is a full
+             checkout of another branch, so the index must not read them. -->
+        <directoryIndexExcludePolicy implementation="dev.foxxycode.intellij.project.FoxxyCodeWorktreesExcludePolicy"/>
     </extensions>
+
+    <!-- The backend must be dead before the IDE exits or the plugin is replaced: on Windows a
+         surviving process keeps its port, and anything it still has open cannot be deleted. -->
+    <applicationListeners>
+        <listener class="dev.foxxycode.intellij.process.FoxxyCodeBackendLifecycleListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+        <listener class="dev.foxxycode.intellij.process.FoxxyCodeBackendLifecycleListener"
+                  topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    </applicationListeners>
 
     <actions>
         <action id="FoxxyCodeWelcome"
@@ -47,10 +80,17 @@
                 description="Re-open the FoxxyCode onboarding tour">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        <action id="FoxxyCodeTriggerSuggestion"
+                class="dev.foxxycode.intellij.autocomplete.TriggerSuggestionAction"
+                text="Suggest Code at Caret"
+                description="Ask FoxxyCode for an inline code suggestion at the caret">
+            <keyboard-shortcut first-keystroke="alt BACK_SLASH" keymap="$default"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
         <action id="FoxxyCodeAddFile"
                 class="dev.foxxycode.intellij.ui.FoxxyCodeAddFileAction"
                 text="Add to FoxxyCode"
-                description="Insert the file into the FoxxyCode composer as an @-mention">
+                description="Insert a file or directory into the FoxxyCode composer as an @-mention">
             <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>

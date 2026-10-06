@@ -255,6 +255,11 @@ func TestSyncFromLocalMarketplaceGit(t *testing.T) {
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
+	// This test exercises the local repository. The system marketplace would
+	// make the result depend on network access and add unrelated failures.
+	previousSystemSources := SystemSources
+	SystemSources = nil
+	defer func() { SystemSources = previousSystemSources }()
 	// Build a marketplace monorepo: manifest points at ./plugins/demo, whose
 	// skill lives nested at plugins/demo/skills/demo/SKILL.md (polyakov layout).
 	repo := t.TempDir()
@@ -373,13 +378,13 @@ func TestCompareVersions(t *testing.T) {
 		{"v1.2.3", "1.2.3", 0},  // leading v ignored
 		{"1.0", "1.0.0", 0},     // missing fields treated as zero
 		{"1.0.1", "1.0", 1},
-		{"1.0.0-rc1", "1.0.0", -1},  // a prerelease is lower than the release (semver §11)
-		{"1.0.0", "1.0.0-rc1", 1},   // and the release outranks the prerelease
+		{"1.0.0-rc1", "1.0.0", -1},        // a prerelease is lower than the release (semver §11)
+		{"1.0.0", "1.0.0-rc1", 1},         // and the release outranks the prerelease
 		{"1.0.0-alpha", "1.0.0-beta", -1}, // prerelease identifiers compare lexically
 		{"1.0.0-rc.1", "1.0.0-rc.2", -1},  // numeric prerelease fields compare numerically
 		{"1.0.0+build", "1.0.0", 0},       // build metadata is ignored
 		{"2.0.0", "1.9.9", 1},
-		{"abc", "abd", -1},    // non-numeric lexical fallback
+		{"abc", "abd", -1},     // non-numeric lexical fallback
 		{"1.0.0", "1.0.0a", 0}, // "1.0.0a" not numeric -> both stripped compare "1.0.0" vs "1.0.0a"? see note
 	}
 	for _, tc := range tests {
@@ -435,6 +440,7 @@ func TestMarketplaceVersionsOmitsEmpty(t *testing.T) {
 }
 
 func TestListSourcesAndRemoveSource(t *testing.T) {
+	offlineSystemSources(t)
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources:\n    - owner/one\n    - owner/two\n"), 0o644); err != nil {
@@ -508,6 +514,7 @@ func writeMarketplaceManifest(t *testing.T, repo, skill, version string) {
 }
 
 func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
@@ -641,9 +648,11 @@ func TestSkillReadonly(t *testing.T) {
 	if !SkillReadonly(&Skill{FilePath: filepath.Join("bundled", "x", "SKILL.md")}) {
 		t.Error("bundled (relative path) skill should be read-only")
 	}
-	// Use a real absolute path so this is genuinely absolute on Windows too (a rootless
-	// "\abs\..." path is not absolute on Windows, only on POSIX).
-	if SkillReadonly(&Skill{FilePath: filepath.Join(t.TempDir(), "x", "SKILL.md")}) {
+	absolutePath, err := filepath.Abs(filepath.Join("abs", "x", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if SkillReadonly(&Skill{FilePath: absolutePath}) {
 		t.Error("absolute-path skill should be deletable")
 	}
 	if !SkillReadonly(nil) {
@@ -666,9 +675,13 @@ func TestDeleteSkillOnDiskAndReadonly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "foo")); !os.IsNotExist(err) {
 		t.Errorf("foo dir should be gone: %v", err)
 	}
-	// The bundled skill is read-only and cannot be deleted.
-	if err := DeleteSkill(cfg, ".", "generate-rules"); err == nil {
-		t.Error("expected bundled skill to be read-only")
+	// A skill read out of the binary is read-only and cannot be deleted; the
+	// copy the delivery writes into the managed dir can be, and is not here.
+	if err := DeleteSkill(cfg, ".", "configure-foxxycode"); err == nil {
+		t.Error("expected the configuration skill to be read-only")
+	}
+	if err := DeleteSkill(cfg, ".", "rpa-feat"); err == nil {
+		t.Error("expected a delivered skill read from the binary to be read-only")
 	}
 	// Unknown skill errors.
 	if err := DeleteSkill(cfg, ".", "nope"); err == nil {
@@ -702,6 +715,7 @@ func TestSyncSourceSingle(t *testing.T) {
 }
 
 func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
@@ -768,4 +782,15 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 	if _, err := InstallPlugin(ctx, cfg, fileURL, "nope"); err == nil {
 		t.Error("expected error installing unknown plugin")
 	}
+}
+
+// offlineSystemSources keeps a test off the network. The built-in marketplace
+// is a real GitHub address, so any test that lists, probes or syncs sources
+// would clone it; the ones that care about the system source say so explicitly
+// (see seed_test.go).
+func offlineSystemSources(t *testing.T) {
+	t.Helper()
+	prev := SystemSources
+	SystemSources = nil
+	t.Cleanup(func() { SystemSources = prev })
 }

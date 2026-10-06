@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -44,8 +45,8 @@ func cleanEnhancedPrompt(text string) string {
 // goes to the same model as the chat, falling back to agent.model and then to the
 // first configured model, mirroring session.State.EffectiveModelID.
 //
-// It deliberately avoids providerFactory, which caps max_tokens at 96 for
-// describe-style titles and would truncate a rewrite mid-sentence.
+// It deliberately avoids providerFactory, which caps max_tokens at
+// describeMaxTokens for describe-style titles and would truncate a long rewrite.
 func (s *Server) enhanceProvider(r *http.Request) (llm.Provider, error) {
 	cfg := s.activeCfg()
 	if cfg == nil {
@@ -69,7 +70,7 @@ func (s *Server) enhanceProvider(r *http.Request) (llm.Provider, error) {
 	if modelID == "" {
 		return nil, fmt.Errorf("no model configured")
 	}
-	return s.makeLLMFromYAML(cfg, modelID)
+	return s.makeLLMFromYAML(cfg, modelID, llm.RequestOptions{})
 }
 
 func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +102,7 @@ func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Reque
 
 	ctx := r.Context()
 	resp, err := provider.Complete(ctx, []llm.Message{
-		{Role: llm.RoleSystem, Content: enhancePromptInstruction},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(enhancePromptInstruction)},
 		{Role: llm.RoleUser, Content: "Draft prompt to enhance, not answer:\n\n" + raw},
 	}, nil)
 	if err != nil {

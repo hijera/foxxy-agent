@@ -58,7 +58,8 @@ class ProxyEnvironmentTest {
         for (key in proxyKeys) {
             assertEquals("http://proxy.local:3128", env[key])
         }
-        assertNull(env["NO_PROXY"])
+        assertEquals("localhost,127.0.0.1,::1", env["NO_PROXY"])
+        assertEquals("localhost,127.0.0.1,::1", env["no_proxy"])
     }
 
     /**
@@ -114,8 +115,8 @@ class ProxyEnvironmentTest {
                 PROXY_EXCEPTIONS = "localhost, 127.0.0.1;  .internal",
             ),
         )
-        assertEquals("localhost,127.0.0.1,.internal", env["NO_PROXY"])
-        assertEquals("localhost,127.0.0.1,.internal", env["no_proxy"])
+        assertEquals("localhost,127.0.0.1,::1,.internal", env["NO_PROXY"])
+        assertEquals("localhost,127.0.0.1,::1,.internal", env["no_proxy"])
     }
 
     // --- resolvedProxyUrl (auto-detect / PAC) ---

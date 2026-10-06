@@ -15,7 +15,7 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 	modeOpt := acp.ConfigOption{
 		ID:           "mode",
 		Name:         "Session mode",
-		Description:  "Agent executes tasks; Plan designs; Docs maintains markdown; Ask answers questions read-only.",
+		Description:  "Agent executes tasks; Plan designs; Docs maintains markdown; Ask answers questions read-only; Debug diagnoses before fixing.",
 		Category:     "mode",
 		Type:         "select",
 		CurrentValue: mode,
@@ -24,49 +24,73 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 			{Value: string(ModePlan), Name: "Plan", Description: "Plan and design without code execution"},
 			{Value: string(ModeDocs), Name: "Docs", Description: "Generate and update project documentation"},
 			{Value: string(ModeAsk), Name: "Ask", Description: "Answer questions with read-only research tools"},
+			{Value: string(ModeDebug), Name: "Debug", Description: "Diagnose issues systematically before fixing them"},
 		},
 	}
 
 	out := []acp.ConfigOption{modeOpt}
-	if len(cfg.Models) == 0 {
-		return out
-	}
-
-	opts := make([]acp.ConfigOptionValue, 0, len(cfg.Models))
-	for _, d := range cfg.Models {
-		name := d.Model
-		desc := ""
-		if p := cfg.FindProvider(d.ProviderName()); p != nil {
-			desc = p.Type
+	if len(cfg.Models) > 0 {
+		opts := make([]acp.ConfigOptionValue, 0, len(cfg.Models))
+		for _, d := range cfg.Models {
+			name := d.Model
+			desc := ""
+			if p := cfg.FindProvider(d.ProviderName()); p != nil {
+				desc = p.Type
+			}
+			opts = append(opts, acp.ConfigOptionValue{
+				Value:       d.Model,
+				Name:        name,
+				Description: desc,
+			})
 		}
-		opts = append(opts, acp.ConfigOptionValue{
-			Value:       d.Model,
-			Name:        name,
-			Description: desc,
-		})
-	}
 
-	current := state.EffectiveModelID(cfg)
-	modelOpt := acp.ConfigOption{
-		ID:           "model",
-		Name:         "Model",
-		Description:  "LLM used for this session.",
-		Category:     "model",
-		Type:         "select",
-		CurrentValue: current,
-		Options:      opts,
+		current := state.SessionModelID(cfg)
+		modelOpt := acp.ConfigOption{
+			ID:           "model",
+			Name:         "Model",
+			Description:  "LLM used for this session.",
+			Category:     "model",
+			Type:         "select",
+			CurrentValue: current,
+			Options:      opts,
+		}
+		out = append(out, modelOpt)
+
+		if ent := cfg.FindModelEntry(current); ent != nil {
+			levels := cfg.ReasoningChoicesFor(ent)
+			if len(levels) > 0 {
+				reasoningOptions := make([]acp.ConfigOptionValue, 0, len(levels))
+				for _, level := range levels {
+					reasoningOptions = append(reasoningOptions, acp.ConfigOptionValue{
+						Value: level,
+						Name:  level,
+					})
+				}
+				out = append(out, acp.ConfigOption{
+					ID:          "reasoning",
+					Name:        "Reasoning",
+					Description: "Controls the reasoning effort used for this session.",
+					// thought_level is the ACP category for a reasoning effort.
+					Category:     "thought_level",
+					Type:         "select",
+					CurrentValue: state.SessionReasoning(cfg),
+					Options:      reasoningOptions,
+				})
+			}
+		}
 	}
-	out = append(out, modelOpt)
 
 	effectivePerm := state.GetPermissionMode()
 	if effectivePerm == "" {
 		effectivePerm = cfg.Tools.ResolvedPermMode()
 	}
 	permOpt := acp.ConfigOption{
-		ID:           "permission_mode",
-		Name:         "Permission mode",
-		Description:  "Controls when the agent asks for user approval before running tools.",
-		Category:     "permissions",
+		ID:          "permission_mode",
+		Name:        "Permission mode",
+		Description: "Controls when the agent asks for user approval before running tools.",
+		// Not one of the protocol's categories: a leading underscore is the
+		// namespace ACP leaves to an agent's own options.
+		Category:     "_permission_mode",
 		Type:         "select",
 		CurrentValue: effectivePerm,
 		Options: []acp.ConfigOptionValue{

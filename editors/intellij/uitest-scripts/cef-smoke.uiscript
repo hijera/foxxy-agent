@@ -1,0 +1,22 @@
+# Inside-the-chat smoke test (CDP): the SPA is mounted, the composer accepts trusted
+# typing, and the page text is readable. Leaves the composer empty again when done.
+toolwindow FoxxyCode
+sleep 8
+
+# React must have rendered into #root — a blank page means the SPA crashed before mounting.
+cef-js (function(){var r=document.getElementById('root');return r?('root children: '+r.childElementCount):'NO ROOT'})()
+
+# What the chat renders, as text. Goes to NN-cef-text.txt and the console.
+cef-text
+
+# Type into the composer through trusted CDP input events (JS value assignment would not
+# update the React state) and read the value back.
+cef-click #composer
+cef-type Hello from CDP
+cef-js document.getElementById('composer').value
+
+# Clean up: select-all + Backspace empties the React-controlled textarea properly.
+cef-js (function(){document.getElementById('composer').select();return 'selected'})()
+cef-key BACKSPACE
+cef-js JSON.stringify(document.getElementById('composer').value)
+screenshot done

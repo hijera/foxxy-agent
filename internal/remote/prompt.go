@@ -1,0 +1,541 @@
+package remote
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/session"
+)
+
+// responsesRequest is the POST /v1/responses body a remote turn sends.
+type responsesRequest struct {
+	Model       string                         `json:"model"`
+	Input       string                         `json:"input"`
+	Stream      bool                           `json:"stream"`
+	Metadata    map[string]string              `json:"metadata,omitempty"`
+	InlineFiles []inlineFile                   `json:"inline_files,omitempty"`
+	Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
+}
+
+type inlineFile struct {
+	Name    string `json:"name,omitempty"`
+	DataURL string `json:"data_url"`
+}
+
+// chunkFrame is the unnamed OpenAI-compatible text delta frame.
+type chunkFrame struct {
+	Object  string `json:"object"`
+	Choices []struct {
+		Delta struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+		} `json:"delta"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// metaFrame is the foxxycode_meta event payload emitted right before [DONE].
+type metaFrame struct {
+	Metadata struct {
+		Model      string `json:"model"`
+		APIModel   string `json:"api_model"`
+		StopReason string `json:"stop_reason"`
+		StopNotice string `json:"stop_notice"`
+	} `json:"metadata"`
+}
+
+// HandleSessionPromptWithSender runs one remote turn: it POSTs the prompt to
+// /v1/responses with stream:true, translates SSE frames back into ACP session
+// updates for sender, and answers permission or question events through the
+// /foxxycode REST endpoints. opts is accepted for signature parity with
+// session.Manager and ignored (detach semantics live on the server).
+func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, _ *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+	if sender == nil {
+		return nil, fmt.Errorf("remote: prompt needs a sender")
+	}
+	sid := strings.TrimSpace(params.SessionID)
+	if sid == "" {
+		return nil, fmt.Errorf("remote: prompt needs a session id")
+	}
+	st := h.session(sid)
+	h.mu.Lock()
+	mode := st.mode
+	selected := st.modelID
+	reasoning := st.reasoning
+	defaultModel := h.defModel
+	models := h.models
+	h.mu.Unlock()
+	if mode == "" {
+		mode = "agent"
+	}
+
+	// The turn gets its own cancellable context so session/cancel can abort
+	// the stream even while the sender is blocked in a permission or
+	// question round-trip.
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	defer cancelTurn()
+	owned, err := h.beginTurn(st, cancelTurn, sender)
+	if err != nil {
+		return nil, err
+	}
+	defer h.endTurn(st, owned)
+
+	input, attachments := promptInput(params.Prompt)
+	// Settings asked for before the server had this session travel as the
+	// commands that ask for them, at the start of its first prompt.
+	if pending := h.takePendingSettings(st); pending != "" {
+		input = pending + "\n" + input
+	}
+	body := responsesRequest{Model: mode, Input: input, Stream: true, Attachments: attachments}
+	if selected != "" {
+		body.Metadata = map[string]string{"model": selected}
+	}
+	effectiveModel := selected
+	if effectiveModel == "" {
+		effectiveModel = defaultModel
+	}
+	if reasoning != "" && reasoningForModel(models, effectiveModel, reasoning) {
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+		body.Metadata["reasoning"] = reasoning
+	}
+	if slug := planSlug(params.Meta); slug != "" {
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+		body.Metadata["runPlanSlug"] = slug
+	}
+	for _, part := range params.ImageParts {
+		if strings.TrimSpace(part.DataURL) == "" {
+			continue
+		}
+		body.InlineFiles = append(body.InlineFiles, inlineFile{Name: part.Name, DataURL: part.DataURL})
+	}
+
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := h.newRequest(turnCtx, http.MethodPost, "/v1/responses", bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
+
+	res, err := h.hc.Do(req)
+	if err != nil {
+		if h.endTurn(st, owned) || ctx.Err() != nil {
+			return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
+		}
+		return nil, fmt.Errorf("remote foxxycode %s: %w", h.opts.BaseURL, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+		if res.StatusCode == http.StatusConflict && sessionBusyPayload(payload) {
+			return nil, fmt.Errorf("remote foxxycode: %w", ErrSessionBusy)
+		}
+		return nil, h.remoteError(res, payload)
+	}
+
+	turn := &turnStream{h: h, ctx: turnCtx, sessionID: sid, sender: sender}
+	streamErr := readSSE(res.Body, turn.onFrame)
+	cancelled := h.endTurn(st, owned)
+	// The turn spent quota; the server refreshed its snapshot when the turn
+	// released, so a pull now joins that fetch (or learns it was deferred).
+	// It runs aside: the turn's result never waits for the hub.
+	if !cancelled {
+		h.pullProviderUsageAsync(sid, true)
+	}
+
+	switch {
+	case turn.turnErr != "":
+		return nil, fmt.Errorf("remote foxxycode: %s", turn.turnErr)
+	case turn.done:
+		stop := acp.StopReasonEndTurn
+		if turn.stopReason != "" {
+			stop = acp.StopReason(turn.stopReason)
+		}
+		return &acp.SessionPromptResult{StopReason: stop, StopNotice: turn.stopNotice}, nil
+	case cancelled:
+		// HandleSessionCancel already asked the server to stop the turn.
+		return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
+	case ctx.Err() != nil:
+		// The surface is going away (quit, SIGINT in print mode): the server
+		// runs detached, so ask it to stop instead of leaving the session
+		// busy and the tools running.
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if cerr := h.cancelSession(cctx, sid); cerr != nil {
+			h.log.Warn("remote cancel on abort", "session", sid, "error", cerr)
+		}
+		return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
+	case streamErr != nil:
+		return nil, fmt.Errorf("remote foxxycode: stream: %w", streamErr)
+	default:
+		return nil, fmt.Errorf("remote foxxycode: stream ended before [DONE]")
+	}
+}
+
+func reasoningForModel(models []remoteModel, modelID, reasoning string) bool {
+	for _, model := range models {
+		if model.ID == modelID {
+			return hasReasoningLevel(model.ReasoningLevels, reasoning)
+		}
+	}
+	return false
+}
+
+// turnStream tracks one in-flight remote turn while its SSE stream is read.
+type turnStream struct {
+	h          *Handler
+	ctx        context.Context
+	sessionID  string
+	sender     acp.UpdateSender
+	done       bool
+	turnErr    string
+	stopReason string
+	// stopNotice is why the turn stopped before its answer (foxxycode_meta stop_notice).
+	stopNotice string
+
+	// follow marks a turn this client did not start (follow.go). Its
+	// permission prompts are asked aside, without holding up the stream: a
+	// browser watching the same turn may answer first, and the stream says so
+	// with the tool call's final status, which withdraws the question here.
+	follow bool
+	asksMu sync.Mutex
+	asks   map[string]context.CancelFunc
+}
+
+// onFrame translates one SSE frame into ACP updates or answer round-trips.
+func (t *turnStream) onFrame(f sseFrame) error {
+	switch f.event {
+	case "":
+		return t.onDataFrame(f.data)
+	case "tool_call":
+		var u acp.ToolCallUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "tool_call_update":
+		var u acp.ToolCallStatusUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+			t.settleAsk(u)
+		}
+	case "plan":
+		var u acp.PlanUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "token_usage":
+		var u acp.TokenUsageUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "usage_update":
+		var u acp.UsageUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "turn_progress":
+		// The turn's clock travels as a duration next to the start, so the
+		// console counts from its own now minus ElapsedMs whatever the two
+		// machines' clocks say. This stream is the turn's own, so a frame is
+		// as fresh as the network is.
+		var u acp.TurnProgressUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "provider_usage":
+		var u acp.ProviderUsageUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "session_settings":
+		// A change of the session's settings during this turn: the same
+		// frame the events stream carries, which is where the console
+		// hears it from (events.go); here it only updates the mirror.
+		var u acp.SessionSettingsUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			t.h.mirrorSettings(t.sessionID, u.Settings)
+		}
+	case "available_commands":
+		var u acp.AvailableCommandsUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "memory_run":
+		var u acp.MemoryRunUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "background_wake":
+		// The first frame of a turn a finished background task started.
+		var u acp.BackgroundWakeUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeBackgroundWake
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "permission":
+		if t.follow {
+			t.askAside(f.data)
+			return nil
+		}
+		return t.onPermission(f.data)
+	case "question":
+		return t.onQuestion(f.data)
+	case "foxxycode_meta":
+		var meta metaFrame
+		if json.Unmarshal([]byte(f.data), &meta) == nil {
+			if meta.Metadata.Model != "" {
+				t.h.rememberEffectiveModel(t.sessionID, meta.Metadata.Model)
+			}
+			if meta.Metadata.StopReason != "" {
+				t.stopReason = meta.Metadata.StopReason
+			}
+			if meta.Metadata.StopNotice != "" {
+				t.stopNotice = meta.Metadata.StopNotice
+			}
+		}
+	case "error":
+		var env errorEnvelope
+		if json.Unmarshal([]byte(f.data), &env) == nil && env.Error.Message != "" {
+			t.turnErr = env.Error.Message
+		}
+	}
+	return nil
+}
+
+// onDataFrame handles unnamed frames: [DONE], text deltas, and turn errors.
+func (t *turnStream) onDataFrame(data string) error {
+	if strings.TrimSpace(data) == "[DONE]" {
+		t.done = true
+		return errStopStream
+	}
+	var chunk chunkFrame
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		return nil // unknown frame shapes are skipped, not fatal
+	}
+	if chunk.Error != nil && chunk.Error.Message != "" {
+		t.turnErr = chunk.Error.Message
+		return nil
+	}
+	for _, c := range chunk.Choices {
+		if c.Delta.Content != "" {
+			_ = t.sender.SendSessionUpdate(t.sessionID, acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: c.Delta.Content},
+			})
+		}
+		if c.Delta.ReasoningContent != "" {
+			_ = t.sender.SendSessionUpdate(t.sessionID, acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: c.Delta.ReasoningContent},
+			})
+		}
+	}
+	return nil
+}
+
+// onPermission forwards the request to the surface and posts the answer back.
+func (t *turnStream) onPermission(data string) error {
+	var params acp.PermissionRequestParams
+	if err := json.Unmarshal([]byte(data), &params); err != nil {
+		return nil
+	}
+	optionID := "reject"
+	res, err := t.sender.RequestPermission(t.ctx, params)
+	if err == nil && res != nil && res.OptionID != "" {
+		optionID = res.OptionID
+	} else if err == nil && res != nil && res.Outcome == "allow" {
+		optionID = "allow"
+	}
+	answer := map[string]string{"toolCallId": params.ToolCall.ToolCallID, "optionId": optionID}
+	path := "/foxxycode/sessions/" + url.PathEscape(t.sessionID) + "/permission"
+	if perr := t.h.postJSON(t.ctx, path, answer, nil); perr != nil {
+		// The server may have withdrawn the prompt while the modal was open:
+		// a subagent's relayed prompt is abandoned when the child is stopped,
+		// times out, or the parent turn moves on, and the route then answers
+		// 404 (nothing pending) or 409 (a read-only child). That is a stale
+		// answer, not a broken turn: the stream is still worth reading.
+		if isStaleAnswer(perr) {
+			t.h.log.Debug("remote permission answer ignored, prompt already withdrawn", "session", t.sessionID, "toolCallId", params.ToolCall.ToolCallID, "error", perr)
+			return nil
+		}
+		// The server stays blocked on an unanswered permission; failing the
+		// turn beats a silent mutual deadlock.
+		return fmt.Errorf("permission answer: %w", perr)
+	}
+	return nil
+}
+
+// askAside is onPermission for a followed turn: the question is put to the
+// surface on a goroutine of its own, so the stream keeps being read, and it is
+// withdrawn when the tool call reaches its final status - somebody else
+// answered - or when the follower stops.
+func (t *turnStream) askAside(data string) {
+	var params acp.PermissionRequestParams
+	if err := json.Unmarshal([]byte(data), &params); err != nil {
+		return
+	}
+	callID := params.ToolCall.ToolCallID
+	ctx, cancel := context.WithCancel(t.ctx)
+	t.asksMu.Lock()
+	if t.asks == nil {
+		t.asks = map[string]context.CancelFunc{}
+	}
+	if prev := t.asks[callID]; prev != nil {
+		prev()
+	}
+	t.asks[callID] = cancel
+	t.asksMu.Unlock()
+	go func() {
+		defer cancel()
+		res, err := t.sender.RequestPermission(ctx, params)
+		if ctx.Err() != nil || err != nil || res == nil {
+			return
+		}
+		optionID := res.OptionID
+		if optionID == "" && res.Outcome == "allow" {
+			optionID = "allow"
+		}
+		if optionID == "" {
+			return
+		}
+		answer := map[string]string{"toolCallId": callID, "optionId": optionID}
+		path := "/foxxycode/sessions/" + url.PathEscape(t.sessionID) + "/permission"
+		if perr := t.h.postJSON(ctx, path, answer, nil); perr != nil && !isStaleAnswer(perr) {
+			t.h.log.Warn("remote woken turn: permission answer failed", "session", t.sessionID, "toolCallId", callID, "error", perr)
+		}
+	}()
+}
+
+// settleAsk withdraws the question asked aside for a tool call that reached
+// its final status: it was answered, here or elsewhere.
+func (t *turnStream) settleAsk(u acp.ToolCallStatusUpdate) {
+	switch u.Status {
+	case "completed", "failed", "cancelled":
+	default:
+		return
+	}
+	t.asksMu.Lock()
+	cancel := t.asks[u.ToolCallID]
+	delete(t.asks, u.ToolCallID)
+	t.asksMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// onQuestion forwards the question to the surface and posts the answers back.
+func (t *turnStream) onQuestion(data string) error {
+	var params acp.QuestionRequestParams
+	if err := json.Unmarshal([]byte(data), &params); err != nil {
+		return nil
+	}
+	answers := [][]string{}
+	res, err := t.sender.RequestQuestion(t.ctx, params)
+	if err == nil && res != nil && res.Answers != nil {
+		answers = res.Answers
+	}
+	answer := map[string]interface{}{"requestId": params.RequestID, "answers": answers}
+	path := "/foxxycode/sessions/" + url.PathEscape(t.sessionID) + "/question"
+	if qerr := t.h.postJSON(t.ctx, path, answer, nil); qerr != nil {
+		return fmt.Errorf("question answer: %w", qerr)
+	}
+	return nil
+}
+
+// promptInput splits an ACP prompt for POST /v1/responses: the text blocks
+// become the input, a resource the editor embedded travels as an attachment
+// with its text as the literal body - so the server resolves the "@"
+// references of what was typed and never scans a file's contents for them -
+// and a resource_link, which names something on the editor's machine rather
+// than the server's, is written into the input as the link it is.
+func promptInput(blocks []acp.ContentBlock) (string, []session.PromptFileAttachment) {
+	var b strings.Builder
+	var atts []session.PromptFileAttachment
+	for _, blk := range blocks {
+		switch blk.Type {
+		case acp.ContentTypeText:
+			b.WriteString(blk.Text)
+		case acp.ContentTypeResource:
+			if blk.Resource == nil || blk.Resource.Text == "" {
+				continue
+			}
+			uri := strings.TrimSpace(blk.Resource.URI)
+			if uri == "" {
+				uri = "attachment"
+			}
+			atts = append(atts, session.PromptFileAttachment{
+				Path:   uri,
+				Source: &session.PromptFileAttachmentSourceField{Literal: blk.Resource.Text},
+			})
+		case acp.ContentTypeResourceLink:
+			label := strings.TrimSpace(blk.Title)
+			if label == "" {
+				label = strings.TrimSpace(blk.Name)
+			}
+			b.WriteString(" [")
+			b.WriteString(label)
+			b.WriteString("](")
+			b.WriteString(strings.TrimSpace(blk.URI))
+			b.WriteString(")")
+		}
+	}
+	return b.String(), atts
+}
+
+// planSlug extracts the run-plan slug from ACP prompt _meta.
+func planSlug(meta map[string]interface{}) string {
+	if meta == nil {
+		return ""
+	}
+	if v, ok := meta[plans.MetaRunPlanSlug].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// ErrSessionBusy is the prompt refusal of a server whose turn lock is held: the
+// fork's lock fails fast with 409 session_busy where upstream's queues, so the
+// console has to recognise the refusal to reconcile activity and queue the text.
+var ErrSessionBusy = errors.New("the session is busy (another turn is running)")
+
+// sessionBusyPayload reports whether a 409 body is the turn-lock refusal. The
+// same status also carries actionable refusals, such as a plan run requested
+// in ask mode, whose message must reach the operator unchanged. An opaque 409
+// keeps the historical "busy" reading.
+func sessionBusyPayload(body []byte) bool {
+	var env errorEnvelope
+	if json.Unmarshal(body, &env) != nil || strings.TrimSpace(env.Error.Message) == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(env.Error.Message), "busy")
+}
+
+// isStaleAnswer reports whether a permission or question answer was refused
+// because the server no longer waits for it.
+func isStaleAnswer(err error) bool {
+	var ae *apiError
+	if !errors.As(err, &ae) {
+		return false
+	}
+	return ae.status == http.StatusNotFound || ae.status == http.StatusConflict
+}

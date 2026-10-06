@@ -1,0 +1,110 @@
+{
+  "shots": {
+    "intellij": [
+      {
+        "file": "intellij-diff-dark-en.webp",
+        "theme": "dark",
+        "lang": "en",
+        "width": 1385,
+        "height": 993
+      },
+      {
+        "file": "intellij-diff-dark-ru.webp",
+        "theme": "dark",
+        "lang": "ru",
+        "width": 1385,
+        "height": 993
+      }
+    ],
+    "vscode": [
+      {
+        "file": "vscode-diff-dark-en.webp",
+        "theme": "dark",
+        "lang": "en",
+        "width": 1426,
+        "height": 893
+      },
+      {
+        "file": "vscode-diff-dark-ru.webp",
+        "theme": "dark",
+        "lang": "ru",
+        "width": 1426,
+        "height": 893
+      },
+      {
+        "file": "vscode-diff-light-en.webp",
+        "theme": "light",
+        "lang": "en",
+        "width": 1426,
+        "height": 893
+      },
+      {
+        "file": "vscode-diff-light-ru.webp",
+        "theme": "light",
+        "lang": "ru",
+        "width": 1426,
+        "height": 893
+      }
+    ],
+    "desktop": [
+      {
+        "file": "desktop-window-dark-en.webp",
+        "theme": "dark",
+        "lang": "en",
+        "width": 1266,
+        "height": 793
+      },
+      {
+        "file": "desktop-window-dark-ru.webp",
+        "theme": "dark",
+        "lang": "ru",
+        "width": 1266,
+        "height": 793
+      },
+      {
+        "file": "desktop-window-light-en.webp",
+        "theme": "light",
+        "lang": "en",
+        "width": 1266,
+        "height": 793
+      },
+      {
+        "file": "desktop-window-light-ru.webp",
+        "theme": "light",
+        "lang": "ru",
+        "width": 1266,
+        "height": 793
+      }
+    ],
+    "web": [
+      {
+        "file": "web-chat-dark-en.webp",
+        "theme": "dark",
+        "lang": "en",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "file": "web-chat-dark-ru.webp",
+        "theme": "dark",
+        "lang": "ru",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "file": "web-chat-light-en.webp",
+        "theme": "light",
+        "lang": "en",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "file": "web-chat-light-ru.webp",
+        "theme": "light",
+        "lang": "ru",
+        "width": 1440,
+        "height": 900
+      }
+    ]
+  }
+}

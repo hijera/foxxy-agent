@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,20 +10,42 @@ import (
 	"testing"
 )
 
-// docsSchemaPath is the published editor-facing JSON Schema for config.yaml.
-const docsSchemaPath = "../../docs/config.schema.json"
+// schemaFile is where the editor-facing JSON Schema for config.yaml lives. It
+// is embedded into the binary (see schema.go), so -t / --test-config checks a
+// file against the same document editors resolve from the published copy.
+const schemaFile = "internal/config/config.schema.json"
+
+// publishedSchemaPath is that published copy. GitHub Pages serves this
+// repository's docs/ folder from main, so docs/config.schema.json IS the file
+// at SchemaURL. The embedded copy cannot live there - go:embed may not leave
+// its own package directory - so the two are kept byte-identical instead, by
+// `make site-schema` and by TestPublishedSchemaMatchesTheEmbeddedOne below.
+const publishedSchemaPath = "../../docs/config.schema.json"
 
 func loadDocsSchema(t *testing.T) map[string]interface{} {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Clean(docsSchemaPath))
-	if err != nil {
-		t.Fatalf("read %s: %v (the schema must be committed alongside the config structs)", docsSchemaPath, err)
-	}
 	var doc map[string]interface{}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		t.Fatalf("parse %s: %v", docsSchemaPath, err)
+	if err := json.Unmarshal(ConfigSchemaJSON(), &doc); err != nil {
+		t.Fatalf("parse %s: %v", schemaFile, err)
 	}
 	return doc
+}
+
+// TestPublishedSchemaMatchesTheEmbeddedOne is what makes two copies safe. The
+// binary validates against the embedded one and every editor resolves the
+// published one from SchemaURL; a change that lands in only one of them leaves
+// operators validating saved configs against a schema the binary no longer
+// matches, which is exactly the drift the single copy used to rule out.
+func TestPublishedSchemaMatchesTheEmbeddedOne(t *testing.T) {
+	published, err := os.ReadFile(filepath.Clean(publishedSchemaPath))
+	if err != nil {
+		t.Fatalf("read %s: %v (the published schema must stay committed)", publishedSchemaPath, err)
+	}
+	if !bytes.Equal(bytes.ReplaceAll(published, []byte("\r\n"), []byte("\n")),
+		bytes.ReplaceAll(ConfigSchemaJSON(), []byte("\r\n"), []byte("\n"))) {
+		t.Fatalf("%s and %s have drifted apart; run `make site-schema` to republish the embedded copy",
+			publishedSchemaPath, schemaFile)
+	}
 }
 
 // yamlFieldName returns the effective YAML key for a struct field, or "" when skipped.
@@ -68,11 +91,18 @@ func schemaTypeForGoType(t reflect.Type) string {
 // checkSchemaNodeMatchesType recursively verifies that a schema node describes goType.
 func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, node map[string]interface{}) {
 	t.Helper()
+	wasPointer := goType.Kind() == reflect.Pointer
 	if goType.Kind() == reflect.Pointer {
 		goType = goType.Elem()
 	}
 	wantType := schemaTypeForGoType(goType)
 	gotType, _ := node["type"].(string)
+	if choices, ok := node["type"].([]interface{}); ok && wasPointer && len(choices) == 2 {
+		if (choices[0] == wantType && choices[1] == "null") ||
+			(choices[1] == wantType && choices[0] == "null") {
+			gotType = wantType
+		}
+	}
 	if gotType != wantType {
 		t.Errorf("%s: schema type %q, want %q", path, gotType, wantType)
 		return
@@ -106,25 +136,49 @@ func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, 
 		for name, ft := range want {
 			sub, ok := props[name].(map[string]interface{})
 			if !ok {
-				t.Errorf("%s: schema missing property %q (add it to docs/config.schema.json)", path, name)
+				t.Errorf("%s: schema missing property %q (add it to internal/config/config.schema.json)", path, name)
 				continue
 			}
 			checkSchemaNodeMatchesType(t, path+"."+name, ft, sub)
 		}
-		for name := range props {
-			if _, ok := want[name]; !ok {
-				t.Errorf("%s: schema has property %q not present in the Go config structs (remove it or add the field)", path, name)
+		for name, prop := range props {
+			if _, ok := want[name]; ok {
+				continue
 			}
+			// A property marked deprecated is an alias of a key that does have a
+			// field - the `enabled` spelling of a switch, kept so an editor does
+			// not flag every config written before the rename (switch_alias.go).
+			if sub, ok := prop.(map[string]interface{}); ok {
+				if dep, _ := sub["deprecated"].(bool); dep {
+					continue
+				}
+			}
+			t.Errorf("%s: schema has property %q not present in the Go config structs (remove it or add the field)", path, name)
 		}
 	}
 }
 
-// TestDocsConfigSchemaMatchesStructs keeps docs/config.schema.json in sync with the
+// TestDocsConfigSchemaMatchesStructs keeps config.schema.json in sync with the
 // yaml-tagged config structs: every YAML key must appear in the schema with the right
 // type, and the schema must not describe keys the loader does not know.
 func TestDocsConfigSchemaMatchesStructs(t *testing.T) {
 	doc := loadDocsSchema(t)
 	checkSchemaNodeMatchesType(t, "$", reflect.TypeOf(Config{}), doc)
+}
+
+// TestDocsConfigSchemaProviderNamePatternUsesHTMLVCompatibleHyphen ensures the
+// published schema can be used directly as an HTML pattern attribute. Modern
+// browsers compile such patterns with the RegExp v flag, which requires a
+// literal hyphen in a character class to be escaped.
+func TestDocsConfigSchemaProviderNamePatternUsesHTMLVCompatibleHyphen(t *testing.T) {
+	doc := loadDocsSchema(t)
+	providers := doc["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	items := providers["items"].(map[string]interface{})
+	properties := items["properties"].(map[string]interface{})
+	name := properties["name"].(map[string]interface{})
+	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
+		t.Fatalf("provider name pattern: got %v want %v", got, want)
+	}
 }
 
 // TestDocsConfigSchemaEnums pins schema enums to the constants the loader validates against.
@@ -175,6 +229,10 @@ func TestDocsConfigSchemaEnums(t *testing.T) {
 	assertSet("tools.permission_mode",
 		enumAt("properties", "tools", "properties", "permission_mode"),
 		map[string]struct{}{PermModeAsk: {}, PermModeAcceptEdits: {}, PermModeBypass: {}})
+
+	assertSet("mcp.project_trust",
+		enumAt("properties", "mcp", "properties", "project_trust"),
+		map[string]struct{}{ProjectTrustAsk: {}, ProjectTrustAllow: {}, ProjectTrustDeny: {}})
 
 	assertSet("logger.format",
 		enumAt("properties", "logger", "properties", "format"),

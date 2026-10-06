@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -26,7 +27,10 @@ func GrepTool() *tooling.Tool {
 			Name: "grep",
 			Description: "Search file contents recursively with regular expressions. " +
 				"Uses system ripgrep when available and a built-in cross-platform search engine otherwise. " +
-				"Returns path:line:content records.",
+				"Returns path:line:content records. Output is capped by tools.output_limits.grep; if it is " +
+				"truncated, narrow the pattern or path. Results are ephemeral: once you move on, an unmarked " +
+				"grep collapses to a placeholder and is dropped as stale after you write to a file it matched. " +
+				"Set keep:true (or call keep_result) to pin results you will need later.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -50,6 +54,10 @@ func GrepTool() *tooling.Tool {
 						"type":        "integer",
 						"description": "Maximum total number of matching lines (default: 100)",
 					},
+					"keep": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Pin these results in context: they survive eviction until you write to a matched file (default: false).",
+					},
 				},
 				"required": []string{"pattern"},
 			},
@@ -64,6 +72,9 @@ type grepArgs struct {
 	Glob          string `json:"glob"`
 	CaseSensitive bool   `json:"case_sensitive"`
 	MaxResults    int    `json:"max_results"`
+	// Keep pins these results against context eviction. It is consumed by the
+	// agent's context-projection pass (internal/agent), not by executeGrep.
+	Keep bool `json:"keep"`
 }
 
 type grepRunner struct {
@@ -177,6 +188,7 @@ func systemRGArgs(args grepArgs, searchPath string, maxResults int) []string {
 
 func runSystemRipgrep(ctx context.Context, executable string, args []string) (string, int, error) {
 	cmd := exec.CommandContext(ctx, executable, args...)
+	platform.HideConsoleWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

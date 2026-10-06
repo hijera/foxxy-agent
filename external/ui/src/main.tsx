@@ -4,14 +4,19 @@ import "./styles.css";
 import { App } from "./ui/App";
 import { AppErrorBoundary } from "./ui/AppErrorBoundary";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
+import { bootstrapUiEffects } from "./ui/theme/uiEffects";
 import { installFoxxyCodeUiApi } from "./ui/theme/foxxycodeUiApi";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
+import { ConfirmProvider } from "./ui/components/useConfirm";
 import { bootstrapDesktopFlag } from "./ui/desktopShell";
 import { bootstrapEmbedFlag } from "./ui/embedShell";
 import { installEmbedLocaleBridge } from "./ui/embedLocaleBridge";
+import { installEmbedHostBridge } from "./ui/embedHostBridge";
+import { installEmbedExternalLinks } from "./ui/embedExternalLinks";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
+import { AuthGate } from "./ui/auth/AuthGate";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 
 // Install the remote fetch shim before anything renders so every /v1/* and /foxxycode/* request
@@ -23,14 +28,24 @@ initLocale(bootLocale);
 installFoxxyCodeUiApi();
 bootstrapDesktopFlag();
 bootstrapEmbedFlag();
+// After the embed flag: the IntelliJ panel defaults to reduced effects.
+bootstrapUiEffects();
 installEmbedLocaleBridge();
+installEmbedHostBridge();
+installEmbedExternalLinks();
 startActiveHealthMonitor();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <I18nProvider>
-        <App />
+        {/* Inside I18nProvider so the dialog resolves in the active locale, and
+            inside AppErrorBoundary so a crash in it is still caught. */}
+        <ConfirmProvider>
+          <AuthGate>
+            <App />
+          </AuthGate>
+        </ConfirmProvider>
       </I18nProvider>
     </AppErrorBoundary>
   </React.StrictMode>,

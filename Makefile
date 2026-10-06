@@ -1,21 +1,26 @@
-.PHONY: build build-acp build-desktop icon test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
+#     Recommended full binary (FULL_TAGS below; what the release CLI archives ship):
+#       make build TAGS="http ui scheduler memory cli browser gateway swarm"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
+#     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
+#     swarm           stateless relay that aggregates nodes (`foxxycode serve`; see external/swarm/)
 #     desktop         Windows WebView2 desktop shell (foxxycode desktop; combine with http ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
+#             make build TAGS=cli
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
+#             make build TAGS="http ui scheduler memory cli browser gateway swarm"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
@@ -31,10 +36,11 @@ LDFLAGS := -X github.com/hijera/foxxycode-agent/internal/version.Version=$(VERSI
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/foxxycode
+GOEXE := $(shell go env GOEXE)
+BINARY := $(BUILD_DIR)/foxxycode$(GOEXE)
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory
+FULL_TAGS := http ui scheduler memory cli browser gateway swarm
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -48,15 +54,32 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory desktop
+DESKTOP_TAGS := http ui scheduler memory desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
-# Regenerate the Windows app icon resource from the source PNG. Run manually when
-# foxxycode2-Photoroom.png changes; the generated .syso is committed so routine
-# builds don't need this step. cmd/foxxycode/rsrc_windows_amd64.syso is auto-linked
-# by every windows/amd64 go build (desktop shell and CLI) as the .exe file icon.
-icon:
-	go run internal/desktop/icon/gen.go foxxycode2-Photoroom.png build/foxxycode.ico
+# ---- Brand assets ----
+#
+# Everything the product is recognised by - the favicons, the social preview,
+# the editor plugin icons and the Windows executable icon - is rendered from one
+# vector, docs/assets/foxxycode-logo-glyph.svg. Both targets need a local Chrome
+# (the generator rasterises through chromedp) and are run by hand: the output is
+# committed, so an ordinary build and CI never see this step.
+#
+# `brand` also rewrites docs/assets/brand.lock.json, which internal/brand's test
+# reads. Editing a brand vector without re-running this fails `make test`, which
+# is how the social preview kept the upstream product's name for months.
+#
+# The fox itself is traced from docs/assets/brand/foxxycode-mark-1024.png by
+# scripts/brand/trace.py; that step is only needed when the artwork changes.
+# See docs/contributing/brand.md.
+brand:
+	go run scripts/brand/gen.go
+
+# icon adds the Windows executable resource on top: rsrc wraps build/foxxycode.ico
+# (written by `brand`) into cmd/foxxycode/rsrc_windows_amd64.syso, which every
+# windows/amd64 go build links as the .exe file icon and internal/desktop shows
+# on the WebView2 window.
+icon: brand
 	go run github.com/akavel/rsrc -arch amd64 -ico build/foxxycode.ico -o cmd/foxxycode/rsrc_windows_amd64.syso
 
 build-desktop: ui-build
@@ -66,9 +89,29 @@ build-desktop: ui-build
 	  -ldflags "$(DESKTOP_LDFLAGS)" \
 	  -o $(BUILD_DIR)/foxxycode-desktop.exe ./cmd/foxxycode/
 
-ui-build:
-	npm --prefix external/ui install --no-fund --no-audit
-	npm --prefix external/ui run build:go
+# `npm --prefix DIR` installs INTO DIR but still reads package.json from the
+# current directory on Windows npm, so it fails at the repo root with a confusing
+# "Could not read package.json" pointing at a file that was never meant to exist.
+# Changing directory works the same way on every platform.
+ui-deps:
+	cd external/ui && npm install --no-fund --no-audit
+
+ui-build: ui-deps
+	cd external/ui && npm run build:go
+
+# Run the SPA's own unit suite (vitest, 1000+ tests) and type-check it. Neither
+# was gated: `make test` only ever ran Go tests, and `vite build` compiles TypeScript
+# with esbuild, which strips types without checking them - so a type error shipped
+# silently. Kept separate from ui-build so a Go-only change does not pay for it,
+# and wired into `test` below.
+ui-test:
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run typecheck
+	cd external/ui && npm test
+
+ui-typecheck:
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run typecheck
 
 # Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -81,42 +124,293 @@ print-version:
 
 # Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
 INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
+MAN_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/share/man/man1,$(HOME)/.local/share/man/man1)
 
 # Install build/foxxycode onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
+# The man page goes with it, so `man foxxycode` works for a from-source install
+# too; `make deb` / `make rpm` ship the same page, compressed, inside the package.
 install:
-	@mkdir -p $(INSTALL_DIR)
+	@mkdir -p $(INSTALL_DIR) $(MAN_DIR)
 	@if [ ! -f $(BINARY) ]; then \
 		echo "No $(BINARY); building with TAGS=\"$(FULL_TAGS)\""; \
 		$(MAKE) build TAGS="$(FULL_TAGS)"; \
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/foxxycode
-	@echo "Installed to $(INSTALL_DIR)/foxxycode"
+	cp $(BINARY) $(INSTALL_DIR)/foxxycode$(GOEXE)
+	cp packaging/man/foxxycode.1 $(MAN_DIR)/foxxycode.1
+	@echo "Installed to $(INSTALL_DIR)/foxxycode and $(MAN_DIR)/foxxycode.1"
 
-# Run all tests.
-test:
+# ---- Distribution packages ----
+#   PKG_ARCHS  architectures to package, space or comma separated (default: host)
+#   PKG_TAGS   go build tags for the packaged binary (default: the release set)
+#   DIST_DIR   where the packages land (default: dist)
+#
+# `deb` and `rpm` build Linux packages from packaging/nfpm.yaml through
+# scripts/build-packages.sh; the release workflow calls the same script with the
+# binaries it has already cross-compiled. nfpm is fetched on demand.
+#
+# `brew` renders the Homebrew cask (packaging/homebrew/foxxycode.rb.tmpl) for the
+# macOS archives of a release. It needs those archives, so pass the version of a
+# published release: make brew VERSION=X.Y.Z
+#
+# `brew-formula` renders the Homebrew formula (packaging/homebrew/foxxycode-formula.rb.tmpl)
+# for the source archive of a release - that is the artefact homebrew/core takes,
+# because Homebrew wants open-source command-line software built from source.
+# `brew-check` is the preflight for that submission. See docs/getting-started/homebrew.md.
+PKG_ARCHS ?= $(shell go env GOARCH)
+PKG_TAGS ?= $(FULL_TAGS)
+DIST_DIR ?= dist
+
+# Same rule as `build`: embedded assets must exist before a binary claims to
+# carry them.
+ifneq ($(and $(findstring http,$(PKG_TAGS)),$(findstring ui,$(PKG_TAGS))),)
+deb rpm: ui-build
+endif
+
+deb:
+	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats deb
+
+rpm:
+	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
+
+brew:
+	scripts/build-homebrew-cask.sh --version "$(VERSION)" --out "$(DIST_DIR)"
+
+brew-formula:
+	scripts/build-homebrew-formula.sh --version "$(VERSION)" --out "$(DIST_DIR)/formula"
+
+brew-check:
+	scripts/check-homebrew-submission.sh --version "$(VERSION)"
+
+# Documentation. docs/README.md (the hub), docs/llms.txt, docs/llms-full.txt, the
+# field tables of docs/reference/config.md, the help screens of docs/reference/cli.md
+# and the inventory of docs/assets/INDEX.md are generated by internal/docsgen from
+# docs/nav.yaml, the embedded config schema and the --help output of a full-tag
+# binary. docs-check regenerates into memory and fails on drift, on a page missing
+# from nav.yaml, on a broken relative link or anchor, and on an asset nothing uses.
+#
+# $(BINARY) carries Go's executable suffix (GOEXE), so on Windows the help
+# screens are read from build/foxxycode.exe directly.
+
+docs:
+	$(MAKE) build TAGS="$(FULL_TAGS)"
+	go run ./cmd/docsgen -write -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
+
+docs-check:
+	$(MAKE) build TAGS="$(FULL_TAGS)"
+	go run ./cmd/docsgen -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
+
+# docs-fast regenerates everything but the CLI reference, so a machine without
+# Node (the ui tag needs the SPA build) can still refresh the hub, the llms
+# files, the config tables and the assets inventory.
+docs-fast:
+	go run ./cmd/docsgen -write -skip-cli
+
+# ---- Website (site/, published on GitHub Pages together with docs/) ----
+# site-check is what CI runs on every pull request: the release and changelog data are baked
+# from a fixture (no network) in strict mode, so an untranslated changelog entry fails here.
+# site bakes the live data the way the Website workflow does and assembles the Pages artifact
+# in site/_site. See docs/contributing/website.md.
+SITE_NPM_CI := cd site && npm ci --no-fund --no-audit
+
+site-check:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs --offline test/fixtures/releases.json --strict
+	cd site && npm run typecheck && npm test && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+site:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+# The skills FoxxyCode carries inside its binary (internal/skills/bundled). Those
+# that live in their own repositories are vendored rather than fetched at
+# runtime: skills-vendor refreshes the copies from the upstreams named in
+# scripts/bundled-skills.json, skills-vendor-check reports drift without
+# writing. Needs jq, git and network.
+skills-vendor:
+	scripts/vendor-bundled-skills.sh
+
+skills-vendor-check:
+	scripts/vendor-bundled-skills.sh --check
+
+# Test the project plugin that attaches Cursor rules to OpenCode sessions.
+test-opencode-rules:
+	node --test .opencode/tests/project-rules.test.js
+
+# ---- Config schema ----
+#
+# The schema lives at internal/config/config.schema.json, because that is the
+# only place go:embed can reach it from: the binary validates config.yaml
+# against it for `foxxycode -t`. Editors resolve it from
+# https://hijera.github.io/foxxy-agent/config.schema.json, the modeline
+# FoxxyCode writes into every config it saves, and GitHub Pages serves this
+# repository's docs/ folder - so docs/config.schema.json must stay a
+# byte-for-byte copy. `site-schema` republishes it; `site-schema-check` reports
+# drift without writing, and internal/config/docs_schema_test.go fails on it too.
+#
+# Do not publish a rename or a removal ahead of the release that understands it:
+# the schema sets "additionalProperties": false, so the new file marks the old
+# key as an error in every config already on disk. Adding an optional key is
+# safe to publish immediately.
+site-schema:
+	@cp internal/config/config.schema.json docs/config.schema.json
+	@echo "Published internal/config/config.schema.json -> docs/config.schema.json"
+
+site-schema-check:
+	@if cmp -s internal/config/config.schema.json docs/config.schema.json; then 		echo "config schema: docs/ copy is in sync"; 	else 		echo "config schema: docs/config.schema.json has drifted; run 'make site-schema'" >&2; 		exit 1; 	fi
+
+# ---- Tests ----
+#
+# Two speeds. `make test` is the express run: the UI assets, the SPA suite, then
+# one `go test` over the whole tree with every optional module compiled in
+# (FULL_TAGS, what the shipped binary contains). Run it locally before a push.
+# `make test-matrix` walks every tag combination in TEST_TAG_SETS - the lean
+# untagged build with its stubs, single tags, pairs, the shipped set - and is
+# what CI runs on every pull request, one job per combination
+# (.github/workflows/tests-on-pr.yaml reads the list through print-test-tag-sets,
+# so this variable is the only place it is written down). Locally, reach for a
+# single combination instead: go test -tags=<set> ./...
+empty :=
+space := $(empty) $(empty)
+comma := ,
+FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
+
+# Every tagged combination the tree is tested under, comma-joined. The untagged
+# build is implied and always runs first; the last entry must stay FULL_TAGS_CSV
+# so the express run and the matrix agree on what "everything" means. A ui entry
+# needs the embedded assets, so ui-build precedes the matrix and the CI job
+# builds them only for those entries.
+TEST_TAG_SETS := \
+	memory \
+	cli \
+	cli,scheduler,memory \
+	http,cli \
+	http \
+	http,memory \
+	browser \
+	scheduler \
+	scheduler,memory \
+	gateway \
+	swarm \
+	http,swarm \
+	http,gateway,scheduler,memory \
+	http,ui \
+	http,ui,memory \
+	http,scheduler \
+	http,scheduler,memory \
+	http,scheduler,ui \
+	http,scheduler,ui,memory \
+	$(FULL_TAGS_CSV)
+
+# Express run: the whole tree once, with every optional module compiled in.
+# ui-test is the SPA suite (vitest); it rides along because the express run is
+# the one gate a change is expected to pass before it leaves this machine.
+test: test-opencode-rules ui-build ui-test
+	go test -tags=$(FULL_TAGS_CSV) ./...
+
+# Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run it
+# locally only when a build-tag boundary moved and one combination is not enough.
+test-matrix: test-opencode-rules ui-build
 	go test ./...
-	go test -tags=memory ./...
-	go test -tags=http ./...
-	go test -tags=http,memory ./...
-	go test -tags=scheduler ./...
-	go test -tags=scheduler,memory ./...
-	$(MAKE) ui-build
-	go test -tags=http,ui ./...
-	go test -tags=http,ui,memory ./...
-	go test -tags=http,scheduler ./...
-	go test -tags=http,scheduler,memory ./...
-	go test -tags=http,scheduler,ui ./...
-	go test -tags=http,scheduler,ui,memory ./...
+	@set -e; for tags in $(TEST_TAG_SETS); do \
+		echo "go test -tags=$$tags ./..."; \
+		go test -tags=$$tags ./...; \
+	done
+
+# The matrix as a JSON array for the CI workflow: [""] for the untagged build,
+# then every entry of TEST_TAG_SETS.
+# The race detector checks the full non-UI tag set; UI only embeds assets.
+# CI runs this target on every pull request.
+test-race:
+	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+
+print-test-tag-sets:
+	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
+
+# Type-check the Windows build without a Windows machine.
+#
+# The suite above runs on the host only, so every file behind //go:build windows
+# — the process group probe, console output decoding, the shell detector — is
+# invisible to it and to the linter. A change to a shared signature therefore
+# compiles here and breaks there, which is exactly the kind of drift nobody sees
+# until a user reports it. go vet builds test files too, so this covers the
+# Windows-only tests as well.
+#
+# The ui tag is deliberately absent: it embeds assets that only exist after
+# ui-build, and it carries no platform-specific code. desktop is the reverse -
+# //go:build desktop && windows means this target is the only place it is ever
+# type-checked, so it must stay in the list.
+check-windows:
+	GOOS=windows go build ./...
+	GOOS=windows go build -tags=cli ./...
+	GOOS=windows go vet ./...
+	GOOS=windows go vet -tags=cli ./...
+	GOOS=windows go vet -tags=cli,scheduler,memory ./...
+	GOOS=windows go vet -tags=memory ./...
+	GOOS=windows go vet -tags=http ./...
+	GOOS=windows go vet -tags=http,memory ./...
+	GOOS=windows go vet -tags=browser ./...
+	GOOS=windows go vet -tags=scheduler ./...
+	GOOS=windows go vet -tags=scheduler,memory ./...
+	GOOS=windows go vet -tags=http,scheduler ./...
+	GOOS=windows go vet -tags=http,scheduler,memory ./...
+	GOOS=windows go vet -tags=gateway ./...
+	GOOS=windows go vet -tags=swarm ./...
+	GOOS=windows go vet -tags=http,swarm ./...
+	GOOS=windows go vet -tags=desktop,http,scheduler,memory ./...
 
 # Clean build artifacts.
 clean:
 	rm -rf $(BUILD_DIR)
 
-# Run the linter (requires golangci-lint).
-lint:
-	golangci-lint run ./...
+# The untagged, all-but-ui and full-tag passes cover the stubs, the files that
+# exist only without the embedded SPA, and the shipped UI surface. Keep these
+# derived from FULL_TAGS so a new optional module enters the gate automatically.
+LINT_TAGS_NO_UI := $(filter-out ui,$(FULL_TAGS))
+LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
+
+print-full-tags:
+	@printf '%s\n' "$(FULL_TAGS_CSV)"
+
+print-lint-tags-no-ui:
+	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"
+
+# Fail on every finding rather than golangci-lint's default caps
+# (max-issues-per-linter=50, max-same-issues=3), which silently hid most of a
+# backlog of identical errcheck hits behind the first three of each kind.
+LINT_FLAGS := --max-issues-per-linter 0 --max-same-issues 0
+
+# Run the linter over all Go surfaces and type-check the SPA.
+lint: ui-build
+	golangci-lint run $(LINT_FLAGS) ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+	$(MAKE) ui-typecheck
+
+# Lint the http+ui surface (spa_embed_ui.go and friends) on its own when only
+# that pass is needed. Both this target and lint build the embedded SPA first.
+lint-ui: ui-build
+	golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+
+# Run the linter against the Windows build, which lint above never compiles.
+# desktop is Windows-only, so the last pass adds it explicitly.
+lint-windows: ui-build
+	GOOS=windows golangci-lint run $(LINT_FLAGS) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags desktop,$(FULL_TAGS_CSV) ./...
+
+# Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
+# Bypass a single commit with: git commit --no-verify
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
+	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full|matrix; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
 
 # ---- Editor plugins ----
 # Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.
@@ -127,6 +421,18 @@ PLUGIN_VERSION ?= $(VERSION)
 
 intellij-build:
 	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon buildPlugin -Pproduction=true -PpluginVersion="$(PLUGIN_VERSION)"
+
+# Run the plugin's Kotlin unit tests. buildPlugin does not depend on `test`, so
+# until this existed the suite under editors/intellij/src/test was never executed
+# by any gate. Requires a JDK 17 on PATH (the plugin's toolchain).
+intellij-test:
+	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon test
+
+# Live quality run of inline completion against the NeuralDeep hub. Needs NEURALDEEP_API_KEY;
+# skipped without it, so it never runs in CI. Knobs: FOXXYCODE_E2E_MODELS, FOXXYCODE_E2E_MODES,
+# FOXXYCODE_E2E_MIN_SCORE, FOXXYCODE_E2E_REPORT (see external/httpserver/e2e_neuraldeep_autocomplete_test.go).
+e2e-autocomplete:
+	go test -tags http -count=1 -timeout 45m -run TestE2ENeuralDeepAutocomplete -v ./external/httpserver/
 
 # Launch a sandbox IDE with the plugin (host-platform binary only; fast dev loop).
 intellij-run:
@@ -156,22 +462,25 @@ vscode-build:
 vscode-build-target:
 	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile
 
+# CHANGELOG.md is snapshotted the same way: scripts/stamp-changelog.mjs rewrites its
+# `## Unreleased — <date>` heading to the version being packaged (VS Code shows the file
+# verbatim in the extension's Changelog tab), mirroring build.gradle.kts for IntelliJ.
 vscode-package:
 	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" npm run prepare-binary && npm run compile && { \
-		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; \
+		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; cp CHANGELOG.md CHANGELOG.md.vsce.bak; \
 		case "$(PLUGIN_VERSION)" in \
-			[0-9]*.[0-9]*.[0-9]*) npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
+			[0-9]*.[0-9]*.[0-9]*) node scripts/stamp-changelog.mjs "$(PLUGIN_VERSION)" && npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
 			*) npx vsce package -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
 		esac; \
-		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; exit $$status; \
+		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; mv CHANGELOG.md.vsce.bak CHANGELOG.md; exit $$status; \
 	}
 
 vscode-package-target:
 	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile && { \
-		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; \
+		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; cp CHANGELOG.md CHANGELOG.md.vsce.bak; \
 		case "$(PLUGIN_VERSION)" in \
-			[0-9]*.[0-9]*.[0-9]*) npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
+			[0-9]*.[0-9]*.[0-9]*) node scripts/stamp-changelog.mjs "$(PLUGIN_VERSION)" && npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
 			*) npx vsce package --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
 		esac; \
-		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; exit $$status; \
+		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; mv CHANGELOG.md.vsce.bak CHANGELOG.md; exit $$status; \
 	}

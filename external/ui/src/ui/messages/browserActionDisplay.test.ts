@@ -16,6 +16,14 @@ describe("isBrowserToolName", () => {
 });
 
 describe("parseBrowserActionResult", () => {
+  it("keeps text outlines and modern page logs without inventing an image", () => {
+    const info = parseBrowserActionResult(
+      "read page\nurl: https://example.com\n  button Submit\n    #submit\nscreenshot: disabled (browser.screenshots is false)\npage log:\n  [error] broken",
+    );
+    expect(info?.screenshotName).toBeUndefined();
+    expect(info?.console).toEqual(["[error] broken"]);
+    expect(info).toHaveProperty("body", "  button Submit\n    #submit");
+  });
   it("returns null for empty input", () => {
     expect(parseBrowserActionResult("")).toBeNull();
     expect(parseBrowserActionResult(undefined)).toBeNull();

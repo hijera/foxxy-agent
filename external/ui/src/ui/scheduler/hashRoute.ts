@@ -1,12 +1,30 @@
 /**
- * Hash routes: `#/s/<sessionId>`, `#/history`, `#/scheduler`, `#/scheduler/new`,
- * `#/scheduler/jobs/<job_id>`.
+ * Hash routes: `#/s/<sessionId>`, `#/s/<sessionId>/tasks`,
+ * `#/s/<sessionId>/tasks/<task_id>`, `#/history`, `#/scheduler`,
+ * `#/scheduler/new`, `#/scheduler/jobs/<job_id>`,
+ * `#/scheduler/jobs/<job_id>/runs` and `#/scheduler/jobs/<job_id>/runs/<task_id>`
+ * (the runs panel of a job, and one run open in it).
+ *
+ * Background tasks hang off the session segment rather than living at the top
+ * level: a task belongs to one chat, so the URL that opens its panel has to
+ * carry that chat or a reload lands on a panel with no session behind it.
  * Optional `?history=1` on scheduler (and session) URLs keeps the History drawer open on wide screens.
+ *
+ * The documentation reader lives at `#/docs`, `#/docs/<slug>` and
+ * `#/docs/<slug>#<anchor>`: the slug is the page's path under `docs/` without
+ * `.md` (published at `hijera.github.io/foxxy-agent/<slug>.md` and referenced as `@foxxycode:<slug>`), and
+ * the second `#` names a section, the way a page link names one.
  */
 
 export type ParsedAppHash =
   | { branch: "none"; historyOpen: boolean }
-  | { branch: "session"; sessionId: string; historyOpen: boolean }
+  | {
+      branch: "session";
+      sessionId: string;
+      historyOpen: boolean;
+      tasksOpen: boolean;
+      taskId: string | null;
+    }
   | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
   | {
@@ -14,12 +32,26 @@ export type ParsedAppHash =
       jobId: string | null;
       createOpen: boolean;
       historyOpen: boolean;
+      /** The job's runs panel is open instead of its editor. */
+      runsOpen: boolean;
+      /** One run (a background task of the job session) open in the panel. */
+      runTaskId: string | null;
     }
-  | { branch: "settings"; historyOpen: boolean; section: string | null };
+  | { branch: "settings"; historyOpen: boolean; section: string | null }
+  | { branch: "swarm"; historyOpen: boolean }
+  | {
+      branch: "docs";
+      /** The page, or null for the reader's first page. */
+      slug: string | null;
+      /** The section to scroll to, or null for the top of the page. */
+      anchor: string | null;
+      historyOpen: boolean;
+    };
 
 export type SchedulerEditorRoute =
   | { mode: "create" }
   | { mode: "edit"; jobId: string }
+  | { mode: "runs"; jobId: string; taskId: string | null }
   | null;
 
 /** Maps a parsed scheduler hash to editor state (list-only hash yields null). */
@@ -33,6 +65,9 @@ export function schedulerEditorFromParsedHash(
     return { mode: "create" };
   }
   const jid = (p.jobId || "").trim();
+  if (jid && p.runsOpen) {
+    return { mode: "runs", jobId: jid, taskId: p.runTaskId };
+  }
   if (jid) {
     return { mode: "edit", jobId: jid };
   }
@@ -68,6 +103,18 @@ function notifyHashAfterReplaceState() {
   });
 }
 
+/**
+ * decodeURIComponent that keeps a malformed escape as it was typed: an
+ * address pasted from elsewhere must not take the router down.
+ */
+function decodeLoosely(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 export function parseAppHash(): ParsedAppHash {
   const { path: h, search } = splitHashFragment();
   const historyOpen = historyOpenFromSearch(search);
@@ -80,12 +127,49 @@ export function parseAppHash(): ParsedAppHash {
   if (h === "settings") {
     return { branch: "settings", historyOpen, section: null };
   }
+  if (h === "swarm") {
+    return { branch: "swarm", historyOpen };
+  }
+  if (h === "docs" || h.startsWith("docs/")) {
+    const rest = h.slice("docs".length).replace(/^\//, "");
+    const cut = rest.indexOf("#");
+    const slug = decodeLoosely(cut < 0 ? rest : rest.slice(0, cut)).trim();
+    const anchor = cut < 0 ? "" : decodeLoosely(rest.slice(cut + 1)).trim();
+    return {
+      branch: "docs",
+      slug: slug || null,
+      anchor: anchor || null,
+      historyOpen,
+    };
+  }
   const settingsSec = /^settings\/(.+)$/.exec(h);
   if (settingsSec && settingsSec[1]) {
     return {
       branch: "settings",
       historyOpen,
       section: decodeURIComponent(settingsSec[1]),
+    };
+  }
+  const schedJobRun = /^scheduler\/jobs\/([^/]+)\/runs\/(.+)$/.exec(h);
+  if (schedJobRun && schedJobRun[1] && schedJobRun[2]) {
+    return {
+      branch: "scheduler",
+      jobId: decodeURIComponent(schedJobRun[1]),
+      createOpen: false,
+      historyOpen,
+      runsOpen: true,
+      runTaskId: decodeURIComponent(schedJobRun[2]),
+    };
+  }
+  const schedJobRuns = /^scheduler\/jobs\/([^/]+)\/runs$/.exec(h);
+  if (schedJobRuns && schedJobRuns[1]) {
+    return {
+      branch: "scheduler",
+      jobId: decodeURIComponent(schedJobRuns[1]),
+      createOpen: false,
+      historyOpen,
+      runsOpen: true,
+      runTaskId: null,
     };
   }
   const schedJob = /^scheduler\/jobs\/(.+)$/.exec(h);
@@ -95,6 +179,8 @@ export function parseAppHash(): ParsedAppHash {
       jobId: decodeURIComponent(schedJob[1]),
       createOpen: false,
       historyOpen,
+      runsOpen: false,
+      runTaskId: null,
     };
   }
   if (h === "scheduler/new") {
@@ -103,6 +189,8 @@ export function parseAppHash(): ParsedAppHash {
       jobId: null,
       createOpen: true,
       historyOpen,
+      runsOpen: false,
+      runTaskId: null,
     };
   }
   if (h === "scheduler") {
@@ -111,6 +199,28 @@ export function parseAppHash(): ParsedAppHash {
       jobId: null,
       createOpen: false,
       historyOpen,
+      runsOpen: false,
+      runTaskId: null,
+    };
+  }
+  const sessTask = /^s\/([^/]+)\/tasks\/(.+)$/.exec(h);
+  if (sessTask && sessTask[1] && sessTask[2]) {
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessTask[1]),
+      historyOpen,
+      tasksOpen: true,
+      taskId: decodeURIComponent(sessTask[2]),
+    };
+  }
+  const sessTasks = /^s\/([^/]+)\/tasks$/.exec(h);
+  if (sessTasks && sessTasks[1]) {
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessTasks[1]),
+      historyOpen,
+      tasksOpen: true,
+      taskId: null,
     };
   }
   const sess = /^s\/([^/]+)$/.exec(h);
@@ -119,6 +229,8 @@ export function parseAppHash(): ParsedAppHash {
       branch: "session",
       sessionId: decodeURIComponent(sess[1]),
       historyOpen,
+      tasksOpen: false,
+      taskId: null,
     };
   }
   const draft = /^draft\/([^/]+)$/.exec(h);
@@ -223,9 +335,7 @@ export function setSchedulerCreateHash(opts?: {
   }
 }
 
-export function setSettingsHash(opts?: {
-  historySidebar?: boolean;
-}): void {
+export function setSettingsHash(opts?: { historySidebar?: boolean }): void {
   const next = withHistoryQuery("#/settings", !!opts?.historySidebar);
   if (window.location.hash !== next) {
     history.replaceState(
@@ -249,6 +359,31 @@ export function setSettingsSectionHash(
     return;
   }
   const base = `#/settings/${encodeURIComponent(id)}`;
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
+/** `#/s/<sessionId>/tasks[/<taskId>]` - the panel, bound to its chat. */
+export function setSessionTasksHash(
+  sessionId: string,
+  taskId?: string | null,
+  opts?: { historySidebar?: boolean },
+): void {
+  const sid = (sessionId || "").trim();
+  if (!sid) {
+    return;
+  }
+  const tid = (taskId || "").trim();
+  const base = tid
+    ? `#/s/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(tid)}`
+    : `#/s/${encodeURIComponent(sid)}/tasks`;
   const next = withHistoryQuery(base, !!opts?.historySidebar);
   if (window.location.hash !== next) {
     history.replaceState(
@@ -288,12 +423,32 @@ export function setSchedulerJobHash(
   }
 }
 
+/** `#/scheduler/jobs/<job_id>/runs[/<task_id>]` - the runs panel of a job. */
+export function setSchedulerJobRunsHash(
+  jobId: string,
+  taskId?: string | null,
+  opts?: { historySidebar?: boolean },
+): void {
+  const base = appNavHrefSchedulerJobRuns(jobId, taskId);
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
 /** Remove `history=1` from the current hash for scheduler or session routes. */
 export function stripHistorySidebarFromHash(): void {
   const p = parseAppHash();
   if (p.branch === "scheduler" && p.historyOpen) {
     if (p.createOpen) {
       setSchedulerCreateHash();
+    } else if (p.jobId && p.runsOpen) {
+      setSchedulerJobRunsHash(p.jobId, p.runTaskId);
     } else if (p.jobId) {
       setSchedulerJobHash(p.jobId);
     } else {
@@ -302,7 +457,11 @@ export function stripHistorySidebarFromHash(): void {
     return;
   }
   if (p.branch === "session" && p.historyOpen) {
-    setSessionHashInLocation(p.sessionId);
+    if (p.tasksOpen) {
+      setSessionTasksHash(p.sessionId, p.taskId);
+    } else {
+      setSessionHashInLocation(p.sessionId);
+    }
     return;
   }
   if (p.branch === "settings" && p.historyOpen) {
@@ -323,13 +482,72 @@ export function appNavHrefHistory(): string {
   return "#/history";
 }
 
+export function appNavHrefSwarm(): string {
+  return "#/swarm";
+}
+
 export function appNavHrefSettings(): string {
   return "#/settings";
+}
+
+/** The reader, one page of it, or one section of a page. */
+export function appNavHrefDocs(slug?: string | null, anchor?: string | null): string {
+  const s = (slug || "").trim();
+  if (!s) {
+    return "#/docs";
+  }
+  const a = (anchor || "").trim();
+  return `#/docs/${s}${a ? `#${a}` : ""}`;
+}
+
+/**
+ * The reader's address for a `foxxycode:<slug>#<anchor>` link, the form pages of
+ * the built-in documentation link to each other in (and the agent quotes
+ * them in); null for any other link.
+ */
+export function docsHrefFromFoxxyCodeLink(href: string): string | null {
+  if (!href.startsWith("foxxycode:")) {
+    return null;
+  }
+  const ref = href.slice("foxxycode:".length);
+  const cut = ref.indexOf("#");
+  return appNavHrefDocs(
+    cut < 0 ? ref : ref.slice(0, cut),
+    cut < 0 ? null : ref.slice(cut + 1),
+  );
+}
+
+/** Moves the reader to a page (and section) without adding a history entry. */
+export function setDocsHash(slug: string | null, anchor?: string | null): void {
+  const next = appNavHrefDocs(slug, anchor);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
 }
 
 export function appNavHrefSettingsSection(section: string): string {
   const id = (section || "").trim();
   return id ? `#/settings/${encodeURIComponent(id)}` : "#/settings";
+}
+
+/** Hash to open one background task of a chat (middle-click opens a new tab). */
+export function appNavHrefSessionTask(
+  sessionId: string,
+  taskId?: string | null,
+): string {
+  const sid = (sessionId || "").trim();
+  if (!sid) {
+    return appNavHrefHome();
+  }
+  const tid = (taskId || "").trim();
+  return tid
+    ? `#/s/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(tid)}`
+    : `#/s/${encodeURIComponent(sid)}/tasks`;
 }
 
 export function appNavHrefScheduler(): string {
@@ -356,4 +574,19 @@ export function appNavHrefSchedulerJob(jobId: string): string {
     return appNavHrefScheduler();
   }
   return `#/scheduler/jobs/${encodeURIComponent(id)}`;
+}
+
+/** Hash to open the runs of a scheduler job, or one run in that panel. */
+export function appNavHrefSchedulerJobRuns(
+  jobId: string,
+  taskId?: string | null,
+): string {
+  const id = (jobId || "").trim();
+  if (!id) {
+    return appNavHrefScheduler();
+  }
+  const tid = (taskId || "").trim();
+  return tid
+    ? `#/scheduler/jobs/${encodeURIComponent(id)}/runs/${encodeURIComponent(tid)}`
+    : `#/scheduler/jobs/${encodeURIComponent(id)}/runs`;
 }

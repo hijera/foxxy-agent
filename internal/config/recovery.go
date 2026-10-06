@@ -14,9 +14,19 @@ import (
 // backupFileName is the single config backup sidecar written next to config.yaml.
 const backupFileName = "config.yaml.bak"
 
+// prevFileName is the pre-commit snapshot written by config_commit. Unlike the
+// backup (refreshed to the current content on every successful load), it keeps
+// the previous committed configuration so config_rollback can restore it.
+const prevFileName = "config.yaml.prev"
+
 // BackupPath returns the path to the config backup file for the given config file path.
 func BackupPath(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), backupFileName)
+}
+
+// PrevConfigPath returns the path to the pre-commit snapshot for the given config file path.
+func PrevConfigPath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), prevFileName)
 }
 
 // WriteBackup writes data to config.yaml.bak atomically.
@@ -53,9 +63,15 @@ func BackupCurrent(configPath string) error {
 }
 
 // AtomicWriteConfigYAML writes yamlBytes to configPath using a temp file and rename.
+// The file keeps the line endings it already had, so a config an operator edits on
+// Windows is not turned into a Unix file by a save from the settings screen; a file
+// that is not there yet is written as it was rendered.
 func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
+	}
+	if current, err := os.ReadFile(configPath); err == nil {
+		yamlBytes = applyLineEnding(yamlBytes, configLineEnding(current))
 	}
 	return atomicWriteFile(configPath, yamlBytes, 0o644)
 }
@@ -91,9 +107,13 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 
 // parseValidateYAMLBytes parses expanded YAML and validates (includes applyDefaults).
 func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(expanded), &doc); err != nil {
+		return nil, relocateSyntaxError(err, expanded)
+	}
 	var cfg Config
-	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-		return nil, err
+	if err := decodeConfigDocument(&doc, &cfg); err != nil {
+		return nil, relocateSyntaxError(err, expanded)
 	}
 	cfg.Paths = paths
 	applyDefaults(&cfg)
@@ -110,7 +130,7 @@ func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	expanded := expandEnvEscaped(ExpandPathVars(string(raw), paths))
+	expanded := expandConfigBody(string(raw), paths)
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
 		return nil, err

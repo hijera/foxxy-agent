@@ -1,0 +1,18 @@
+# Mentions must survive a page reload.
+#
+# Readiness is cleared only when this panel navigates the browser itself. A flag cleared by
+# CEF's loading-state callbacks but restored only on a full main-frame load stays false
+# forever in a live SPA - which parked every mention in the queue and never flushed it. This
+# script exercises the case the flag exists for: reload, then drop.
+toolwindow FoxxyCode
+sleep 8
+drag hello.txt
+sleep 2
+screenshot before-reload
+# Toolbar Reload — the one path that legitimately tears down window.foxxycodeUi.
+click //div[@myicon='refresh.svg']
+sleep 8
+screenshot after-reload
+drag hello.txt
+sleep 3
+screenshot after-reload-drag

@@ -1,49 +1,221 @@
-# UI reference images
+# Assets index
 
-This folder contains reference screenshots used to align the embedded UI with the target design.
+`docs/assets` holds what the documentation embeds and nothing else: the screenshots the pages show and the brand files the README, `DESIGN.md` and the Docker image use. `make docs-check` lists every file here with the pages that reference it and fails on a file nothing references, so an asset is either used or deleted.
 
-## Navbar (RPA-style references, May 2026)
+## What belongs here
 
-Implementation note: **FoxxyCode does not render a circle or logo glyph** before the **FoxxyCode agent** brand in the embedded SPA. SVG logos under **`foxxycode-logo-*.svg`** are for README, **`logo-preview.html`**, and favicon (**`foxxycode-favicon.svg`** aliases **`foxxycode-logo-mark-flat.svg`**, same asset as [foxxycode.dev](https://foxxycode.dev/) **`assets/foxxycode-favicon.svg`**). Raster favicons **`favicon-32.png`**, **`favicon.ico`**, **`apple-touch-icon.png`** ship with the embedded SPA at the site root. **`foxxycode-logo-mark-icon.svg`** is square full-bleed plate fill with no rim stroke or corner radius; **`foxxycode-logo-mark-icon-2048.png`** is a 2048×2048 raster export; **`foxxycode-logo-social.svg`** (1280×640) is the GitHub repository social preview with wordmark and tagline, with **`foxxycode-logo-social-1280x640.png`** and **`foxxycode-logo-social-640x320.png`** raster exports; **`foxxycode-logo-mark.svg`** adds halo filters. Some references still show a circle, treat it as layout inspiration only.
+- An image that a page under `docs/`, the README, `DESIGN.md` or `CONTRIBUTING.md` embeds, or that the `Dockerfile` copies into the image.
+- One folder per feature or page when a page needs more than a couple of images; one-off images stay at the top level with a descriptive kebab-case name that says what is shown and, for UI captures, the theme and the width: `settings-usage-panel-dark-1280.png`.
+- PNG for screenshots, SVG for logos. Keep a screenshot under 1 MB and crop to the surface that matters.
 
-- `ref-navbar-narrow-tooltips-accent.png` - narrow vertical rail, tooltips right, purple hover on icon
-- `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (FoxxyCode uses History + GitHub + API, not News or Projects)
-- `ref-navbar-wide-with-labels.png` - wide rail with text labels next to items
+Screenshots taken as evidence for a pull request do not belong here: push them to the orphan `screenshots` branch and link the raw file from the pull request. Before and after pairs of a fix are pull request material; the documentation keeps only the after state, and only when a page shows it. Earlier pull requests of this fork committed their evidence here; those files left with the documentation restructure, and the links in the old pull request descriptions still resolve because they name the commit.
 
-## Playwright MCP (verification, May 2026)
+## Capture recipes
 
-Captured from local `vite` + `foxxycode http` with `FOXXYCODE_UI_BACKEND`.
+**Web UI.** `make build TAGS="http ui scheduler memory cli browser gateway swarm"`, then `foxxycode http` (or `foxxycode serve`) on a disposable `FOXXYCODE_HOME` at a presentable path, and a headless Chrome driven by chromedp or Playwright: 1280 wide in the Dark theme as the default, 390 wide and Light when the page discusses them, browser locale `en-US`. Hash navigation does not reload the bundle, so reload after switching routes. Never capture the provider detail pane: it renders `api_key` values in full; the provider list (names only) is safe. Issue and pull request numbers do not belong in file names; name the surface and the state.
 
-- `pw-navbar-1440-narrow.png` - desktop under 1920px width, narrow rail (no widen toggle), no burger
-- `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
-- `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **FoxxyCode agent** text-only brand, full-width rows icon plus label
-- `pw-navbar-1920-github-hover.png` - wide rail, hover on **GitHub** row (label plus icon pick up accent)
-- `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
-- `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
+**Console.** The pty capture scripts under `examples/cli/` drive `foxxycode cli`, emulate the screen with pyte and render PNGs through headless Chromium without a provider (`examples/cli/capture_usage.py` for the usage footer); run them on Linux or in WSL. See [Console](../surfaces/console.md).
 
-## Full HD tour (README, May 2026)
+## Brand
 
-Captured at **1920×1080** via Playwright MCP (`vite` + `foxxycode http`, `FOXXYCODE_UI_BACKEND`).
+The mark is an orange fox head with `{/}` on its forehead. **Nothing here is drawn by hand**: `foxxycode-logo-glyph.svg` is the fox traced from the raster master `brand/foxxycode-mark-1024.png`, and every other brand file is generated from that one vector by `make brand`, which also writes `brand.lock.json` - the hashes a test in `internal/brand` checks, so an export can no longer go stale behind its source. Edit the glyph or a composition's markup, never a generated raster. [Brand assets](../contributing/brand.md) has the whole chain.
 
-- `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
-- `screenshot-fullhd-chat.png` - active session transcript (`#/s/...`)
-- `screenshot-fullhd-history.png` - History drawer on a session (`#/s/...?history=1`)
-- `screenshot-fullhd-scheduler.png` - scheduler list plus job editor (`#/scheduler/jobs/nightly-docs`)
-- `screenshot-fullhd-settings.png` - settings drawer (`#/settings`)
+`foxxycode-logo-wordmark.svg`, `foxxycode-logo-wordmark-light.svg`, `foxxycode-logo-mark.svg` (with halo filters), `foxxycode-logo-mark-flat.svg` (the mark on the dark plate), `foxxycode-logo-mark-icon.svg` (square, full-bleed plate, no rim), `foxxycode-logo-mark-light.svg`, `foxxycode-favicon.svg` (the browser tab icon, the one file whose plate follows `prefers-color-scheme` - a tab strip is light or dark by the reader's setting and no theme reaches it), `foxxycode-logo-social.svg` with its PNG exports `foxxycode-logo-social-1280x640.png` and `foxxycode-logo-social-640x320.png` (a social preview). The `Dockerfile` copies `foxxycode-favicon.svg`, `favicon-32.png`, `favicon.ico` and `apple-touch-icon.png` into the image for the embedded SPA, plus both wordmarks, which `external/ui/src/ui/auth/SignInScreen.tsx` imports from here and Vite inlines into the bundle - the image build fails without them. `external/ui/src/logo-preview.html` shows the marks side by side. The embedded SPA renders the **FoxxyCode agent** wordmark as text and no logo glyph.
 
-## Primary
+## Inventory
 
-- `ref-home-1.png` - landing page with collapsed left rail and centered composer
-- `ref-home-composer.png` - expanded left menu and composer action area
-- `ref-chat.png` - in chat view with floating composer and left rail
-- `ref-wide-1.png` - wide desktop layout with expanded left nav and sessions list
-- `ref-wide-2.png` - wide desktop layout variant
-- `ref-wide-3.png` - wide desktop layout with session context menu
+Generated by `make docs`. "Used by" lists the files that reference the asset.
 
-## Mobile
+<!-- docsgen:assets:start -->
+95 files, 17.0 MB in total.
 
-- `ref-image-098475fd-f1e8-4722-9975-67890f85a2c8.png` - mobile rail states and expanded menu
+### docs/assets
 
-## Batch uploads
+| File | Size | Used by |
+|------|------|---------|
+| `apple-touch-icon.png` | 25 KB | Dockerfile, docs/assets/INDEX.md |
+| `background-tasks-header-opener-dark-1280.png` | 398 KB | docs/features/background-tasks.md |
+| `brand.lock.json` | 5 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+| `confirm-delete-chat-dark-1280.png` | 290 KB | docs/surfaces/web-ui.md |
+| `favicon-32.png` | 1 KB | Dockerfile, docs/contributing/brand.md, docs/assets/INDEX.md |
+| `favicon.ico` | 2 KB | Dockerfile, docs/assets/INDEX.md |
+| `foxxycode-favicon.svg` | 11 KB | Dockerfile, docs/contributing/brand.md, docs/assets/INDEX.md |
+| `foxxycode-logo-glyph.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark-flat.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark-icon.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark-light.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark.svg` | 10 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-social-1280x640.png` | 350 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+| `foxxycode-logo-social-640x320.png` | 112 KB | docs/assets/INDEX.md |
+| `foxxycode-logo-social.svg` | 11 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+| `foxxycode-logo-wordmark-light.svg` | 10 KB | external/ui/src/logo-preview.html, external/ui/src/ui/auth/SignInScreen.tsx, docs/assets/INDEX.md |
+| `foxxycode-logo-wordmark.svg` | 10 KB | DESIGN.md, docs/contributing/brand.md, docs/surfaces/web-ui.md, external/ui/src/logo-preview.html, external/ui/src/ui/auth/SignInScreen.tsx, docs/assets/INDEX.md |
+| `foxxycode1.png` | 96 KB | README.md, README.en.md |
+| `nav-rail-wide-1920.png` | 288 KB | docs/surfaces/web-ui.md |
+| `nav-topbar-mobile-390.png` | 100 KB | docs/surfaces/web-ui.md |
+| `reasoning-levels-dark-1280.png` | 275 KB | docs/surfaces/web-ui.md |
+| `ref-navbar-narrow-tooltips-accent.png` | 16 KB | DESIGN.md |
+| `scheduler-tool-cards-dark-1280.png` | 273 KB | docs/surfaces/web-ui.md |
+| `screenshot-console-models.png` | 70 KB | docs/surfaces/console.md |
+| `screenshot-console-start.png` | 45 KB | docs/surfaces/console.md |
+| `screenshot-fullhd-settings-hooks.png` | 288 KB | docs/surfaces/web-ui.md |
+| `screenshot-fullhd-tasks.png` | 492 KB | docs/surfaces/web-ui.md |
+| `screenshot-hooks-notice-dark.png` | 281 KB | docs/features/hooks.md, docs/operate/security.md, docs/surfaces/web-ui.md |
+| `screenshot-hooks-notice-light.png` | 204 KB | docs/features/hooks.md |
+| `scroll-to-bottom-visible-dark-1280.png` | 325 KB | docs/surfaces/web-ui.md |
+| `sessions-history-filters-dark-1280.png` | 182 KB | docs/surfaces/web-ui.md |
+| `sessions-history-grouping-dark-1280.png` | 173 KB | docs/surfaces/web-ui.md |
+| `sessions-history-pinned-dark-1280.png` | 174 KB | docs/surfaces/web-ui.md |
+| `sessions-history-row-menu-dark-1280.png` | 177 KB | docs/surfaces/web-ui.md |
+| `sessions-history-tag-editor-dark-1280.png` | 179 KB | docs/surfaces/web-ui.md |
+| `sessions-management-table-dark-1280.png` | 161 KB | DESIGN.md, docs/surfaces/web-ui.md |
+| `settings-model-stream-toggle-dark-1280.png` | 161 KB | docs/surfaces/web-ui.md |
+| `settings-provider-proxy-dark-1280.png` | 217 KB | docs/surfaces/web-ui.md |
+| `tgfake-chat-dark-1280.png` | 142 KB | docs/surfaces/gateway.md |
+| `turn-progress-live-line-dark-1280.png` | 371 KB | docs/surfaces/web-ui.md |
+| `webui-sign-in-dark-1280.png` | 23 KB | docs/surfaces/web-ui.md |
 
-Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
+### docs/assets/background-tasks
+
+| File | Size | Used by |
+|------|------|---------|
+| `background-tasks-wake-bell-dark-1280.png` | 255 KB | docs/features/background-tasks.md |
+
+### docs/assets/brand
+
+| File | Size | Used by |
+|------|------|---------|
+| `foxxycode-mark-1024.png` | 276 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+
+### docs/assets/built-in-docs
+
+| File | Size | Used by |
+|------|------|---------|
+| `reader-page-dark-1280.png` | 169 KB | DESIGN.md, docs/features/built-in-docs.md, docs/surfaces/web-ui.md |
+| `reader-search-dark-1280.png` | 205 KB | docs/features/built-in-docs.md |
+
+### docs/assets/cli-tui
+
+| File | Size | Used by |
+|------|------|---------|
+| `09-usage-footer.png` | 156 KB | docs/surfaces/console.md |
+| `10-usage-warning.png` | 233 KB | docs/surfaces/console.md |
+| `11-usage-blocked.png` | 233 KB | docs/surfaces/console.md |
+| `12-usage-resuming.png` | 239 KB | docs/surfaces/console.md |
+| `13-subagent-delegation.png` | 178 KB | docs/surfaces/console.md |
+| `14-turn-progress.png` | 200 KB | docs/surfaces/console.md |
+| `15-tasks-overlay.png` | 237 KB | docs/features/background-tasks.md, docs/surfaces/console.md |
+| `16-tasks-output.png` | 229 KB | docs/surfaces/console.md |
+| `17-tasks-wake.png` | 202 KB | docs/surfaces/console.md |
+| `18-mention-list.png` | 130 KB | docs/features/mentions.md, docs/surfaces/console.md |
+| `19-docs-search.png` | 376 KB | docs/features/built-in-docs.md, docs/surfaces/console.md |
+| `20-docs-page.png` | 298 KB | docs/features/built-in-docs.md |
+
+### docs/assets/compaction
+
+| File | Size | Used by |
+|------|------|---------|
+| `compact-row-running-dark-1280.png` | 311 KB | docs/features/compaction.md |
+| `context-window-after-dark-1280.png` | 279 KB | docs/features/compaction.md |
+| `context-window-after-dark-390.png` | 123 KB | docs/features/compaction.md |
+| `context-window-before-dark-1280.png` | 280 KB | docs/features/compaction.md |
+| `context-window-before-dark-390.png` | 124 KB | docs/features/compaction.md |
+
+### docs/assets/editors
+
+| File | Size | Used by |
+|------|------|---------|
+| `intellij-directory-mention-dark-1400.png` | 101 KB | docs/surfaces/editors.md |
+
+### docs/assets/http-requests
+
+| File | Size | Used by |
+|------|------|---------|
+| `http-request-answer-dark-1280.png` | 251 KB | docs/features/http-requests.md |
+| `http-request-permission-dark-1280.png` | 253 KB | docs/features/http-requests.md |
+
+### docs/assets/memory
+
+| File | Size | Used by |
+|------|------|---------|
+| `memory-child-transcript-dark-1280.png` | 247 KB | docs/features/memory.md |
+| `memory-settings-dark-1280.png` | 171 KB | docs/features/memory.md |
+| `memory-tasks-detail-dark-1280.png` | 284 KB | docs/features/memory.md |
+| `memory-tasks-running-dark-1280.png` | 247 KB | docs/features/memory.md |
+
+### docs/assets/mentions
+
+| File | Size | Used by |
+|------|------|---------|
+| `mentions-picker-dark-1280.png` | 241 KB | docs/features/mentions.md |
+| `mentions-session-dark-1280.png` | 262 KB | docs/features/mentions.md |
+
+### docs/assets/message-queue
+
+| File | Size | Used by |
+|------|------|---------|
+| `message-queue-console-dark.png` | 33 KB | docs/features/message-queue.md |
+| `message-queue-draft-armed-dark-1280.png` | 259 KB | docs/features/message-queue.md |
+| `message-queue-two-waiting-dark-1280.png` | 258 KB | docs/features/message-queue.md |
+| `stop-queue-cancel-failed-dark-1280.png` | 263 KB | docs/surfaces/web-ui.md |
+
+### docs/assets/proxy
+
+| File | Size | Used by |
+|------|------|---------|
+| `proxy-editor-open-dark-1280.png` | 154 KB | docs/operate/proxy.md |
+| `proxy-field-masked-dark-1280.png` | 194 KB | docs/operate/proxy.md |
+
+### docs/assets/scheduler
+
+| File | Size | Used by |
+|------|------|---------|
+| `run-transcript-readonly-dark-1280.png` | 226 KB | docs/operate/scheduler.md |
+| `runs-detail-finished-dark-1280.png` | 144 KB | docs/operate/scheduler.md |
+| `runs-panel-running-dark-1280.png` | 133 KB | docs/operate/scheduler.md |
+
+### docs/assets/session-settings
+
+| File | Size | Used by |
+|------|------|---------|
+| `session-settings-composer-bypass-dark-1280.png` | 237 KB | docs/features/session-settings.md, docs/surfaces/web-ui.md |
+| `session-settings-console-footer-dark.png` | 119 KB | docs/features/session-settings.md, docs/surfaces/console.md |
+| `session-settings-permission-dialog-dark-1280.png` | 226 KB | docs/features/session-settings.md |
+| `session-settings-slash-menu-dark-1280.png` | 240 KB | docs/features/session-settings.md |
+
+### docs/assets/skills
+
+| File | Size | Used by |
+|------|------|---------|
+| `skills-system-source-dark-1280.png` | 146 KB | docs/features/skills.md |
+
+### docs/assets/subagents
+
+| File | Size | Used by |
+|------|------|---------|
+| `chat-permissions-spaced-dark-1280.png` | 50 KB | docs/features/subagents.md, docs/surfaces/web-ui.md |
+| `child-transcript-readonly-dark.png` | 240 KB | docs/features/subagents.md |
+| `settings-subagents-catalog-dark-1280.png` | 191 KB | docs/surfaces/web-ui.md |
+| `spawn-agent-card-dark-1280.png` | 62 KB | docs/features/subagents.md |
+| `tasks-detail-agent-finished-dark.png` | 278 KB | docs/features/subagents.md |
+| `tasks-panel-agent-running-dark.png` | 238 KB | docs/contributing/documentation.md, docs/features/subagents.md |
+
+### docs/assets/svn-tools/after
+
+| File | Size | Used by |
+|------|------|---------|
+| `svn-tools-dark-1280.png` | 338 KB | DESIGN.md |
+| `svn-tools-light-390.png` | 236 KB | DESIGN.md |
+
+### docs/assets/svn-tools/before
+
+| File | Size | Used by |
+|------|------|---------|
+| `svn-tools-dark-1280.png` | 83 KB | DESIGN.md |
+
+### docs/assets/web-search
+
+| File | Size | Used by |
+|------|------|---------|
+| `web-search-row-open-dark-1280.png` | 265 KB | docs/features/web-search.md |
+<!-- docsgen:assets:end -->

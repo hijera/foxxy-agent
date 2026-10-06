@@ -13,15 +13,29 @@ import (
 
 // anthropicProvider implements Provider using the Anthropic API.
 type anthropicProvider struct {
-	client          anthropic.Client
-	model           string
-	maxTokens       int
-	temp            float64
+	client    anthropic.Client
+	model     string
+	maxTokens int
+	temp      float64
+	// tempSet sends temp even at zero: the caller asked for that value.
+	tempSet         bool
 	reasoningEffort string
+	// Generation tuning taken from ProviderInput; see withTuning.
+	stop          []string
+	deterministic bool
+}
+
+// withTuning copies the generation knobs a caller may set beyond model, budget
+// and temperature. NoThinking has no Anthropic counterpart: extended thinking is
+// only ever on when a reasoning effort is selected.
+func (p *anthropicProvider) withTuning(in ProviderInput) *anthropicProvider {
+	p.stop = in.Stop
+	p.deterministic = in.Deterministic
+	return p
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
-	opts := []option.RequestOption{option.WithMiddleware(diagnosticMiddleware)}
+	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -101,7 +115,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var fullContent string
 	var toolCalls []ToolCall
 	var stopReason string
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
@@ -125,6 +139,20 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		return out
 	}
 
+	// emitted flips once any chunk reached the caller; a truncated stream
+	// after that must not be retried, or the same deltas would stream twice.
+	var emitted bool
+	emit := func(c StreamChunk) {
+		emitted = true
+		onChunk(c)
+	}
+	// progress reports an event that advanced generation without delivering
+	// anything, bypassing emit for the same reason as the openai path: the
+	// emitted flag gates retry classification and must track deliveries only.
+	// fork(progress-chunks): a frame with nothing to deliver still says the
+	// model is writing, and never through emit (see openai_stream.go).
+	progress := func() { onChunk(StreamChunk{Progress: true}) }
+
 	for stream.Next() {
 		event := stream.Current()
 		switch e := event.AsAny().(type) {
@@ -132,16 +160,20 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			switch d := e.Delta.AsAny().(type) {
 			case anthropic.TextDelta:
 				fullContent += d.Text
-				onChunk(StreamChunk{TextDelta: d.Text})
+				emit(StreamChunk{TextDelta: d.Text})
 			case anthropic.ThinkingDelta:
 				thinkingBuf.WriteString(d.Thinking)
-				onChunk(StreamChunk{ReasoningDelta: d.Thinking})
+				emit(StreamChunk{ReasoningDelta: d.Thinking})
 			case anthropic.SignatureDelta:
 				thinkingSig = d.Signature
+				progress()
 			case anthropic.InputJSONDelta:
+				// Fire regardless of the lookup: the bytes arrived either way, and
+				// this is the Anthropic twin of the openai tool-argument case.
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
 				}
+				progress()
 			}
 
 		case anthropic.ContentBlockStartEvent:
@@ -152,13 +184,17 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					name: cb.Name,
 				}
 			}
+			progress()
 
 		case anthropic.MessageDeltaEvent:
 			stopReason = mapAnthropicStopReason(string(e.Delta.StopReason))
 			outputTokens = int(e.Usage.OutputTokens)
+			progress()
 
 		case anthropic.MessageStartEvent:
 			inputTokens = int(e.Message.Usage.InputTokens)
+			progress()
+			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
 		}
 	}
 
@@ -182,24 +218,40 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					StopReason:         sr,
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
+					CachedInputTokens:  cachedInputTokens,
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
 		}
-		return nil, fmt.Errorf("anthropic stream: %w", err)
+		// Same transport wrapper as the openai path: the emitted flag lets
+		// classification retry status-less failures only while nothing was
+		// delivered. HTTP errors keep their status reachable through Unwrap.
+		return nil, fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+	}
+
+	if stopReason == "" {
+		// The stream ended without a stop_reason-bearing message_delta: the
+		// terminal event never arrived and the response was cut
+		// mid-generation. Mirror the openai path: keep the delivered text
+		// and reasoning next to the truncation error, and drop unfinished
+		// tool_use blocks, whose input JSON may be cut mid-way.
+		truncErr := fmt.Errorf("anthropic stream: %w", &streamTruncatedError{emitted: emitted})
+		if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          thinkingBuf.String(),
+				ReasoningSignature: thinkingSig,
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
+			}, truncErr
+		}
+		return nil, truncErr
 	}
 
 	toolCalls = finalizeAnthropicToolUses()
 	for i := range toolCalls {
 		tc := toolCalls[i]
-		onChunk(StreamChunk{ToolCall: &tc})
-	}
-
-	if stopReason == "" {
-		if len(toolCalls) > 0 {
-			stopReason = "tool_use"
-		} else {
-			stopReason = "end_turn"
-		}
+		emit(StreamChunk{ToolCall: &tc})
 	}
 
 	return &Response{
@@ -210,6 +262,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		StopReason:         stopReason,
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
+		CachedInputTokens:  cachedInputTokens,
 	}, nil
 }
 
@@ -294,8 +347,19 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 			params.MaxTokens = budget + anthropicMinThinkingBudget
 		}
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-	} else if p.temp > 0 {
+		// Only a temperature the caller asked for travels next to thinking.
+		// Anthropic takes nothing but 1 there, and RequestOptions.Validate
+		// refuses any other value before a direct request gets this far.
+		if p.tempSet {
+			params.Temperature = anthropic.Float(p.temp)
+		}
+	} else if p.temp > 0 || p.tempSet {
 		params.Temperature = anthropic.Float(p.temp)
+	} else if p.deterministic {
+		params.Temperature = anthropic.Float(0)
+	}
+	if len(p.stop) > 0 {
+		params.StopSequences = p.stop
 	}
 
 	if len(tools) > 0 {
@@ -328,9 +392,10 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
 	r := &Response{
-		StopReason:   mapAnthropicStopReason(string(resp.StopReason)),
-		InputTokens:  int(resp.Usage.InputTokens),
-		OutputTokens: int(resp.Usage.OutputTokens),
+		StopReason:        mapAnthropicStopReason(string(resp.StopReason)),
+		InputTokens:       int(resp.Usage.InputTokens),
+		OutputTokens:      int(resp.Usage.OutputTokens),
+		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
 
 	for _, block := range resp.Content {

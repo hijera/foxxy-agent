@@ -15,7 +15,7 @@ func httpModelListed(cfg *config.Config, sel string) bool {
 		return false
 	}
 	switch sel {
-	case string(session.ModeAgent), string(session.ModePlan), string(session.ModeDocs), string(session.ModeAsk):
+	case string(session.ModeAgent), string(session.ModePlan), string(session.ModeDocs), string(session.ModeAsk), string(session.ModeDebug):
 		return true
 	default:
 		_, _, err := config.SplitModelRef(sel)

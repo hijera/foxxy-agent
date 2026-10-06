@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestWrappedStreamCancelIsCanceled(t *testing.T) {
@@ -32,7 +34,7 @@ func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
 			{DataURL: "data:image/png;base64,abc123", Name: "test.png"},
 		}},
 	}
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	raw, err := json.Marshal(params.Messages)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -94,9 +96,75 @@ func TestNewProviderAnthropicHonorsBaseURL(t *testing.T) {
 	}
 }
 
-func TestProviderBaseURLNeuralDeepIsFixed(t *testing.T) {
-	if got := providerBaseURL("neuraldeep", "https://example.invalid/v1"); got != neuralDeepBaseURL {
-		t.Fatalf("providerBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)
+func TestProviderBaseURLNeuralDeepPicksAnOfficialEndpoint(t *testing.T) {
+	mirror := "https://api.neuraldeep.tech/v1"
+	cases := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{"empty falls back to the default deployment", "", neuralDeepBaseURL},
+		{"the default is honored explicitly", neuralDeepBaseURL, neuralDeepBaseURL},
+		{"the mirror is honored", mirror, mirror},
+		{"a trailing slash is normalized", mirror + "/", mirror},
+		{"case is normalized", "HTTPS://API.NEURALDEEP.TECH/v1", mirror},
+		{"surrounding space is trimmed", "  " + mirror + "  ", mirror},
+		{"an arbitrary host is refused", "https://example.invalid/v1", neuralDeepBaseURL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := providerBaseURL("neuraldeep", tc.configured); got != tc.want {
+				t.Fatalf("providerBaseURL(neuraldeep, %q) = %q, want %q", tc.configured, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProviderBaseURLNeuralDeepEnvOverrideWins(t *testing.T) {
+	t.Setenv(EnvNeuralDeepBaseURL, "https://stand.example/v1/")
+	if got := providerBaseURL("neuraldeep", "https://api.neuraldeep.tech/v1"); got != "https://stand.example/v1" {
+		t.Fatalf("env override ignored: got %q", got)
+	}
+}
+
+func TestNeuralDeepHubFollowsTheSelectedEndpoint(t *testing.T) {
+	cases := []struct {
+		apiBase string
+		want    string
+	}{
+		{"", NeuralDeepHubURL},
+		{neuralDeepBaseURL, NeuralDeepHubURL},
+		{"https://api.neuraldeep.tech/v1", "https://hub.neuraldeep.tech"},
+		{"https://api.neuraldeep.tech/v1/", "https://hub.neuraldeep.tech"},
+		// A key minted by a hub is useless on an unknown host, so an
+		// unrecognized api_base signs in against the default deployment,
+		// which is also where its requests end up.
+		{"https://example.invalid/v1", NeuralDeepHubURL},
+	}
+	for _, tc := range cases {
+		if got := NeuralDeepHubFor(tc.apiBase); got != tc.want {
+			t.Errorf("NeuralDeepHubFor(%q) = %q, want %q", tc.apiBase, got, tc.want)
+		}
+	}
+}
+
+func TestNeuralDeepHubEnvOverrideWins(t *testing.T) {
+	t.Setenv(EnvNeuralDeepHubURL, "https://stand.example/")
+	if got := NeuralDeepHubFor("https://api.neuraldeep.tech/v1"); got != "https://stand.example" {
+		t.Fatalf("env override ignored: got %q", got)
+	}
+}
+
+func TestNeuralDeepAPIBasesListsTheAllowlist(t *testing.T) {
+	got := NeuralDeepAPIBases()
+	want := []string{neuralDeepBaseURL, "https://api.neuraldeep.tech/v1"}
+	if len(got) != len(want) {
+		t.Fatalf("NeuralDeepAPIBases() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("NeuralDeepAPIBases()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 
@@ -120,6 +188,238 @@ func TestNewProviderNeuralDeepIsSupported(t *testing.T) {
 	}
 }
 
+// streamStubProvider builds an unwrapped openai provider against a server
+// that replays the given SSE body for every request.
+func streamStubProvider(t *testing.T, sse string) (*openAIProvider, func()) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, sse)
+	}))
+	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, ""), srv.Close
+}
+
+// TestOpenAIStreamUndecodableFrameFails verifies that a malformed non-empty
+// data frame after valid chunks aborts the stream with the offending payload
+// preserved: silently skipping it would return a truncated response as
+// success.
+func TestOpenAIStreamUndecodableFrameFails(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"+
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\n\n"+ // truncated JSON
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"+
+			"data: [DONE]\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("Stream must fail on a malformed non-empty data frame")
+	}
+	if !strings.Contains(err.Error(), "undecodable SSE frame") || !strings.Contains(err.Error(), `{"choices":[{"index":0,"delta":{"content":`) {
+		t.Errorf("error %q must name the undecodable frame and carry its payload", err)
+	}
+}
+
+// TestOpenAIStreamedErrorRetryClassification verifies that server errors
+// reported inside the SSE stream retry like their pre-stream HTTP
+// equivalents: 5xx retryable, 4xx not.
+func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
+	const contentChunk = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"
+	cases := []struct {
+		name         string
+		body         string
+		wantRequests int32
+		wantDeltas   int32
+	}{
+		{"streamed 400 is not retried",
+			"error: {\"code\":400,\"message\":\"the request exceeds the available context size\",\"type\":\"invalid_request_error\"}\n\n", 1, 0},
+		{"streamed 500 is retried once",
+			"error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 2, 0},
+		{"streamed 500 after emitted deltas is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
+		{"streamed 500 after deltas with status-like message text is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"upstream said 500 Internal Server Error\",\"type\":\"server_error\"}\n\n", 1, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests, deltas atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			prov, err := NewProvider(ProviderInput{
+				Type:          "openai",
+				Model:         "qwen3-1.7b",
+				BaseURL:       srv.URL,
+				RetryMax:      1,
+				RetryBase:     time.Millisecond,
+				RetryMaxDelay: time.Millisecond,
+			})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+				if c.TextDelta != "" {
+					deltas.Add(1)
+				}
+			})
+			if err == nil {
+				t.Fatal("Stream must fail")
+			}
+			if got := requests.Load(); got != tc.wantRequests {
+				t.Errorf("upstream requests = %d, want %d", got, tc.wantRequests)
+			}
+			if got := deltas.Load(); got != tc.wantDeltas {
+				t.Errorf("text deltas delivered = %d, want %d (retries must not replay deltas)", got, tc.wantDeltas)
+			}
+		})
+	}
+}
+
+// TestSSEScannerFrameAssembly pins the lenient scanner's frame handling:
+// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM) and
+// the llama.cpp dialect ("error:" field, unterminated final frame).
+func TestSSEScannerFrameAssembly(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []sseFrame
+	}{
+		{"crlf line endings",
+			"data: {\"a\":1}\r\n\r\ndata: [DONE]\r\n\r\n",
+			[]sseFrame{{data: []byte("{\"a\":1}\n")}, {data: []byte("[DONE]\n")}}},
+		{"multiple data lines join with newline",
+			"data: line1\ndata: line2\n\n",
+			[]sseFrame{{data: []byte("line1\nline2\n")}}},
+		{"comment-only frames and blank runs are skipped",
+			": ping\n\n\n\n: pong\n\ndata: x\n\n",
+			[]sseFrame{{data: []byte("x\n")}}},
+		{"unterminated final frame is dispatched",
+			"data: {\"a\":1}\n\ndata: tail",
+			[]sseFrame{{data: []byte("{\"a\":1}\n")}, {data: []byte("tail\n")}}},
+		{"error field is preserved separately",
+			"error: {\"code\":400}\n\n",
+			[]sseFrame{{errData: []byte("{\"code\":400}\n")}}},
+		{"leading BOM is stripped",
+			"\xef\xbb\xbfdata: x\n\n",
+			[]sseFrame{{data: []byte("x\n")}}},
+		{"field without colon or value is harmless",
+			"data\n\ndata: x\n\n",
+			[]sseFrame{{data: []byte("\n")}, {data: []byte("x\n")}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := newSSEScanner(strings.NewReader(tc.input))
+			var got []sseFrame
+			for sc.Next() {
+				f := sc.Frame()
+				got = append(got, sseFrame{
+					data:    append([]byte(nil), f.data...),
+					errData: append([]byte(nil), f.errData...),
+				})
+			}
+			if err := sc.Err(); err != nil {
+				t.Fatalf("scanner error: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("frames = %d, want %d (%q)", len(got), len(tc.want), got)
+			}
+			for i := range got {
+				if string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
+					t.Errorf("frame %d = {data:%q err:%q}, want {data:%q err:%q}",
+						i, got[i].data, got[i].errData, tc.want[i].data, tc.want[i].errData)
+				}
+			}
+		})
+	}
+}
+
+// TestStreamErrorSnippetRuneBoundary verifies the diagnostic snippet never
+// splits a multibyte rune at the truncation point.
+func TestStreamErrorSnippetRuneBoundary(t *testing.T) {
+	// One ASCII byte shifts the 2-byte runes so the truncation index lands on
+	// a continuation byte and the boundary back-off is actually exercised.
+	payload := "a" + strings.Repeat("я", streamErrorSnippetLimit)
+	if utf8.RuneStart(payload[streamErrorSnippetLimit]) {
+		t.Fatal("test setup: truncation index must fall inside a rune")
+	}
+	got := streamErrorSnippet([]byte(payload))
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("snippet must be truncated with ellipsis")
+	}
+	if !utf8.ValidString(strings.TrimSuffix(got, "...")) {
+		t.Errorf("snippet split a multibyte rune")
+	}
+}
+
+// TestOpenAIStreamAllFramesUndecodable verifies that a stream yielding no
+// decodable chunk fails with the offending frame preserved in the error.
+func TestOpenAIStreamAllFramesUndecodable(t *testing.T) {
+	p, done := streamStubProvider(t, "data: {\"choices\":[{\"index\n\n"+"data: [DONE]\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("Stream must fail when no frame decodes")
+	}
+	if !strings.Contains(err.Error(), `{"choices":[{"index`) {
+		t.Errorf("error %q must include the undecodable frame payload", err)
+	}
+}
+
+// TestOpenAIStreamStandardErrorObject verifies that a data frame carrying an
+// {"error": ...} object (llama.cpp b9038+, gateways) surfaces the message.
+func TestOpenAIStreamStandardErrorObject(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n"+
+			"data: {\"error\":{\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}}\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "slot unavailable") {
+		t.Fatalf("error = %v, want message containing %q", err, "slot unavailable")
+	}
+}
+
+// TestOpenAIStreamCancelKeepsPartial pins the cancellation contract: a stream
+// cancelled after emitting content returns the partial response together with
+// a context.Canceled-wrapped error.
+func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancel from inside onChunk so the first delta is observed deterministically
+	// before the context is torn down.
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		if c.TextDelta != "" {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if resp == nil || resp.Content != "partial" {
+		t.Fatalf("resp = %+v, want partial content preserved", resp)
+	}
+}
+
 // TestOpenAITextOnlyMessageIsString verifies that a user Message without
 // ImageParts still results in a plain string content field.
 func TestOpenAITextOnlyMessageIsString(t *testing.T) {
@@ -127,7 +427,7 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	raw, err := json.Marshal(params.Messages)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -138,5 +438,496 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	}
 	if !strings.Contains(s, `"hello"`) {
 		t.Errorf("expected text content, got: %s", s)
+	}
+}
+
+// TestOpenAIStreamTruncatedBeforeFirstDelta verifies that a stream cut
+// before any delta fails with a truncation error and no response: there is
+// nothing worth preserving and the call is safe to retry.
+func TestOpenAIStreamTruncatedBeforeFirstDelta(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"id\":\"chatcmpl-t1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	defer done()
+
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if resp != nil {
+		t.Fatalf("resp = %+v, want nil (nothing was delivered)", resp)
+	}
+	if !isRetryableLLMError(err) {
+		t.Fatal("truncation before any delta must classify as retryable")
+	}
+}
+
+// TestOpenAIStreamTruncatedKeepsReasoningOnlyPartial ensures a cut stream
+// preserves reasoning that was already sent to the caller, even if no answer
+// text followed it. The ReAct loop needs a non-nil response to persist that
+// visible reasoning next to the truncation error.
+func TestOpenAIStreamTruncatedKeepsReasoningOnlyPartial(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"reasoning_content\":\"Thinking through it\"}}],\"id\":\"chatcmpl-tr\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	defer done()
+
+	var streamed strings.Builder
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		streamed.WriteString(c.ReasoningDelta)
+	})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if isRetryableLLMError(err) {
+		t.Fatal("truncation after emitted reasoning must not be retryable")
+	}
+	if got := streamed.String(); got != "Thinking through it" {
+		t.Fatalf("streamed reasoning = %q, want %q", got, "Thinking through it")
+	}
+	if resp == nil || resp.Content != "" || resp.Reasoning != "Thinking through it" {
+		t.Fatalf("resp = %+v, want reasoning-only partial response", resp)
+	}
+}
+
+// TestOpenAIStreamTruncatedNotRetriedAfterDeltas pins the resilient-wrapper
+// contract for truncations: once deltas reached the caller the request is
+// not replayed (the same text would stream twice) and the partial response
+// survives the wrapper.
+func TestOpenAIStreamTruncatedNotRetriedAfterDeltas(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hel\"}}],\"id\":\"chatcmpl-t2\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	}))
+	defer srv.Close()
+
+	prov, err := NewProvider(ProviderInput{
+		Type:          "openai",
+		Model:         "test-model",
+		BaseURL:       srv.URL,
+		RetryMax:      2,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	resp, err := prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("upstream requests = %d, want 1 (no replay after emitted deltas)", got)
+	}
+	if resp == nil || resp.Content != "Hel" {
+		t.Errorf("resp = %+v, want partial content %q preserved", resp, "Hel")
+	}
+}
+
+// TestOpenAIStreamTruncatedRetriedWhenNothingEmitted verifies the opposite
+// case: a truncation before any delta is a transient transport failure and
+// gets the configured retry.
+func TestOpenAIStreamTruncatedRetriedWhenNothingEmitted(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"id\":\"chatcmpl-t3\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	}))
+	defer srv.Close()
+
+	prov, err := NewProvider(ProviderInput{
+		Type:          "openai",
+		Model:         "test-model",
+		BaseURL:       srv.URL,
+		RetryMax:      1,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Errorf("upstream requests = %d, want 2 (silent truncation deserves the retry)", got)
+	}
+}
+
+// TestOpenAIStreamTruncatedDropsUnfinishedToolCalls pins the deliberate
+// choice for tool calls cut mid-argument: their JSON may be invalid, so the
+// truncation error carries no partial response instead of a broken call.
+func TestOpenAIStreamTruncatedDropsUnfinishedToolCalls(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}],\"id\":\"chatcmpl-t4\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Par\"}}]}}],\"id\":\"chatcmpl-t4\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	defer done()
+
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if resp != nil {
+		t.Fatalf("resp = %+v, want nil (unfinished tool calls are dropped)", resp)
+	}
+}
+
+// TestOpenAIStreamNamesAToolCallBeforeItsArguments covers the silence the
+// operator sees while the model composes a tool call: the name is in the first
+// delta, the arguments stream after it, and collecting the call only when the
+// stream ends leaves the transcript with nothing to show and a Stop button that
+// looks like a hang.
+func TestOpenAIStreamNamesAToolCallBeforeItsArguments(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"run_command\",\"arguments\":\"\"}}]}}],\"id\":\"chatcmpl-t9\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]}}],\"id\":\"chatcmpl-t9\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: {\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"delta\":{}}],\"id\":\"chatcmpl-t9\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: [DONE]\n\n")
+	defer done()
+
+	var announced []ToolCall
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) {
+			if c.ToolCallNamed != nil {
+				announced = append(announced, *c.ToolCallNamed)
+			}
+			if c.ToolCall != nil {
+				announced = append(announced, *c.ToolCall)
+			}
+		})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if len(announced) < 2 {
+		t.Fatalf("announced %d tool calls, want the name first and the complete call after: %+v", len(announced), announced)
+	}
+	if announced[0].Name != "run_command" || announced[0].ID != "call_1" {
+		t.Errorf("first announcement = %+v, want the name and id of the call", announced[0])
+	}
+	if announced[0].InputJSON != "" {
+		t.Errorf("first announcement carries arguments %q; they have not streamed yet", announced[0].InputJSON)
+	}
+	// One name, however many argument deltas follow it.
+	named := 0
+	for _, tc := range announced {
+		if tc.InputJSON == "" {
+			named++
+		}
+	}
+	if named != 1 {
+		t.Errorf("announced the name %d times, want once", named)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].InputJSON != `{"command":"ls"}` {
+		t.Fatalf("response tool calls = %+v, want one complete call", resp.ToolCalls)
+	}
+}
+
+// anthropicStreamStub serves a verbatim Anthropic SSE payload and returns an
+// unwrapped provider pointed at it.
+func anthropicStreamStub(t *testing.T, sse string) (*anthropicProvider, func()) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, sse)
+	}))
+	return newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), srv.Close
+}
+
+const anthropicStreamPrefix = "event: message_start\n" +
+	"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"test-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\n" +
+	"event: content_block_start\n" +
+	"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+	"event: content_block_delta\n" +
+	"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Paris\"}}\n\n"
+
+// TestAnthropicStreamTruncatedKeepsPartial mirrors the openai-path contract
+// on the anthropic path: a stream that ends without a terminal message_delta
+// fails with a truncation error while the delivered text is preserved.
+func TestAnthropicStreamTruncatedKeepsPartial(t *testing.T) {
+	p, done := anthropicStreamStub(t, anthropicStreamPrefix)
+	defer done()
+
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if isRetryableLLMError(err) {
+		t.Error("truncation after emitted deltas must not be retryable")
+	}
+	if resp == nil || resp.Content != "Paris" {
+		t.Fatalf("resp = %+v, want partial content %q preserved", resp, "Paris")
+	}
+}
+
+// TestAnthropicStreamWithTerminalEventSucceeds guards the healthy anthropic
+// path around the truncation check: a stream closed after message_delta and
+// message_stop is a normal end_turn response.
+func TestAnthropicStreamWithTerminalEventSucceeds(t *testing.T) {
+	p, done := anthropicStreamStub(t, anthropicStreamPrefix+
+		"event: content_block_stop\n"+
+		"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+		"event: message_delta\n"+
+		"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"+
+		"event: message_stop\n"+
+		"data: {\"type\":\"message_stop\"}\n\n")
+	defer done()
+
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if resp == nil || resp.Content != "Paris" || resp.StopReason != "end_turn" {
+		t.Fatalf("resp = %+v, want complete end_turn with %q", resp, "Paris")
+	}
+}
+
+// TestProviderTimeoutBoundsRequest verifies that providers[].timeout_ms
+// reaches the HTTP client: a hung upstream fails within the configured
+// bound instead of waiting forever, and the timeout is not retried (the
+// caller's budget is spent).
+func TestProviderTimeoutBoundsRequest(t *testing.T) {
+	release := make(chan struct{})
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		<-release
+	}))
+	// LIFO: release the parked handler first so srv.Close can finish.
+	defer srv.Close()
+	defer close(release)
+
+	prov, err := NewProvider(ProviderInput{
+		Type:          "openai",
+		Model:         "test-model",
+		BaseURL:       srv.URL,
+		Timeout:       100 * time.Millisecond,
+		RetryMax:      2,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	start := time.Now()
+	_, err = prov.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("call took %v, want the 100ms client timeout to cut it", elapsed)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("upstream requests = %d, want 1 (client timeouts are not retried)", got)
+	}
+}
+
+// --- prompt cache accounting ------------------------------------------------
+//
+// The share of a request a provider served from its cache is what says whether
+// the request prefix is stable. It used to be dropped on the floor, so a cache
+// miss was invisible.
+
+func openAIStubProvider(t *testing.T, handler http.HandlerFunc) Provider {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	p, err := NewProvider(ProviderInput{
+		Type:          "openai",
+		Model:         "test-model",
+		BaseURL:       srv.URL,
+		RetryMax:      1,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("create openai provider: %v", err)
+	}
+	return p
+}
+
+func TestOpenAIStreamReportsCachedInputTokens(t *testing.T) {
+	const script = "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"}}],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"delta\":{}}],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\",\"usage\":{\"prompt_tokens\":6044,\"completion_tokens\":12,\"total_tokens\":6056,\"prompt_tokens_details\":{\"cached_tokens\":5120}}}\n\n" +
+		"data: [DONE]\n\n"
+
+	p := openAIStubProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, script)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hello"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if resp.InputTokens != 6044 || resp.OutputTokens != 12 {
+		t.Fatalf("token counts: in=%d out=%d", resp.InputTokens, resp.OutputTokens)
+	}
+	if resp.CachedInputTokens != 5120 {
+		t.Fatalf("cached input tokens: got %d, want 5120", resp.CachedInputTokens)
+	}
+}
+
+// A server that reports no details at all must not look like a full miss in a
+// way that crashes or invents a number: the field simply stays zero.
+func TestOpenAIStreamWithoutUsageDetailsReportsZeroCached(t *testing.T) {
+	const script = "data: {\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"}}],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\",\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12}}\n\n" +
+		"data: [DONE]\n\n"
+
+	p := openAIStubProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, script)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hello"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if resp.CachedInputTokens != 0 {
+		t.Fatalf("cached input tokens: got %d, want 0", resp.CachedInputTokens)
+	}
+}
+
+func TestOpenAICompletionReportsCachedInputTokens(t *testing.T) {
+	body := map[string]interface{}{
+		"id":      "c1",
+		"object":  "chat.completion",
+		"model":   "test-model",
+		"choices": []interface{}{map[string]interface{}{"index": 0, "finish_reason": "stop", "message": map[string]interface{}{"role": "assistant", "content": "hi"}}},
+		"usage": map[string]interface{}{
+			"prompt_tokens":         900,
+			"completion_tokens":     4,
+			"total_tokens":          904,
+			"prompt_tokens_details": map[string]interface{}{"cached_tokens": 768},
+		},
+	}
+	p := openAIStubProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := p.Complete(ctx, []Message{{Role: RoleUser, Content: "hello"}}, nil)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if resp.CachedInputTokens != 768 {
+		t.Fatalf("cached input tokens: got %d, want 768", resp.CachedInputTokens)
+	}
+}
+
+// --- fallback.go: a chain of models that moves on only before any output ---
+
+func TestFallbackChainMovesToTheNextModelWhenACallFailsBeforeOutput(t *testing.T) {
+	broken := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			return nil, errors.New("401 Unauthorized")
+		},
+		completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+			return nil, errors.New("401 Unauthorized")
+		},
+	}
+	healthy := &stubProvider{
+		streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+			onChunk(StreamChunk{TextDelta: "hello"})
+			return &Response{Content: "hello", StopReason: "end_turn"}, nil
+		},
+		completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+			return &Response{Content: "hello", StopReason: "end_turn"}, nil
+		},
+	}
+	var moves []string
+	chain := NewFallbackChain([]FallbackCandidate{
+		{Provider: broken, Model: "a/broken"},
+		{Provider: healthy, Model: "b/healthy"},
+	}, func(from, to string, err error) { moves = append(moves, from+"->"+to+": "+err.Error()) })
+
+	var streamed strings.Builder
+	resp, err := chain.Stream(context.Background(), nil, nil, func(ch StreamChunk) { streamed.WriteString(ch.TextDelta) })
+	if err != nil || resp == nil || resp.Content != "hello" {
+		t.Fatalf("Stream = %+v, %v; want the healthy model's answer", resp, err)
+	}
+	if streamed.String() != "hello" {
+		t.Fatalf("streamed %q, want only the healthy model's text", streamed.String())
+	}
+	if resp, err := chain.Complete(context.Background(), nil, nil); err != nil || resp.Content != "hello" {
+		t.Fatalf("Complete = %+v, %v; want the healthy model's answer", resp, err)
+	}
+	if len(moves) != 2 || !strings.HasPrefix(moves[0], "a/broken->b/healthy: 401") {
+		t.Fatalf("fallback log = %v, want one move per call from a/broken to b/healthy", moves)
+	}
+}
+
+func TestFallbackChainDoesNotJumpModelsAfterOutputWasStreamed(t *testing.T) {
+	partial := &stubProvider{
+		streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+			onChunk(StreamChunk{TextDelta: "half an ans"})
+			return &Response{Content: "half an ans"}, errors.New("stream closed mid-answer")
+		},
+	}
+	nextCalled := false
+	next := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			nextCalled = true
+			return &Response{Content: "a second answer"}, nil
+		},
+	}
+	chain := NewFallbackChain([]FallbackCandidate{{Provider: partial, Model: "a"}, {Provider: next, Model: "b"}}, nil)
+	resp, err := chain.Stream(context.Background(), nil, nil, func(StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "mid-answer") {
+		t.Fatalf("a stream that broke after output must fail as it did, got %v", err)
+	}
+	if resp == nil || resp.Content != "half an ans" {
+		t.Fatalf("the partial response must travel with the error, got %+v", resp)
+	}
+	if nextCalled {
+		t.Fatal("the next model must not answer a request the first one already streamed")
+	}
+}
+
+func TestFallbackChainStopsAtACancelledCallerAndAtTheLastModel(t *testing.T) {
+	calls := 0
+	failing := func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+		calls++
+		return nil, errors.New("503")
+	}
+	a := &stubProvider{completeFn: failing}
+	b := &stubProvider{completeFn: failing}
+	chain := NewFallbackChain([]FallbackCandidate{{Provider: a, Model: "a"}, {Provider: b, Model: "b"}}, nil)
+
+	if _, err := chain.Complete(context.Background(), nil, nil); err == nil || calls != 2 {
+		t.Fatalf("both models must be tried and the last error returned, got %v after %d calls", err, calls)
+	}
+
+	calls = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelling := &stubProvider{completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+		calls++
+		cancel()
+		return nil, context.Canceled
+	}}
+	chain = NewFallbackChain([]FallbackCandidate{{Provider: cancelling, Model: "a"}, {Provider: b, Model: "b"}}, nil)
+	if _, err := chain.Complete(ctx, nil, nil); err == nil || calls != 1 {
+		t.Fatalf("a cancelled caller must not move to the next model, got %v after %d calls", err, calls)
+	}
+}
+
+func TestFallbackChainOfOneIsTheProviderItself(t *testing.T) {
+	only := &stubProvider{}
+	if got := NewFallbackChain([]FallbackCandidate{{Provider: only, Model: "a"}, {Provider: nil, Model: "dropped"}}, nil); got != Provider(only) {
+		t.Fatalf("a chain of one must be the provider itself, got %T", got)
+	}
+	if got := NewFallbackChain(nil, nil); got != nil {
+		t.Fatalf("an empty chain must be nil, got %T", got)
 	}
 }

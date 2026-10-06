@@ -17,7 +17,7 @@ const workspaceFilesMaxEntries = 50000
 
 func workspaceSkipSubtree(name string) bool {
 	switch name {
-	case ".git", "node_modules", ".foxxycode":
+	case ".git", ".svn", "node_modules", ".foxxycode":
 		return true
 	default:
 		return false
@@ -143,7 +143,7 @@ func (s *Server) foxxycodeWorkspaceFilesGet(w http.ResponseWriter, r *http.Reque
 		includeDirs = true
 	}
 
-	cwdAbs, ok := s.resolveSlashListCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

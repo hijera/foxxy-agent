@@ -3,10 +3,14 @@ import { createPortal } from "react-dom";
 import {
   branchChipVisible,
   folderChipLabel,
+  isSvnFolderCheckoutActive,
   isWorktreeBadgeActive,
   pathBasename,
   pathParent,
   sortedBranches,
+  sortedSvnBranches,
+  svnBranchLabel,
+  svnChipVisible,
   type WorkspaceContext,
 } from "./workspaceContext";
 import {
@@ -27,20 +31,25 @@ import { useT } from "../i18n/I18nProvider";
 type Props = {
   context: WorkspaceContext | null;
   worktreePref: boolean;
+  svnFolderPref: boolean;
   onPickFolder: (path: string) => void;
   onPickBranch: (branch: string, worktree: boolean) => void;
   onWorktreeToggle: () => void;
+  onPickSvnBranch: (branch: string, separateFolder: boolean) => void;
+  onSvnFolderToggle: () => void;
   // Anchored dropdown direction; the docked composer opens the menu upward.
   opensUp?: boolean;
   // The workspace is chosen once: locked as soon as the conversation starts.
   locked?: boolean;
 };
 
-type MenuKind = "folder" | "branch" | null;
+type MenuKind = "folder" | "branch" | "svn" | null;
 
 // WorkspaceChips renders the workspace context row above the composer field:
 // a folder chip (recent folders + "Open folder…" browser), a branch chip
-// (branch list inside git repos), and a worktree checkbox.
+// (branch list inside git repos), a worktree checkbox, and — when an svn
+// working copy is detected — an SVN chip with its own branch list and a
+// separate-folder checkbox (Subversion's equivalent of a worktree).
 export function WorkspaceChips(props: Props) {
   const { t } = useT();
   const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
@@ -114,10 +123,17 @@ export function WorkspaceChips(props: Props) {
 
   const showBranch = branchChipVisible(ctx);
   const worktreeActive = isWorktreeBadgeActive(ctx, props.worktreePref);
+  const showSvn = svnChipVisible(ctx);
+  const svnFolderActive = isSvnFolderCheckoutActive(ctx, props.svnFolderPref);
+  const svnLabel = svnBranchLabel(ctx, t("composer.workspace.svnWorkingCopy"));
+  const svnRevision = ctx.svn?.revision || 0;
+  const svnTitle = svnRevision
+    ? `${ctx.svn?.url || svnLabel} @ r${svnRevision}`
+    : ctx.svn?.url || svnLabel;
 
-  // In an editor embed with the folder chip hidden and no branch/worktree chips
-  // (non-git workspace) there is nothing left to show — skip the empty row.
-  if (hideFolderChip && !showBranch) {
+  // In an editor embed with the folder chip hidden and no branch/worktree/svn
+  // chips (plain workspace) there is nothing left to show — skip the empty row.
+  if (hideFolderChip && !showBranch && !showSvn) {
     return null;
   }
 
@@ -188,6 +204,45 @@ export function WorkspaceChips(props: Props) {
         </label>
       ) : null}
 
+      {showSvn ? (
+        <button
+          type="button"
+          className="workspace-chip"
+          data-testid="composer-svn-chip"
+          title={svnTitle}
+          aria-haspopup="menu"
+          disabled={locked}
+          onClick={(e) => toggleMenu("svn", e.currentTarget)}
+        >
+          <span className="workspace-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+              <path d="M8 1.5 2.5 4v8L8 14.5 13.5 12V4L8 1.5Zm0 1.65 3.9 1.77L8 6.7 4.1 4.92 8 3.15ZM3.75 5.9 7.4 7.56v5.06L3.75 11V5.9Zm4.85 6.72V7.56L12.25 5.9V11L8.6 12.62Z" />
+            </svg>
+          </span>
+          <span className="workspace-chip-label">{svnLabel}</span>
+        </button>
+      ) : null}
+
+      {showSvn ? (
+        <label
+          className={`workspace-chip workspace-chip--check ${svnFolderActive ? "is-active" : ""} ${locked ? "is-locked" : ""}`}
+          data-testid="composer-svn-folder-chip"
+          title={t("composer.workspace.svnFolderToggleTitle")}
+        >
+          <input
+            type="checkbox"
+            className="workspace-chip-checkbox"
+            data-testid="composer-svn-folder-checkbox"
+            checked={svnFolderActive}
+            disabled={locked}
+            onChange={() => props.onSvnFolderToggle()}
+          />
+          <span className="workspace-chip-label">
+            {t("composer.workspace.svnFolder")}
+          </span>
+        </label>
+      ) : null}
+
       {menuOpen && (menuUseSheet || menuAnchorRect)
         ? createPortal(
             <>
@@ -207,7 +262,9 @@ export function WorkspaceChips(props: Props) {
                 data-testid={
                   menuOpen === "folder"
                     ? "workspace-folder-menu"
-                    : "workspace-branch-menu"
+                    : menuOpen === "svn"
+                      ? "workspace-svn-menu"
+                      : "workspace-branch-menu"
                 }
                 style={menuStyle}
               >
@@ -280,6 +337,33 @@ export function WorkspaceChips(props: Props) {
                     {(ctx.branches || []).length === 0 ? (
                       <div className="mode-menu-empty">
                         {t("composer.workspace.noBranches")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {menuOpen === "svn" ? (
+                  <div className="mode-menu-scroll">
+                    {sortedSvnBranches(ctx).map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        role="menuitem"
+                        title={b}
+                        className={`mode-item ${b === ctx.svn?.branch ? "is-selected" : ""}`}
+                        data-testid={`workspace-svn-branch-row-${b}`}
+                        onClick={() => {
+                          if (b !== ctx.svn?.branch || props.svnFolderPref) {
+                            props.onPickSvnBranch(b, props.svnFolderPref);
+                          }
+                          closeMenu();
+                        }}
+                      >
+                        {b}
+                      </button>
+                    ))}
+                    {(ctx.svn?.branches || []).length === 0 ? (
+                      <div className="mode-menu-empty">
+                        {t("composer.workspace.svnNoBranches")}
                       </div>
                     ) : null}
                   </div>

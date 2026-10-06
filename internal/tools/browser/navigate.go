@@ -63,7 +63,7 @@ func (m *Manager) executeNavigate(_ context.Context, argsJSON string, env *tooli
 // validateNavigateURL requires an http(s) URL without embedded credentials.
 // Unlike the webfetch SSRF guard it permits localhost/loopback/private hosts,
 // because driving a local dev server is the primary use case for the browser tool
-// (which is itself opt-in behind the browser build tag and browser.enabled).
+// (which is itself opt-in behind the browser build tag and browser.enable).
 func validateNavigateURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

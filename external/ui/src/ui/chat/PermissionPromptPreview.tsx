@@ -1,9 +1,23 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { BrowserAction, BrowserIcon } from "../messages/BrowserAction";
+import { SvnAction, SvnIcon } from "../messages/SvnAction";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
+import {
+  serverSnapshotHostShell,
+  snapshotHostShell,
+  subscribeHostShell,
+} from "./hostShell";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
@@ -58,8 +72,184 @@ function DiffPreview({
   );
 }
 
-function PreviewBody({ preview }: { preview: Preview }) {
+// i18n keys per todo entry status; the fork localizes every visible string.
+const todoStatusLabelKey: Record<string, string> = {
+  pending: "todoPreview.status.pending",
+  in_progress: "todoPreview.status.inProgress",
+  completed: "todoPreview.status.completed",
+  failed: "todoPreview.status.failed",
+  cancelled: "todoPreview.status.cancelled",
+};
+
+export function todoStatusMark(status: string): string {
+  switch (status) {
+    case "completed":
+      return "✓";
+    case "failed":
+      return "×";
+    case "cancelled":
+      return "−";
+    default:
+      return "";
+  }
+}
+
+function TodoPreview({
+  preview,
+}: {
+  preview: Extract<Preview, { kind: "todo" }>;
+}) {
+  const { t } = useT();
+  return (
+    <ul className="todo-tool-preview-list" aria-label={preview.header}>
+      {preview.entries.map((entry, index) => {
+        const status = t(
+          todoStatusLabelKey[entry.status] ?? "todoPreview.status.pending",
+        );
+        return (
+          <li
+            key={`${index}-${entry.status}-${entry.content}`}
+            className={`todo-tool-preview-row todo-tool-preview-row--${entry.status}`}
+            aria-label={`${status}: ${entry.content}`}
+          >
+            <span className="todo-tool-preview-mark" aria-hidden="true">
+              {todoStatusMark(entry.status)}
+            </span>
+            <span className="todo-tool-preview-content">{entry.content}</span>
+            {entry.status === "in_progress" ? (
+              <span className="todo-tool-preview-status">{status}</span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PlanExitPreview({ completed }: { completed: boolean }) {
+  const { t } = useT();
+  return (
+    <div
+      className={[
+        "plan-exit-preview",
+        completed && "plan-exit-preview--completed",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      role="status"
+    >
+      <span className="plan-exit-preview-icon" aria-hidden="true">
+        {completed ? "✓" : "→"}
+      </span>
+      <div className="plan-exit-preview-copy">
+        <div className="plan-exit-preview-modes" aria-hidden="true">
+          <span className="plan-exit-preview-mode">
+            {t("planExit.preview.planMode")}
+          </span>
+          <span className="plan-exit-preview-arrow">→</span>
+          <span className="plan-exit-preview-mode plan-exit-preview-mode--agent">
+            {t("planExit.preview.agentMode")}
+          </span>
+        </div>
+        <div className="plan-exit-preview-message">
+          {t(
+            completed
+              ? "planExit.preview.completed"
+              : "planExit.preview.inProgress",
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A call that takes no input. It has nothing to preview, so it states the action and
+ *  where that action stands, in the same bar every other tool card opens with and with
+ *  the status mark the todo rows use - one family, one shape. */
+function ActionPreview({
+  preview,
+  status,
+}: {
+  preview: Extract<Preview, { kind: "action" }>;
+  status: string;
+}) {
+  const { t } = useT();
+  const settled = ["completed", "failed", "cancelled"].includes(status)
+    ? status
+    : "in_progress";
+  const detailKey =
+    settled === "completed"
+      ? "toolAction.done"
+      : settled === "failed"
+        ? "toolAction.failed"
+        : settled === "cancelled"
+          ? "toolAction.cancelled"
+          : "toolAction.running";
+  // A permission gate has no status to report: the call has not started, and claiming
+  // it is running would be the opposite of what the operator is being asked.
+  const showState = status !== "";
+  return (
+    <div
+      className="permission-preview-bar permission-preview-bar--standalone"
+      data-testid="tool-action-preview"
+      role="status"
+      aria-label={t("toolAction.ariaLabel")}
+    >
+      <span
+        className={`todo-tool-preview-mark todo-tool-preview-mark--${settled}`}
+        aria-hidden="true"
+      >
+        {todoStatusMark(settled)}
+      </span>
+      <div className="permission-preview-location" title={preview.header}>
+        {preview.header}
+      </div>
+      {showState ? (
+        <div className="permission-preview-meta">
+          <span>{t(detailKey)}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The command as an input line: prompt, the command itself, and the control that
+ *  copies it, all inside the one block - not in the card header above it. */
+function ShellPreview({
+  preview,
+  copyTestId,
+}: {
+  preview: Extract<Preview, { kind: "shell" }>;
+  copyTestId: string;
+}) {
+  return (
+    <div className="permission-preview-shell">
+      <span className="permission-preview-shell-prompt" aria-hidden="true">
+        $
+      </span>
+      <pre className="permission-preview-shell-code">{preview.text}</pre>
+      <CodeBlockCopyButton textToCopy={preview.text} dataTestId={copyTestId} />
+    </div>
+  );
+}
+
+function PreviewBody({
+  preview,
+  completed = false,
+  copyTestId,
+}: {
+  preview: Preview;
+  completed?: boolean;
+  copyTestId: string;
+}) {
   if (preview.kind === "diff") return <DiffPreview preview={preview} />;
+  if (preview.kind === "todo") return <TodoPreview preview={preview} />;
+  if (preview.kind === "shell") {
+    return <ShellPreview preview={preview} copyTestId={copyTestId} />;
+  }
+  if (preview.kind === "plan_exit") {
+    return <PlanExitPreview completed={completed} />;
+  }
   if (preview.kind === "move") {
     return (
       <div className="permission-preview-move">
@@ -78,18 +268,49 @@ function PreviewBody({ preview }: { preview: Preview }) {
 export function PermissionToolPreview({
   preview,
   interactive = true,
+  overflowControls = false,
+  toolStatus,
 }: {
   preview: Preview;
-  /** Transcript foldouts render the full preview and omit nested controls. */
+  /** Permission prompts include copy and overflow controls. */
   interactive?: boolean;
+  /** Selected transcript previews keep overflow controls without adding copy. */
+  overflowControls?: boolean;
+  /** Transcript rows can distinguish an in-flight transition from a completed one. */
+  toolStatus?: string | undefined;
 }) {
   const { t } = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
+  const status = (toolStatus || "").toLowerCase();
+  // A local shell card names the interpreter the server actually runs (/usr/bin/bash)
+  // rather than the word "Shell". A remote one runs somebody else's shell, and a server
+  // that reports none keeps the generic label.
+  const hostShell = useSyncExternalStore(
+    subscribeHostShell,
+    snapshotHostShell,
+    serverSnapshotHostShell,
+  );
+  const barHeader =
+    preview.kind === "shell" && preview.toolName.toLowerCase() === "run_command"
+      ? hostShell || preview.header
+      : preview.header;
+  // A shell command carries its own copy control inside the command block, so the
+  // header never gets a second one.
+  const copyTestId = interactive ? "permission-prompt-copy" : "tool-preview-copy";
   const hasBody =
     preview.kind !== "path" &&
     !(preview.kind === "diff" && preview.lines.length === 0);
+  // A call whose arguments name nothing - background_output takes a task id and
+  // a line count, no path and no command - leaves the header bar with no text,
+  // no meta and no copy control, and an empty bar is a 34px strip of border
+  // above the body. The body then carries the whole card on its own.
+  const barHasContent =
+    barHeader.trim() !== "" ||
+    preview.meta.length > 0 ||
+    (interactive && !!preview.copyText && preview.kind !== "shell");
+  const canToggleOverflow = interactive || overflowControls;
   const previewIdentity = [
     preview.toolName,
     preview.header,
@@ -97,56 +318,127 @@ export function PermissionToolPreview({
   ].join("\0");
 
   const measure = useCallback(() => {
-    if (!interactive || expanded) return;
+    if (!canToggleOverflow || expanded) return;
     const node = viewportRef.current;
     if (!node) {
       setOverflows(false);
       return;
     }
     setOverflows(node.scrollHeight > node.clientHeight + 1);
-  }, [expanded, interactive]);
+  }, [canToggleOverflow, expanded]);
 
   useLayoutEffect(() => {
-    if (interactive) setExpanded(false);
-  }, [interactive, previewIdentity]);
+    if (canToggleOverflow) setExpanded(false);
+  }, [canToggleOverflow, previewIdentity]);
 
   useLayoutEffect(() => {
-    if (!interactive || !hasBody || expanded) return;
+    if (!canToggleOverflow || !hasBody || expanded) return;
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
     const node = viewportRef.current;
-    if (node) observer.observe(node);
-    return () => observer.disconnect();
-  }, [expanded, hasBody, interactive, measure, previewIdentity]);
+    // Transcript foldouts keep the body display:none until the <details> opens;
+    // the mount-time measure then sees zero heights. Re-measure on the toggle
+    // event itself, because not every engine reports the un-hide as a resize.
+    const details = node ? node.closest("details") : null;
+    if (details) details.addEventListener("toggle", measure);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      if (node) observer.observe(node);
+    }
+    return () => {
+      if (details) details.removeEventListener("toggle", measure);
+      observer?.disconnect();
+    };
+  }, [canToggleOverflow, expanded, hasBody, measure, previewIdentity]);
 
-  const viewportMode = !interactive ? "static" : expanded ? "scroll" : "clip";
+  const viewportMode = !canToggleOverflow
+    ? "static"
+    : expanded
+      ? "scroll"
+      : "clip";
+
+  if (preview.kind === "browser") {
+    return (
+      <div className="permission-preview browser-permission-preview">
+        <div className="permission-preview-bar">
+          <BrowserIcon />
+          <span>{preview.header}</span>
+        </div>
+        <BrowserAction
+          name={preview.toolName}
+          argsText={preview.argsText}
+          resultText=""
+          status="pending"
+          sessionId=""
+        />
+      </div>
+    );
+  }
+
+  if (preview.kind === "svn") {
+    return (
+      <div className="permission-preview svn-permission-preview">
+        <div className="permission-preview-bar">
+          <SvnIcon />
+          <span>{preview.header}</span>
+        </div>
+        <SvnAction
+          name={preview.toolName}
+          argsText={preview.argsText}
+          resultText=""
+          status="pending"
+          permissionWaiting
+        />
+      </div>
+    );
+  }
+
+  if (preview.kind === "action") {
+    return (
+      <div className="permission-preview">
+        <ActionPreview preview={preview} status={status} />
+      </div>
+    );
+  }
+
+  if (!barHasContent && !hasBody) {
+    return null;
+  }
 
   return (
-    <div className="permission-preview">
-      <div
-        className={
-          "permission-preview-bar" +
-          (hasBody ? "" : " permission-preview-bar--standalone")
-        }
-      >
-        <div className="permission-preview-location" title={preview.header}>
-          {preview.header}
-        </div>
-        {preview.meta.length > 0 ? (
-          <div className="permission-preview-meta">
-            {preview.meta.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
+    // The marker says the body is a command block, which carries its own inset:
+    // the stylesheet cannot ask with :has() on the Chromium 104 baseline.
+    <div
+      className={
+        "permission-preview" +
+        (preview.kind === "shell" ? " permission-preview--shell" : "")
+      }
+    >
+      {barHasContent ? (
+        <div
+          className={
+            "permission-preview-bar" +
+            (hasBody ? "" : " permission-preview-bar--standalone")
+          }
+        >
+          <div className="permission-preview-location" title={barHeader}>
+            {barHeader}
           </div>
-        ) : null}
-        {interactive && preview.copyText ? (
-          <CodeBlockCopyButton
-            textToCopy={preview.copyText}
-            dataTestId="permission-prompt-copy"
-          />
-        ) : null}
-      </div>
+          {preview.meta.length > 0 ? (
+            <div className="permission-preview-meta">
+              {preview.meta.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </div>
+          ) : null}
+          {interactive && preview.copyText && preview.kind !== "shell" ? (
+            <CodeBlockCopyButton
+              textToCopy={preview.copyText}
+              dataTestId={copyTestId}
+            />
+          ) : null}
+        </div>
+      ) : null}
       {hasBody ? (
         <>
           <div
@@ -154,22 +446,35 @@ export function PermissionToolPreview({
             className={[
               "permission-preview-viewport",
               `permission-preview-viewport--${viewportMode}`,
+              barHasContent ? "" : "permission-preview-viewport--headless",
             ]
               .filter(Boolean)
               .join(" ")}
             data-testid="permission-preview-viewport"
           >
-            <PreviewBody preview={preview} />
-            {interactive && overflows && !expanded ? (
+            <PreviewBody
+              preview={preview}
+              completed={status === "completed"}
+              copyTestId={copyTestId}
+            />
+            {canToggleOverflow && overflows && !expanded ? (
               <span className="permission-preview-fade" aria-hidden />
             ) : null}
           </div>
-          {interactive && overflows ? (
+          {canToggleOverflow && overflows ? (
             <button
               type="button"
               className="tool-overflow-toggle"
               aria-expanded={expanded}
-              onClick={() => setExpanded((value) => !value)}
+              data-testid={expanded ? "tool-preview-less" : "tool-preview-more"}
+              onClick={(e) => {
+                e.preventDefault();
+                // Collapsing keeps the scrolled position, so reset it before clipping.
+                if (expanded && viewportRef.current) {
+                  viewportRef.current.scrollTop = 0;
+                }
+                setExpanded((value) => !value);
+              }}
             >
               {expanded ? t("messages.toolLess") : t("messages.toolMore")}
             </button>
