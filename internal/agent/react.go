@@ -1609,6 +1609,26 @@ func (a *Agent) runReActLoop(
 		// Returning here would dead-end the conversation on a lone "thinking" bubble, so
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
+			// The recovery backstop also watches a resuming turn's answers: a
+			// new answer resets the persisted repeat window, an unchanged one
+			// earns a single loop correction and then stops the turn. A fresh
+			// in-process turn stays with the loop guard above.
+			if recovering && strings.TrimSpace(response.Content) != "" {
+				checkpoint.Observe(session.ObservationHash("assistant", strings.Join(strings.Fields(response.Content), " ")))
+				if err := checkpoint.Save(sd); err != nil {
+					return string(acp.StopReasonRefused), err
+				}
+				if checkpoint.Repeats >= 3 {
+					checkpoint.Status = "no_progress"
+					if err := checkpoint.Save(sd); err != nil {
+						return string(acp.StopReasonRefused), err
+					}
+					return string(acp.StopReasonRefused), fmt.Errorf("no progress: repeated unchanged responses after a loop correction")
+				}
+				if checkpoint.Repeats == 2 {
+					continue
+				}
+			}
 			// First recovery is the plain replay: drop the empty turn from the
 			// LLM-facing slice so the request going out is byte for byte the one
 			// that failed, and let the proxy hand it to another deployment. The
@@ -1789,8 +1809,15 @@ func (a *Agent) runReActLoop(
 		if err := checkpoint.Save(sd); err != nil {
 			return string(acp.StopReasonRefused), err
 		}
-		if checkpoint.Repeats >= 3 {
+		// The deterministic repetition verdict is a recovery backstop only: it
+		// judges a turn that resumed an interrupted or limited execution, whose
+		// persisted window already shows the repeats. A fresh in-process turn is
+		// the loop guard's jurisdiction (nudges, quarantine, the cycle notice).
+		if recovering && checkpoint.Repeats >= 3 {
 			checkpoint.Status = "no_progress"
+			if err := checkpoint.Save(sd); err != nil {
+				return string(acp.StopReasonRefused), err
+			}
 			return string(acp.StopReasonRefused), fmt.Errorf("no progress: repeated unchanged tool results after a loop correction")
 		}
 		// The model folded its own history: the transcript the loop replays is

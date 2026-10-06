@@ -47,10 +47,14 @@ func stallingHubAgent(t *testing.T, srv *httptest.Server, tune func(*config.Agen
 	if tune != nil {
 		tune(&agentCfg)
 	}
+	// These tests count the turn's own requests; the off-hot-path session-title
+	// pass would race the assertion with an extra one, so it stays off here.
+	titleOff := false
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "stub", Type: "openai", APIKey: "test", APIBase: srv.URL}},
 		Models:    []config.ModelEntry{{Model: "stub/model", MaxTokens: 100}},
 		Agent:     agentCfg,
+		Title:     config.TitleConfig{Enabled: &titleOff},
 	}
 	st := &session.State{ID: "sess_stall", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
 	return NewAgent(cfg, st, &loopGuardSender{}, nil), st

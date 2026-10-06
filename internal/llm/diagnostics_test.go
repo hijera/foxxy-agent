@@ -44,7 +44,9 @@ func TestDiagnosticsDoesNotLogSensitiveErrorOrURL(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsShowsSDKRetry(t *testing.T) {
+func TestDiagnosticsShowsRetry(t *testing.T) {
+	// The SDK's own retries are disabled (WithMaxRetries(0)); the retry the
+	// diagnostics see is the resilient wrapper's around the same transport.
 	for _, kind := range []string{"openai", "anthropic"} {
 		t.Run(kind, func(t *testing.T) {
 			var output bytes.Buffer
@@ -73,7 +75,7 @@ func TestDiagnosticsShowsSDKRetry(t *testing.T) {
 			if _, err := p.Complete(ctx, nil, nil); err != nil {
 				t.Fatal(err)
 			}
-			if calls != 2 || !strings.Contains(output.String(), "sdk_retry=1") || !strings.Contains(output.String(), "status=503") {
+			if calls != 2 || !strings.Contains(output.String(), "llm.retry.wait") || !strings.Contains(output.String(), "status=503") {
 				t.Fatalf("retry missing: calls=%d log=%s", calls, output.String())
 			}
 		})

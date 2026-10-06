@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -199,9 +200,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	}
 
 	if err := stream.Err(); err != nil {
-		if fullContent != "" || thinkingBuf.Len() > 0 || len(toolUseMap) > 0 {
+		if errors.Is(err, context.Canceled) {
 			partialTools := finalizeAnthropicToolUses()
-			if fullContent != "" || thinkingBuf.Len() > 0 || len(partialTools) > 0 {
+			if strings.TrimSpace(fullContent) != "" || len(partialTools) > 0 {
 				sr := stopReason
 				if sr == "" {
 					if len(partialTools) > 0 {

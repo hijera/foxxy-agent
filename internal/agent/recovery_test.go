@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -12,32 +11,23 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
-type partialFailureProvider struct{}
-
-func (partialFailureProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
-	return nil, nil
-}
-func (partialFailureProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, send func(llm.StreamChunk)) (*llm.Response, error) {
-	send(llm.StreamChunk{TextDelta: "Already explained this step"})
-	return &llm.Response{Content: "Already explained this step"}, errors.New("503 Service Unavailable")
-}
-
+// TestPartialFailurePersistsAnswerAndRecoveryState drives the failure through a
+// real HTTP stream that dies mid-answer (the shape the fork's typed stream
+// errors describe): the partial answer the user watched stays in the
+// transcript, and the execution checkpoint records the interruption.
 func TestPartialFailurePersistsAnswerAndRecoveryState(t *testing.T) {
-	s := &recoveryFeature{t: t}
-	if err := s.setup(true); err != nil {
-		t.Fatal(err)
+	srv, _ := stallingHub(t)
+	off := false
+	ag, st := stallingHubAgent(t, srv, func(a *config.Agent) { a.LLMContinue = &off })
+	_, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	if err == nil || !strings.Contains(err.Error(), "200ms") {
+		t.Fatalf("the turn must end with the stall naming the idle time, got err=%v", err)
 	}
-	ag := NewAgent(&config.Config{Providers: []config.ProviderConfig{{Name: "fake", Type: "openai"}}, Models: []config.ModelEntry{{Model: "fake/model"}}, Agent: config.Agent{Model: "fake/model"}}, s.st, resumePermissionSender{}, nil)
-	ag.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return partialFailureProvider{}, nil })
-	_, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "continue"}})
-	if err == nil {
-		t.Fatal("missing failure")
-	}
-	msgs := s.st.GetMessages()
-	if len(msgs) != 2 || msgs[1].Content != "Already explained this step" {
+	msgs := st.GetMessages()
+	if len(msgs) != 2 || msgs[1].Content != "Hello fr" {
 		t.Fatalf("lost partial answer: %+v", msgs)
 	}
-	cp, err := session.ReadExecutionCheckpoint(s.st.SessionDir)
+	cp, err := session.ReadExecutionCheckpoint(st.SessionDir)
 	if err != nil || cp.Status != "interrupted" {
 		t.Fatalf("checkpoint=%+v err=%v", cp, err)
 	}
