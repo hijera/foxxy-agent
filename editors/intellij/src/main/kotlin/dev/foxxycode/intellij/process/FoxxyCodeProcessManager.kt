@@ -76,18 +76,14 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     @Synchronized
     private fun startAndWait(indicator: ProgressIndicator): String {
         baseUrl?.let { if (isRunning) return it }
-<<<<<<< HEAD
         val started = System.nanoTime()
         fun stage(name: String) = log.info("[foxxycode] startup stage=$name elapsed_ms=${(System.nanoTime() - started) / 1_000_000}")
         stage("start")
-        stopInternal()
-=======
         signalStop()
         // A backend still holding the port would make the fresh one die on bind, and on Windows
         // one still holding its image file would block the next plugin update. This is the
         // background task, so waiting here is free.
         awaitTerminated(RESTART_WAIT_MS)
->>>>>>> origin/main
 
         val settings = FoxxyCodeSettings.getInstance().state
         // The first launch after a plugin update copies the binary out of the plugin directory,
@@ -122,11 +118,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())
-<<<<<<< HEAD
         stage("process_launch_start")
-        val h = OSProcessHandler(cmd)
-        stage("process_launch_end")
-=======
         recentOutput.clear()
         // The backend is a long-running server that prints almost nothing after startup. The
         // default reader polls it as if output were imminent, which the IDE itself warns about
@@ -141,7 +133,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         // off, destroyProcess() goes straight to the recursive kill, which also takes down the
         // shells and MCP servers the backend spawned.
         h.setShouldKillProcessSoftly(false)
->>>>>>> origin/main
+        stage("process_launch_end")
         h.addProcessListener(object : ProcessAdapter() {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
                 val line = event.text.trimEnd()
