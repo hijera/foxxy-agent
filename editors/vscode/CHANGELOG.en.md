@@ -8,7 +8,18 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-30
+## Unreleased — 2026-10-06
+
+**Settings section names no longer get cut.**
+On a narrow panel the sections are named short — "Context compaction", "Session title", "Git and SVN"; the long wording remains only as the forms' headings. The names come from translations, the way coddy-agent does it.
+
+**A network failure while sending no longer doubles the answer.**
+A retry returns the saved response instead of starting a new model call; an unfinished turn can be continued by sending the message again.
+
+**After a crash or a restart the agent carries on without repeating itself.**
+It receives an internal hint to use the results it already has and take the next step; fruitless repeats are cut off.
+
+## 0.3.25 — 2026-09-30
 
 **Memory runs as a background agent.**
 It gathers context for the current turn in a separate task, with progress visible in Tasks. Existing notes and memory settings continue to work.
