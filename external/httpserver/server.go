@@ -52,8 +52,9 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
-	composerRelayMu sync.Mutex
-	composerRelays  map[string]*composerStreamRelay
+	composerRelayMu  sync.Mutex
+	composerRelays   map[string]*composerStreamRelay
+	responseRequests sync.Map
 
 	permissionResumeWG sync.WaitGroup
 	bgWG               sync.WaitGroup
@@ -573,7 +574,7 @@ func lastAssistantContent(st *session.State) string {
 }
 
 // POST /v1/responses accepts model, input, and optional stream (SSE).
-func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return

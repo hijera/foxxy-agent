@@ -88,6 +88,10 @@ use the bundled foxxycode), host, port (0 = auto), FoxxyCode home, extra `foxxyc
 FoxxyCode UI theme to the IDE theme"**. Toolbar buttons: Restart, Reload, Open in Browser,
 **Open DevTools**, Settings.
 
+### Connection diagnostics
+
+For startup and first-response delays, see [connection diagnostics](../../docs/intellij-connection-diagnostics.md).
+
 ### Language
 
 The plugin UI (settings panel, first-run dialog, toolbar, notifications, native diff prompts) is

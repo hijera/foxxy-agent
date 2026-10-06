@@ -68,6 +68,9 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     @Synchronized
     private fun startAndWait(indicator: ProgressIndicator): String {
         baseUrl?.let { if (isRunning) return it }
+        val started = System.nanoTime()
+        fun stage(name: String) = log.info("[foxxycode] startup stage=$name elapsed_ms=${(System.nanoTime() - started) / 1_000_000}")
+        stage("start")
         stopInternal()
 
         val settings = FoxxyCodeSettings.getInstance().state
@@ -84,13 +87,17 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         // Panels default to guarded planning: the model may not leave plan mode itself.
         cmd.addParameters("--plan-no-self-run=" + settings.planNoSelfRun)
         if (settings.extraArgs.isNotBlank()) cmd.addParameters(ParametersListUtil.parse(settings.extraArgs))
+        stage("proxy_resolution_start")
         val proxy = ProxyEnvironment.resolveProxyEnvironment()
+        stage("proxy_resolution_end")
         log.info("[foxxycode] " + ProxyEnvironment.describe(proxy))
         cmd.withEnvironment(proxy.env)
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())
+        stage("process_launch_start")
         val h = OSProcessHandler(cmd)
+        stage("process_launch_end")
         h.addProcessListener(object : ProcessAdapter() {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
                 log.info("[foxxycode] " + event.text.trimEnd())
@@ -105,9 +112,13 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         handler = h
 
         val url = "http://$host:$port/"
+        stage("readiness_start")
         waitForReady(url, indicator)
+        stage("readiness_end")
         baseUrl = url
+        stage("locale_start")
         adoptBackendLocale(url)
+        stage("ready")
         log.info("FoxxyCode ready at $url")
         return url
     }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -24,7 +23,7 @@ type openAIProvider struct {
 }
 
 func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithMiddleware(diagnosticMiddleware)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -133,7 +132,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	if err := stream.Err(); err != nil {
-		if errors.Is(err, context.Canceled) {
+		if fullContent != "" || len(builders) > 0 {
 			toolCalls = finalizeOpenAIToolBuilders()
 			if strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0 {
 				sr := stopReason

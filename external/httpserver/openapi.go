@@ -116,9 +116,15 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** only.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** only. " +
+						"Optional **Idempotency-Key** reserves a logical submission before any session or model mutation. Reuse the key with the same JSON payload and session header (including absence) to replay the original status, headers and JSON/SSE body, including errors; responses set **Idempotency-Replayed: true**. Keys persist without automatic expiry. Different payload/session returns **409**. Unfinished requests return **202** with their status and never run again. Keyed requests require a filesystem store (**503** if unavailable) and a readable body no larger than 32 MiB (**413** otherwise).",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "Idempotency-Key", "in": "header", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 128},
+							"description": "Unique logical submission key (maximum 128 bytes after trimming). Reuse for network retries; generate a new key for each intentional new submission. Blank behaves as omitted.",
+						},
 						map[string]interface{}{
 							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
@@ -153,10 +159,23 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"202": map[string]interface{}{
+							"description": "Duplicate of an unfinished request. No model call is started. Reconcile saved messages and attach to the composer stream if active. Interrupted requests require an intentional new submission. An id can be empty when the session was not yet recorded. Ownership in a different server process is conservatively reported as interrupted.",
+							"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{
+								"type": "object", "required": []string{"id", "object", "status"},
+								"properties": map[string]interface{}{
+									"id":     map[string]string{"type": "string"},
+									"object": map[string]interface{}{"type": "string", "enum": []string{"response"}},
+									"status": map[string]interface{}{"type": "string", "enum": []string{"in_progress", "interrupted"}},
+								},
+							}}},
+						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": errorResponseRef(),
+						"413": errorResponseRef(),
 						"500": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},

@@ -3311,6 +3311,8 @@ export function App() {
     text: string,
     opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
   ) {
+    // One key per intentional submission; reconnects attach to the existing stream.
+    const requestId = randomSessionId();
     const abortCtl = new AbortController();
     let postSessionKey = "";
     let completedNormally = false;
@@ -3468,10 +3470,37 @@ export function App() {
       }
       const res = await fetch("/v1/responses", {
         method: "POST",
-        headers: { ...hdrs, "Content-Type": "application/json" },
+        headers: {
+          ...hdrs,
+          "Content-Type": "application/json",
+          "Idempotency-Key": requestId,
+        },
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+
+      if (res.status === 202) {
+        const receipt = (await res.json()) as { status?: string };
+        if (receipt.status === "interrupted") {
+          await loadMessages(sidEffective, {
+            skipSetItems: viewedSessionIdRef.current.trim() !== postSessionKey,
+            allowApplyWhileActive: true,
+          });
+          applyStreamItems((prev) => [
+            ...prev,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "error" as const,
+              message: t("app.requestInterrupted"),
+              createdAtUtc: new Date().toISOString(),
+            },
+          ]);
+          completedNormally = true;
+        }
+        // Reconcile saved messages and reattach only if the request is still active.
+        return;
+      }
 
       if (res.status === 409) {
         let msg = t("app.chatBusy");

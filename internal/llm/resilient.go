@@ -68,16 +68,52 @@ func wrapResilient(inner Provider, opts ResilientOptions) Provider {
 }
 
 func (p *resilientProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	ctx, finish := startDiagnosticCall(ctx, "complete")
+	defer finish()
 	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
 		return p.inner.Complete(ctx, messages, tools)
 	})
 }
 
 func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+	ctx, finish := startDiagnosticCall(ctx, "stream")
+	defer finish()
+	started := time.Now()
+	var first sync.Once
 	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
-		return p.inner.Stream(ctx, messages, tools, onChunk)
+		emitted := false
+		partial := &Response{}
+		var text, reasoning strings.Builder
+		resp, err := p.inner.Stream(ctx, messages, tools, func(chunk StreamChunk) {
+			text.WriteString(chunk.TextDelta)
+			reasoning.WriteString(chunk.ReasoningDelta)
+			if chunk.ToolCall != nil {
+				partial.ToolCalls = append(partial.ToolCalls, *chunk.ToolCall)
+			}
+			if chunk.TextDelta != "" || chunk.ReasoningDelta != "" || chunk.ToolCall != nil {
+				emitted = true
+				first.Do(func() { diagnosticEvent(ctx, "llm.first_chunk", "elapsed_ms", time.Since(started).Milliseconds()) })
+			}
+			if onChunk != nil {
+				onChunk(chunk)
+			}
+		})
+		if err != nil && resp == nil && emitted {
+			partial.Content = text.String()
+			partial.Reasoning = reasoning.String()
+			resp = partial
+		}
+		if err != nil && (emitted || resp != nil && (resp.Content != "" || resp.Reasoning != "" || len(resp.ToolCalls) > 0)) {
+			return resp, &partialStreamError{err}
+		}
+		return resp, err
 	})
 }
+
+// partialStreamError preserves the cause but forbids replaying already emitted output.
+type partialStreamError struct{ error }
+
+func (e *partialStreamError) Unwrap() error { return e.error }
 
 func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context) (*Response, error)) (*Response, error) {
 	if err := p.waitMinInterval(ctx); err != nil {
@@ -88,7 +124,10 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		started := time.Now()
+		diagnosticEvent(ctx, "llm.attempt.start", "attempt", attempt+1)
 		resp, err := fn(ctx)
+		diagnosticEvent(ctx, "llm.attempt.end", "attempt", attempt+1, "elapsed_ms", time.Since(started).Milliseconds(), "status", httpStatusFromError(err), "failed", err != nil)
 		p.markCallFinished()
 		if err == nil {
 			return resp, nil
@@ -101,6 +140,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
+		diagnosticEvent(ctx, "llm.retry.wait", "next_attempt", attempt+2, "delay_ms", delay.Milliseconds(), "status", httpStatusFromError(err))
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -125,6 +165,7 @@ func (p *resilientProvider) waitMinInterval(ctx context.Context) error {
 	if wait <= 0 {
 		return nil
 	}
+	diagnosticEvent(ctx, "llm.pacing.wait", "delay_ms", wait.Milliseconds())
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
@@ -183,6 +224,10 @@ func retryDelayForError(err error, attempt int, base, maxDelay time.Duration) ti
 }
 
 func isRetryableLLMError(err error) bool {
+	var partial *partialStreamError
+	if errors.As(err, &partial) {
+		return false
+	}
 	if err == nil {
 		return false
 	}

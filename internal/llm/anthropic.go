@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -22,7 +21,7 @@ type anthropicProvider struct {
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithMiddleware(diagnosticMiddleware)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -164,9 +163,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	}
 
 	if err := stream.Err(); err != nil {
-		if errors.Is(err, context.Canceled) {
+		if fullContent != "" || thinkingBuf.Len() > 0 || len(toolUseMap) > 0 {
 			partialTools := finalizeAnthropicToolUses()
-			if strings.TrimSpace(fullContent) != "" || len(partialTools) > 0 {
+			if fullContent != "" || thinkingBuf.Len() > 0 || len(partialTools) > 0 {
 				sr := stopReason
 				if sr == "" {
 					if len(partialTools) > 0 {

@@ -536,6 +536,8 @@ export const messagesEn: Record<string, string> = {
 
   "app.confirmDeleteDraft": "Delete draft",
   "app.confirmDeleteChat": "Delete chat",
+  "app.requestInterrupted":
+    "The previous request was interrupted. Review the saved progress and send a new message to continue.",
   "app.chatBusy":
     "This chat is busy in another client. Try again in a moment.",
   "app.emptyResponseBody": "Empty response body",

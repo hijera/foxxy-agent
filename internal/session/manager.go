@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -523,6 +524,11 @@ func (m *Manager) WriteCrossProcessCancelRequest(sessionID string) error {
 
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
 func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *PromptRunOpts) (*acp.SessionPromptResult, error) {
+	started := time.Now()
+	m.log.DebugContext(ctx, "session.prompt.start", "session", params.SessionID)
+	defer func() {
+		m.log.DebugContext(ctx, "session.prompt.end", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
+	}()
 	if sender == nil {
 		sender = m.server
 	}
@@ -545,6 +551,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 	defer unlock()
+	m.log.DebugContext(ctx, "session.prompt.lock_acquired", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
 
 	turnBase := ctx
 	if opts != nil && opts.SkipTurnLock {
@@ -601,6 +608,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}()
 
 	ranRunner = true
+	m.log.DebugContext(ctx, "session.prompt.prepared", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -742,6 +750,11 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 }
 
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {
+	started := time.Now()
+	m.log.DebugContext(ctx, "session.mcp.start", "session", state.GetID(), "server", srv.Name)
+	defer func() {
+		m.log.DebugContext(ctx, "session.mcp.end", "session", state.GetID(), "server", srv.Name, "elapsed_ms", time.Since(started).Milliseconds())
+	}()
 	if srv.Type != "" && srv.Type != "stdio" {
 		return fmt.Errorf("unsupported MCP transport: %s", srv.Type)
 	}

@@ -544,6 +544,8 @@ export const messagesRu: Record<string, string> = {
 
   "app.confirmDeleteDraft": "Удалить черновик",
   "app.confirmDeleteChat": "Удалить чат",
+  "app.requestInterrupted":
+    "Предыдущий запрос был прерван. Проверьте сохранённый результат и отправьте новое сообщение, чтобы продолжить.",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.emptyResponseBody": "Пустое тело ответа",
