@@ -282,6 +282,17 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 - At **`min-width: 1920px`**: user may widen the rail (**arrow**). Sessions remain a **drawer overlay** whether the rail is narrow or wide (wide rail changes label density only, not session placement).
 - Mobile (**top bar**) keeps compact rail only; drawer for sessions history.
 
+### Phone layout
+
+A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@media (max-width: 520px)`** block at the end of **`styles.css`**, after the stacked-shell rules it narrows, and nothing in it applies above 520px.
+
+- **Top bar.** The brand is **FoxxyCode** alone (**`.rail-brand-sub`** hidden) and it is the element that gives way: **`.rail-brand`** and its wrapper **`.rail-brand-tip-host`**, which is the bar's flex item, may shrink and clip (**`flex: 0 1 auto; min-width: 0; overflow: hidden`**), **`.rail-middle`** grows but never shrinks (**`flex: 1 0 auto`**), so the icons keep to the right edge and are never painted over the brand. Icons are **40px** with a **4px** gap. When they do not all fit next to the brand at its natural width, the bar folds the rest behind a **More** button (three dots, **`nav-more`**, **`nav/navOverflow.ts`**): **History** and **Swarm** never fold; the others come back into the bar as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**; the menu under the button lists what is folded as **Docs**, **Scheduler**, **Settings**, then a separator and **Sign out** at the bottom. The menu hangs from the button's right edge (**`.rail-more-menu`**, opaque, **44px** rows, real **`href`** links), closes on a pick, **Escape** or a press outside, and the button lights up while a folded panel is open. **`NavRail`** measures the pill with a **`ResizeObserver`** only on the stacked shell; the desktop rail never folds. It is not a global app menu: it holds only what the bar has no room for, and nothing when everything fits.
+- **Composer chip rows.** Both rows are one line that scrolls sideways under a **16px** fade at the right edge, with a **12px** trailing spacer so the last chip can scroll clear of the fade. The context row scrolls its environment, folder, branch and worktree chips inside **`.composer-context-scroll`**, with the improve-prompt control fixed at the row's end; the bar scrolls its attach button and the mode, model, reasoning and permission chips inside **`.composer-tabs`**, with the context ring and **Send** fixed on the right. Chips keep their height (**8px** vertical padding); a long model name ends in an ellipsis (**11em**). Menus are portals and bottom sheets, so the scrollers never clip them.
+- **Start screen.** **`.hero`** is one grid track that cannot grow past its container (**`minmax(0, 1fr)`**, at every width), so the page never scrolls sideways and the title stays centred.
+- **Text fields** are at least **16px** on a phone and on any touch-only device (**`(any-hover: none) and (any-pointer: coarse)`**), because iOS Safari zooms into a smaller field on focus and stays zoomed; the composer textarea and its highlight mirror change together.
+- **Keyboard.** What Enter does follows the input device, not this width: see **Composer primary action**.
+
+
 ### Sessions drawer placement (implementation contract)
 
 - **Horizontal alignment**: The **left edge** of the drawer is **`rail-column` right edge + gutter** (~**`--nav-floating-gutter`**). Do **not** hardcode **`left`** in **`px`** for "wide navbar" guesses (wide **`fit-content`** width varies).
@@ -704,6 +715,16 @@ When the caret sits on the current composer line on a **`/`** that is **line-sta
 - **`user_message`** bubbles show persisted text as-is (**`UserMessage`**, **`msg-user-body`**, **`white-space: pre-wrap`**). Skill mirror chips apply only in **`#composer`**, not in the transcript.
 - **`Escape`** closes the menu; **`Enter`** confirms the first row when results are loaded and the menu is open (same turn as **`/`** autocomplete).
 
+### Command option picker (**`/compact --model`**)
+
+Once **`/compact`** opens the draft, the composer completes the option the command takes and its value; it is the third face of the picker chrome - **`slash-menu-surface`**, **`slash-menu-scroll`**, the **`slash-menu--portal`** node on desktop and the **`slash-menu--sheet`** bottom sheet with **`slash-sheet-backdrop`** on stacked shells - and it sends no request. Draft logic: **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**) down to the separators allowed after the command word; functional checklist: **`docs/surfaces/web-ui.md`** (**Composer command options**).
+
+- **Automation**: container **`data-testid="command-arg-menu"`** (**`role="listbox"`**, aria label **`composer.commandArgAriaLabel`**), rows **`data-testid={`command-arg-row-${value}`}`** (non **`[a-zA-Z0-9_-]`** runs replaced by **`_`**) with **`data-arg-idx`**.
+- **What opens it**: a token starting with **`--`** in the options offers **`--model`** (a lone **`-`** opens nothing: the instructions may be a list) (title **`composer.commandArgOptionsTitle`**, the row carries **`composer.commandArgModelFlagDesc`** as its **`.slash-row-desc`**); the value after **`--model `** or **`--model=`** lists the models of the composer's Model menu (**`props.llmModels`**, title **`composer.commandArgModelsTitle`**), filtered by **`filterLlmModels`**, each row its full id in **`.slash-row-name`** and nothing else. A bare **`/compact `**, a complete value, an option typed where the value goes and the instructions open nothing, so **Enter** still sends.
+- **Empty filter**: the model list stays open with **`composer.noModelsMatch`** in **`slash-muted`**, and **Enter** is left alone, so the command goes to the server, which answers with the configured ids.
+- **Keys** follow the mention picker: **ArrowUp** / **ArrowDown** move **`is-active`** and **`aria-selected`**, wrapping, and scroll the row into view; the pointer moves it too; **Enter** and **Tab** put the row into the draft followed by one space; **Escape** closes the picker and leaves the draft alone. Picking **`--model`** opens the models at once. A key an input method is composing with never reaches it (see the slash picker).
+
+
 ### Mention picker (**`@`**)
 
 An **`@`** at line start or after whitespace, an opening bracket or a quote opens the mention picker; it reuses the slash picker's chrome one for one - **`slash-menu-surface`**, **`slash-menu-scroll`**, the **`slash-menu--portal`** node on desktop and the **`slash-menu--sheet`** bottom sheet with **`slash-sheet-backdrop`** on stacked shells. Candidates come from **`GET /foxxycode/mentions`** (**`limit=50`**; the first query after it opens carries **`refresh=1`**). Draft logic: **`atMenuDraftAtCaret`** in **`external/ui/src/ui/skills/draftAt.ts`**; row helpers: **`external/ui/src/ui/skills/mentionRows.ts`**; functional checklist: **`docs/surfaces/web-ui.md`** (**Composer `@` mentions**).
@@ -976,3 +997,13 @@ Frontend:
 npm --prefix external/ui install
 npm --prefix external/ui run dev -- --host 127.0.0.1 --port 5173
 ```
+
+### Background activity and shared image viewer
+
+History rows remain active while their background tasks run after the model turn ends. The typing dots then show only the running-task count, which opens Tasks. A folded task card already links to its subagent transcript or preview URL; opening it reveals output. Pending subagent permissions remain directly actionable.
+
+MCP rows and permission previews name the server and tool. The live line uses complete phrases without repeating arguments, and its step clock changes with the step rather than its wording. Every disclosure uses the shared SVG Chevron, including system notices.
+
+Image preview cards in the composer and sent messages open the shared viewer. Wheel and pinch zoom around the pointer, drag pans, Escape closes, and leaving the documentation screen closes its viewer. Old messages without a full-size asset URL use their thumbnail. Regular session assets remain downloadable; symlinks are refused.
+
+Codex and Devin subscription quotas share the provider usage section and banner with NeuralDeep. Empty or failed quota reads say **Quota data unavailable**, with a stale last snapshot when available. The provider panel switch disables both display and reads. Credentials remain server-side.

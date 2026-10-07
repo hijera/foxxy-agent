@@ -82,6 +82,8 @@ The agent reaches for its documentation when a question is about FoxxyCode itsel
 
 Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. In the chat a call reads as what it does, with the query or the page beside it: *searching the documentation* and *reading the documentation* in the web UI, *Searching the docs* and *Reading the docs* in the console. A page is read in parts of about 24 KB: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
 
+Pointing a user at a page, the agent writes the mention `@foxxycode:<page>#<section>` or a `foxxycode:` link rather than an address: both open the page in the reader of the very binary that answered. The public address `https://github.com/hijera/foxxy-agent/blob/main/docs/<page>.md` is for what leaves FoxxyCode, and the only command line spelling is the one the binary answers, `foxxycode docs show <page>[#section]` beside `foxxycode docs search` and `foxxycode docs list`.
+
 ## Mentioning a page
 
 `@foxxycode:` in a prompt attaches a page, or one section of it, to the message:

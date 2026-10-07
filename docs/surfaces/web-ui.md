@@ -145,6 +145,18 @@ round-trips through the footer Save because the whole config doc is PUT back.
   writes bounded PNG previews to **`assets/thumbnails/`** and serves them from
   **`GET /foxxycode/sessions/{id}/assets/{name}/thumbnail`**.
 
+## Settings: compaction model
+
+In **Settings → Context compaction**, **Summarizer model** offers a searchable
+dropdown of the logical models configured in the current settings document,
+including unsaved model edits. Select a model or enter an identifier manually.
+Clear the field to use the session model for summarization.
+
+![Compaction model dropdown](../assets/upstream-port/compaction-model-open-dark-1280.png)
+
+*Configured summarizer models in Settings → Context compaction (Dark, 1280 px).*
+
+
 ## Settings: Codex OAuth
 
 - The first-run provider picker includes **Codex**. Selecting it replaces the API-key field with the same **Sign In with ChatGPT** device-flow card, keeps the optional proxy and model controls, and saves `type: codex` without credentials in the config document.
@@ -547,7 +559,7 @@ Shape and glyphs
 
 Behavior (unchanged summary)
 
-- **Enter** submits when idle; **`Shift+Enter`** newline. While **`generating`** the same key queues the draft for the running turn instead of being swallowed (**Composer message queue**); under **`ui.send_mode: ctrl_enter`** that key is **Ctrl/Cmd+Enter**, and with **`off`** only the control queues.
+- **Keyboard send** follows `ui.send_mode`: Enter, Ctrl/Cmd+Enter or button only. In Enter mode Ctrl/Cmd+Enter inserts a newline; Shift+Enter remains a newline. Touch-only input leaves Return to the phone keyboard. A narrow desktop window retains keyboard shortcuts, editor panels retain their embed behavior, and IME composition never submits or changes picker selection.
 - **Stop** sends **`POST /foxxycode/sessions/{id}/cancel`** and aborts the tab's own reader at once, so the request does not wait for a connection that reader holds. Failure remains visible and retryable, and the tab rejoins the running turn; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 
 ![A failed cancellation remains retryable while the turn still runs](../assets/message-queue/stop-queue-cancel-failed-dark-1280.png)
@@ -631,6 +643,19 @@ Verification use cases
 | UC7b | Display-only **`slugSlashes`** (plain **`/`** and legacy mix) | **`segmentComposerSlashSpans.test.ts`** (`slugSlashesForUserBubbleMarkdown …`; composer / legacy only, not transcript) |
 | UC8 | Live **`foxxycode http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
 | UC9 | User bubble hides **`foxxycode_attachment`** bodies, shows **`@path`** only | **`UserMessage.test.tsx`**, **`stripFoxxyCodeAttachments.test.ts`** |
+
+## Composer command options
+
+Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the option **`--model`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
+
+![The model list under the composer after /compact --model](../assets/upstream-port/compact-model-picker-open-dark-1280.png)
+
+*The composer completing the value of `--model` (Dark, 1280 px).*
+
+- The list is the third face of the picker shell (**`.slash-menu`**, the bottom sheet on the stacked shell), **`data-testid="command-arg-menu"`**, rows **`command-arg-row-<id>`**; it needs no request.
+- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions, where nothing is completed. A bare **`/compact `** opens nothing, so **Enter** still sends the command.
+- Tests: **`draftCommandArg.test.ts`**, **`Composer.commandArg.test.tsx`**.
+
 
 ## Composer **`@`** mentions
 
@@ -916,7 +941,7 @@ Automated checks:
 ## Provider account usage
 
 - When the selected model's provider reports account usage (today
-  `neuraldeep`), the **context popover** (the context ring next to Send)
+  `neuraldeep`, `codex` and `devin`), the **context popover** (the context ring next to Send)
   ends with a **usage section**, the way Claude Desktop lists its plan
   limits under the context window: the provider and plan, one meter per
   metered window with its reset time in the browser's clock, the label in
@@ -1271,3 +1296,31 @@ both processes with headroom under a 45-second outer timeout.
   - Then a task labelled **`memory: <first line of the message>`** carries the **memory** tag (**`bgtask-tag-<id>`**), its open card shows the child's log ending with **`=== subagent report ===`** and the delivery line, and **Open transcript** opens the child session read-only
 
 For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.
+
+## Background activity and shared image viewer
+
+History rows remain active while their background tasks run after the model turn ends. The typing dots then show only the running-task count, which opens Tasks. A folded task card already links to its subagent transcript or preview URL; opening it reveals output. Pending subagent permissions remain directly actionable.
+
+MCP rows and permission previews name the server and tool. The live line uses complete phrases without repeating arguments, and its step clock changes with the step rather than its wording. Every disclosure uses the shared SVG Chevron, including system notices.
+
+Image preview cards in the composer and sent messages open the shared viewer. Wheel and pinch zoom around the pointer, drag pans, Escape closes, and leaving the documentation screen closes its viewer. Old messages without a full-size asset URL use their thumbnail. Regular session assets remain downloadable; symlinks are refused.
+
+Codex and Devin subscription quotas share the provider usage section and banner with NeuralDeep. Empty or failed quota reads say **Quota data unavailable**, with a stale last snapshot when available. The provider panel switch disables both display and reads. Credentials remain server-side.
+
+![An attachment card and background activity](../assets/upstream-port/chat-activity-dark-1280.png)
+
+*Image cards and running preview tasks in the verified build (Dark, 1280 px).*
+
+![The enlarged attachment](../assets/upstream-port/image-viewer-dark-1280.png)
+
+*The shared image viewer (Dark, 1280 px).*
+
+![The phone composer](../assets/upstream-port/phone-chat-dark-390.png)
+
+*The touch layout keeps the composer and navigation usable at 390 px.*
+
+The phone layout uses input capabilities rather than viewport width to decide Return behavior. At 520 px and below the rail keeps primary navigation visible and puts secondary destinations in More; context chips and selector chips scroll sideways. The textarea stays at 16 px to avoid iOS focus zoom. Hash routes seed the initial screen before the first paint.
+
+![A folded task card](../assets/upstream-port/tasks-dark-1280.png)
+
+*The running server address is reachable from the folded card (Dark, 1280 px).*

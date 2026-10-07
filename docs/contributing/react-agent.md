@@ -95,8 +95,8 @@ Already on disk:
 
 - the **wall clock**, always - stamped once when the turn's prompt was rendered and reused by every
   step of that turn, because the lane re-issues a step that produced nothing and that replay has to
-  be the request that failed, byte for byte (*Lane replays* in
-  [architecture.md](architecture.md));
+  be the request that failed, byte for byte (see the
+  [shared retry allowance](architecture.md#shared-retry-allowance));
 - the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
   **`session.Plan`**), when the session has one - so a **`foxxycode_todo_*`** call in this turn is
   reflected on the very next step;
@@ -391,7 +391,8 @@ turn says something:
   **`agent.llm_continue_error_delays_ms`** (a longer **`Retry-After`** is honoured up to
   **`llm_continue_retry_after_max_ms`**) and asks the model to go on. It spends the same
   per-turn budget as a stall and the same repeat detector watches it. A refusal (4xx) and a
-  limit (429) are not recovered; a failure before any text is the stall ladder's.
+  limit (429) are not recovered. A failure before any text uses the shared
+  **`llm_retry_max`** allowance; a stall wait cannot start a new allowance.
 - **The step limit.** A turn that reaches **`agent.max_turns`** (30 when unset; upstream
   reads an unset limit as none) ends with a notice naming the limit, streamed and stored the
   way the output-cap notice is (`internal/agent/stop_notice.go`). The session manager also
@@ -406,16 +407,18 @@ turn says something:
     **`agent.llm_stall_retry`** switch. That iteration is repeated, not counted against
     **`max_turns`** - a call that produced nothing is not a reasoning step the model chose.
     It is safe by construction: no chunk reached the client and no message was appended.
-    Only if the replay is silent too does the ladder start pausing, which is the recovery
-    a saturated gateway needs.
+    If the replay is silent too and retries remain, the ladder starts pausing. Each
+    replay or wait consumes the shared **`llm_retry_max`** allowance.
   - A turn that ends with neither answer text nor a tool call is replayed once as well
-    (**`maxEmptyAssistantReissues`**), counted like the wording nudge it precedes, with
-    the empty assistant turn dropped from the
+    (**`maxEmptyAssistantReissues`**), using the same allowance without spending a
+    **`max_turns`** step. The empty assistant turn is dropped from the
     LLM-facing message slice so the outgoing request is byte for byte the one that failed.
     The transcript keeps that turn, because the user watched its reasoning stream in. The
     wording nudge (**`maxEmptyAssistantContinuations`**) follows only if the replay came
     back empty too.
-  - Both budgets reset as soon as the model makes progress.
+  - Transport retries, these replays and the no-answer nudge share one per-step
+    allowance. A tool step or new follow-up resets it. Interrupted-answer continuations
+    keep their separate **`llm_continue_max`** budget.
 
   Every error a provider returns is prefixed with the **`providers[].name`** it came from
   and the address that request actually reached (`internal/llm/provider_label.go`), because
@@ -607,3 +610,7 @@ Plan entries are updated as the agent progresses:
 - Tool timeout: return "timeout" observation after configured timeout
 - Context too long: summarize older messages, continue with summary
 - Cancelled: abort all operations, return `cancelled` stop reason
+
+## Shared retry allowance
+
+Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 3). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.

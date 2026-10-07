@@ -688,3 +688,11 @@ Devin (Cognition) account models use a browser login via `foxxycode providers lo
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.
+
+## Shared retry allowance
+
+Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 3). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
+
+`/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: coddy` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
+
+Provider account usage sources are `neuraldeep`, `codex` and `devin`. `usage_limits_panel: false` disables their reads as well as the UI and console display. Codex and Devin use their managed login; explicit credentials that shadow it do not report unrelated subscription quotas.
