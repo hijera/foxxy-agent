@@ -13,10 +13,10 @@
 On a narrow panel the sections are named short — "Context compaction", "Session title", "Git and SVN"; the long wording remains only as the forms' headings. The names come from translations, the way coddy-agent does it.
 
 **A network failure while sending no longer doubles the answer.**
-A retry returns the saved response instead of starting a new model call; an unfinished turn can be continued by sending the message again.
+A retry returns the saved response instead of starting a new model call; an unfinished turn can be continued by sending the message again. A failure before saving the request no longer blocks its retry, and distinct request keys remain distinct even when they look like JSON.
 
 **After a crash or a restart the agent carries on without repeating itself.**
-It receives an internal hint to use the results it already has and take the next step; fruitless repeats are cut off.
+It receives an internal hint to use the results it already has and take the next step; fruitless repeats are cut off. A new task starts with a fresh repetition count, and disabling the loop guard also disables its recovery corrections and stops.
 
 **Panel startup is logged stage by stage in idea.log.**
 `[foxxycode]` lines show how long the backend took to start and to answer; what to collect for diagnostics is in the connection diagnostics document.

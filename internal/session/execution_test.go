@@ -37,18 +37,26 @@ func TestResponseClaimIsExclusiveAcrossStores(t *testing.T) {
 	root := t.TempDir()
 	var wg sync.WaitGroup
 	var claims atomic.Int32
+	errors := make(chan error, 20)
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			fs := &FileStore{Root: root}
-			_, claimed, _ := fs.ClaimResponseRequest("key", "fingerprint", "")
+			_, claimed, err := fs.ClaimResponseRequest("key", "fingerprint", "")
+			if err != nil {
+				errors <- err
+			}
 			if claimed {
 				claims.Add(1)
 			}
 		}()
 	}
 	wg.Wait()
+	close(errors)
+	for err := range errors {
+		t.Errorf("concurrent claim failed: %v", err)
+	}
 	if claims.Load() != 1 {
 		t.Fatalf("claimed %d times", claims.Load())
 	}

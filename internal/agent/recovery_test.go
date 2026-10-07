@@ -58,6 +58,42 @@ func TestContinuationRequestIncludesNaturalLoopCorrections(t *testing.T) {
 	}
 }
 
+func TestContinuationRequestDoesNotMatchNewTaskWords(t *testing.T) {
+	for _, text := range []string{
+		"Add a resume button to the toolbar",
+		"Implement the continue command",
+		"Fix the bug where the loading screen gets stuck",
+		"Добавь кнопку «Продолжить»",
+		"Исправь зацикливание загрузки",
+		"Do not continue the previous task",
+	} {
+		if continuationRequest(text) {
+			t.Errorf("new task treated as a continuation: %q", text)
+		}
+	}
+}
+
+func TestRecoveryRespectsDisabledLoopGuard(t *testing.T) {
+	s := &recoveryFeature{t: t}
+	if err := s.setup(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&session.ExecutionCheckpoint{Status: "running", Repeats: 2}).Save(s.st.SessionDir); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}, Models: []config.ModelEntry{{Model: "fake/model"}}, Agent: config.Agent{Model: "fake/model", MaxTurns: 6, LoopGuard: &off}}
+	ag := NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+	ag.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return s.p, nil })
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "continue"}})
+	if err != nil || stop != string(acp.StopReasonMaxTurns) || s.p.calls != 6 {
+		t.Fatalf("disabled guard stopped recovery: stop=%s calls=%d error=%v", stop, s.p.calls, err)
+	}
+	if strings.Contains(strings.Join(s.p.prompts, "\n"), loopCorrection) {
+		t.Fatal("disabled guard sent a loop correction")
+	}
+}
+
 func TestLoopCorrectionAllowsNewInformation(t *testing.T) {
 	s := &recoveryFeature{t: t}
 	if err := s.setup(false); err != nil {

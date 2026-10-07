@@ -106,12 +106,15 @@ func TestDiagnosticsPreservesTLSStreamCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = WithDiagnostics(ctx, slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	releaseHandler := make(chan struct{})
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.(http.Flusher).Flush()
-		<-r.Context().Done()
+		// Do not race client cancellation against a normal end-of-body EOF.
+		<-releaseHandler
 	}))
 	defer srv.Close()
+	defer close(releaseHandler)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
 	resp, err := diagnosticMiddleware(req, srv.Client().Do)
 	if err != nil {

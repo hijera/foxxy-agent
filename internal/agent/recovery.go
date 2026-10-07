@@ -3,7 +3,6 @@ package agent
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
@@ -17,9 +16,19 @@ func continuationRequest(text string) bool {
 	case "continue", "resume", "go on", "продолжай", "продолжи", "продолжай дальше", "дальше", "продолжить":
 		return true
 	}
-	for _, word := range strings.FieldsFunc(text, func(r rune) bool { return !unicode.IsLetter(r) }) {
-		if word == "continue" || word == "resume" || word == "stuck" || strings.HasPrefix(word, "продолж") || strings.HasPrefix(word, "зацикл") {
-			return true
+	// Match a continuation instruction at the start of a clause, rather than
+	// arbitrary task words such as "Add a resume button" or "fix a stuck screen".
+	for _, clause := range strings.FieldsFunc(text, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '.' || r == '!' || r == '?'
+	}) {
+		clause = strings.Join(strings.Fields(clause), " ")
+		for _, preamble := range []string{"please ", "пожалуйста ", "после рестарта ", "после перезапуска ", "after a restart ", "after restarting "} {
+			clause = strings.TrimPrefix(clause, preamble)
+		}
+		for _, command := range []string{"continue", "resume", "go on", "продолжай", "продолжи", "продолжить", "дальше", "you are stuck", "тебя зациклило", "ты зациклился"} {
+			if clause == command || strings.HasPrefix(clause, command+" ") {
+				return true
+			}
 		}
 	}
 	return false

@@ -95,6 +95,35 @@ func TestAgentRecoveryFeature(t *testing.T) {
 			return nil
 		})
 		sc.Step(`^an agent repeatedly reading unchanged information$`, func() error { return s.setup(false) })
+		sc.Step(`^its previous execution stopped without progress$`, func() error {
+			_ = s.run()
+			cp, err := session.ReadExecutionCheckpoint(s.st.SessionDir)
+			if err != nil {
+				return err
+			}
+			cp.Status, cp.Repeats = "no_progress", 3
+			return cp.Save(s.st.SessionDir)
+		})
+		sc.Step(`^the user asks to add a resume button$`, func() error {
+			cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}, Models: []config.ModelEntry{{Model: "fake/model"}}, Agent: config.Agent{Model: "fake/model", MaxTurns: 3}}
+			ag := NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+			ag.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return s.p, nil })
+			_, s.err = ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "Add a resume button to the toolbar"}})
+			return nil
+		})
+		sc.Step(`^the new task starts without the old repetition verdict$`, func() error {
+			if s.err != nil {
+				return s.err
+			}
+			cp, err := session.ReadExecutionCheckpoint(s.st.SessionDir)
+			if err != nil {
+				return err
+			}
+			if cp.Scope != session.ObservationHash("Add a resume button to the toolbar") || cp.Status == "no_progress" {
+				return fmt.Errorf("new task retained the old scope: %+v", cp)
+			}
+			return nil
+		})
 		sc.Step(`^the agent reaches its turn limit and starts again$`, func() error {
 			_ = s.run()
 			snap, err := s.store.ReadSnapshot(s.st.ID)

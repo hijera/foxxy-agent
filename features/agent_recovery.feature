@@ -9,3 +9,9 @@ Feature: Continue interrupted work without repeating the same actions
     Given an agent repeatedly reading unchanged information
     When the agent reaches its turn limit and starts again
     Then the model receives a loop correction before execution stops
+
+  Scenario: A new task containing a continuation word starts a new scope
+    Given an agent repeatedly reading unchanged information
+    And its previous execution stopped without progress
+    When the user asks to add a resume button
+    Then the new task starts without the old repetition verdict

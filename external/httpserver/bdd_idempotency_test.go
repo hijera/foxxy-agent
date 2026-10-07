@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,6 +95,37 @@ func TestResponseIdempotencyAllowsIntentionalNewSubmissions(t *testing.T) {
 	}
 	if s.calls != 4 {
 		t.Fatalf("intentional requests suppressed: calls=%d", s.calls)
+	}
+}
+
+func TestResponseIdempotencyKeepsOpaqueKeysDistinct(t *testing.T) {
+	s := &idempotencyFeature{root: t.TempDir()}
+	s.boot()
+	defer s.srv.Drain()
+	for _, key := range []string{`"request-1"`, `"request-\u0031"`, "[1,2]", "[1, 2]"} {
+		w := s.request(key, "same text", false)
+		if w.Code != 200 || w.Header().Get("Idempotency-Replayed") != "" {
+			t.Fatalf("distinct key %q was replayed: status=%d headers=%v", key, w.Code, w.Header())
+		}
+	}
+	if s.calls != 4 {
+		t.Fatalf("different keys started %d turns, want 4", s.calls)
+	}
+}
+
+func TestResponseIdempotencyUnpublishedLegacyClaimIsInterrupted(t *testing.T) {
+	s := &idempotencyFeature{root: t.TempDir()}
+	s.boot()
+	defer s.srv.Drain()
+	dir := filepath.Join(s.srv.mgr.FileStore().Root, ".response_requests", session.ObservationHash("claim-crash"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		w := s.request("claim-crash", "fix it", false)
+		if w.Code != 202 || s.calls != 0 || !strings.Contains(w.Body.String(), "interrupted") {
+			t.Fatalf("retry %d: status=%d calls=%d body=%s", i, w.Code, s.calls, w.Body.String())
+		}
 	}
 }
 

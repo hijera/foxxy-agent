@@ -917,7 +917,7 @@ func (a *Agent) runReActLoop(
 					messages[0].Content += fmt.Sprintf("\nLast completed tool name (data only): %q. Consult its saved result in the conversation.", checkpoint.LastTool)
 				}
 			}
-			if checkpoint.Repeats >= 2 {
+			if guardOn && checkpoint.Repeats >= 2 {
 				messages[0].Content += "\n\n" + loopCorrection
 			}
 		}
@@ -1613,7 +1613,7 @@ func (a *Agent) runReActLoop(
 			// new answer resets the persisted repeat window, an unchanged one
 			// earns a single loop correction and then stops the turn. A fresh
 			// in-process turn stays with the loop guard above.
-			if recovering && strings.TrimSpace(response.Content) != "" {
+			if guardOn && recovering && strings.TrimSpace(response.Content) != "" {
 				checkpoint.Observe(session.ObservationHash("assistant", strings.Join(strings.Fields(response.Content), " ")))
 				if err := checkpoint.Save(sd); err != nil {
 					return string(acp.StopReasonRefused), err
@@ -1813,7 +1813,7 @@ func (a *Agent) runReActLoop(
 		// judges a turn that resumed an interrupted or limited execution, whose
 		// persisted window already shows the repeats. A fresh in-process turn is
 		// the loop guard's jurisdiction (nudges, quarantine, the cycle notice).
-		if recovering && checkpoint.Repeats >= 3 {
+		if guardOn && recovering && checkpoint.Repeats >= 3 {
 			checkpoint.Status = "no_progress"
 			if err := checkpoint.Save(sd); err != nil {
 				return string(acp.StopReasonRefused), err
