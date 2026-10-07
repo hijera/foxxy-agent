@@ -34,6 +34,9 @@ or a prediction of the final file size. The turn's token estimate includes
 argument fragments as they arrive; provider usage replaces that estimate when
 the call ends, without counting the complete arguments a second time.
 
+![A file draft while its arguments are still streaming](../assets/upstream-port/tool-progress-collapsed-dark-1280.png)
+
+*The file has not been written: the model is still generating its arguments.*
 
 `ctrl+o` shows the latest six lines of the draft, bounded to 1 KiB. For `edit`
 this is `newString`; for `apply_patch` it is the patch text. The preview is not
@@ -43,6 +46,9 @@ travels over ACP and HTTP to a remote console. OpenAI-compatible, Anthropic,
 Codex and Devin streams supply argument fragments; a provider without fragments
 still shows the tool name and reports its arguments when complete.
 
+![The expanded tail of a streamed draft](../assets/upstream-port/tool-progress-expanded-dark-1280.png)
+
+*The bounded tail updates while generating; terminal control sequences are sanitized.*
 
 Execution still waits for the complete call and the existing permission gate.
 Cancelling an incomplete draft does not write a partial file. After execution,

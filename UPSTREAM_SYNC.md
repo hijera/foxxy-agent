@@ -2439,7 +2439,31 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 
 ---
 
-## Последняя синхронизация
+## Synchronization through upstream 1.2.1 (2026-10-07)
+
+| Field | Value |
+| --- | --- |
+| Fork base | Latest `origin/main`, `530c1bf78bfca863186fa504c31a29d67b6fe036` |
+| Upstream range | `4b091359e027df31acf00d32378f112b8af4dba6` (exclusive, 1.1.61) to `75c31bcc0b726a46386b0977fee997353f62a9a1` (inclusive, 1.2.1) |
+| Implementation | Core/CLI/HTTP `4af77e86e1857a2b9849bc92660b8208d6583b0e`; UI `71ad3dec4a861415eecad17e1205f90a49ee9123`; docs `6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8` |
+| Accounting | 38 constituent commits and 10 PR merges adapted; 6 overlapping integration merges reviewed and skipped. Full decisions are in `ports.yaml`. |
+| Validation | `make test` (all Go packages and 2553 UI tests), `make lint`, `make check-windows`, `make lint-windows`, `make docs-check`, schema republication check and real-browser layout checks pass. PR CI owns the tag matrix and race detector. |
+| Live UI | Real HTTP server, compiled embedded SPA and local preview server; 390/1280 px, dark/light before/after captures on `screenshots` at `418ecf37e9261d7048c344de410c5bb37f87e926`. No live paid-provider request. |
+| Limits | Windows WebKit's three short-window overscroll checks fail identically on the pinned fork base and port. Local race needs an unavailable C compiler. CLI progress was captured through a real Ubuntu WSL pty using Linux binaries from the pinned base and port. Codex/Devin quota visuals need managed provider credentials; adapter/cache and presentation tests pass. |
+| Open backlog | The existing partial/deferred PR #351 entries remain open and are outside this target. |
+
+The wave adds file/stdin CLI input, per-call compaction models, phone input/layout,
+`preview_server`, file-argument progress, stable boot routing, background/MCP activity,
+the shared image viewer, SVG chevrons, bounded shared retries and Codex/Devin quotas.
+All owner decisions remain guarded: file input uses `textenc`, stdin stays UTF;
+both engines compact with a named model; `ui.send_mode` and editor behavior remain;
+unanswered recovery preserves useful steps and has a shared retry allowance;
+interrupted answers have a separate continuation allowance; assets still serve regular
+files while refusing symlinks. Existing background command timeout policy stays intact.
+
+---
+
+## Previous synchronization (1.1.61)
 
 | Поле | Значение |
 | --- | --- |
@@ -2660,7 +2684,7 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 4b091359..upstream/main` — список кандидатов (из `1.2.9` часть #351 уже взята, см. `deferred-351`).
+2. `git log --oneline --no-merges 75c31bcc..upstream/main` — список кандидатов (из `1.2.9` часть #351 уже взята, см. `deferred-351`).
 3. Сверить кандидатов с «Реестром постоянных расхождений» в начале файла: `git grep -n 'fork(' --`
    по каждому файлу, который они трогают; где upstream снова меняет помеченное место — спросить
    владельца.
