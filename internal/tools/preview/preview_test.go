@@ -436,7 +436,8 @@ func TestToolServesARecreatedDirectoryFresh(t *testing.T) {
 	env := newEnv(t, bgtask.Config{})
 	dist := filepath.Join(env.CWD, "dist")
 	writeFile(t, filepath.Join(dist, "index.html"), "first build")
-	if _, err := run(env, map[string]interface{}{"path": "dist"}); err != nil {
+	first, err := run(env, map[string]interface{}{"path": "dist"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -446,6 +447,10 @@ func TestToolServesARecreatedDirectoryFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(dist, "index.html"), "second build")
+	resp, body := fetch(t, http.MethodGet, urlInResult.FindString(first), "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("the old address served the replaced tree: %d %q", resp.StatusCode, body)
+	}
 	out, err := run(env, map[string]interface{}{"path": "dist"})
 	if err != nil {
 		t.Fatal(err)
@@ -453,7 +458,7 @@ func TestToolServesARecreatedDirectoryFresh(t *testing.T) {
 	if strings.Contains(out, "already running") {
 		t.Fatalf("the stale server was reused: %q", out)
 	}
-	body, err := get(urlInResult.FindString(out))
+	body, err = get(urlInResult.FindString(out))
 	if err != nil || !strings.Contains(body, "second build") {
 		t.Fatalf("the fresh server does not serve the rebuild: %q, %v", body, err)
 	}

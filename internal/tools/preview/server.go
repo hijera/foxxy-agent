@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -25,9 +26,12 @@ var loopbackNames = []string{"localhost", "127.0.0.1", "::1"}
 // listen opens it, serve starts answering, and from then on it is controlled
 // through the bgtask.Handle methods.
 type server struct {
-	root       *os.Root
-	rootName   string
-	rootInfo   os.FileInfo
+	root     *os.Root
+	rootName string
+	rootInfo os.FileInfo
+	// pinnedRoot prevents Unix from immediately reusing an unlinked directory's
+	// inode. Windows must release this handle so a build can replace the directory.
+	pinnedRoot *os.Root
 	ln         net.Listener
 	bindHost   string
 	publicHost string
@@ -50,9 +54,8 @@ type server struct {
 // caller learns the address first, so the task record can carry it from its
 // first snapshot, and closes the server if the task is then refused.
 func listen(dir, host, publicHost string) (*server, error) {
-	// Anchor the parent, opening the served directory only for each request.
-	// Holding that directory open prevents a clean rebuild from replacing it
-	// on Windows. Its identity still pins deduplication and request access.
+	// Anchor the parent for request access. Keep the directory identity alive
+	// on Unix, but release its handle on Windows so builds can replace it.
 	root, err := os.OpenRoot(filepath.Dir(dir))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", dir, err)
@@ -64,15 +67,24 @@ func listen(dir, host, publicHost string) (*server, error) {
 		return nil, fmt.Errorf("open %s: %w", dir, err)
 	}
 	info, err := served.Stat(".")
-	_ = served.Close()
 	if err != nil {
+		_ = served.Close()
 		_ = root.Close()
 		return nil, fmt.Errorf("stat %s: %w", dir, err)
+	}
+	var pinnedRoot *os.Root
+	if runtime.GOOS == "windows" {
+		_ = served.Close()
+	} else {
+		pinnedRoot = served
 	}
 	// Port 0 asks the system for a free one, which is the only race-free way
 	// to find it: the port is ours from the moment we learn its number.
 	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
+		if pinnedRoot != nil {
+			_ = pinnedRoot.Close()
+		}
 		_ = root.Close()
 		return nil, fmt.Errorf("listen on %s: %w", host, err)
 	}
@@ -88,6 +100,7 @@ func listen(dir, host, publicHost string) (*server, error) {
 		root:       root,
 		rootName:   name,
 		rootInfo:   info,
+		pinnedRoot: pinnedRoot,
 		ln:         ln,
 		bindHost:   host,
 		publicHost: publicHost,
@@ -157,6 +170,9 @@ func (s *server) serve(log io.Writer) {
 		}
 		s.serveErr = err
 		_ = s.root.Close()
+		if s.pinnedRoot != nil {
+			_ = s.pinnedRoot.Close()
+		}
 		close(s.done)
 	}()
 }
@@ -165,6 +181,9 @@ func (s *server) serve(log io.Writer) {
 func (s *server) close() {
 	_ = s.ln.Close()
 	_ = s.root.Close()
+	if s.pinnedRoot != nil {
+		_ = s.pinnedRoot.Close()
+	}
 }
 
 // Wait blocks until the server is down. It implements bgtask.Handle.
