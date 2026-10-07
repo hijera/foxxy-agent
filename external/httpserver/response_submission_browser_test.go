@@ -57,6 +57,15 @@ func TestComposerShowsInterruptedReceipt(t *testing.T) {
 	defer closeBrowser()
 	ctx, stop := context.WithTimeout(browser, 20*time.Second)
 	defer stop()
+	defer func() {
+		// Close Chrome before cancelling its command context so profile writers
+		// finish before testing removes the temporary user data directory.
+		shutdown, shutdownCancel := context.WithTimeout(browser, 5*time.Second)
+		defer shutdownCancel()
+		if err := chromedp.Cancel(shutdown); err != nil {
+			t.Errorf("close browser: %v", err)
+		}
+	}()
 	if err := chromedp.Run(ctx, chromedp.Navigate(ts.URL+"/"), chromedp.WaitVisible("#composer"), chromedp.SendKeys("#composer", "continue"), chromedp.Click("#btn-send"), chromedp.Poll(`document.body.innerText.includes("The previous request was interrupted") || document.body.innerText.includes("Предыдущий запрос был прерван")`, nil)); err != nil {
 		t.Fatal(err)
 	}
