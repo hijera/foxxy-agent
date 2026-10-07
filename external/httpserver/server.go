@@ -93,8 +93,9 @@ type Server struct {
 	mcpProbeMu    sync.Mutex
 	mcpProbeCache map[string]mcpProbeEntry
 
-	composerRelayMu sync.Mutex
-	composerRelays  map[string]*composerStreamRelay
+	composerRelayMu  sync.Mutex
+	composerRelays   map[string]*composerStreamRelay
+	responseRequests sync.Map
 
 	// detachedPrompts is the broker turns this server builds itself hand their
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
@@ -1158,7 +1159,7 @@ func lastAssistantContent(st *session.State) string {
 }
 
 // POST /v1/responses accepts model, input, and optional stream (SSE).
-func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return

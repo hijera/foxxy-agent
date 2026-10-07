@@ -105,11 +105,26 @@ test("System group folds the rarely edited tail keys", () => {
   ]);
 });
 
-test("skills is its own combined tab; labels come from schema titles", () => {
+test("skills is its own combined tab; labels prefer the curated i18n form", () => {
   const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
   expect(byId.skills!.kind).toBe("skills");
   expect(byId.agent!.kind).toBe("object");
-  expect(byId.agent!.label).toBe("ReAct agent");
+  // The curated short label (`settings.section.agent.label`) wins over the
+  // schema title, which reads as a sentence and would overflow the tiles.
+  expect(byId.agent!.label).toBe("ReAct loop");
+});
+
+test("an unknown schema section keeps its server-provided title", () => {
+  const schema = {
+    ...rootSchema,
+    properties: {
+      ...rootSchema.properties,
+      custom_section: { type: "object", title: "Custom longer section title", properties: {} },
+    },
+    "x-foxxycode-property-order": [...(rootSchema["x-foxxycode-property-order"] as string[]), "custom_section"],
+  } as unknown as JsonSchema;
+  const section = deriveSettingsSections(schema).find((s) => s.id === "custom_section");
+  expect(section?.label).toBe("Custom longer section title");
 });
 
 test("General, Appearance and Sessions are present even without a schema", () => {

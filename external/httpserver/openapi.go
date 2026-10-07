@@ -127,9 +127,15 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
+						"Optional **Idempotency-Key** reserves a logical submission before any session or model mutation. Keys are opaque strings after trimming; JSON escaping and internal whitespace remain significant. Reuse the key with the same JSON payload and session header (including absence) to replay the original status, headers and JSON/SSE body, including errors; responses set **Idempotency-Replayed: true**. Keys persist without automatic expiry. Different payload/session returns **409**. Unfinished requests, including empty legacy claims, return **202** with their status and never run again. A new claim is published only after its receipt is saved. Older receipts retain their former key matching conservatively. Keyed requests require a filesystem store (**503** if unavailable) and a readable body no larger than 32 MiB (**413** otherwise).",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "Idempotency-Key", "in": "header", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 128},
+							"description": "Unique logical submission key (maximum 128 bytes after trimming). Reuse for network retries; generate a new key for each intentional new submission. Blank behaves as omitted.",
+						},
 						map[string]interface{}{
 							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
@@ -164,10 +170,23 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"202": map[string]interface{}{
+							"description": "Duplicate of an unfinished request. No model call is started. Reconcile saved messages and attach to the composer stream if active. Interrupted requests require an intentional new submission. An id can be empty when the session was not yet recorded. Ownership in a different server process is conservatively reported as interrupted.",
+							"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{
+								"type": "object", "required": []string{"id", "object", "status"},
+								"properties": map[string]interface{}{
+									"id":     map[string]string{"type": "string"},
+									"object": map[string]interface{}{"type": "string", "enum": []string{"response"}},
+									"status": map[string]interface{}{"type": "string", "enum": []string{"in_progress", "interrupted"}},
+								},
+							}}},
+						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": sessionBusyResponseRef(),
+						"413": errorResponseRef(),
 						"500": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},

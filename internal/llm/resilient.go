@@ -114,6 +114,8 @@ func (p *resilientProvider) log() *slog.Logger {
 func (p *resilientProvider) Unwrap() Provider { return p.inner }
 
 func (p *resilientProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	ctx, finish := startDiagnosticCall(ctx, "complete")
+	defer finish()
 	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
 		return p.inner.Complete(ctx, messages, tools)
 	})
@@ -128,6 +130,10 @@ func (p *resilientProvider) Complete(ctx context.Context, messages []Message, to
 }
 
 func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+	ctx, finish := startDiagnosticCall(ctx, "stream")
+	defer finish()
+	started := time.Now()
+	var first sync.Once
 	// Only a request the endpoint refused outright can be safely re-issued: once a
 	// delta has reached the caller, replaying the turn would duplicate output.
 	// Atomic because a transport is free to deliver chunks from its own goroutine.
@@ -135,6 +141,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	guarded := func(c StreamChunk) {
 		if c.TextDelta != "" || c.ReasoningDelta != "" || c.ToolCall != nil {
 			emitted.Store(true)
+			first.Do(func() { diagnosticEvent(ctx, "llm.first_chunk", "elapsed_ms", time.Since(started).Milliseconds()) })
 		}
 		if onChunk != nil {
 			onChunk(c)
@@ -179,7 +186,9 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			return nil, ctx.Err()
 		}
 		attemptStart := time.Now()
+		diagnosticEvent(ctx, "llm.attempt.start", "attempt", attempt+1)
 		resp, err := fn(ctx)
+		diagnosticEvent(ctx, "llm.attempt.end", "attempt", attempt+1, "elapsed_ms", time.Since(attemptStart).Milliseconds(), "status", httpStatusFromError(err), "failed", err != nil)
 		p.markCallFinished()
 		if err == nil {
 			return resp, nil
@@ -224,6 +233,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
+		diagnosticEvent(ctx, "llm.retry.wait", "next_attempt", attempt+2, "delay_ms", delay.Milliseconds(), "status", httpStatusFromError(err))
 		p.log().WarnContext(ctx, "LLM request failed; retrying",
 			"attempt", attempt+1,
 			"next_attempt", attempt+2,
@@ -355,6 +365,7 @@ func (p *resilientProvider) waitMinInterval(ctx context.Context) error {
 	if wait <= 0 {
 		return nil
 	}
+	diagnosticEvent(ctx, "llm.pacing.wait", "delay_ms", wait.Milliseconds())
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {

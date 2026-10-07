@@ -36,7 +36,7 @@ func (p *anthropicProvider) withTuning(in ProviderInput) *anthropicProvider {
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
-	opts := []option.RequestOption{option.WithMaxRetries(0)}
+	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}

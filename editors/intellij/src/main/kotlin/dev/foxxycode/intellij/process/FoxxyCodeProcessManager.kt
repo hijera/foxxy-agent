@@ -76,6 +76,9 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     @Synchronized
     private fun startAndWait(indicator: ProgressIndicator): String {
         baseUrl?.let { if (isRunning) return it }
+        val started = System.nanoTime()
+        fun stage(name: String) = log.info("[foxxycode] startup stage=$name elapsed_ms=${(System.nanoTime() - started) / 1_000_000}")
+        stage("start")
         signalStop()
         // A backend still holding the port would make the fresh one die on bind, and on Windows
         // one still holding its image file would block the next plugin update. This is the
@@ -107,12 +110,15 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         // Panels default to guarded planning: the model may not leave plan mode itself.
         cmd.addParameters("--plan-no-self-run=" + settings.planNoSelfRun)
         if (settings.extraArgs.isNotBlank()) cmd.addParameters(ParametersListUtil.parse(settings.extraArgs))
+        stage("proxy_resolution_start")
         val proxy = ProxyEnvironment.resolveProxyEnvironment()
+        stage("proxy_resolution_end")
         log.info("[foxxycode] " + ProxyEnvironment.describe(proxy))
         cmd.withEnvironment(proxy.env)
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())
+        stage("process_launch_start")
         recentOutput.clear()
         // The backend is a long-running server that prints almost nothing after startup. The
         // default reader polls it as if output were imminent, which the IDE itself warns about
@@ -127,6 +133,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         // off, destroyProcess() goes straight to the recursive kill, which also takes down the
         // shells and MCP servers the backend spawned.
         h.setShouldKillProcessSoftly(false)
+        stage("process_launch_end")
         h.addProcessListener(object : ProcessAdapter() {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
                 val line = event.text.trimEnd()
@@ -155,9 +162,13 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         FoxxyCodeBackends.register(h)
 
         val url = "http://$host:$port/"
+        stage("readiness_start")
         waitForReady(url, indicator)
+        stage("readiness_end")
         baseUrl = url
+        stage("locale_start")
         adoptBackendLocale(url)
+        stage("ready")
         log.info("FoxxyCode ready at $url")
         return url
     }

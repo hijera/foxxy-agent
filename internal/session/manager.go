@@ -982,6 +982,11 @@ func (m *Manager) BeginSessionWork(ctx context.Context, sessionID string) (conte
 
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
 func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *PromptRunOpts) (*acp.SessionPromptResult, error) {
+	started := time.Now()
+	m.log.DebugContext(ctx, "session.prompt.start", "session", params.SessionID)
+	defer func() {
+		m.log.DebugContext(ctx, "session.prompt.end", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
+	}()
 	if sender == nil {
 		sender = m.server
 	}
@@ -994,7 +999,6 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			return nil, err
 		}
 	}
-
 	// Stage timings for the turn. A panel that sits on "waiting for the model" cannot tell a
 	// slow model from a turn stuck before the model was ever called; these numbers can.
 	turnStart := time.Now()
@@ -1153,6 +1157,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}()
 
 	ranRunner = true
+	m.log.DebugContext(ctx, "session.prompt.prepared", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
 	MarkTurnRan(turnCtx)
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
@@ -1614,6 +1619,11 @@ func acpMCPServerToConfig(srv acp.MCPServer) config.MCPServerConfig {
 }
 
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {
+	started := time.Now()
+	m.log.DebugContext(ctx, "session.mcp.start", "session", state.GetID(), "server", srv.Name)
+	defer func() {
+		m.log.DebugContext(ctx, "session.mcp.end", "session", state.GetID(), "server", srv.Name, "elapsed_ms", time.Since(started).Milliseconds())
+	}()
 	client, err := m.connectMCPClient(ctx, state.GetCWD(), srv)
 	if err != nil {
 		return err

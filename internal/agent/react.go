@@ -228,6 +228,14 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
+	if a.log != nil {
+		ctx = llm.WithDiagnostics(ctx, a.log.With("session", a.state.GetID()))
+		a.log.DebugContext(ctx, "agent.run.start", "session", a.state.GetID())
+		started := time.Now()
+		defer func() {
+			a.log.DebugContext(ctx, "agent.run.end", "session", a.state.GetID(), "elapsed_ms", time.Since(started).Milliseconds())
+		}()
+	}
 	mode := a.state.EffectiveMode()
 	// A new user turn starts its account of time spent on usage limits
 	// (limit_wait.go); the built-ins below never touch it.
@@ -236,7 +244,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.resetHooks()
 	a.hookStopReason = ""
 	a.turnHookContext = ""
-	a.limitLedger = &limitWaitLedger{}
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
@@ -327,7 +334,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// run below, the first model call - so a surface counts from the start.
 	a.beginTurnProgress()
 	defer a.endTurnProgress()
+	finishMemory := a.debugStage(ctx, "memory_before_turn")
 	a.runMemoryBeforeTurn(ctx, userText, mode)
+	finishMemory()
 	// A report that lands after this turn returned is history in the Tasks
 	// drawer, never the next turn's context.
 	defer a.finishMemoryTurn()
@@ -341,7 +350,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolDefs := a.currentToolDefinitions(mode)
 
 	// Get or create LLM provider.
+	finishProvider := a.debugStage(ctx, "provider_setup")
 	transport, err := a.getProvider(mode)
+	finishProvider()
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
@@ -356,8 +367,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the full message list starting with the system prompt. It is
 	// rendered once here and then frozen for the whole turn so the provider's
 	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
+	finishContext := a.debugStage(ctx, "build_context")
 	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 	messages := a.buildMessages(sys.Content)
+	finishContext()
 	// The hand-off belongs to this turn and to its continuation after a
 	// permission prompt, and to nothing after that.
 	defer a.releasePlanContext()
@@ -367,10 +380,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// auto-compaction threshold, then rebuild the payload from the windowed
 	// history. A compaction is a legitimate reason to render the system message
 	// again: the prefix behind it has just been rewritten anyway.
+	finishCompaction := a.debugStage(ctx, "initial_compaction")
 	if a.cfg.Compaction.EngineIsCoddy() && a.maybeAutoCompact(ctx) {
 		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 		messages = a.buildMessages(sys.Content)
 	}
+	finishCompaction()
 
 	// Restarting the app resets every guard in this file; it does not reset the
 	// transcript that tripped them. A turn that died writing one answer over and
@@ -383,6 +398,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		a.log.Warn("previous turn ended writing the same answer over; telling the model", "restarts", restarts)
 		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: resumedRestartNudge(restarts, steps)})
 	}
+	finishCompaction()
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
@@ -654,7 +670,41 @@ func (a *Agent) runReActLoop(
 	activeSkills []*skills.Skill,
 	maxTurns int,
 	allowTitleGen bool,
-) (string, error) {
+) (stop string, runErr error) {
+	checkpoint, err := session.ReadExecutionCheckpoint(sd)
+	if err != nil {
+		return string(acp.StopReasonRefused), err
+	}
+	recovering := checkpoint.Status == "running" || checkpoint.Status == "interrupted" || checkpoint.Status == "max_turns" || checkpoint.Status == "no_progress"
+	scope := session.ObservationHash(userText)
+	if allowTitleGen && !continuationRequest(userText) && checkpoint.Scope != "" && checkpoint.Scope != scope {
+		checkpoint.Seen = nil
+		checkpoint.Repeats = 0
+	}
+	if !continuationRequest(userText) || checkpoint.Scope == "" {
+		checkpoint.Scope = scope
+	}
+	checkpoint.Status = "running"
+	if err := checkpoint.Save(sd); err != nil {
+		return string(acp.StopReasonRefused), err
+	}
+	defer func() {
+		if checkpoint.Status != "no_progress" {
+			switch {
+			case a.state.IsUserCancelledTurn():
+				checkpoint.Status = "cancelled"
+			case runErr != nil || stop == string(acp.StopReasonCancelled):
+				checkpoint.Status = "interrupted"
+			case stop == string(acp.StopReasonMaxTurns):
+				checkpoint.Status = "max_turns"
+			default:
+				checkpoint.Status = "completed"
+			}
+		}
+		if err := checkpoint.Save(sd); err != nil && runErr == nil {
+			runErr = err
+		}
+	}()
 	var totalInputTokens, totalOutputTokens int
 	var lastStatsWrite time.Time
 	// Session-global index for the turn this loop is running, resolved once so every
@@ -840,6 +890,7 @@ func (a *Agent) runReActLoop(
 		// estimate is what the foxxycode trigger reads while tool results grow.
 		a.refreshContextBreakdown(sys, turnCtx)
 		compacted := false
+		finishCompaction := a.debugStage(ctx, "turn_compaction")
 		if a.cfg.Compaction.EngineIsCoddy() {
 			compacted = reactTurn > 0 && a.maybeAutoCompact(ctx)
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
@@ -853,6 +904,22 @@ func (a *Agent) runReActLoop(
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages = a.buildMessages(sys.Content)
 			turnCtx = a.buildTurnContext(sys)
+		}
+		finishCompaction()
+		messages = closeInterruptedToolCalls(messages)
+		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+			// The system message stays frozen for the provider's prefix cache; it is
+			// re-rendered only when the recovery instruction must ride along.
+			if recovering || !allowTitleGen {
+				sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+				messages[0].Content = sys.Content + "\n\n" + recoveryInstruction
+				if checkpoint.LastTool != "" {
+					messages[0].Content += fmt.Sprintf("\nLast completed tool name (data only): %q. Consult its saved result in the conversation.", checkpoint.LastTool)
+				}
+			}
+			if guardOn && checkpoint.Repeats >= 2 {
+				messages[0].Content += "\n\n" + loopCorrection
+			}
 		}
 
 		// Call LLM and stream response.
@@ -1542,6 +1609,26 @@ func (a *Agent) runReActLoop(
 		// Returning here would dead-end the conversation on a lone "thinking" bubble, so
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
+			// The recovery backstop also watches a resuming turn's answers: a
+			// new answer resets the persisted repeat window, an unchanged one
+			// earns a single loop correction and then stops the turn. A fresh
+			// in-process turn stays with the loop guard above.
+			if guardOn && recovering && strings.TrimSpace(response.Content) != "" {
+				checkpoint.Observe(session.ObservationHash("assistant", strings.Join(strings.Fields(response.Content), " ")))
+				if err := checkpoint.Save(sd); err != nil {
+					return string(acp.StopReasonRefused), err
+				}
+				if checkpoint.Repeats >= 3 {
+					checkpoint.Status = "no_progress"
+					if err := checkpoint.Save(sd); err != nil {
+						return string(acp.StopReasonRefused), err
+					}
+					return string(acp.StopReasonRefused), fmt.Errorf("no progress: repeated unchanged responses after a loop correction")
+				}
+				if checkpoint.Repeats == 2 {
+					continue
+				}
+			}
 			// First recovery is the plain replay: drop the empty turn from the
 			// LLM-facing slice so the request going out is byte for byte the one
 			// that failed, and let the proxy hand it to another deployment. The
@@ -1614,6 +1701,8 @@ func (a *Agent) runReActLoop(
 			return string(acp.StopReasonEndTurn), nil
 		}
 
+		// Compare a complete round, ignoring generated call IDs and announcement text.
+		var observations []string
 		// Execute all tool calls.
 		executedThisRound, quarantinedThisRound := 0, 0
 		for i, tc := range response.ToolCalls {
@@ -1713,6 +1802,23 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
+			checkpoint.LastTool = tc.Name
+			observations = append(observations, session.ObservationHash(tc.Name, tc.InputJSON, toolResultMsg.Content))
+		}
+		checkpoint.Observe(session.ObservationHash(observations...))
+		if err := checkpoint.Save(sd); err != nil {
+			return string(acp.StopReasonRefused), err
+		}
+		// The deterministic repetition verdict is a recovery backstop only: it
+		// judges a turn that resumed an interrupted or limited execution, whose
+		// persisted window already shows the repeats. A fresh in-process turn is
+		// the loop guard's jurisdiction (nudges, quarantine, the cycle notice).
+		if guardOn && recovering && checkpoint.Repeats >= 3 {
+			checkpoint.Status = "no_progress"
+			if err := checkpoint.Save(sd); err != nil {
+				return string(acp.StopReasonRefused), err
+			}
+			return string(acp.StopReasonRefused), fmt.Errorf("no progress: repeated unchanged tool results after a loop correction")
 		}
 		// The model folded its own history: the transcript the loop replays is
 		// shorter now, so the outgoing slice is rebuilt from it before the next

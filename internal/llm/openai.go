@@ -76,7 +76,7 @@ func (p *openAIProvider) CompleteRaw(ctx context.Context, prompt string) (*Respo
 }
 
 func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
-	opts := []option.RequestOption{option.WithMaxRetries(0)}
+	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
