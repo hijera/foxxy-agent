@@ -22,12 +22,13 @@ var (
 // logLLMCallFinished records how one model call ended: how long it took, how long
 // until the first sign of life, and what ended it. Together with the network trace
 // it is what a debug log of a turn that hung for an hour is read from.
-func (a *Agent) logLLMCallFinished(sessionID string, turn, call int, start time.Time, firstProgressNS int64, output bool, cause, err error, response *llm.Response) {
+func (a *Agent) logLLMCallFinished(sessionID string, turn, call int, start time.Time, firstProgressNS int64, output bool, cause, err error, response *llm.Response, retryDetails ...any) {
 	kv := []any{
 		"session", sessionID, "turn", turn, "call", call,
 		"took", time.Since(start).Round(time.Millisecond),
 		"output", output,
 	}
+	kv = append(kv, retryDetails...)
 	if firstProgressNS != 0 {
 		kv = append(kv, "first_progress_after", time.Unix(0, firstProgressNS).Sub(start).Round(time.Millisecond))
 	}

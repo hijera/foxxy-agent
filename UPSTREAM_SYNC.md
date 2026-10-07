@@ -28,7 +28,7 @@
 | `stall-guard-layer` | 1.1.47: `stallGuardTransport` в `transport.go` режет SSE-тело без байтов, внутри ретрай-обёртки | Guard оборачивает провайдер и считает чанки (включая `Progress`), не keep-alive; стоит снаружи ретраев | 1.1.52: режимы портированы без `stallGuardTransport`/`idleBody`; при следующих изменениях сохранять слой guard |
 | `transport-debug-wrap` | 1.1.47: общий транспорт на настройку прокси из `http.DefaultTransport`, пинги HTTP/2 через x/net | Тот же общий пул, но из форковых прокси-хелперов (таймаут заголовков, системный прокси #124, пинги `http.HTTP2Config` из #125) и за debug-обёрткой | 1.1.52: режимы портированы в `buildLLMTransport` с системным прокси, debug-обёрткой, ключом пула и форковым обходом NO_PROXY/loopback; при следующих изменениях сохранять их |
 | `continue-path` | 1.1.47: stall после текста завершает ход; 1.2.9: recovery после 5xx/обрыва, пауза от `llm_retry_base_ms`, выключается `llm_retry_max: 0`, уведомление в UI-лог | Оборванный ответ продолжается под `agent.llm_continue`; паузы `llm_continue_stall_delays_ms` и `llm_continue_error_delays_ms`, Retry-After до `llm_continue_retry_after_max_ms`; парковка через `llm_retry`; оборванный текст на обоих путях сохраняется до последнего конца строки (1.2.9 хранит целиком); сброс Winsock (10053/10054) — временный сбой | Остаток 1.2.9: ветку форка сохранить, изменения `IsTransientProviderError` брать |
-| `continue-budget` | 1.2.9: не больше 2 recovery подряд, каждый — шаг `max_turns`; 1.2.0: бюджет ретраев на шаг | Один бюджет на ход `agent.llm_continue_max` (3) для stall и сбоев, вне `max_turns`, с детектором повторов | 1.2.0 (#329): бюджет — только для ретраев обёртки |
+| `continue-budget` | 1.2.9: не больше 2 recovery подряд, каждый — шаг `max_turns`; 1.2.0: бюджет ретраев на шаг | Один бюджет на ход `agent.llm_continue_max` (3) для stall и сбоев, вне `max_turns`, с детектором повторов | 1.2.0 (#329): общий бюджет сетевых повторов и пустых попыток, продолжения — отдельно |
 | `stall-timeout-alias` | Ключ `llm_stream_idle_timeout_ms` | То же имя; `llm_stall_timeout_ms` читается как устаревший алиас | Держать алиас, пока владелец его не уберёт |
 | `stop-notice-transcript` | 1.2.9: `StopNotice` в UI-лог, отдельно печатается в Telegram, консоли и `-p` | Уведомление стримится в ответ и пишется в транскрипт; `StopNotice` — только в `meta.stop_notice`, remote-клиент и отчёт субагента | При порте 1.2.9 не брать печать `StopNotice` в `bot.go`, `print.go`, `app.go` |
 | `max-turns-default` | 1.2.9: незаданный `agent.max_turns` — без лимита | Незаданный — 30 | Оставить 30 |
@@ -36,6 +36,12 @@
 | `progress-chunks` | До 1.1.67 кадр без содержимого ничего не сообщает; 1.1.68 добавляет свой progress аргументов | `Progress` на каждый кадр без содержимого, мимо `emit` | 1.1.68: слить с форковым, правило «progress не ставит `emitted`» сохранить |
 | `switch-enable-alias` | Переключатели — `enable`, `enabled` неизвестен | `enable` канонический, `enabled` — алиас | Ничего: алиас покрывает новые переключатели |
 | `deferred-351` | 1.2.9 (#351): статус провайдера в HTTP API (#322), `max_turns: 0`, удаление `max_tokens_per_turn`, поздние исправления Devin | Базовый Devin портирован из 1.1.61; recovery и StopNotice уже взяты | В волне 1.2.9 брать из #351 только оставшиеся части |
+| `prompt-file-encoding` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `retry-recovery-steps` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `compaction-both-engines` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `composer-send-mode` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `session-asset-files` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `background-server-lifetime` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 <!-- divergence-registry:end -->
 
 Более ранние решения записаны в разделах «Расхождения с upstream» каждой волны ниже; при порте,

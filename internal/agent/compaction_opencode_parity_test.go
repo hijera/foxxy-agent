@@ -11,6 +11,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // The opencode engine gets everything upstream gave the coddy engine in #262.
@@ -41,7 +42,7 @@ func TestCompactSessionOnTheOpenCodeEngineFlagsTheFoldedMessages(t *testing.T) {
 	provider := &compactCannedProvider{t: t, summary: "dense summary"}
 	ag := compactTestAgent(t, st, opencodeCompaction(1), provider)
 
-	res, err := ag.CompactSession(context.Background(), "keep the file names", true)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "keep the file names", Force: true})
 	if err != nil {
 		t.Fatalf("compaction: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestSecondOpenCodeCompactionCarriesTheEarlierSummary(t *testing.T) {
 	st := seededCompactState(t, 3)
 	provider := &compactCannedProvider{t: t, summary: "FIRST SUMMARY about the parser"}
 	ag := compactTestAgent(t, st, opencodeCompaction(1), provider)
-	if _, err := ag.CompactSession(context.Background(), "", true); err != nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: true}); err != nil {
 		t.Fatalf("first compaction: %v", err)
 	}
 
@@ -83,7 +84,7 @@ func TestSecondOpenCodeCompactionCarriesTheEarlierSummary(t *testing.T) {
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
 	}
 	provider.summary = "SECOND SUMMARY"
-	if _, err := ag.CompactSession(context.Background(), "", true); err != nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: true}); err != nil {
 		t.Fatalf("second compaction: %v", err)
 	}
 
@@ -114,7 +115,7 @@ func TestOpenCodeCompactionFoldsInPassesWhenTheHeadOutgrowsTheSummarizer(t *test
 	// A window this small resolves the pass budget down to the floor.
 	ag.cfg.Models[0].MaxContextTokens = 1
 
-	res, err := ag.CompactSession(context.Background(), "", true)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: true})
 	if err != nil {
 		t.Fatalf("compaction: %v", err)
 	}
@@ -148,7 +149,7 @@ func TestOpenCodeCompactionFallsBackToTheNextSummarizer(t *testing.T) {
 		return working, nil
 	}
 
-	res, err := ag.CompactSession(context.Background(), "", true)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: true})
 	if err != nil {
 		t.Fatalf("compaction: %v", err)
 	}
@@ -187,7 +188,7 @@ func TestOpenCodeCompactionAlwaysTellsTheClientItEnded(t *testing.T) {
 	broken := &compactCannedProvider{t: t, err: fmt.Errorf("401 bad key")}
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return broken, nil }
 
-	if _, err := ag.CompactSession(context.Background(), "", true); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: true}); err == nil {
 		t.Fatal("a failing summarizer must fail the compaction")
 	}
 	sender.mu.Lock()
@@ -205,7 +206,7 @@ func TestCompactContextToolUsesTheOpenCodeEngine(t *testing.T) {
 	st := seededCompactState(t, 3)
 	ag := compactTestAgent(t, st, opencodeCompaction(1), &compactCannedProvider{t: t, summary: "dense summary"})
 
-	text, err := ag.compactFromTool(context.Background(), "")
+	text, err := ag.compactFromTool(context.Background(), tooling.CompactRequest{})
 	if err != nil {
 		t.Fatalf("tool: %v", err)
 	}

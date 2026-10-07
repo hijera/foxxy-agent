@@ -250,7 +250,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
 			true),
 	}
 	modelProps := map[string]interface{}{
@@ -411,7 +411,7 @@ func UISchemaMap() map[string]interface{} {
 				"max_tokens_per_turn": intProp("Max tokens per turn",
 					"Upper bound on total tokens (prompt + completion) the model may use in one agent step."),
 				"llm_retry_max": intProp("LLM retry max",
-					"Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries)."),
+					"Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits."),
 				"llm_retry_base_ms": intProp("LLM retry base ms",
 					"Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it."),
 				"llm_min_interval_ms": intProp("LLM min interval ms",
@@ -572,6 +572,19 @@ func UISchemaMap() map[string]interface{} {
 					},
 					[]string{"enable", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
 					nil),
+				"preview_server": objectSchema("Preview server",
+					"The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.",
+					map[string]interface{}{
+						"enable": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.",
+						},
+						"host":        strProp("Bind host", "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory."),
+						"public_host": strProp("Public host", "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host."),
+					},
+					[]string{"enable", "host", "public_host"},
+					nil),
 				"websearch": objectSchema("Web search",
 					"Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
 					map[string]interface{}{
@@ -612,7 +625,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "output_limits", "background", "websearch", "http_request"},
+			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "output_limits", "background", "preview_server", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",

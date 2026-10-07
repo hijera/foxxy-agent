@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,7 @@ const (
 	defaultMaxTimeoutSeconds = 3600
 	defaultOutputBufferBytes = 256 * 1024
 	defaultStopGrace         = 3 * time.Second
+	maxClockTimeoutSeconds   = int(math.MaxInt64 / int64(time.Second))
 )
 
 // ErrPoolFull is returned when a session already runs its maximum number of
@@ -364,6 +366,7 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 			StartedAt:       startedAt,
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
+			URL:             strings.TrimSpace(spec.URL),
 			NotifyOnFinish:  spec.NotifyOnFinish,
 			Agent:           cloneAgentInfo(spec.Agent),
 		},
@@ -428,13 +431,17 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 //
 // A non-positive result means "no hard timeout"; supervise arms no timer for it.
 func resolveTimeoutSeconds(spec Spec, cfg Config) int {
+	// fork(background-server-lifetime): preview lifetime leaves command ceilings intact.
+	if spec.Kind == KindServer && spec.NoTimeout {
+		return min(max(spec.TimeoutSeconds, 0), maxClockTimeoutSeconds)
+	}
 	if spec.TimeoutSeconds > 0 {
-		return min(spec.TimeoutSeconds, cfg.MaxTimeoutSeconds)
+		return min(spec.TimeoutSeconds, cfg.MaxTimeoutSeconds, maxClockTimeoutSeconds)
 	}
 	if spec.NoTimeout {
 		return 0
 	}
-	return min(cfg.DefaultTimeoutSeconds, cfg.MaxTimeoutSeconds)
+	return min(cfg.DefaultTimeoutSeconds, cfg.MaxTimeoutSeconds, maxClockTimeoutSeconds)
 }
 
 // registerLocked must be called with the pool lock held.
@@ -966,6 +973,25 @@ func (p *Pool) runningForSession(sessionID string) int {
 		}
 	}
 	return count
+}
+
+// RunningCountsBySession is RunningCount for every session at once, for a caller
+// that answers about many of them in one pass - the sessions listing asks for one
+// count per row. Asking per row would take the lock and walk the whole pool once
+// per session; this walks it once. Sessions with nothing in flight are left out.
+func (p *Pool) RunningCountsBySession() map[string]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	counts := make(map[string]int)
+	for _, t := range p.tasks {
+		t.mu.Lock()
+		counted := !t.snap.SystemTask() && !t.snap.Status.Finished()
+		t.mu.Unlock()
+		if counted {
+			counts[t.snap.SessionID]++
+		}
+	}
+	return counts
 }
 
 func (p *Pool) lookup(sessionID, taskID string) (*task, error) {

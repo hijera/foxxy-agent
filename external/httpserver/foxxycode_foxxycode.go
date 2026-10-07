@@ -180,12 +180,12 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", s.foxxycodeSessionMessagesGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/export", s.foxxycodeSessionExportGet)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/export/file", s.foxxycodeSessionExportFilePost)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}/thumbnail", s.foxxycodeSessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/composer-stream", s.foxxycodeSessionComposerStream)
 	s.mux.HandleFunc("GET /foxxycode/events", s.foxxycodeEventsStream)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls", s.foxxycodeToolCallsList)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}", s.foxxycodeToolCallGet)
-	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/stats", s.foxxycodeSessionStatsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/debug", s.foxxycodeSessionDebugGet)
 	s.mux.HandleFunc("POST /foxxycode/stream-tickets", s.foxxycodeStreamTicketPost)
@@ -941,6 +941,11 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 	slice := rows[start:end]
 	includeActivity := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_activity")), "true")
 	includeStats := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_stats")), "true")
+	// One walk of the task pool for the whole listing, rather than one per row.
+	var backgroundRunning map[string]int
+	if includeActivity {
+		backgroundRunning = bgtask.Default().RunningCountsBySession()
+	}
 	sessions := make([]map[string]interface{}, 0, len(slice))
 	for _, row := range slice {
 		ent := map[string]interface{}{
@@ -1006,6 +1011,12 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["readActivitySeq"] = readSeq
 			ent["unreadComplete"] = actSeq > readSeq && !turnActive
 			ent["permissionPending"] = session.PendingPermissionHeld(dir)
+			// Detached work outlives the turn that started it, so a session
+			// with no turn in flight is still not idle while a task runs.
+			// The count is the pool's own, which already leaves out the
+			// runtime's system errands and everything that has finished; the
+			// whole listing reads it in one pass, above.
+			ent["backgroundRunning"] = backgroundRunning[row.SessionID]
 		}
 		sessions = append(sessions, ent)
 	}
@@ -1120,12 +1131,26 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 }
 
 func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
-	return llmMsgsToFoxxyCodeOpenAIForSession("", msgs)
+	return llmMsgsToFoxxyCodeOpenAIForSession("", "", msgs)
 }
 
-// llmMsgsToFoxxyCodeOpenAIForSession is the transcript serializer with a session id,
-// which is what a user row needs to point at its persisted image previews.
-func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []map[string]interface{} {
+// isAssetOf reports whether path is a regular file directly inside assetsDir.
+// Symlinks do not count: the address the transcript hands out promises bytes of
+// this session's bundle, and a link planted in that directory - the agent can
+// write there, and the prompt tells it where - would make it serve whatever it
+// points at.
+func isAssetOf(assetsDir, path string) bool {
+	if assetsDir == "" || path == "" {
+		return false
+	}
+	if filepath.Dir(path) != filepath.Clean(assetsDir) {
+		return false
+	}
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -1196,6 +1221,15 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []
 					file["preview_url"] = "/foxxycode/sessions/" + url.PathEscape(sessionID) +
 						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
 				}
+				// The full-size original, for a preview card to open enlarged.
+				// The address is a name under this session's assets directory,
+				// so a part saved anywhere else gets none: its base name would
+				// either 404 or, worse, name a different file that happens to
+				// share it.
+				if sessionID != "" && assetsDir != "" && isAssetOf(assetsDir, part.FilePath) {
+					file["url"] = "/foxxycode/sessions/" + url.PathEscape(sessionID) +
+						"/assets/" + url.PathEscape(filepath.Base(part.FilePath))
+				}
 				files = append(files, file)
 			}
 			item["files"] = files
@@ -1240,31 +1274,52 @@ func imagePartMIMEType(part llm.ImagePart) string {
 	return "application/octet-stream"
 }
 
-// foxxycodeSessionAssetThumbnailGet serves the bounded PNG preview of one uploaded
-// image. Only thumbnails are exposed: the original asset bytes stay off the HTTP
-// surface, and the name is constrained to a single path element.
-func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+// foxxycodeSessionAsset is the prologue the two asset routes share: the method,
+// the session behind {id}, and an asset {name} that must be a bare file name.
+// It answers the request itself and reports ok=false when the caller must stop.
+func (s *Server) foxxycodeSessionAsset(w http.ResponseWriter, r *http.Request) (sessionDir, name string, ok bool) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
-		return
+		return "", "", false
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
-		return
+		return "", "", false
 	}
-	name := strings.TrimSpace(r.PathValue("name"))
-	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+	name = strings.TrimSpace(r.PathValue("name"))
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
 		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
-		return
+		return "", "", false
 	}
-	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+	sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
 	if sessionDir == "" {
 		http.NotFound(w, r)
+		return "", "", false
+	}
+	return sessionDir, name, true
+}
+
+func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	sessionDir, name, ok := s.foxxycodeSessionAsset(w, r)
+	if !ok {
 		return
 	}
 	path := session.AssetThumbnailPath(sessionDir, name)
-	f, err := os.Open(path)
+	// Same reason as the full-size route: a link planted in the bundle must not
+	// turn this into a reader of whatever it points at.
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
+	root, err := os.OpenRoot(session.AssetThumbnailsPath(sessionDir))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(filepath.Base(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
@@ -1275,8 +1330,8 @@ func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *htt
 		return
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil || info.IsDir() {
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
 		http.NotFound(w, r)
 		return
 	}
@@ -1300,7 +1355,7 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	out := map[string]interface{}{
 		"object":    "foxxycode.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, msgs),
+		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), msgs),
 		// The revision this history was read at: a client attaching to the composer
 		// relay passes it back as since_rev and is replayed only what it lacks.
 		"messagesRev": rev,

@@ -141,9 +141,13 @@ func (s *compactHTTPFeatureState) bootServer(engine string, provider config.Prov
 		return err
 	}
 	cfg := &config.Config{
-		Paths:      config.Paths{Home: filepath.Join(s.root, "home"), CWD: s.root},
-		Providers:  []config.ProviderConfig{provider},
-		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2, MaxContextTokens: maxContextTokens}},
+		Paths:     config.Paths{Home: filepath.Join(s.root, "home"), CWD: s.root},
+		Providers: []config.ProviderConfig{provider},
+		Models: []config.ModelEntry{
+			{Model: "fake/model", MaxTokens: 100, Temperature: 0.2, MaxContextTokens: maxContextTokens},
+			// No session runs on it: a summary it wrote was asked for by name.
+			{Model: "fake/summarizer-qwen", MaxTokens: 100, MaxContextTokens: maxContextTokens},
+		},
 		Agent:      config.Agent{Model: "fake/model"},
 		Compaction: config.CompactionConfig{Engine: engine},
 	}
@@ -226,9 +230,13 @@ func (s *compactHTTPFeatureState) restartServer() error {
 // sendCompactPrompt drives /compact over the streaming surface so the scenario sees the same
 // named SSE events the SPA consumes (including usage_update).
 func (s *compactHTTPFeatureState) sendCompactPrompt() error {
+	return s.sendPrompt("/compact")
+}
+
+func (s *compactHTTPFeatureState) sendPrompt(text string) error {
 	payload := map[string]interface{}{
 		"model":  "agent",
-		"input":  "/compact",
+		"input":  text,
 		"stream": true,
 	}
 	buf, err := json.Marshal(payload)
@@ -325,7 +333,29 @@ func (s *compactHTTPFeatureState) promptResponseConfirmsCompaction() error {
 }
 
 func (s *compactHTTPFeatureState) postCompactEndpoint() error {
-	buf := bytes.NewReader([]byte(`{"instructions":""}`))
+	return s.postCompactBody(`{"instructions":""}`)
+}
+
+func (s *compactHTTPFeatureState) postCompactEndpointWithModel(model string) error {
+	return s.postCompactBody(fmt.Sprintf(`{"model":%q}`, model))
+}
+
+func (s *compactHTTPFeatureState) promptResponseNamesSummarizer(model string) error {
+	if !strings.Contains(s.respText, "Summarizer: "+model+".") {
+		return fmt.Errorf("prompt response does not name %q: %q", model, s.respText)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) compactResponseNamesModel(model string) error {
+	if s.body == nil || s.body["model"] != model {
+		return fmt.Errorf("compact response model = %v, want %q", s.body["model"], model)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) postCompactBody(body string) error {
+	buf := bytes.NewReader([]byte(body))
 	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/foxxycode/sessions/"+s.sessionID+"/compact", buf)
 	if err != nil {
 		return err
@@ -641,6 +671,10 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user sends "/compact" as a prompt$`, s.sendCompactPrompt)
 	sc.Step(`^the prompt response confirms the compaction$`, s.promptResponseConfirmsCompaction)
 	sc.Step(`^the client posts to the session compact endpoint$`, s.postCompactEndpoint)
+	sc.Step(`^the user sends "(/compact --model [^"]+)" as a prompt$`, s.sendPrompt)
+	sc.Step(`^the prompt response names the summarizer "([^"]+)"$`, s.promptResponseNamesSummarizer)
+	sc.Step(`^the client posts to the session compact endpoint with the model "([^"]+)"$`, s.postCompactEndpointWithModel)
+	sc.Step(`^the compact response names the model "([^"]+)"$`, s.compactResponseNamesModel)
 	sc.Step(`^the compact request succeeds$`, s.compactRequestSucceeds)
 	sc.Step(`^the compact response reports the summary and message counts$`, s.compactResponseReportsSummaryAndCounts)
 	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)

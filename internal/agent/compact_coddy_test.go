@@ -75,7 +75,7 @@ func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
 	provider := &compactCannedProvider{t: t, summary: "dense summary"}
 	ag := compactTestAgent(t, st, config.CompactionConfig{KeepRecentTurns: &keep}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "focus on file paths", false)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "focus on file paths", Force: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestCompactSessionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
 		},
 	}, provider)
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err != nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); err != nil {
 		t.Fatal(err)
 	}
 	request := transcriptText(provider.requests[0])
@@ -153,7 +153,7 @@ func TestCompactSessionNothingToCompact(t *testing.T) {
 	keep := 2
 	ag := compactTestAgent(t, st, config.CompactionConfig{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
 
-	if _, err := ag.CompactSession(context.Background(), "", false); !errors.Is(err, ErrNothingToCompact) {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err = %v, want ErrNothingToCompact", err)
 	}
 	if len(st.GetMessages()) != 2 {
@@ -170,7 +170,7 @@ func TestCompactSessionAutoKeepsFewerTurnsWhenTheTailCoversEveryTurn(t *testing.
 	provider := &compactCannedProvider{t: t, summary: "folded first turn"}
 	ag := compactTestAgent(t, st, config.CompactionConfig{KeepRecentTurns: &keep}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "", false)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestCompactSessionDisabled(t *testing.T) {
 	off := false
 	ag := compactTestAgent(t, st, config.CompactionConfig{Enabled: &off}, &compactCannedProvider{t: t, summary: "s"})
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); err == nil {
 		t.Fatal("disabled compaction must error")
 	}
 }
@@ -204,7 +204,7 @@ func TestCompactSessionEmptySummaryFails(t *testing.T) {
 	keep := 1
 	ag := compactTestAgent(t, st, config.CompactionConfig{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "   "})
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); err == nil {
 		t.Fatal("empty summary must error")
 	}
 	if len(st.GetMessages()) != 6 {
@@ -218,7 +218,7 @@ func TestCompactSessionProviderErrorKeepsHistory(t *testing.T) {
 	provider := &compactCannedProvider{t: t, err: errors.New("boom")}
 	ag := compactTestAgent(t, st, config.CompactionConfig{KeepRecentTurns: &keep}, provider)
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); err == nil {
 		t.Fatal("provider error must propagate")
 	}
 	if len(st.GetMessages()) != 6 {
@@ -244,8 +244,8 @@ func TestParseCompactCommand(t *testing.T) {
 	}
 	for _, tc := range cases {
 		arg, ok := parseCompactCommand(tc.in)
-		if ok != tc.wantOK || arg != tc.wantArg {
-			t.Errorf("parseCompactCommand(%q) = (%q, %v), want (%q, %v)", tc.in, arg, ok, tc.wantArg, tc.wantOK)
+		if ok != tc.wantOK || arg.Instructions != tc.wantArg {
+			t.Errorf("parseCompactCommand(%q) = (%q, %v), want (%q, %v)", tc.in, arg.Instructions, ok, tc.wantArg, tc.wantOK)
 		}
 	}
 }

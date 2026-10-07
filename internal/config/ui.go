@@ -23,6 +23,7 @@ type UIConfig struct {
 	Enabled *bool `yaml:"enable" json:"enable,omitempty"`
 	// Locale is the UI language: empty (auto-detect), "en", or "ru".
 	Locale string `yaml:"locale" json:"locale"`
+	// fork(composer-send-mode): retain the configurable shortcut and editor panel behavior.
 	// SendMode controls how the main composer submits: "enter" (default),
 	// "ctrl_enter", or "off".
 	SendMode string `yaml:"send_mode" json:"send_mode"`

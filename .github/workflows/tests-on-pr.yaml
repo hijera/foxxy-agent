@@ -150,6 +150,14 @@ jobs:
           .venv/bin/pip install -r examples/cli/requirements.txt
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
 
+      # One-shot input through a real shell: pipes, redirects, a 200 KiB prompt
+      # file, a while-read loop and a terminal, against a scripted model the
+      # script serves itself (no key, no network).
+      - name: Feed one-shot prompts from files and stdin
+        if: matrix.tags == 'cli'
+        run: |
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_print_input.py
+
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
       # against cmd/tgfake on a port and has to answer a message, so the
@@ -223,6 +231,13 @@ jobs:
 
       - name: Run platform-dependent tests
         run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+
+      - name: Run console TUI tests (fake terminal, no pty)
+        run: go test -tags=cli ./external/cli/...
+
+      # These tests cover file handles, CRLF and Windows path expectations.
+      - name: Run file and path tests
+        run: go test ./cmd/foxxycode/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/...
 
   # Nothing gated formatting before: `gofmt -l` is unusable on a Windows checkout
   # (core.autocrlf=true rewrites .go files to CRLF, which gofmt reports as
@@ -333,6 +348,10 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -r examples/cli/requirements.txt
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+      - name: Feed one-shot prompts from files and stdin
+        run: |
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:

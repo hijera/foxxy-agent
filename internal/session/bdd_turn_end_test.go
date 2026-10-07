@@ -467,8 +467,8 @@ func TestProviderRecoveryLeavesRefusalsAlone(t *testing.T) {
 }
 
 // TestProviderFailureBeforeAnyOutputIsTheLaddersJob: a lane that answers 503
-// until the resilient wrapper's own retries are spent is waited out by the
-// llm_stall_retry ladder, with nothing kept and nothing asked to continue.
+// until the shared allowance is spent cannot bypass it through the stall ladder.
+// Nothing is kept and nothing is asked to continue.
 func TestProviderFailureBeforeAnyOutputIsTheLaddersJob(t *testing.T) {
 	var failed int
 	s := &turnEndState{}
@@ -494,17 +494,13 @@ func TestProviderFailureBeforeAnyOutputIsTheLaddersJob(t *testing.T) {
 	if err := s.userSendsPrompt(); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.turnEndsWithAnswer(); err != nil {
-		t.Fatal(err)
+	if s.runErr == nil || !strings.Contains(s.runErr.Error(), "retry allowance exhausted") || failed != 4 {
+		t.Fatalf("error = %v after %d failed requests", s.runErr, failed)
 	}
-	for _, m := range s.state.GetMessages() {
-		if m.Role == llm.RoleAssistant && !strings.Contains(m.Content, turnEndAnswer) {
-			t.Fatalf("a partial answer was kept though nothing streamed: %+v", m)
-		}
+	if len(s.stub.calls()) != 0 {
+		t.Fatal("the stall ladder bypassed the exhausted shared allowance")
 	}
-	if strings.Contains(string(s.stub.calls()[0]), "cut off by a provider error") {
-		t.Fatal("the model was asked to continue an answer it never started")
-	}
+
 }
 
 // TestProviderRecoveryPauseHonoursStop: a Stop during the pause ends the turn

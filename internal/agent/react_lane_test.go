@@ -59,13 +59,13 @@ func TestEmptyTurnNudgesOnlyAfterTheReplayDidNotHelp(t *testing.T) {
 	provider := &emptyThenNudgedProvider{}
 	ag := newLaneAgent(t, "sess_empty_then_nudge", provider)
 
-	// The fork ends such a turn with a notice rather than an error, so what is
-	// pinned here is the recovery budget, not the wording of the give-up.
-	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}}); err != nil {
-		t.Fatalf("Run: %v", err)
+	// The shared allowance bounds unanswered replays and refuses an empty turn.
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil || stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, err = %v", stop, err)
 	}
 
-	if want := 1 + maxEmptyAssistantReissues + maxEmptyAssistantContinuations; provider.calls != want {
+	if want := 1 + config.AgentDefaultLLMRetryMax; provider.calls != want {
 		t.Fatalf("provider called %d times, want %d (first attempt, replays, nudges)", provider.calls, want)
 	}
 	carriesNudge := func(msgs []llm.Message) bool {

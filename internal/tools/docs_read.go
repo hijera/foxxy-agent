@@ -29,8 +29,9 @@ func DocsReadTool() *tooling.Tool {
 				"Leave page out for the contents: every page with a one-line summary. " +
 				"A long page comes in parts, each ending with the offset to continue at and the sections of the page, so read the section you need rather than the whole page. " +
 				"Links between pages are written foxxycode:<page>#<section>; pass one as page to follow it. " +
-				"To point the user at a page, write @foxxycode:<page>#<section> or a Markdown link [title](foxxycode:<page>#<section>): in the web UI both open that page in its documentation reader. " +
-				"Outside FoxxyCode, or when the user wants to share it, give the public address https://hijera.github.io/foxxy-agent/<page>.md.",
+				"To point the user at a page, write @foxxycode:<page>#<section> or a Markdown link [title](foxxycode:<page>#<section>): every surface resolves them and the web UI opens the page in its documentation reader, so prefer that form to any address. " +
+				"On the command line the page is printed by `foxxycode docs show <page>[#section]`, searched with `foxxycode docs search <words>` and listed by `foxxycode docs list`; there is no other docs subcommand, so do not invent one. " +
+				"Give the public address https://hijera.github.io/foxxy-agent/<page>.md only outside FoxxyCode, or when the user asks for something to share.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
