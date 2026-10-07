@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import type { TranslateParams } from "../i18n/i18n";
+import { Chevron } from "../components/Chevron";
 import { IconTrash } from "./SchemaForm";
 import { Switch } from "./Switch";
 import {
@@ -146,28 +147,7 @@ function IconPencil() {
   );
 }
 
-function IconChevron(props: { open: boolean }) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      style={{ transform: props.open ? "rotate(90deg)" : undefined }}
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-type Translate = (key: string, params?: TranslateParams) => string;
-
-function statusTitle(row: MCPServerRow, t: Translate): string {
+function statusTitle(row: MCPServerRow, t: (key: string, params?: TranslateParams) => string): string {
   switch (row.status) {
     case "connected":
       return t("settings.mcp.status.connected", { count: row.tools.length });
@@ -530,7 +510,7 @@ export function MCPSection() {
                       aria-expanded={isOpen}
                       data-testid={`mcp-expand-${row.name}`}
                     >
-                      <IconChevron open={isOpen} />
+                      <Chevron open={isOpen} />
                     </button>
                     <span
                       className={`mcp-status-dot is-${row.status}`}

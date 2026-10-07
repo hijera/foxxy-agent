@@ -84,6 +84,7 @@ export const messagesRu: Record<string, string> = {
   "nav.scheduler": "Планировщик",
   "nav.schedulerAriaLabel": "Задачи планировщика",
   "nav.settings": "Настройки",
+  "nav.more": "Ещё",
 
   "composer.messageLabel": "Сообщение",
   "composer.placeholderEmpty": "План, сборка, / для скилов, @ для файлов",
@@ -1193,17 +1194,17 @@ export const messagesRu: Record<string, string> = {
 
   // Строка живого статуса рядом с точками: «<глагол> <цель> · <время>».
   "status.spawnAgent": "Запускаю субагента",
-  "status.read": "Читаю",
+  "status.read": "Читаю файл",
   "status.list": "Смотрю каталог",
-  "status.search": "Ищу",
-  "status.edit": "Правлю",
-  "status.write": "Пишу",
-  "status.run": "Выполняю",
-  "status.runRemote": "Выполняю по SSH",
+  "status.search": "Ищу по файлам",
+  "status.edit": "Правлю файл",
+  "status.write": "Пишу файл",
+  "status.run": "Выполняю команду",
+  "status.runRemote": "Выполняю команду по SSH",
   "status.createDir": "Создаю каталог",
   "status.touch": "Создаю файл",
-  "status.move": "Перемещаю",
-  "status.delete": "Удаляю",
+  "status.move": "Перемещаю файл",
+  "status.delete": "Удаляю файл",
   "status.browse": "Работаю в браузере",
   "status.webSearch": "Ищу в интернете",
   "status.webFetch": "Загружаю страницу",
@@ -1668,4 +1669,33 @@ export const messagesRu: Record<string, string> = {
   "composer.overrideNextTurns.other": "{value}, осталось {count} хода",
   "prompts.allowSessionBypass": "Без вопросов до конца сессии",
   "prompts.allowSessionAcceptEdits": "Правки без вопросов до конца сессии",
+  "settings.schema.tools.preview_server.label": "Сервер предпросмотра",
+  "settings.schema.tools.preview_server.desc":
+    "Инструмент preview_server: статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы работу можно было открыть в браузере.",
+  "settings.schema.tools.preview_server.enable.label": "Включено",
+  "settings.schema.tools.preview_server.enable.desc":
+    "Предлагать инструмент preview_server (по умолчанию включено). Отключение фоновых задач отключает и его.",
+  "settings.schema.tools.preview_server.host.label": "Адрес привязки",
+  "settings.schema.tools.preview_server.host.desc":
+    "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
+  "settings.schema.tools.preview_server.public_host.label": "Публичный хост",
+  "settings.schema.tools.preview_server.public_host.desc":
+    "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
+
+  "tasks.tag.server": "сервер",
+  "tasks.openServer": "Открыть в новой вкладке",
+  "tool.name.preview_server": "запускаю сервер предпросмотра",
+  "status.previewServer": "Запускаю сервер предпросмотра",
+  "composer.commandArgModelsTitle": "Модель суммаризации",
+  "composer.commandArgOptionsTitle": "Опции",
+  "composer.commandArgModelFlagDesc":
+    "Модель, которая напишет сводку, только для этого сжатия",
+  "composer.commandArgAriaLabel": "Дополнить опцию команды",
+  "usage.unavailable": "Данные о квотах недоступны",
+  "tool.name.mcp": "запускаю {tool} на MCP-сервере {server}",
+  "status.mcp": "Запускаю {tool} на MCP-сервере {server}",
+  "tasks.openTranscriptAria": "Показать транскрипт запуска {label}",
+  "sessions.backgroundRunning": "Идут фоновые задачи",
+  "messages.openAttachmentImage": "Открыть {fileName} крупнее",
+  "composer.openAttachmentImage": "Открыть {fileName} крупнее",
 };

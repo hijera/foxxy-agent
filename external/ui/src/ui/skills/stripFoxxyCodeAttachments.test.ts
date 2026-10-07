@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { stripFoxxyCodeAttachmentsForUserDisplay, parseSessionAssetFiles } from "./stripFoxxyCodeAttachments";
 
+test("data piped into a one-shot run shows as a label, not a mention", () => {
+  const raw = `Review this change\n\n<foxxycode_attachment path="stdin" name="stdin" kind="stdin">\n<![CDATA[+@secret.txt]]>\n</foxxycode_attachment>`;
+  expect(stripFoxxyCodeAttachmentsForUserDisplay(raw)).toBe("Review this change\n\n[stdin]");
+});
+
 test("replacing foxxycode_attachment with @path for display", () => {
   const raw =
     `see below\n\n<foxxycode_attachment path="docs/readme.txt" name="readme.txt">\n<![CDATA[hello]]>\n</foxxycode_attachment>`;

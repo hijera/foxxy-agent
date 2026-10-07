@@ -506,7 +506,7 @@ export function SettingsSection(props: {
     return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
   }
   const override: FieldOverride | undefined =
-    key === "agent" || key === "memory" || key === "autocomplete"
+    key === "agent" || key === "memory" || key === "autocomplete" || key === "compaction"
       ? (ctx) =>
           ctx.path === "model" ? (
             <ModelPicker

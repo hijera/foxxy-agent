@@ -101,6 +101,9 @@ export function MessageList(props: {
   /** Opens the Tasks panel from the live line's running-tasks segment. */
   onOpenTasks?: () => void;
 }) {
+  // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
+  const tailTasks =
+    props.generating === true ? 0 : Math.max(0, props.runningTasks ?? 0);
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
@@ -430,12 +433,13 @@ export function MessageList(props: {
       {props.generating === true ? (
         <TypingDotsMessage
           {...(liveStatus
-            ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
-            : {})}
-          {...(liveStatus && liveStatus.target
             ? {
-                statusTarget: truncateStatusTarget(liveStatus.target),
-                statusTargetFull: liveStatus.target,
+                statusKind: liveStatus.kind,
+                statusKey: liveStatus.key,
+                ...(liveStatus.keyParams
+                  ? { statusKeyParams: liveStatus.keyParams }
+                  : {}),
+                ...(liveStatus.step ? { statusStep: liveStatus.step } : {}),
               }
             : {})}
           {...(typeof liveStatus?.startedAtMs === "number"
@@ -443,6 +447,16 @@ export function MessageList(props: {
             : {})}
           {...turnLineProps(props.turnProgress, liveStatus?.turnStartedAtMs)}
           {...(props.runningTasks ? { runningTasks: props.runningTasks } : {})}
+          {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
+        />
+      ) : null}
+      {/* The turn is over, the work it started is not. The same dots stay at the tail
+          with the count beside them, so a chat with tasks in flight does not read as
+          finished; the running turn's line above already carries that count. */}
+      {tailTasks > 0 ? (
+        <TypingDotsMessage
+          tasksOnly={true}
+          runningTasks={tailTasks}
           {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}

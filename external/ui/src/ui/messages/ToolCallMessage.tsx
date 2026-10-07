@@ -14,6 +14,7 @@ import {
 } from "../chat/questionToolDisplay";
 import { useT } from "../i18n/I18nProvider";
 import { letterForOptionIndex } from "../chat/questionTypes";
+import { Chevron } from "../components/Chevron";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import {
   type WebSearchReport,
@@ -770,7 +771,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
           aria-label={t("messages.toolSummaryAriaLabel")}
         >
           <span className="thinking-left">
-            <span className="thinking-chevron" aria-hidden="true" />
+            <Chevron className="thinking-chevron" />
             <span className="thinking-head">
               {isBrowserTool && <BrowserIcon />}
               {isSvnTool && <SvnIcon />}
