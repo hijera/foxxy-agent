@@ -11,6 +11,7 @@
 
 - Ported upstream through 1.2.1: file/stdin CLI prompts, preview servers, per-call compaction models, tool-argument progress, bounded shared retries, and Codex/Devin quota panels.
 - Improved phone input and navigation, image preview cards and zoom, MCP labels and background activity. Preserved configurable send shortcuts, both compaction engines, continuation budgets and regular-file assets.
+- Reissuing a silent model request after a wait also spends the shared `agent.llm_retry_max` allowance, preventing waits from starting retries beyond the configured limit.
 
 **Settings section names no longer get cut.**
 On a narrow panel the sections are named short — "Context compaction", "Session title", "Git and SVN"; the long wording remains only as the forms' headings. The names come from translations, the way coddy-agent does it.

@@ -1422,8 +1422,9 @@ func (a *Agent) runReActLoop(
 					replaying = true
 					continue
 				}
-				if retryAllowance.Snapshot().Remaining == 0 {
-					return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: retry allowance exhausted")
+				// Delayed reissues spend the same allowance as the immediate replay.
+				if !retryAllowance.TakeRetry() {
+					return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: retry allowance exhausted%s", stallGaveUpSuffix(&stalls))
 				}
 				// A saturated gateway is out for minutes, which is why this waits on
 				// its own schedule rather than leaning on the seconds-scale retries
@@ -1591,7 +1592,7 @@ func (a *Agent) runReActLoop(
 			// now, but those are seconds against an outage measured in minutes.
 			if !hasAnyOutput && !a.state.IsUserCancelledTurn() && stallRetryableError(streamErr) {
 				if !retryAllowance.TakeRetry() {
-					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (retry allowance exhausted)", streamErr)
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (retry allowance exhausted)%s", streamErr, stallGaveUpSuffix(&stalls))
 				}
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "provider error"); {
 				case retry:

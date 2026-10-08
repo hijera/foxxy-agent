@@ -231,7 +231,7 @@ agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
-  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3; an explicit 0 disables retries)
+  llm_retry_max: 3             # shared extra attempts for transport failures and no-answer recovery (0 disables retries)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
                                # pause (Retry-After-Ms / Retry-After headers, "Limit resets
                                # at" / "retry in Ns" body phrases) overrides the backoff,
@@ -691,7 +691,7 @@ Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL t
 
 ## Shared retry allowance
 
-Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 3). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
+Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 3). Both the immediate first-token replay and later reissues after a stall wait spend this allowance; `llm_stall_retry_max_wait_ms` also limits the time spent waiting. Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
 
 `/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: coddy` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
 

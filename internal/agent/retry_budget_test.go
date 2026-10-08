@@ -67,12 +67,15 @@ func newRetryBudgetFixture(t *testing.T, retryMax *int, maxTurns int, replies ..
 	}))
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { close(release) })
-	stream, guard, ms := true, false, 500
+	stream, guard, ms, stallWait := true, false, 500, 100
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fixture", Type: "anthropic", APIBase: srv.URL, APIKey: "fixture-only", Proxy: "none"}},
 		Models:    []config.ModelEntry{{Model: "fixture/model", MaxTokens: 100, Stream: &stream}},
 		Title:     config.TitleConfig{Enabled: &guard},
-		Agent:     config.Agent{Model: "fixture/model", MaxTurns: maxTurns, LLMRetryMax: retryMax, LLMRetryBaseMS: 1, LLMFirstTokenTimeoutMS: &ms, LoopGuard: &guard},
+		Agent: config.Agent{
+			Model: "fixture/model", MaxTurns: maxTurns, LLMRetryMax: retryMax, LLMRetryBaseMS: 1,
+			LLMFirstTokenTimeoutMS: &ms, LLMStallRetryDelaysMS: []int{1}, LLMStallRetryMaxWaitMS: &stallWait, LoopGuard: &guard,
+		},
 	}
 	f.st = &session.State{ID: "sess_retry_budget", CWD: t.TempDir(), SessionDir: t.TempDir(), Mode: session.ModeAgent}
 	f.ag = NewAgent(cfg, f.st, &loopGuardSender{}, slog.New(slog.NewJSONHandler(&f.log, &slog.HandlerOptions{Level: slog.LevelDebug})))
@@ -170,6 +173,9 @@ func TestReActRetryBudget(t *testing.T) {
 		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "error", "answer"}, acp.StopReasonRefused, true},
 		{"mixed recovery succeeds", 2, 10, 3, []string{"error", "reasoning", "answer"}, acp.StopReasonEndTurn, false},
 		{"silence recovers", 1, 10, 2, []string{"silent", "answer"}, acp.StopReasonEndTurn, false},
+		{"delayed silence exhausts allowance", 2, 1, 3, []string{"silent", "silent", "silent", "answer"}, acp.StopReasonRefused, true},
+		{"delayed silence preserves useful step", 2, 1, 3, []string{"silent", "silent", "answer"}, acp.StopReasonEndTurn, false},
+		{"delayed silence and empty share allowance", 2, 1, 3, []string{"silent", "silent", "reasoning", "answer"}, acp.StopReasonRefused, true},
 		{"tool progress resets budget", 1, 10, 4, []string{"reasoning", "tool", "reasoning", "answer"}, acp.StopReasonEndTurn, false},
 		{"strategy cap still applies", 20, 10, 4, []string{"reasoning"}, acp.StopReasonRefused, true},
 		{"silence and empty share allowance", 1, 10, 2, []string{"silent", "reasoning", "answer"}, acp.StopReasonRefused, true},

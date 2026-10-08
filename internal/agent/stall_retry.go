@@ -20,8 +20,8 @@ import (
 // cancellation as a user Stop (it cannot tell the two apart) and its ladder is
 // seconds, not minutes.
 //
-// The two layers are complementary, not redundant: llm_retry_max absorbs a
-// hiccup in seconds, this absorbs an outage in minutes.
+// Reissues share llm_retry_max with transport retries. This ladder adds
+// minute-scale pauses, bounded separately by llm_stall_retry_max_wait_ms.
 type stallRetry struct {
 	enabled bool
 	// delays is the pause before each attempt; the last entry repeats for every
