@@ -213,6 +213,29 @@ func TestReActRetryBudgetDefault(t *testing.T) {
 	}
 }
 
+func TestReActDefaultAllowsTenSilentRetries(t *testing.T) {
+	three := 3
+	for _, tc := range []struct {
+		name     string
+		retryMax *int
+		requests int
+	}{
+		{"omitted default", nil, 11},
+		{"explicit three", &three, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRetryBudgetFixture(t, tc.retryMax, 1, "silent")
+			f.run()
+			if got := f.requestCount(); got != tc.requests {
+				t.Errorf("upstream requests = %d, want %d", got, tc.requests)
+			}
+			if f.stop != string(acp.StopReasonRefused) || f.err == nil || !strings.Contains(f.err.Error(), "retry allowance exhausted") {
+				t.Errorf("stop=%s err=%v, want retry allowance exhaustion", f.stop, f.err)
+			}
+		})
+	}
+}
+
 func TestReActRetryBudgetDiagnostics(t *testing.T) {
 	two := 2
 	f := newRetryBudgetFixture(t, &two, 10, "error", "reasoning", "answer")

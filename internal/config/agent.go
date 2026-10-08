@@ -9,8 +9,9 @@ import (
 const (
 	AgentDefaultMaxTurns         = 30
 	AgentDefaultMaxTokensPerTurn = 200000
-	AgentDefaultLLMRetryMax      = 3
-	AgentDefaultLLMRetryBaseMS   = 1000
+	// fork(retry-max-default): keep prolonged no-answer recovery available by default.
+	AgentDefaultLLMRetryMax    = 10
+	AgentDefaultLLMRetryBaseMS = 1000
 	// AgentDefaultLLMFirstTokenTimeoutMS is how long a streamed LLM call may
 	// stay silent before the turn cancels it (the API hang guard in the ReAct
 	// loop). It has to clear a real prefill, not just a healthy handshake: a
@@ -102,7 +103,7 @@ type Agent struct {
 	MaxTokensPerTurn int    `yaml:"max_tokens_per_turn"`
 	// LLMRetryMax caps extra attempts shared by transport retries and consecutive
 	// no-answer recoveries. Tool progress or a new follow-up starts a fresh budget.
-	// Nil means 3; explicit 0 disables these retries. Loop guards, Stop hooks,
+	// Nil means 10; explicit 0 disables these retries. Loop guards, Stop hooks,
 	// model fallbacks and opt-in quota waits retain their independent limits.
 	LLMRetryMax *int `yaml:"llm_retry_max"`
 	// LLMRetryBaseMS is the initial backoff between LLM retries in milliseconds (default 1000).

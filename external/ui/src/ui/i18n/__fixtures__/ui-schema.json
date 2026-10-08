@@ -66,7 +66,7 @@
           "type": "integer"
         },
         "llm_retry_max": {
-          "default": 3,
+          "default": 10,
           "description": "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
           "title": "LLM retry max",
           "type": "integer"

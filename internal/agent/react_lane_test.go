@@ -59,13 +59,13 @@ func TestEmptyTurnNudgesOnlyAfterTheReplayDidNotHelp(t *testing.T) {
 	provider := &emptyThenNudgedProvider{}
 	ag := newLaneAgent(t, "sess_empty_then_nudge", provider)
 
-	// The shared allowance bounds unanswered replays and refuses an empty turn.
+	// The strategy cap refuses an empty turn after one replay and two nudges.
 	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
 	if err == nil || stop != string(acp.StopReasonRefused) {
 		t.Fatalf("stop = %q, err = %v", stop, err)
 	}
 
-	if want := 1 + config.AgentDefaultLLMRetryMax; provider.calls != want {
+	if want := 4; provider.calls != want {
 		t.Fatalf("provider called %d times, want %d (first attempt, replays, nudges)", provider.calls, want)
 	}
 	carriesNudge := func(msgs []llm.Message) bool {

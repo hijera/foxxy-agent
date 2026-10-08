@@ -490,6 +490,8 @@ func TestProviderFailureBeforeAnyOutputIsTheLaddersJob(t *testing.T) {
 		s.stub.ServeHTTP(w, r)
 	}))
 	_ = s.agentWithoutLimit()
+	retryMax := 3
+	s.cfg.Agent.LLMRetryMax = &retryMax
 	s.cfg.Agent.LLMStallRetryDelaysMS = []int{1}
 	if err := s.userSendsPrompt(); err != nil {
 		t.Fatal(err)

@@ -17,10 +17,12 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
+
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 const (
-	defaultLLMRetryMax      = 3
+	defaultLLMRetryMax      = config.AgentDefaultLLMRetryMax
 	defaultLLMRetryBase     = time.Second
 	defaultLLMRetryMaxDelay = 60 * time.Second
 )
