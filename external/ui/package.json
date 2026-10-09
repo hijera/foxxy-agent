@@ -15,6 +15,7 @@
     "build:go": "vite build && node scripts-check-chromium104.mjs && node scripts-sync-to-go.mjs",
     "check:compat": "node scripts-check-chromium104.mjs",
     "check:webkit": "node scripts/webkit-scroll-check.mjs",
+    "check:chevron": "node scripts/chevron-align-check.mjs",
     "fmt": "prettier -w ."
   },
   "keywords": [],

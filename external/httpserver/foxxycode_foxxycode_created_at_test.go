@@ -34,7 +34,7 @@ func TestLlmMsgsToFoxxyCodeOpenAIOmitsEmptyCreatedAt(t *testing.T) {
 }
 
 func TestLlmMsgsToFoxxyCodeOpenAIForSessionIncludesPersistedFilePreview(t *testing.T) {
-	out := llmMsgsToFoxxyCodeOpenAIForSession("sess_files", []llm.Message{
+	out := llmMsgsToFoxxyCodeOpenAIForSession("sess_files", "/tmp/sessions/sess_files/assets", []llm.Message{
 		{
 			Role:    llm.RoleUser,
 			Content: "look",

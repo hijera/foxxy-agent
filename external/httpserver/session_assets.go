@@ -3,7 +3,7 @@
 package httpserver
 
 import (
-	"mime"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -46,15 +46,43 @@ func (s *Server) foxxycodeSessionAssetGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	info, err := os.Stat(full)
-	if err != nil || info.IsDir() {
+	info, err := os.Lstat(full)
+	if err != nil || !info.Mode().IsRegular() {
 		http.NotFound(w, r)
 		return
 	}
 
-	if ct := mime.TypeByExtension(filepath.Ext(name)); ct != "" {
-		w.Header().Set("Content-Type", ct)
+	// fork(session-asset-files): keep the fork's regular-file API while refusing
+	// links. Root confinement and the identity check cover replacement races.
+	root, err := os.OpenRoot(assetsDir)
+	if err != nil {
+		http.NotFound(w, r)
+		return
 	}
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	http.ServeFile(w, r, full)
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
+		http.NotFound(w, r)
+		return
+	}
+	head := make([]byte, 512)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(head[:n]))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, name, opened.ModTime(), f)
 }

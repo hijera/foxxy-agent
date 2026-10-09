@@ -4,7 +4,7 @@ This page takes a fresh machine to a first answer: install the binary, give it o
 
 ## 1. Install
 
-Download the archive for your platform from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) (`foxxycode_X.Y.Z_linux_amd64.tar.gz`, `..._darwin_arm64.tar.gz`, `..._windows_amd64.zip` and so on), unpack it and put `foxxycode` on `PATH` (`~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\foxxycode` on Windows). The `foxxycode.dev` one-line installers install upstream foxxy-agent, not this fork; the [install guide](install.md) has the Linux packages, Homebrew and manual placement. Check the binary from a new terminal:
+Download the archive for your platform from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) (`foxxycode_X.Y.Z_linux_amd64.tar.gz`, `..._darwin_arm64.tar.gz`, `..._windows_amd64.zip` and so on), unpack it and put `foxxycode` on `PATH` (`~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\foxxycode` on Windows). The [install guide](install.md) has the Linux packages, Homebrew and manual placement. Check the binary from a new terminal:
 
 ```bash
 foxxycode -v
@@ -84,9 +84,11 @@ The same agent runs without a terminal, for a script or a cron job:
 ```bash
 foxxycode -p "Explain in three sentences how tasks are saved in this repository"
 foxxycode --mode ask -p "Which files read config.yaml?"
+git diff | foxxycode --mode ask -p "Review this change"
+foxxycode -i brief.md
 ```
 
-`-p` streams the answer to stdout, sends diagnostics to stderr, exits non-zero on an error and persists the turn as a normal session; `--mode ask` keeps it read-only. Everything the console can do is in [Console (TUI)](../surfaces/console.md).
+`-p` streams the answer to stdout, sends diagnostics to stderr, exits non-zero on an error and persists the turn as a normal session; `--mode ask` keeps it read-only. Data piped into `foxxycode -p "..."` rides along with the prompt, and a prompt too long for the command line comes from a file with `-i` or from stdin with `-p -` ([One-shot print mode](../surfaces/console.md#one-shot-print-mode--p--prompt)). Everything the console can do is in [Console (TUI)](../surfaces/console.md).
 
 ## 5. The browser
 

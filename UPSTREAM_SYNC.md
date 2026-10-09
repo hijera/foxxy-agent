@@ -25,10 +25,11 @@
 <!-- divergence-registry:start -->
 | ID | Upstream | Форк | При следующем изменении upstream |
 |----|----------|------|----------------------------------|
+| `retry-max-default` | 1.2.0 (#329): 3 shared extra attempts | Owner-selected default of 10; about 55m30s for a wholly silent model with the default guards and delays | Preserve the shared default and explicit 0 disabling retries |
 | `stall-guard-layer` | 1.1.47: `stallGuardTransport` в `transport.go` режет SSE-тело без байтов, внутри ретрай-обёртки | Guard оборачивает провайдер и считает чанки (включая `Progress`), не keep-alive; стоит снаружи ретраев | 1.1.52: режимы портированы без `stallGuardTransport`/`idleBody`; при следующих изменениях сохранять слой guard |
 | `transport-debug-wrap` | 1.1.47: общий транспорт на настройку прокси из `http.DefaultTransport`, пинги HTTP/2 через x/net | Тот же общий пул, но из форковых прокси-хелперов (таймаут заголовков, системный прокси #124, пинги `http.HTTP2Config` из #125) и за debug-обёрткой | 1.1.52: режимы портированы в `buildLLMTransport` с системным прокси, debug-обёрткой, ключом пула и форковым обходом NO_PROXY/loopback; при следующих изменениях сохранять их |
 | `continue-path` | 1.1.47: stall после текста завершает ход; 1.2.9: recovery после 5xx/обрыва, пауза от `llm_retry_base_ms`, выключается `llm_retry_max: 0`, уведомление в UI-лог | Оборванный ответ продолжается под `agent.llm_continue`; паузы `llm_continue_stall_delays_ms` и `llm_continue_error_delays_ms`, Retry-After до `llm_continue_retry_after_max_ms`; парковка через `llm_retry`; оборванный текст на обоих путях сохраняется до последнего конца строки (1.2.9 хранит целиком); сброс Winsock (10053/10054) — временный сбой | Остаток 1.2.9: ветку форка сохранить, изменения `IsTransientProviderError` брать |
-| `continue-budget` | 1.2.9: не больше 2 recovery подряд, каждый — шаг `max_turns`; 1.2.0: бюджет ретраев на шаг | Один бюджет на ход `agent.llm_continue_max` (3) для stall и сбоев, вне `max_turns`, с детектором повторов | 1.2.0 (#329): бюджет — только для ретраев обёртки |
+| `continue-budget` | 1.2.9: не больше 2 recovery подряд, каждый — шаг `max_turns`; 1.2.0: бюджет ретраев на шаг | Один бюджет на ход `agent.llm_continue_max` (3) для stall и сбоев, вне `max_turns`, с детектором повторов | 1.2.0 (#329): общий бюджет сетевых повторов и пустых попыток, продолжения — отдельно |
 | `stall-timeout-alias` | Ключ `llm_stream_idle_timeout_ms` | То же имя; `llm_stall_timeout_ms` читается как устаревший алиас | Держать алиас, пока владелец его не уберёт |
 | `stop-notice-transcript` | 1.2.9: `StopNotice` в UI-лог, отдельно печатается в Telegram, консоли и `-p` | Уведомление стримится в ответ и пишется в транскрипт; `StopNotice` — только в `meta.stop_notice`, remote-клиент и отчёт субагента | При порте 1.2.9 не брать печать `StopNotice` в `bot.go`, `print.go`, `app.go` |
 | `max-turns-default` | 1.2.9: незаданный `agent.max_turns` — без лимита | Незаданный — 30 | Оставить 30 |
@@ -36,6 +37,12 @@
 | `progress-chunks` | До 1.1.67 кадр без содержимого ничего не сообщает; 1.1.68 добавляет свой progress аргументов | `Progress` на каждый кадр без содержимого, мимо `emit` | 1.1.68: слить с форковым, правило «progress не ставит `emitted`» сохранить |
 | `switch-enable-alias` | Переключатели — `enable`, `enabled` неизвестен | `enable` канонический, `enabled` — алиас | Ничего: алиас покрывает новые переключатели |
 | `deferred-351` | 1.2.9 (#351): статус провайдера в HTTP API (#322), `max_turns: 0`, удаление `max_tokens_per_turn`, поздние исправления Devin | Базовый Devin портирован из 1.1.61; recovery и StopNotice уже взяты | В волне 1.2.9 брать из #351 только оставшиеся части |
+| `prompt-file-encoding` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `retry-recovery-steps` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `compaction-both-engines` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `composer-send-mode` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `session-asset-files` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `background-server-lifetime` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 <!-- divergence-registry:end -->
 
 Более ранние решения записаны в разделах «Расхождения с upstream» каждой волны ниже; при порте,
@@ -2433,7 +2440,31 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 
 ---
 
-## Последняя синхронизация
+## Synchronization through upstream 1.2.1 (2026-10-07)
+
+| Field | Value |
+| --- | --- |
+| Fork base | Latest `origin/main`, `530c1bf78bfca863186fa504c31a29d67b6fe036` |
+| Upstream range | `4b091359e027df31acf00d32378f112b8af4dba6` (exclusive, 1.1.61) to `75c31bcc0b726a46386b0977fee997353f62a9a1` (inclusive, 1.2.1) |
+| Implementation | Core/CLI/HTTP `4af77e86e1857a2b9849bc92660b8208d6583b0e`; UI `71ad3dec4a861415eecad17e1205f90a49ee9123`; docs `6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8` |
+| Accounting | 38 constituent commits and 10 PR merges adapted; 6 overlapping integration merges reviewed and skipped. Full decisions are in `ports.yaml`. |
+| Validation | `make test` (all Go packages and 2553 UI tests), `make lint`, `make check-windows`, `make lint-windows`, `make docs-check`, schema republication check and real-browser layout checks pass. PR CI owns the tag matrix and race detector. |
+| Live UI | Real HTTP server, compiled embedded SPA and local preview server; 390/1280 px, dark/light before/after captures on `screenshots` at `418ecf37e9261d7048c344de410c5bb37f87e926`. No live paid-provider request. |
+| Limits | Windows WebKit's three short-window overscroll checks fail identically on the pinned fork base and port. Local race needs an unavailable C compiler. CLI progress was captured through a real Ubuntu WSL pty using Linux binaries from the pinned base and port. Codex/Devin quota visuals need managed provider credentials; adapter/cache and presentation tests pass. |
+| Open backlog | The existing partial/deferred PR #351 entries remain open and are outside this target. |
+
+The wave adds file/stdin CLI input, per-call compaction models, phone input/layout,
+`preview_server`, file-argument progress, stable boot routing, background/MCP activity,
+the shared image viewer, SVG chevrons, bounded shared retries and Codex/Devin quotas.
+All owner decisions remain guarded: file input uses `textenc`, stdin stays UTF;
+both engines compact with a named model; `ui.send_mode` and editor behavior remain;
+unanswered recovery preserves useful steps and has a shared retry allowance;
+interrupted answers have a separate continuation allowance; assets still serve regular
+files while refusing symlinks. Existing background command timeout policy stays intact.
+
+---
+
+## Previous synchronization (1.1.61)
 
 | Поле | Значение |
 | --- | --- |
@@ -2654,7 +2685,7 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 4b091359..upstream/main` — список кандидатов (из `1.2.9` часть #351 уже взята, см. `deferred-351`).
+2. `git log --oneline --no-merges 75c31bcc..upstream/main` — список кандидатов (из `1.2.9` часть #351 уже взята, см. `deferred-351`).
 3. Сверить кандидатов с «Реестром постоянных расхождений» в начале файла: `git grep -n 'fork(' --`
    по каждому файлу, который они трогают; где upstream снова меняет помеченное место — спросить
    владельца.

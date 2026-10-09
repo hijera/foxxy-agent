@@ -42,7 +42,7 @@ The two writers docs mode has instead of the file tools: Markdown only, and only
 
 ## Shell and background tasks
 
-The `background_*` tools are registered only while `tools.background` is enabled (the default). The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).
+The `background_*` tools are registered only while `tools.background` is enabled (the default), and `preview_server` while `tools.preview_server` is enabled as well. The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
@@ -52,6 +52,7 @@ The `background_*` tools are registered only while `tools.background` is enabled
 | `background_wait` | Wait for a task to finish, bounded by a default and a maximum | `task_id`, `timeout_seconds` | none | agent, plan, debug |
 | `background_stop` | Terminate a task and everything it spawned | `task_id` | none | agent, plan, debug |
 | `background_reap` | Find and kill processes of this session that outlived the run which started them | none | always | agent, debug |
+| `preview_server` | Serve a project directory on a free port and return its URL ([Preview server](../features/preview-server.md)); requires background tasks and preview_server to be enabled | `path`, `timeout_seconds` | none | agent, debug |
 | `ssh_run_command` | Run a command on a remote host over SSH, using the agent socket and then key files ([Configuration](../getting-started/configuration.md#ssh-remote-execution)) | `host`, `command`, `port`, `timeout_seconds`, `permission_rationale` | always | agent, debug |
 
 ## Web
@@ -147,7 +148,7 @@ Plan documents live at `plans/<slug>.plan.md` inside the session bundle ([Operat
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `compact_context` | Fold the older history into a summary so the session keeps fitting the model's context window ([Context compaction](../features/compaction.md#the-model-can-ask-for-it)) | `instructions` | none | agent, plan; not in ask, whose tools stay read-only; hidden when `compaction.enable` is false |
+| `compact_context` | Fold the older history into a summary so the session keeps fitting the model's context window ([Context compaction](../features/compaction.md#the-model-can-ask-for-it)) | `instructions`, `model` (the summariser for this one call: a configured model id, its name without the provider, or a part of one that matches exactly one) | none | agent, plan; not in ask, whose tools stay read-only; hidden when `compaction.enable` is false |
 
 ## The session's own filing
 
@@ -203,6 +204,8 @@ With the `memory` tag, every user turn starts a memory subagent, a child agent r
 ## MCP tools
 
 Every enabled tool of every connected MCP server joins the same function-calling list under the name `server__tool`, with the server's own input schema and a description prefixed with `[server]` (`internal/mcp/client.go`; [MCP servers](../features/mcp.md#tool-namespacing)). Because `__` is the separator, a server name may not contain it. The definitions are appended in agent and plan mode and never in ask mode, where a call to such a name is refused at execution time. A call whose name contains `__` bypasses the registry: the agent routes it to the owning server and applies the `default` output limit to the result. There is no built-in permission prompt for MCP calls; whether a server may start is the workspace trust decision, and the per-server and per-tool disable switches bound what a running server may do ([MCP servers](../features/mcp.md#permission-model)).
+
+Such a call reads as an action like every built-in one rather than as its registry id: the transcript row and the console box say *calling `browser_navigate` on the MCP server `playwright`* (Russian: *запускаю browser_navigate на MCP-сервере playwright*), and the live status line spends its target on `playwright/browser_navigate`, since the generic verb cannot say what the call does. The `mcp__server__tool` spelling other agents use is read the same way. Beside the label the row names what the call acts on, from its `path`, `url` or `name` argument as for a built-in tool; a server that names its arguments otherwise falls back to the first one that reads as a label - single-line, not a body ([Web UI](../surfaces/web-ui.md#tool-call-card-bundled-spa-current)).
 
 ## What runs before a tool call
 

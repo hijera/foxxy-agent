@@ -360,7 +360,7 @@ func TestSilentRetryGivesUpWithinBudget(t *testing.T) {
 		t.Errorf("error = %q, want it to name the retries it spent", err)
 	}
 	if got := p.callCount(); got != 4 {
-		t.Errorf("provider called %d times, want 4 (initial, the free re-issue, plus two waited retries)", got)
+		t.Errorf("provider called %d times, want 4 (initial, the immediate re-issue, plus two waited retries)", got)
 	}
 }
 

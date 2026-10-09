@@ -145,7 +145,7 @@ class BrowserPanelUiTest {
      * (`build/uitest-foxxycode-home`, the working directory is the plugin project) and
      * returns its id. The backend lists sessions from disk, so no restart is needed.
      */
-    private fun seedLongTranscript(): String {
+    private fun seedLongTranscript(toolName: String = "read"): String {
         // Unique per run: the backend keeps loaded sessions in memory, so reusing an id
         // would serve a stale transcript from an earlier run.
         val id = "sess_uitestlong" + System.currentTimeMillis()
@@ -160,13 +160,40 @@ class BrowserPanelUiTest {
             if (i > 0) rows.append(',')
             rows.append(
                 """{"role":"user","content":"Read notes.txt and report line $i."},""" +
-                    """{"role":"assistant","content":"Reading line $i.","tool_calls":[{"id":"call_$i","name":"read","input":"{\"path\":\"notes.txt\"}"}]},""" +
+                    """{"role":"assistant","content":"Reading line $i.","tool_calls":[{"id":"call_$i","name":"$toolName","input":"{\"path\":\"notes.txt\"}"}]},""" +
                     """{"role":"tool","content":"MARKER-LINE-$i","tool_call_id":"call_$i"},""" +
                     """{"role":"assistant","content":"Line $i carries the marker."}"""
             )
         }
         File(dir, "messages.json").writeText("""{"version":1,"messages":[$rows]}""")
         return id
+    }
+
+    @Test
+    fun aLongMcpLabelKeepsTheDurationInsideTheNarrowPanel() {
+        val sessionId = seedLongTranscript("qa_mcp__echo")
+        IdeControl.setToolWindowWidth(robot, TOOL_WINDOW_ID, 320)
+        CefChat.connectWithRetry().use { chat ->
+            chat.eval("(function(){location.hash='#/history';return 'history'})()")
+            Thread.sleep(1500)
+            chat.eval("(function(){location.hash='#/s/$sessionId';return 'nav'})()")
+            waitFor(Duration.ofSeconds(30), Duration.ofMillis(500), "the MCP rows to render") {
+                (chat.eval("document.querySelectorAll('#messages details').length").toIntOrNull() ?: 0) >= 10
+            }
+            assertTrue(
+                "a long MCP label widened the page",
+                chat.eval("document.documentElement.scrollWidth <= document.documentElement.clientWidth") == "true",
+            )
+            assertTrue(
+                "a duration extends beyond its tool summary",
+                chat.eval(
+                    "(function(){var items=Array.from(document.querySelectorAll('.thinking-dur')).filter(function(d){" +
+                        "return d.getBoundingClientRect().width>0;});return items.length>0&&items.every(function(d){" +
+                        "var box=d.getBoundingClientRect();var row=d.closest('summary').getBoundingClientRect();" +
+                        "return box.left>=row.left&&box.right<=row.right+1;});})()"
+                ) == "true",
+            )
+        }
     }
 
     @Test

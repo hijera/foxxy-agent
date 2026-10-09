@@ -6,6 +6,19 @@ import type { SessionRow } from "./types";
 
 afterEach(() => cleanup());
 
+test("the dot names background work when the row has no turn running", () => {
+  renderDrawer({
+    sessionId: "other",
+    sessions: [
+      { id: "bg", title: "Detached", backgroundRunning: 1 },
+      { id: "turn", title: "Answering", turnActive: true },
+    ],
+  });
+  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute("aria-label", "Background tasks running");
+  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute("title", "Background tasks running");
+  expect(screen.getByTestId("session-activity-turn")).toHaveAttribute("aria-label", "Turn running");
+});
+
 const row = (id: string, title: string): SessionRow => ({
   id,
   title,

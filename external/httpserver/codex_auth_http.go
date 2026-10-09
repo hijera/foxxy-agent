@@ -82,6 +82,9 @@ func (s *Server) foxxycodeProviderCodexAuthDelete(w http.ResponseWriter, r *http
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "could not remove Codex credentials")
 		return
 	}
+	// The account the cached usage described is gone; a stale snapshot must
+	// not outlive the credential.
+	s.dropProviderUsage(name)
 	status, err := llm.InspectCodexAuth(path)
 	if err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, err.Error())
@@ -131,14 +134,18 @@ func (s *Server) foxxycodeProviderCodexAuthDevicePost(w http.ResponseWriter, r *
 		defer cancel()
 		err := llm.CompleteCodexDeviceLogin(waitCtx, issuer, client, login, authPath)
 		s.codexAuthMu.Lock()
-		defer s.codexAuthMu.Unlock()
 		if err != nil {
 			attempt.Status = "failed"
 			attempt.Error = err.Error()
+			s.codexAuthMu.Unlock()
 			return
 		}
 		attempt.Status = "completed"
 		attempt.Connected = true
+		s.codexAuthMu.Unlock()
+		// The account changed: any cached usage describes the previous
+		// sign-in and must be re-read.
+		s.dropProviderUsage(name)
 	}()
 
 	writeCodexAuthJSON(w, http.StatusOK, codexAuthLoginResponse{

@@ -1,3 +1,4 @@
+import { Chevron } from "../components/Chevron";
 import { memo } from "react";
 
 import {
@@ -49,7 +50,7 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
             className="msg-system-summary"
             aria-label={t("messages.systemToggleAriaLabel")}
           >
-            <span className="msg-system-chevron" aria-hidden="true" />
+            <Chevron className="msg-system-chevron" />
             <span className="msg-system-label">{t("messages.systemLabel")}</span>
             {preview ? (
               <span className="msg-system-preview">{preview}</span>

@@ -57,6 +57,12 @@ export type TranscriptItem =
         sizeBytes?: number;
         /** Thumbnail source: a local blob URL until the backend publishes a durable one. */
         previewUrl?: string;
+        /**
+         * The full-size asset the preview card opens enlarged. Server-only:
+         * absent while the row is optimistic, on a message sent before the
+         * route existed, and once the asset has left the session bundle.
+         */
+        url?: string;
       }[];
     }
   | {

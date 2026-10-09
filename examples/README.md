@@ -85,6 +85,10 @@ Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_
 
 Environment overrides: **`FOXXYCODE_BIN`**, **`FOXXYCODE_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
 
+The offline `examples/cli/cli_e2e_print_input.py` checks one-shot input against its own scripted model: piped prompts, large prompt files, attached stdin, loops protected by `--no-stdin`, refused input, and a bare `-p` on a pty.
+
+`examples/httpserver/http_e2e_preview_server.py` exercises preview startup, the returned URL and background-task lifetime against a running HTTP server.
+
 ## Single demos
 
 ```bash

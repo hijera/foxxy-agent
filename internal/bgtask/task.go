@@ -53,6 +53,11 @@ const (
 	// ReAct loop. It is started through Pool.Launch by the agent runtime; the
 	// pool schedules, times out, stops and persists it like a command.
 	KindAgent Kind = "agent"
+	// KindServer is an in-process HTTP server (the preview_server tool): a
+	// listener and its goroutines rather than an OS process. It is started
+	// through Pool.Launch and runs until it is stopped, unless the caller gave
+	// it a timeout.
+	KindServer Kind = "server"
 )
 
 // AgentInfo identifies the subagent a KindAgent task runs. It is set on the
@@ -104,6 +109,8 @@ type Spec struct {
 	// the turn and be ended by background_stop, so the pool arms no timer at all.
 	// An explicit TimeoutSeconds still wins; this only replaces the default.
 	NoTimeout bool
+	// URL is the address of an in-process preview server.
+	URL string
 	// NotifyOnFinish asks the pool to wake the agent when this task reaches a
 	// terminal state. It is opt-in per task: the model decides which work is
 	// worth an autonomous turn, so a batch of quick commands cannot each start
@@ -146,6 +153,9 @@ type Snapshot struct {
 	// Agent identifies the subagent behind a KindAgent task, including the
 	// child session that holds its transcript. Nil for commands.
 	Agent *AgentInfo `json:"agent,omitempty"`
+
+	// URL is where a KindServer task answers; empty for everything else.
+	URL string `json:"url,omitempty"`
 
 	// PID leads the process group the task runs in. It is persisted so a fresh
 	// foxxycode can tell a record whose processes died with the previous run from
@@ -215,6 +225,9 @@ func deriveLabel(spec Spec) string {
 	if command == "" {
 		if spec.Kind == KindAgent && spec.Agent != nil && strings.TrimSpace(spec.Agent.Name) != "" {
 			return "agent " + strings.TrimSpace(spec.Agent.Name)
+		}
+		if url := strings.TrimSpace(spec.URL); url != "" {
+			return url
 		}
 		return string(spec.Kind)
 	}

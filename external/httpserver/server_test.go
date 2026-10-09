@@ -1536,6 +1536,97 @@ func TestFoxxyCodeSessionsListIncludeActivity(t *testing.T) {
 	if _, ok := hit["activitySeq"]; !ok {
 		t.Fatalf("missing activitySeq")
 	}
+	if _, ok := hit["backgroundRunning"]; !ok {
+		t.Fatalf("missing backgroundRunning in %+v", hit)
+	}
+}
+
+// backgroundStubHandle stands in for work that never ends on its own, so a
+// session can be listed while it still has a background task in flight without
+// the test spawning a process and waiting on the clock.
+type backgroundStubHandle struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func (h *backgroundStubHandle) Wait() (int, error) {
+	<-h.done
+	return 0, nil
+}
+
+func (h *backgroundStubHandle) Stop(time.Duration) error {
+	h.once.Do(func() { close(h.done) })
+	return nil
+}
+
+func (h *backgroundStubHandle) PID() int { return 0 }
+
+func (h *backgroundStubHandle) ProcessStartedAt() time.Time { return time.Time{} }
+
+// A session whose turn has ended but whose background tasks are still running is
+// not idle, and the History list is the only place that says so.
+func TestFoxxyCodeSessionsListIncludeActivityCountsBackgroundTasks(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	readBackgroundRunning := func() float64 {
+		resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions?include_activity=true&limit=50")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("%d %s", resHTTP.StatusCode, b)
+		}
+		var parsed struct {
+			Sessions []map[string]interface{} `json:"sessions"`
+		}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range parsed.Sessions {
+			if row["id"] != sid {
+				continue
+			}
+			n, ok := row["backgroundRunning"].(float64)
+			if !ok {
+				t.Fatalf("backgroundRunning is not a number in %+v", row)
+			}
+			return n
+		}
+		t.Fatalf("session not in list %s", string(b))
+		return 0
+	}
+
+	if got := readBackgroundRunning(); got != 0 {
+		t.Fatalf("want backgroundRunning 0 before any task, got %v", got)
+	}
+
+	handle := &backgroundStubHandle{done: make(chan struct{})}
+	if _, err := bgtask.Default().Launch(bgtask.Spec{
+		SessionID: sid,
+		Kind:      bgtask.KindCommand,
+		Command:   "stub",
+		Label:     "stub",
+	}, func(string, io.Writer) (bgtask.Handle, error) { return handle, nil }); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { bgtask.Default().StopSession(sid) })
+
+	if got := readBackgroundRunning(); got != 1 {
+		t.Fatalf("want backgroundRunning 1 while a task runs, got %v", got)
+	}
 }
 
 func TestFoxxyCodeSessionsListFilterByQUserMessage(t *testing.T) {
@@ -2622,6 +2713,67 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 	if blocks[0].Type != "text" || blocks[1].Type != "resource" || blocks[1].Resource == nil || blocks[1].Resource.Text != "inside" {
 		t.Fatalf("blocks %+v", blocks)
+	}
+}
+
+// A remote console sends what was piped into a one-shot run as a literal
+// attachment of kind stdin: the runner gets the same block a local run sends,
+// byte for byte, and a kind the server does not know is a 400.
+func TestResponsesStdinAttachmentKind(t *testing.T) {
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	wd := filepath.Join(root, "wd")
+	if err := os.MkdirAll(wd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, attachments string) int {
+		payload := `{"model":"agent","input":"Review this change","stream":false,"attachments":` + attachments + `}`
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	piped := "diff --git a/x b/x\r\n+see @note.txt\n\n"
+	literal, _ := json.Marshal(piped)
+	if code := post("sess_http_stdin_1", `[{"path":"stdin","kind":"stdin","source":{"literal":`+string(literal)+`}}]`); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) != 2 || !reflect.DeepEqual(blocks[1], session.StdinAttachment(piped)) {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if code := post("sess_http_stdin_2", `[{"path":"stdin","kind":"clipboard","source":{"literal":"x"}}]`); code != http.StatusBadRequest {
+		t.Fatalf("an unknown kind answered %d, want 400", code)
+	}
+	if code := post("sess_http_stdin_3", `[{"path":"stdin","kind":"stdin"}]`); code != http.StatusBadRequest {
+		t.Fatalf("a stdin kind without a literal answered %d, want 400", code)
 	}
 }
 
@@ -4998,7 +5150,7 @@ func TestBackgroundWakeOnABusySessionLeavesTheRunningRelay(t *testing.T) {
 // a reloaded tab reads; a message somebody typed carries none.
 func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
 	two := 2
-	rows := llmMsgsToFoxxyCodeOpenAIForSession("sess_x", []llm.Message{
+	rows := llmMsgsToFoxxyCodeOpenAIForSession("sess_x", "", []llm.Message{
 		{Role: llm.RoleUser, Content: "start the tests"},
 		{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
 			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},

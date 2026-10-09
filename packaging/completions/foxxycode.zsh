@@ -30,7 +30,9 @@ _foxxycode() {
         '(-h --help)'{-h,--help}'[print the command list]' \
         '(-v --version)'{-v,--version}'[print the version]' \
         '(-c --continue)'{-c,--continue}'[continue the latest session here]' \
-        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit]:prompt:' \
+        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit (- reads it from stdin)]:prompt:' \
+        '(-i --prompt-file)'{-i,--prompt-file}'[run one prompt read from a file (- for stdin)]:prompt file:_files' \
+        '--no-stdin[one-shot run: do not attach piped stdin]' \
         '--resume[pick a session to resume]' \
         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
         '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \

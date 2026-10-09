@@ -167,7 +167,7 @@ A top-level turn then waits for the reset, reports `Usage limit reached · resum
 
 **Symptom.** A turn ends with `LLM error: provider "<name>" (<address>): ...` and the message closes with `net/http: TLS handshake timeout`, `dial tcp ...: i/o timeout`, `connect: no route to host` or `connection reset by peer`.
 
-**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so FoxxyCode repeats it up to `agent.llm_retry_max` times (3 by default) with a backoff that starts at `agent.llm_retry_base_ms` and doubles. The error reaches the turn only when every attempt failed. Two failures of the same family are not repeated: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than weather, and a stream cut after text was already shown, since a replay would show that text twice - that one is carried on instead (see the next-but-one section).
+**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so FoxxyCode repeats it up to `agent.llm_retry_max` times (10 by default) with a backoff that starts at `agent.llm_retry_base_ms` and doubles. The error reaches the turn only when every attempt failed. Two failures of the same family are not repeated: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than weather, and a stream cut after text was already shown, since a replay would show that text twice - that one is carried on instead (see the next-but-one section).
 
 **Fix.** Check that the address in the error is the one you mean, then whether it answers from this machine:
 
@@ -202,7 +202,7 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 ## A turn behind a proxy waits on "Provider is not responding" and never recovers
 
-**Symptom.** Behind a proxy, a turn sits on **Provider is not responding, retrying** for as long as the retry schedule runs (with the defaults about an hour and a half), and every retry fails the same way. With `debug.enable` on, the connection trace shows the retries on one connection: `llm net: conn reused=true` with the same `local` port each time, then `no activity phase=awaiting_response`.
+**Symptom.** Behind a proxy, a turn sits on **Provider is not responding, retrying** until the shared `llm_retry_max` allowance runs out, and every retry fails the same way. With `debug.enable` on, the connection trace shows the retries on one connection: `llm net: conn reused=true` with the same `local` port each time, then `no activity phase=awaiting_response`.
 
 **Cause.** Requests to a provider share one pooled HTTP/2 connection. When a proxy loses the state of a tunnel without closing it, the connection to the proxy stays up but nothing arrives on it any more, and every new request, every retry included, was sent on that same dead connection.
 
@@ -214,7 +214,7 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Cause.** The provider took the request and stopped sending, or cut the answer with a server error. Nothing on the wire says whether it is still working: a stuck worker behind a gateway, a proxy or a VPN tunnel that lost the far side without closing the connection, a request the gateway forgot. FoxxyCode bounds that wait in three places:
 
-- the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member - then waits the provider out on the `agent.llm_stall_retry` ladder (1, 3, then 5 minutes);
+- the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member - then, while the shared `llm_retry_max` allowance has retries left, waits on the `agent.llm_stall_retry` ladder (1, 3, then 5 minutes);
 - the stall guard, `agent.llm_stream_idle_timeout_ms` (5 min; `llm_stall_timeout_ms` is its old name), cuts a streamed answer that delivered nothing for that long after its first chunk. Keep-alive comments a gateway sends do not count as delivery, so a dead model behind a chatty gateway is still cut;
 - the HTTP/2 health check closes a connection whose peer stops answering pings (see the previous section).
 
@@ -294,3 +294,7 @@ foxxycode acp --log-level debug
 ```
 
 The same settings persist under `logger` in `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Reference: [Configuration](configuration.md), [`logger`](../reference/config.md#logger).
+
+## Shared retry allowance
+
+Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.

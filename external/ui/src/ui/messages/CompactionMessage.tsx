@@ -1,3 +1,6 @@
+import { memo } from "react";
+
+import { Chevron } from "../components/Chevron";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 
@@ -5,7 +8,6 @@ import { useT } from "../i18n/I18nProvider";
 // in the context") styled like the thinking / tool disclosure, so it reads as a
 // system action rather than a user message. Backed by transcript items of type
 // "compaction" (server messages with compaction_summary=true).
-import { memo } from "react";
 
 export const CompactionMessage = memo(function CompactionMessage(props: {
   summary: string;
@@ -20,7 +22,7 @@ export const CompactionMessage = memo(function CompactionMessage(props: {
           aria-label={t("messages.compactionSummaryAriaLabel")}
         >
           <span className="thinking-left">
-            <span className="thinking-chevron" aria-hidden="true" />
+            <Chevron className="thinking-chevron" />
             <span className="thinking-label">
               {t("messages.compactionLabel")}
             </span>

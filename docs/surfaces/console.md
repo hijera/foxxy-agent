@@ -13,7 +13,8 @@ printing usage.
 Launch: bare `foxxycode` on a terminal (both stdin and stdout must be ttys —
 pipes and CI keep the usage contract), explicitly `foxxycode cli [flags]`, or with
 flag-style shortcuts routed to the console: `foxxycode -c` continues the latest
-session in this folder and `foxxycode -p "..."` runs one non-interactive prompt.
+session in this folder and `foxxycode -p "..."` runs one non-interactive prompt
+(`foxxycode -p -` and `foxxycode -i FILE` read it from stdin or from a file).
 Quitting the console (double ctrl+c, ctrl+d, `/quit`) prints a resume hint
 after the terminal is restored:
 
@@ -21,6 +22,45 @@ after the terminal is restored:
 session: sess_1a2b3c4d
 continue: foxxycode cli --session-id sess_1a2b3c4d  (or: foxxycode -c)
 ```
+
+
+## Live file drafts
+
+When the model prepares `write`, `edit`, or `apply_patch`, the tool card shows
+**Generating**, the path once received, decoded content bytes and lines, and
+raw argument bytes. The last counter keeps moving while an edit streams its
+search text or another argument. These are amounts received, not a percentage
+or a prediction of the final file size. The turn's token estimate includes
+argument fragments as they arrive; provider usage replaces that estimate when
+the call ends, without counting the complete arguments a second time.
+
+![A file draft while its arguments are still streaming](../assets/upstream-port/tool-progress-collapsed-dark-1280.png)
+
+*The file has not been written: the model is still generating its arguments.*
+
+`ctrl+o` shows the latest six lines of the draft, bounded to 1 KiB. For `edit`
+this is `newString`; for `apply_patch` it is the patch text. The preview is not
+an executed result, and other tools do not expose argument previews. Updates
+are limited to five per second per call, with a final flush. The same metadata
+travels over ACP and HTTP to a remote console. OpenAI-compatible, Anthropic,
+Codex and Devin streams supply argument fragments; a provider without fragments
+still shows the tool name and reports its arguments when complete.
+
+![The expanded tail of a streamed draft](../assets/upstream-port/tool-progress-expanded-dark-1280.png)
+
+*The bounded tail updates while generating; terminal control sequences are sanitized.*
+
+Execution still waits for the complete call and the existing permission gate.
+Cancelling an incomplete draft does not write a partial file. After execution,
+the card shows the normal result and `ctrl+o` loads that result instead.
+
+Capture this state without a provider or credentials:
+
+```bash
+make build TAGS=cli
+CLI_E2E_COLS=148 CHROME=/path/to/chromium python3 examples/cli/capture_tool_progress.py /tmp/foxxycode-draft-shots
+```
+
 
 ## Visual model
 
@@ -59,11 +99,15 @@ Top to bottom:
   runs. The tokens are the agent's `turn_progress` update: the provider's
   figures for the calls that finished plus an estimate of the one in flight, so
   the count moves while the answer streams; a console attached over `--remote`
-  receives the same update. Then comes the current step - verb plus target -
-  and, for a step that runs something other than the model, a counter of its
-  own (`2m 05s · 1.2k tokens · Running npm test · 45s`, `Running subagent
-  reviewer · 40s` while a `spawn_agent` call is in flight); thinking, responding
-  and waiting are covered by the turn clock. A plain wait escalates with time:
+  receives the same update. Then comes the phrase of the current step and, for a
+  step that runs something other than the model, a counter of its own (`2m 05s ·
+  1.2k tokens · Running a command · 45s`, `Running a subagent · 40s` while a
+  `spawn_agent` call is in flight); thinking, responding and waiting are covered
+  by the turn clock. The line carries the phase and **nothing the step acts on**
+  - no command, no path, no url: what a call acts on is named once, by the tool
+  box above the line, so every phrase is complete on its own (`Running a
+  command`, never `Running` waiting for a command to follow it). A plain wait
+  escalates with time:
   `Waiting for the model` → `The model is taking longer than usual` (15 s) →
   `Still no response from the server` (60 s). While a permission or question
   modal is open the line shows `Waiting for your approval` / `Waiting for your
@@ -102,12 +146,20 @@ Top to bottom:
   ended, which is when the status line that counted them is gone. When the
   line does not fit, the path and the title give way and the note stays.
   A third line appears while the active model's provider reports account
-  usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
+  usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
+  read from the Codex backend's usage endpoint; `devin`, read from the
+  seat-management status RPC):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
   the plan, each metered window as percent **used** with its reset time in
-  your clock (time of day within 24 h, weekday within a week, date beyond),
-  the day window only when it is above zero, and the account's own ruble
-  balance for wallet keys. A window at 80 % or more turns to the warning
+  your clock (time of day within 24 h, weekday within a week, date and time beyond),
+  and the account's own ruble balance for NeuralDeep wallet keys. NeuralDeep
+  shows the day window only when it is above zero; Codex and Devin show every
+  window they report, a zero one included. Codex windows are labelled by
+  their upstream durations (`5h`, `week`, and feature-scoped entries such as
+  `Fast model · week`); a Devin quota plan reads `day` and `week` (its
+  remaining percents shown as used), an ACU plan reads `acu`, and a source
+  with nothing to report reads `quota unavailable` rather than inventing
+  numbers. A window at 80 % or more turns to the warning
   colour and a transcript notice says `You've used 82% of your NeuralDeep 3h
   limit · resets 20:59`, once per window and period; a hit limit replaces the
   windows with `limit reached (resets 20:59)` in the error colour (`rate
@@ -118,7 +170,7 @@ Top to bottom:
   ahead) waits for it instead of failing: the live status row reads `Usage
   limit reached · resuming at 20:59` without a running counter, the footer
   keeps the hub's numbers, and the same call runs again when the limit
-  lifts (Esc stops the wait like any turn). A model on the provider's unlimited option (Qwen ∞)
+  lifts (Esc stops the wait like any turn). A model on NeuralDeep's unlimited option (Qwen ∞)
   reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
   foxxycode providers login neuraldeep`; when the hub cannot be reached the last
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
@@ -415,6 +467,98 @@ note on stderr. The question tool returns empty answers. `--model`, `--mode`,
 `--permission-mode`, `--session-id`, and `--continue` all combine with
 `--prompt`; `--resume` does not (it needs the interactive picker).
 
+### Prompt from a file or stdin
+
+A prompt does not have to pass through the command line, where the operating
+system caps a single argument (128 KiB on Linux) and `$(< file)` loses the
+file's trailing newlines. foxxycode reads it itself:
+
+```bash
+foxxycode -p - < brief.md          # the prompt on stdin
+cat brief.md | foxxycode -p        # the same: a bare -p reads a pipe
+foxxycode -i brief.md --mode ask   # the prompt from a named file
+foxxycode -p -i brief.md           # the same, -p only asks for print mode
+```
+
+The prompt comes from exactly one place: the text after `-p`, stdin (`-p -`,
+`-i -`, or a bare `-p` when stdin is not a terminal), or the file `-i`
+names. `-p -` on a terminal says on stderr that it reads the prompt from it
+and takes what is typed until ctrl+d. A prompt that is itself a foxxycode flag
+(`-c`, `--mode`) needs the `-p=-c` spelling, since a bare `-p` followed by a
+flag reads the prompt from stdin. It is sent exactly as read, line endings, trailing newlines and quotes
+included, and it is read like typed text: an `@path` mention in it attaches
+that file, and a leading `/skill` or `/model ...` works as it does in the
+editor. A relative `-i` path resolves from the directory the command runs in,
+as any shell argument does (`--cwd` moves the session, not the path).
+Symlinks are followed, a FIFO such as `-i <(make report)` is read to its end,
+and a directory is refused.
+
+### Data piped under a prompt
+
+When the prompt came from the command line or from `-i` and stdin is a pipe or
+a redirected file, foxxycode reads stdin to its end and attaches it after the
+prompt, the way `codex exec` appends a piped stdin:
+
+```bash
+git diff origin/main...HEAD | foxxycode -p "Review this change" --mode ask
+make test 2>&1 | foxxycode -p "Why does the build fail?"
+foxxycode -p "Summarize the incidents" < app.log
+```
+
+The model reads it as `<foxxycode_attachment path="stdin" name="stdin"
+kind="stdin">`, and a transcript shows `[stdin]` in its place. It is data: an
+`@` inside it reads no file and fetches no page, a `/command` inside it runs
+nothing, so text from a source you do not control belongs here and not in the
+prompt. A line on stderr says how much was attached, and blank input attaches
+nothing. A terminal, `/dev/null` and a socket on stdin are never attached;
+they are read only when the prompt itself is to come from stdin (`-p -`, and
+for all but a terminal a bare `-p`, so a program that spawns foxxycode can write
+the prompt into it).
+
+This changes what an existing `foxxycode -p "..."` sends wherever its stdin
+carries something else. Pass `--no-stdin` (or redirect `< /dev/null`) there:
+
+- in a `while read -r f; do ...; done < list` loop, where the first run would
+  read the rest of the list;
+- behind `ssh host foxxycode -p ...`, which keeps stdin open (`ssh -n` works too);
+- in a CI runner that feeds the job script to the shell on stdin, as GitLab's
+  runners do: without the flag foxxycode would read the rest of the script, send it
+  to the model, and the lines after it would never run;
+- in a git hook that receives ref lines on stdin (`pre-push`, `pre-receive`),
+  and in a container started with `docker run -i`;
+- in Windows PowerShell, which has no `<` redirection.
+
+A pipe that stays silent for 3 seconds gets one line on stderr saying the run
+is waiting for input, and the run keeps waiting: a slow producer such as
+`make` still gets its output attached, and a pipe nobody closes shows up as a
+message instead of a silent hang.
+
+### What is refused
+
+The input is read and checked before the configuration loads, before a
+session exists and before any request, so a refused run sends nothing and
+exits 1:
+
+- two prompts (`-p "text" -i brief.md`, `-p - -i brief.md`), a repeated `-p`
+  or `-i`, an empty `-p ""`, or words left after the flags (`foxxycode -p fix the
+  bug` stops on "the": quote the prompt);
+- a missing or unreadable file, or a directory;
+- stdin that is not UTF-8 (the error names the byte offset), except UTF-16
+  carrying a byte order mark. A UTF-8 byte order mark is dropped. Prompt
+  files named with `-i` use the shared `internal/textenc` decoder, including
+  Windows-1251 and other recognized text encodings. NUL characters and
+  undecodable binary files are refused;
+- more than 8 MiB of prompt input, the prompt file and stdin together. Nothing
+  is cut short to fit. The limit is on what foxxycode reads; whether a prompt that
+  large fits is up to the model's context window.
+
+Under `--remote` the client reads everything and sends the prompt as the
+request's `input` and the piped data as a literal attachment of kind `stdin`.
+The server trims whitespace around `input`, so the prompt's own leading and
+trailing newlines do not survive the trip, while the attachment arrives byte
+for byte. An `@` mention in a prompt file resolves on the server, in its
+workspace.
+
 ## Remote mode (`--remote`)
 
 `--remote <target>` points the console (interactive and `-p` print runs) at a
@@ -445,8 +589,9 @@ child sessions are the server's. Approve a project definition there (`foxxycode
 agents trust` on the server, or `POST /foxxycode/subagents/{name}/trust`); the
 local `foxxycode agents` subcommands do not take `--remote`. A child's permission
 prompts reach the remote console like the parent's own, prefixed
-`[subagent <name>]`, and the status line reads `Running subagent <name>` while
-the child runs. A background child that asks after the turn ended reaches the
+`[subagent <name>]`, and the status line reads `Running a subagent` while
+the child runs; the subagent that took the task is named by the tool box above
+the line, which the status line never repeats. A background child that asks after the turn ended reaches the
 console too: the server announces the prompt on its events stream and the
 console opens the modal for the sessions it opened, answering the child
 session; answered first in a browser or a chat, the modal closes. After reconnecting, the console reconciles the complete pending-request snapshot: prompts answered while offline close, while requests still waiting remain open without duplicate modals. An interrupted snapshot does not dismiss a pending request. The footer shows the local folder; the trust receipt is keyed
@@ -495,8 +640,9 @@ process working directory, resolved like `foxxycode mcp`. Under
 In the console a `spawn_agent` call shows as a tool box whose title names the
 subagent that took the task (`spawn_agent explore · find every caller`), with
 the prompt the child received rendered under it and the child's report added as
-the body when it comes back; the status line reads `Running subagent <name>`
-with its elapsed counter for as long as the child runs.
+the body when it comes back; the status line reads `Running a subagent`
+with its elapsed counter for as long as the child runs, and the box title is
+where the name is.
 
 ![A delegated run in the console transcript](../assets/cli-tui/13-subagent-delegation.png)
 
@@ -680,3 +826,5 @@ The TUI rendering model and visual design are ported from
 `packages/coding-agent` interactive mode (MIT License, Copyright (c) 2025
 Mario Zechner), commit `b1efcf7d7`. The Go implementation in
 `external/cli/tui` is an independent rewrite of the documented behavior.
+
+The streamed draft has regression coverage in `external/cli/tool_progress_test.go` and `features/tool_input_progress.feature`. The live terminal capture recipe is `examples/cli/capture_tool_progress.py`; it requires a Unix pty and the dependencies in `examples/cli/requirements.txt`.

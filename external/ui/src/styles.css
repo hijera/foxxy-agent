@@ -2833,12 +2833,54 @@ a.rail-brand {
 .session-export-spin {
   transform-origin: 12px 12px;
   animation: foxxycode-export-spin 0.8s linear infinite;
+
+}
+/* A sent image is a preview card like the composer's: the picture fills it and
+   a click opens the full-size asset (the optimistic blob until the server
+   snapshot brings the durable thumbnail and the original's address). */
+.msg-user-file-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.msg-user-file-card:hover,
+.msg-user-file-card:focus-within {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.msg-user-file-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 @keyframes foxxycode-export-spin {
   to {
     transform: rotate(360deg);
   }
+
+}
+.msg-user-file-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .session-export-menu {
@@ -2891,6 +2933,16 @@ a.rail-brand {
 .chat-title-input {
   display: block;
   width: 100%;
+
+}
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+  /* Blockified as a flex item of the column .msg-assistant-stack; without this its
+     min-content width follows the unbreakable phrase in the status label and pushes
+     the row past .messages-inner. */
   min-width: 0;
   margin: 0;
   font: inherit;
@@ -2925,9 +2977,31 @@ a.rail-brand {
 
 .repo-link:hover {
   color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
+
+}
+/* The dots also stand at the tail while background tasks outlive a turn, which can
+   be minutes of bouncing. Still three dots, just no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots-dot {
+    animation: none;
+  }
+}
+
+/* Live status label. It MUST stay after the three .typing-dots-dot spans - the
+   :nth-child rules above carry the bounce stagger. */
+.typing-dots-status {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  margin-left: 3px;
+  font-size: 13px;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+  user-select: none;
 }
 
 .hero {
+  grid-template-columns: minmax(0, 1fr);
   flex: 1;
   display: grid;
   /* Dock the hero title + composer toward the bottom of the empty screen so
@@ -2936,9 +3010,22 @@ a.rail-brand {
   align-content: end;
   justify-items: center;
   padding: 18px 0 32px;
+
+}
+/* The turn's own numbers lead the line: its clock, the tokens generated in it, the
+   background tasks running right now. Each item is closed by a middle dot, so the
+   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading a
+   file". */
+.typing-dots-turn {
+  display: inline-flex;
+  align-items: baseline;
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .hero-composer {
+  min-width: 0;
   width: min(720px, 100%);
 }
 
@@ -2964,6 +3051,56 @@ a.rail-brand {
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
+
+}
+/* The running-tasks segment opens the Tasks panel. It is text in a line of text, so
+   it carries no chrome of its own - the accent says it is the one live control. */
+.typing-dots-turn-tasks {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  cursor: pointer;
+  user-select: none;
+}
+
+.typing-dots-turn-tasks:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.typing-dots-turn-tasks:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* The turn has ended and only background tasks are still running: the count is the
+   whole line, so it closes with no middle dot - nothing follows it to separate. */
+.typing-dots-status--tasks-only .typing-dots-turn-item::after {
+  content: none;
+}
+
+.typing-dots-status-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  /* Lets the flex child shrink below its content size, which is what enables the
+     ellipsis on the phrase below. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The phrase is the only thing the line says about the step - it never names what the
+   step acts on - so it is also the only thing that can give ground. The turn's numbers
+   and the counter are flex: none, and a phrase too long for the row ellipsizes instead
+   of wrapping it onto a second line. */
+.typing-dots-status-verb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero-title-muted .hero-title-accent {
@@ -3324,14 +3461,6 @@ a.rail-brand {
   height: 26px;
 }
 
-.msg-user-file-thumb {
-  display: block;
-  width: 26px;
-  height: 26px;
-  object-fit: cover;
-  border-radius: 6px;
-}
-
 .msg-user-file-chip-name {
   flex: 1;
   overflow: hidden;
@@ -3526,11 +3655,46 @@ a.rail-brand {
 .msg-copy-icon-btn__glyph {
   display: block;
   flex-shrink: 0;
+
+}
+/* The app's one chevron (<Chevron />, DESIGN.md "Chevron"): the transcript row's
+   fold marker and every disclosure, submenu and dropdown are the same component,
+   so none of them can drift into a glyph or a triangle of its own. The mark is an
+   SVG whose ink mirrors about the centre of its viewBox; as the text "›" its ink
+   sat wherever the platform's font happened to put it in the line box, and the
+   same CSS placed it differently on every machine. Nothing here may put a chevron
+   back into `content`. */
+.foxxycode-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  transition: transform 140ms ease;
 }
 
 .msg-copy-icon-btn:disabled {
   opacity: 0.35;
   cursor: default;
+
+}
+.foxxycode-chevron > svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.foxxycode-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.foxxycode-chevron--down {
+  transform: rotate(90deg);
+}
+
+.foxxycode-chevron--down.is-open {
+  transform: rotate(-90deg);
 }
 
 .msg-user {
@@ -3572,12 +3736,47 @@ a.rail-brand {
 .msg-user-stack:hover .msg-user-edit,
 .msg-user-edit:focus-visible {
   opacity: 1;
+
+}
+/* Centred on the first line - half the label's 20px line box - never on the height
+   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
+   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
+   line; centred on the box, the chevron sank below the label on exactly those rows.
+   Placed after .foxxycode-chevron: the transcript row's chevron carries both classes and
+   these declarations win on order, not on weight.
+   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
+.thinking-chevron {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 16px;
+  height: 14px;
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.thinking-details[open] .thinking-chevron {
+  transform: translateY(-50%) rotate(90deg);
 }
 
 .msg-user-edit:hover,
 .msg-user-edit:focus-visible {
   background: color-mix(in srgb, var(--text) 8%, transparent);
   color: var(--text);
+
+}
+@media (prefers-reduced-motion: reduce) {
+  .foxxycode-chevron {
+    transition: none;
+  }
+}
+
+.thinking-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  color: color-mix(in srgb, var(--text) 56%, var(--foxxycode-blend-base));
+  letter-spacing: 0.02em;
+  line-height: 20px;
 }
 
 .branch-nav {
@@ -3736,12 +3935,6 @@ a.rail-brand {
   color: rgba(255, 168, 168, 0.7);
 }
 
-.msg-system-chevron:after {
-  content: "›";
-  display: block;
-  line-height: 1;
-  font-size: 15px;
-}
 
 .msg-system-details[open] .msg-system-chevron {
   transform: translateY(-50%) rotate(90deg);
@@ -4141,40 +4334,6 @@ a.rail-brand {
   opacity: 0.7;
   transition: transform 140ms ease;
   transform: translateY(-50%) rotate(0deg);
-}
-
-/* The app's one chevron (<Chevron />, DESIGN.md "Chevron"): the transcript row's
-   fold marker and every disclosure, submenu and dropdown share this one glyph, so
-   none of them can drift into a triangle of its own. */
-.thinking-chevron:after,
-.foxxycode-chevron:after {
-  content: "›";
-  display: block;
-  line-height: 1;
-  font-size: 15px;
-}
-
-.foxxycode-chevron {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  opacity: 0.7;
-  transition: transform 140ms ease;
-}
-
-.foxxycode-chevron.is-open {
-  transform: rotate(90deg);
-}
-
-.foxxycode-chevron--down {
-  transform: rotate(90deg);
-}
-
-.foxxycode-chevron--down.is-open {
-  transform: rotate(-90deg);
 }
 
 /* The block sets its own line box (the code's 12px at 1.5), so a line is
@@ -5096,6 +5255,13 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border: 1px solid var(--foxxycode-glass-panel-border);
   backdrop-filter: var(--foxxycode-glass-panel-backdrop);
   -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+
+}
+/* The chips' strip. Not a box on a wide shell, so the chips stay flex items
+   of the wrapping row; a phone makes it a sideways-scrolling strip (Phone
+   layout at the end of this file). */
+.composer-context-scroll {
+  display: contents;
 }
 
 .composer-card {
@@ -5952,6 +6118,41 @@ textarea#composer {
   align-items: center;
   gap: 6px;
   padding: 10px 12px 0;
+
+}
+/* An image attachment is a preview card, not a chip: the picture fills it, so
+   the operator can see what is about to be sent. A click opens the original
+   in the lightbox; the remove control sits over the picture's top-right
+   corner and fades in on hover, staying reachable by keyboard. */
+.composer-attachment-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.composer-attachment-card:hover,
+.composer-attachment-card:focus-within {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.composer-attachment-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 /* display:contents dissolves this wrapper so the environment, folder, branch and
@@ -5961,6 +6162,53 @@ textarea#composer {
    from .composer-context-row. */
 .composer-context-chips {
   display: contents;
+
+}
+.composer-attachment-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.composer-attachment-card .composer-attachment-chip-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foxxycode-blend-base) 62%, transparent);
+  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
+  /* Hidden, never removed: display:none would take it off the tab order. */
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.composer-attachment-card:hover .composer-attachment-chip-remove,
+.composer-attachment-card .composer-attachment-chip-remove:hover,
+.composer-attachment-card .composer-attachment-chip-remove:focus-visible {
+  opacity: 1;
+}
+
+.composer-attachment-card .composer-attachment-chip-remove:hover,
+.composer-attachment-card .composer-attachment-chip-remove:focus-visible {
+  background: color-mix(in srgb, var(--foxxycode-blend-base) 82%, transparent);
+  color: var(--text);
+}
+
+.composer-attachment-card.composer-attachment-chip--disabled
+  .composer-attachment-thumb {
+  opacity: 0.48;
+  filter: grayscale(1);
 }
 
 .workspace-chip {
@@ -6522,19 +6770,7 @@ textarea#composer {
   cursor: pointer;
 }
 
-@media (max-width: 520px) {
-  .composer-context-row {
-    position: relative;
-    padding-right: 44px;
-  }
 
-  .composer-enhance-btn {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    margin-left: 0;
-  }
-}
 
 .composer-enhance-btn:disabled {
   opacity: 0.45;
@@ -6600,14 +6836,6 @@ textarea#composer {
 .composer-attachment-chip--image .composer-attachment-chip-icon {
   width: 28px;
   height: 28px;
-}
-
-.composer-attachment-thumb {
-  display: block;
-  width: 28px;
-  height: 28px;
-  object-fit: cover;
-  border-radius: 6px;
 }
 
 /* A chip the selected model cannot accept: kept visible, marked unusable. */
@@ -9932,6 +10160,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 12px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+
+}
+/* Connection status dot (Cursor-style): green connected, red error, gray
+   disabled, amber unsupported transport. */
+.mcp-status-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
 }
 
 .permission-preview-viewport {
@@ -10196,7 +10434,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* Label, target and duration are one non-wrapping unit: the row stays a single line and
-   the target is what gives way, clipped with an ellipsis. The browser and SVN icons and
+   long labels and targets give way, clipped with an ellipsis. The browser and SVN icons and
    the SVN failure pill travel inside the unit; a background-task chip is left outside,
    so it can still wrap below on a phone.
 
@@ -10215,10 +10453,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
 }
 
-.thinking-head .thinking-label,
 .thinking-head .thinking-dur,
 .thinking-head .svn-summary-error {
   flex: 0 0 auto;
+}
+
+.thinking-head .thinking-label {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thinking-head .svn-summary-error {
@@ -12368,11 +12614,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   border-radius: 2px;
 }
 
-.bgtask-open-transcript.scheduler-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 
 
 /* Tab controls hanging off the card above them, like the More / Less row: the
@@ -12663,6 +12904,67 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   white-space: pre;
 }
 
+/* The way into the task, on the folded card: an agent run's child conversation,
+   a preview server's address. The run is that conversation and the server is that
+   page, so an operator who had to open a card to find the link was made to take a
+   step on the way to the one move the panel exists for. A card carries at most one
+   of the two, because a task is one kind or the other.
+
+   It takes a row of its own under the status and the usage. The panel is 380px
+   wide: a control sharing that line would be paid for by the model's name, the
+   one thing there that cannot be cut down to something still readable. */
+.bgtask-card-transcript-row,
+.bgtask-card-address-row {
+  flex: 1 0 100%;
+  display: flex;
+  margin-top: 4px;
+}
+
+.bgtask-card-transcript,
+.bgtask-card-link {
+  /* Above the opener stretched over the summary, the way Stop is: it opens the
+     transcript or the page rather than the card it sits on. */
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.bgtask-card-transcript {
+  flex: 0 0 auto;
+}
+
+/* An address is as long as it is, and the panel is narrow: it wraps onto a second
+   line whole rather than trailing off in an ellipsis that names no port. */
+.bgtask-card-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bgtask-card-transcript:hover:not(:disabled),
+.bgtask-card-transcript:focus-visible,
+.bgtask-card-link:hover,
+.bgtask-card-link:focus-visible {
+  text-decoration: underline;
+}
+
+/* A run whose child session is not known yet - it has only just started. The
+   title says so; the control stays in place so the card does not change shape
+   under the reader when the id arrives. */
+.bgtask-card-transcript:disabled {
+  color: inherit;
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 .bgtask-card.is-overdue .bgtask-card-meta {
   color: color-mix(in srgb, #ff9f0a 70%, var(--text));
 }
@@ -12675,9 +12977,8 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   background: #ff9f0a;
 }
 
-/* The open card: command or the way to the transcript, the error, the output, the
-   ending. It is outside the stretched opener, so its text selects and its controls
-   click. */
+/* The open card: the command, the error, the output, the ending. It is outside the
+   stretched opener, so its text selects and its controls click. */
 .bgtask-card-body {
   display: flex;
   flex-direction: column;
@@ -12714,21 +13015,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   right: 6px;
 }
 
-.bgtask-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  border: none;
-  border-bottom: 0.5px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  padding: 8px 2px;
-  min-height: 34px;
-  cursor: pointer;
-}
 
 .bgtask-card-error {
   font-size: 12px;
@@ -12806,6 +13092,13 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     height: 30px;
     min-width: 30px;
     min-height: 30px;
+  }
+
+  .bgtask-card-transcript,
+  .bgtask-card-link {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
   }
 
   .bgtask-card-output {
@@ -13423,7 +13716,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   background: #000;
 }
 
-/* An image opened over everything (ui/docs/ImageLightbox.tsx): the bar with
+/* An image opened over everything (ui/components/ImageLightbox.tsx): the bar with
    the caption, the zoom and the close control, and a stage that scrolls when
    the image is larger than the window. */
 .docs-lightbox {
@@ -13503,12 +13796,20 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   cursor: default;
 }
 
+/* The stage handles the gestures itself - one pointer drags the picture, two
+   fingers pinch it - so the browser must not pan or zoom first. The rule lives
+   with the stage, which is only on the screen while the viewer is open, so the
+   page behind it keeps its own gestures. */
 .docs-lightbox-stage {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   overflow: auto;
   padding: 0 24px 24px;
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* A flex item shrinks to the stage by default, which would undo the zoom. */
@@ -13517,6 +13818,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   margin: auto;
   border-radius: 8px;
   box-shadow: var(--foxxycode-glass-panel-shadow);
+  -webkit-user-drag: none;
 }
 
 .docs-lightbox-stage img.is-fit {
@@ -13526,10 +13828,19 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   cursor: zoom-in;
 }
 
+/* Zoomed, the picture is dragged: the open hand, closed while it holds. */
 .docs-lightbox-stage img.is-zoomed {
   max-width: none;
   max-height: none;
-  cursor: zoom-out;
+  cursor: grab;
+}
+
+.docs-lightbox-stage.is-panning {
+  cursor: grabbing;
+}
+
+.docs-lightbox-stage.is-panning img.is-zoomed {
+  cursor: grabbing;
 }
 
 /* A page of the documentation named in a sent message or an answer, as
@@ -14847,4 +15158,224 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   .swarm-edge.is-busy {
     stroke-dasharray: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Phone layout (max-width: 520px)
+
+   Tablets and desktops fit everything already; a phone does not. The top bar
+   keeps every icon one tap away and lets the brand give way, and the two
+   chip rows of the composer become one-line strips that scroll sideways, so
+   Send is never covered and the docked composer stays short.
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 520px) {
+  /* Top bar: icons never slide over the brand; the brand shrinks and clips. */
+  .rail-column {
+    padding-inline: 8px;
+  }
+
+  .rail-pill {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  /* The narrow rail wraps the brand in a tip host: that host is the flex
+     item of the bar, so it has to shrink too. */
+  .rail-brand-tip-host,
+  .rail-brand {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .rail-brand {
+    padding-inline: 4px;
+  }
+
+  .rail-brand-text {
+    min-width: 0;
+  }
+
+  .rail-brand-sub {
+    display: none;
+  }
+
+  /* Grows so the icons keep to the right edge, never shrinks. */
+  .rail-middle {
+    flex: 1 0 auto;
+    gap: 4px;
+  }
+
+  .rail-link-stack {
+    gap: 4px;
+  }
+
+  .rail-hit-icon,
+  .rail-hit-link {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Context row: env / folder / branch / worktree in one scrolling strip,
+     the improve-prompt button fixed at the row's end. */
+  .composer-context-row {
+    flex-wrap: nowrap;
+  }
+
+  .composer-context-scroll {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    /* Room for focus rings inside the scroller. */
+    padding: 3px;
+    margin: -3px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  }
+
+  .composer-context-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Trailing room so the last chip can scroll clear of the fade. */
+  .composer-context-scroll::after {
+    content: "";
+    flex: 0 0 12px;
+  }
+
+  .composer-context-scroll > *,
+  .composer-context-chips > * {
+    flex-shrink: 0;
+  }
+
+  .workspace-chip {
+    max-width: 42vw;
+  }
+
+  /* Selector chips: one strip that scrolls under a fade, Send stays put. */
+  .composer-bar {
+    gap: 8px;
+    padding: 8px 10px 10px;
+  }
+
+  .composer-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    /* Room for the 3px glow of the plan / ask / bypass chips and focus rings. */
+    padding: 4px;
+    margin: -4px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  }
+
+  .composer-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Trailing room so the last chip can scroll clear of the fade. */
+  .composer-tabs::after {
+    content: "";
+    flex: 0 0 12px;
+  }
+
+  .composer-tab {
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+
+  .composer-tab.mode-llm {
+    max-width: 11em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .composer-overrides {
+    flex: none;
+    max-width: 40vw;
+  }
+}
+
+/* iOS Safari zooms the page into any text field under 16px on focus and
+   does not zoom back. Phones in both orientations and touch tablets. */
+@media (max-width: 520px), (any-hover: none) and (any-pointer: coarse) {
+  /* The mirror draws the mention highlights under the textarea: the two
+     must keep the same metrics. */
+  .composer-mirror-inner,
+  textarea#composer {
+    font-size: 16px;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea:not(#composer) {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Top bar More menu (NavRail): the items a phone's bar has no room for,
+   under the three-dots button at the bar's right end. Opaque, because the
+   pill it hangs from already blurs what is behind it. */
+.rail-more-host {
+  position: relative;
+}
+
+.rail-more-menu {
+  position: absolute;
+  top: calc(100% + 14px);
+  right: -6px;
+  z-index: 90;
+  min-width: 210px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 16px;
+  background: var(--foxxycode-canvas-gradient-top);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  box-shadow: var(--shadow);
+}
+
+.rail-more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rail-more-item:hover,
+.rail-more-item:focus-visible {
+  background: color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
+  outline: none;
+}
+
+.rail-more-item.is-active {
+  color: var(--accent);
+}
+
+.rail-more-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
 }

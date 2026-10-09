@@ -12,6 +12,19 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
+  "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.":
+    "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; поддерживаются NeuralDeep, Codex и Devin.",
+  "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.":
+    "Общий запас повторов сетевого запроса, пустого ответа и отсутствия первого токена до выполнения инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, хуки Stop, резервные модели и ожидание сброса квоты имеют собственные ограничения.",
+
+  "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.": "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
+  "Bind host": "Адрес привязки",
+  "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.": "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
+  "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.": "Предлагать инструмент preview_server (по умолчанию включено). Отключение фоновых задач отключает и его.",
+  "Preview server": "Сервер предпросмотра",
+  "Public host": "Публичный хост",
+  "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.": "Инструмент preview_server: статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы работу можно было открыть в браузере.",
+
   // Root
   "FoxxyCode config": "Конфигурация FoxxyCode",
   "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.":

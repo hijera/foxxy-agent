@@ -7,7 +7,11 @@ notes: 'Historical decisions migrated from the local UPSTREAM_SYNC.md journal an
   branding, API, localization and media differences; it does not assert a patch-identical cherry-pick, a new semantic
   audit or completion of every historical live-test/documentation follow-up. fork_commits may identify an implementation
   bundle or its merge. The journal sometimes names branch tips as release checkpoints; the 1.1.51-1.1.61 records
-  use actual upstream main merges. Newer upstream commits remain unreviewed.'
+  use actual upstream main merges. The 2026-10-07 wave separately reviews 4b091359e027df31acf00d32378f112b8af4dba6 (exclusive) through
+  75c31bcc0b726a46386b0977fee997353f62a9a1 (inclusive, tag 1.2.1): 38 constituent commits, 10 PR merges and
+  6 overlapping integration merges. The latter are skipped as redundant, rather than applied twice. Later
+  partial/deferred PR #351 records stay open. Commits after this checkpoint remain unreviewed unless listed
+  individually.'
 ports:
 - upstream_sha: 11cc5e9fb1584f3cc2e765ba5be8f5d13442453d
   status: adapted
@@ -9323,3 +9327,615 @@ ports:
   remaining:
   - 'Review and port the Devin invalid-UTF-8, tool-output and visible turn-error fixes as part of the remaining
     PR #351 work.'
+- upstream_sha: 4ddabc2fd518c3691e029b0c2bb206ccc4cefb82
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): offer configured models
+    for context compaction. Rebranded and reconciled with current FoxxyCode main;
+    owner-approved encoding, send-mode, compaction, retry and session-asset divergences
+    are preserved where applicable. Documentation and real UI captures accompany the
+    implementation.'
+  remaining: []
+- upstream_sha: d6e741b021d2837b9b96969f0dc0854e7bae2f8c
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: docs: sharpen compaction model
+    screenshot. Rebranded and reconciled with current FoxxyCode main; owner-approved
+    encoding, send-mode, compaction, retry and session-asset divergences are preserved
+    where applicable. Documentation and real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: aa76bbf7d05ca1f613b4bddbbeb3d70be826c791
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(cli): read the one-shot
+    prompt from a file or stdin. Rebranded and reconciled with current FoxxyCode main;
+    owner-approved encoding, send-mode, compaction, retry and session-asset divergences
+    are preserved where applicable. Documentation and real UI captures accompany the
+    implementation.'
+  remaining: []
+- upstream_sha: 8c56cdcaa7f834a91bb25bc090a6b6d5270aa246
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #316 from
+    coddy-project/feat/cli-prompt-input. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 3a0f2f7f6863ab50cffcb5265734fe336e8ef6ee
+  status: skipped
+  fork_commits: []
+  reason: Integration merge reviewed in the pinned 1.1.61-to-1.2.1 net diff; its final
+    content is covered by the constituent and PR merge records in this consolidated
+    port. No additional patch is applied.
+  remaining: []
+- upstream_sha: 4eff4ac863a249cb0d934a93209bf6a67ae8f95c
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(compaction): name the summarizer
+    for one compaction. Rebranded and reconciled with current FoxxyCode main; owner-approved
+    encoding, send-mode, compaction, retry and session-asset divergences are preserved
+    where applicable. Documentation and real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 1ddbb2e844a5f6d000e489198c54440f4c770c17
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): complete the --model
+    option of /compact in the composer. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 2e154fc33a65926c675a67241df8312b5411796b
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: docs(compaction): the --model
+    option, the tool argument and the composer picker. Rebranded and reconciled with
+    current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: b0054a8595c113da7b385e1284919b55146acf32
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(compaction): resolve a whole
+    model name first, refuse a bad one early. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 5de722669bd44461ec0a62ac00338421f8529e88
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): hold the /compact option
+    picker to the server''s grammar. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: c8b531c678427e55e7cd83e8e893ed7b52c3bf56
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): fit the web UI on a
+    phone and send with Enter again. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 6e6706b0cf6597d824e462ec2e87549724f89ac9
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: test(bgtask): wait for the finish
+    notification before checking the mark. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: fd95a4ae79ab2125a592cb6780144bdbab0d121a
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #323 from
+    coddy-project/fix/mobile-web-ui-layout. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: a45ab837b26445ea19425373fa75c2ca97d76d05
+  status: skipped
+  fork_commits: []
+  reason: Integration merge reviewed in the pinned 1.1.61-to-1.2.1 net diff; its final
+    content is covered by the constituent and PR merge records in this consolidated
+    port. No additional patch is applied.
+  remaining: []
+- upstream_sha: 992fe057a678147a13895e8caf6c62c3a14128ce
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): leave keys an input
+    method composes with to it in the option picker. Rebranded and reconciled with
+    current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 70428c08384b68ec7c099b5cf9359cd7a796cef8
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: test(httpserver): keep the MCP
+    settings test out of the operator''s home. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 04eb395363583927dd6f4ed53996e66ded6b1824
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): leave every composer
+    key an input method composes with to it. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 84be08b5e100e5170a5e09b06e4837f3889bbd0c
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: test(httpserver): give the package''s
+    tests a coddy home of their own. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: aae37407fbe6aedfe81b9f620c9b8cd702d63b0b
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #312 from
+    coddy-project/codex/248-compaction-model-picker. Rebranded and reconciled with
+    current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 114d3c88eb2b346f23b00e4e6d1388a3bda8706b
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(tools): teach the docs reader
+    the mention and the real command. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 0a814ccc4abeae06bacee61364332e3ae9c3336a
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): name an MCP call by
+    its server and its tool. Rebranded and reconciled with current FoxxyCode main;
+    owner-approved encoding, send-mode, compaction, retry and session-asset divergences
+    are preserved where applicable. Documentation and real UI captures accompany the
+    implementation.'
+  remaining: []
+- upstream_sha: 764ef1c55a54572ef688300a3333b4f28d1c67aa
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): mark a session whose
+    background tasks are still running. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 6bbbcd816ed984ab1f1c7ed2b806d5ad8592fed0
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): keep the dots after
+    the turn while its tasks run. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: ec498f9760628aa74ea27c680da11e8ed32ab04b
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): show an attached image
+    as a preview card that opens enlarged. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 0036fb8e19251c7bfceae4cf705f856711dbc3cc
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): leave the arguments
+    off the live line, and its phrases complete. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 527b81ade3b505faab1b64cde30c4d5145b45374
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): reach a subagent''s
+    transcript from the folded task card. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 13bc4a029f864a891eb57fc7c16868504b1e7313
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): count the live line''s
+    clock per step, not per phrase. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 5a0b8fc3cfe0e922b75011fcb4eb3001e54ea17c
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix: close what the cross review
+    found. Rebranded and reconciled with current FoxxyCode main; owner-approved encoding,
+    send-mode, compaction, retry and session-asset divergences are preserved where
+    applicable. Documentation and real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 88b8d757b38d8a237fb8bd32f6a6ccc966936be0
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): close the picture viewer
+    when the reader leaves the screen. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 8bc1d94432593c8b94472fa928f240b14cc898a9
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(ui): drag, pinch and wheel
+    the picture in the viewer. Rebranded and reconciled with current FoxxyCode main;
+    owner-approved encoding, send-mode, compaction, retry and session-asset divergences
+    are preserved where applicable. Documentation and real UI captures accompany the
+    implementation.'
+  remaining: []
+- upstream_sha: 6979b5025b7a981ca9bd324fcee2db5d906b9a00
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(tools): preview_server serves
+    project files on a free localhost port. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: d2c6ac0075ed02090bde9235e3fee57e5f9b8e5c
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(tools): harden preview_server
+    dot policy, dedup and config round-trip. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 6e4ea9442de1d1ec3147a727f60ba9aada6ae0dd
+  status: skipped
+  fork_commits: []
+  reason: Integration merge reviewed in the pinned 1.1.61-to-1.2.1 net diff; its final
+    content is covered by the constituent and PR merge records in this consolidated
+    port. No additional patch is applied.
+  remaining: []
+- upstream_sha: 3c28689735d54c63921b9d8e9354ae7e32fc5f61
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #317 from
+    coddy-project/claude/local-webserver-project-files-260e1d. Rebranded and reconciled
+    with current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 891e65af61dfdf1b3abd836d9e3fc61b6638afa5
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: test(tools): run the config commit
+    rollback tests on Windows. Rebranded and reconciled with current FoxxyCode main;
+    owner-approved encoding, send-mode, compaction, retry and session-asset divergences
+    are preserved where applicable. Documentation and real UI captures accompany the
+    implementation.'
+  remaining: []
+- upstream_sha: d67c875257665c7e240897bde8dbade71e64aa0e
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: ci: run the file and path packages
+    on the Windows runner. Rebranded and reconciled with current FoxxyCode main; owner-approved
+    encoding, send-mode, compaction, retry and session-asset divergences are preserved
+    where applicable. Documentation and real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 6b2813ae698a20775210856cc9606629a824b3c1
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #318 from
+    coddy-project/claude/recursing-chatterjee-4c2f56. Rebranded and reconciled with
+    current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 8b2b8a94917c4006e2eff142cba3536ed52adcd4
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): seed hash-route state
+    before first paint to stop boot flicker. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: c1c45c898927dcffd18cc84f3a98a3d495f53007
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #324 from
+    coddy-project/fix/ui-boot-route-flicker. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 5337003693b68e62b70e4098bcb9659f7228fdee
+  status: skipped
+  fork_commits: []
+  reason: Integration merge reviewed in the pinned 1.1.61-to-1.2.1 net diff; its final
+    content is covered by the constituent and PR merge records in this consolidated
+    port. No additional patch is applied.
+  remaining: []
+- upstream_sha: 0791ba3ee0ec139d35df72162daec9308b0fdf93
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: docs: recapture the Tasks panel
+    now that a card leads somewhere itself. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: c4704e91d5262ec07a7845d83f9c128c04604c94
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(ui): draw the chevron, stop
+    asking a font where its ink lands. Rebranded and reconciled with current FoxxyCode
+    main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: a6d38251a0475742d0e7cd3c28e43c8fc9567e6d
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(cli): show progress while
+    file tool arguments stream. Rebranded and reconciled with current FoxxyCode main;
+    owner-approved encoding, send-mode, compaction, retry and session-asset divergences
+    are preserved where applicable. Documentation and real UI captures accompany the
+    implementation.'
+  remaining: []
+- upstream_sha: d15e0ea2a4112e9ac276c436e9fdfffaa707bf99
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(agent,ui): keep tool rows
+    honest through argument-progress frames. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 395f2b456e67023699c857a55597b72eeeae762c
+  status: skipped
+  fork_commits: []
+  reason: Integration merge reviewed in the pinned 1.1.61-to-1.2.1 net diff; its final
+    content is covered by the constituent and PR merge records in this consolidated
+    port. No additional patch is applied.
+  remaining: []
+- upstream_sha: a09934a8c6d099450d5386e643e1c6b7073de895
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #325 from
+    coddy-project/feat/tool-argument-progress. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 654c8dfa9198d02239d1d5afb5ff07d6688685f4
+  status: skipped
+  fork_commits: []
+  reason: Integration merge reviewed in the pinned 1.1.61-to-1.2.1 net diff; its final
+    content is covered by the constituent and PR merge records in this consolidated
+    port. No additional patch is applied.
+  remaining: []
+- upstream_sha: b2493cca2f71624a56a48241f48cea844133bff4
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #328 from
+    coddy-project/feat/ui-mcp-tool-rows-and-bg-activity. Rebranded and reconciled
+    with current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: f3bda69c0af9cf374346bc9ae720ecfd8645cd35
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: fix(agent): share retry allowance
+    across ReAct recovery. Rebranded and reconciled with current FoxxyCode main; owner-approved
+    encoding, send-mode, compaction, retry and session-asset divergences are preserved
+    where applicable. Documentation and real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 4ef3e11cc0df7c0aafa2053fa8e647562d4bb401
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: test(agent): protect retry prompt
+    cache prefix. Rebranded and reconciled with current FoxxyCode main; owner-approved
+    encoding, send-mode, compaction, retry and session-asset divergences are preserved
+    where applicable. Documentation and real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: 9c7984b81d2074f2cf9d868341d01efe9d11d29d
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #329 from
+    coddy-project/fix/react-retry-budget-226. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 49a77c716eb79d9e77f40408e49152d0d1a47556
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: feat(usage): read Codex and Devin
+    subscription quotas into the shared usage panel. Rebranded and reconciled with
+    current FoxxyCode main; owner-approved encoding, send-mode, compaction, retry
+    and session-asset divergences are preserved where applicable. Documentation and
+    real UI captures accompany the implementation.'
+  remaining: []
+- upstream_sha: a2e9ea6e2324982077432c82c9a8efd9c1914bd9
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: review(usage): address cross-review
+    findings on the subscription quota sources. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []
+- upstream_sha: 75c31bcc0b726a46386b0977fee997353f62a9a1
+  status: adapted
+  fork_commits:
+  - 4af77e86e1857a2b9849bc92660b8208d6583b0e
+  - 71ad3dec4a861415eecad17e1205f90a49ee9123
+  - 6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8
+  reason: 'Consolidated port through upstream 1.2.1: Merge pull request #331 from
+    coddy-project/feat/subscription-usage-250. Rebranded and reconciled with current
+    FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
+    divergences are preserved where applicable. Documentation and real UI captures
+    accompany the implementation.'
+  remaining: []

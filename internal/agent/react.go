@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -253,22 +254,24 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// they run deterministically, outside the tool set and the permission
 	// gate. A child's prompt is written by the parent model, so for a subagent
 	// the same text is an ordinary task and never reaches the built-ins.
+	// Attachments are data: only the operator's typed text names a command.
 	if a.subagent == nil {
+		typed := typedText(prompt)
 		// The built-in /compact command compacts history instead of running the ReAct
 		// loop. runCompactCommand persists the command text itself (so it shows in the
 		// transcript like any other message), and under the opencode engine returns a
 		// short notice instead of compacting.
-		if instructions, ok := parseCompactCommand(userText); ok {
-			return a.runCompactCommand(ctx, instructions, userText)
+		if args, ok := parseCompactCommand(typed); ok {
+			return a.runCompactCommand(ctx, args, userText)
 		}
 		// The built-in /plugin command manages skill plugins and marketplaces
 		// deterministically, without an LLM turn; the command text is persisted too.
-		if args, ok := parsePluginCommand(userText); ok {
+		if args, ok := parsePluginCommand(typed); ok {
 			return a.runPluginCommand(ctx, args, userText)
 		}
 		// The built-in /export command writes the transcript to a file in the
 		// workspace; the command text is persisted after the export is built.
-		if args, ok := parseExportCommand(userText); ok {
+		if args, ok := parseExportCommand(typed); ok {
 			return a.runExportCommand(ctx, args, userText)
 		}
 		// The built-in /export command writes the transcript to a file in the
@@ -454,6 +457,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
+		PreviewServer:     previewServerSettings(a.cfg),
 	}
 	// The model's own model switch; a subagent runs on what its parent chose.
 	if a.subagent == nil && a.settings() != nil {
@@ -578,6 +582,24 @@ const maxFirstTokenReissues = 1
 // persisted to the transcript) to prompt the model to produce its answer or a tool call
 // after an empty turn.
 const emptyAssistantContinuationNudge = "Your previous message had no answer text and no tool call. Continue now: call the appropriate tool to act, or write your reply to the user."
+
+// emptyRecoveryProjection removes unanswered assistant messages only from the
+// request, retaining their signed reasoning in session history. A rebuild after
+// compaction restores that entire tail, so remove all of it and restore the
+// local-only nudges the recovery has already earned.
+func emptyRecoveryProjection(messages []llm.Message, nudges int) []llm.Message {
+	for len(messages) > 0 {
+		last := messages[len(messages)-1]
+		if last.Role != llm.RoleAssistant || strings.TrimSpace(last.Content) != "" || len(last.ToolCalls) != 0 {
+			break
+		}
+		messages = messages[:len(messages)-1]
+	}
+	for i := 0; i < nudges; i++ {
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: emptyAssistantContinuationNudge})
+	}
+	return messages
+}
 
 // Loop-guard nudges are injected into the LLM-facing message slice only (never
 // persisted to the transcript), the same way emptyAssistantContinuationNudge is.
@@ -719,6 +741,16 @@ func (a *Agent) runReActLoop(
 	// Numbers every model call of the turn, retries and continuations included,
 	// for the debug log and the network trace that carries it.
 	var llmCalls int
+	var turnHadVisibleText bool
+	var retryAllowance *llm.RetryAllowance
+	nextCallReason := "step"
+	// A new step earns a fresh allowance; consecutive unanswered requests do
+	// not. Explicit continuations keep their own configured bounds.
+	resetRetries := func(reason string) {
+		retryAllowance = nil
+		emptyContinuations, emptyReissues, firstTokenReissues = 0, 0, 0
+		nextCallReason = reason
+	}
 
 	// Run opened the turn's progress already; a loop entered another way (a
 	// resumed permission) opens its own.
@@ -761,12 +793,13 @@ func (a *Agent) runReActLoop(
 	// quarantined calls and executed nothing: it has nothing left but the loop.
 	blockedRounds := 0
 
+	// fork(retry-recovery-steps): unanswered replays preserve useful max_turns steps.
 	// Recovering from a provider that went quiet (agent.llm_stall_retry).
 	// recoveryTurns counts loop iterations spent on that rather than on advancing
 	// the model's plan - a replayed call that produced nothing, and a continuation
 	// after the connection died mid-answer. Neither is a step the model chose, so
 	// neither shrinks max_turns; both stay bounded by something else
-	// (llm_stall_retry_max_wait_ms and agent.llm_continue_max).
+	// (llm_retry_max, llm_stall_retry_max_wait_ms and agent.llm_continue_max).
 	stalls := newStallRetry(&a.cfg.Agent)
 	// The memory child already tries its configured fallback models inside the
 	// provider call. When all reject the request, settle its task immediately so
@@ -842,7 +875,9 @@ func (a *Agent) runReActLoop(
 		// from its own continuation. The follow-up waits one step - the next real
 		// one, the end-of-turn read below, or the manager's boundary.
 		if !replaying {
-			a.readQueuedMessages(&messages)
+			if a.readQueuedMessages(&messages) {
+				resetRetries("queued_followup")
+			}
 		}
 		replaying = false
 
@@ -892,7 +927,7 @@ func (a *Agent) runReActLoop(
 		compacted := false
 		finishCompaction := a.debugStage(ctx, "turn_compaction")
 		if a.cfg.Compaction.EngineIsCoddy() {
-			compacted = reactTurn > 0 && a.maybeAutoCompact(ctx)
+			compacted = turn > 0 && a.maybeAutoCompact(ctx)
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
@@ -903,6 +938,9 @@ func (a *Agent) runReActLoop(
 		if compacted {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages = a.buildMessages(sys.Content)
+			if emptyReissues > 0 || emptyContinuations > 0 {
+				messages = emptyRecoveryProjection(messages, emptyContinuations)
+			}
 			turnCtx = a.buildTurnContext(sys)
 		}
 		finishCompaction()
@@ -958,10 +996,16 @@ func (a *Agent) runReActLoop(
 		// guard, did the cancelling, which the error paths below cannot otherwise tell
 		// apart.
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
+		if retryAllowance == nil {
+			retryAllowance = llm.NewRetryAllowance(a.cfg.Agent.EffectiveLLMRetryMax())
+		}
+		attemptsBefore := retryAllowance.Snapshot()
+		callReason := nextCallReason
+		nextCallReason = "step"
 		// Every guard cancels with its own cause, so the network trace of the request
 		// (debug.enable) names who cut it rather than reporting a bare cancel.
 		llmCalls++
-		streamCtx, cancelStream := context.WithCancelCause(llm.WithNetTraceAttrs(ctx,
+		streamCtx, cancelStream := context.WithCancelCause(llm.WithNetTraceAttrs(llm.WithRetryAllowance(ctx, retryAllowance),
 			"session", sessionID, "turn", turn, "call", llmCalls))
 		streamCancel := func() { cancelStream(nil) }
 		var firstTokenTimedOut atomic.Bool
@@ -1047,6 +1091,7 @@ func (a *Agent) runReActLoop(
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
 			noteProgress(now)
+			turnHadVisibleText = true
 			sawDelta.Store(true)
 			streamedAny = true
 			answerBuf.WriteString(delta)
@@ -1101,6 +1146,7 @@ func (a *Agent) runReActLoop(
 			"messages", len(sendMessages), "tools", len(callDefs),
 			"first_token_timeout", firstTokenTimeout, "stream_idle_timeout", streamIdle)
 		a.progress.beginCall()
+		inputProgress := make(map[string]*toolInputProgress)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -1139,11 +1185,36 @@ func (a *Agent) runReActLoop(
 			// the arguments can take seconds to stream, and without the row the
 			// transcript stands still with nothing but a Stop button. The row is
 			// keyed by the call id, so the complete call updates it in place.
-			// A call's arguments are output like any text, and often most of
-			// it (a write carries the whole file). They are not streamed as
-			// deltas, so they enter the count when the call is complete.
-			if chunk.ToolCall != nil {
-				a.progress.streamed(chunk.ToolCall.Name + chunk.ToolCall.InputJSON)
+			if tc := chunk.ToolCallDelta; tc != nil {
+				streamedAny = true
+				stopFirstTokenTimer()
+				p := inputProgress[tc.ID]
+				if p == nil {
+					p = newToolInputProgress(tc.Name)
+					inputProgress[tc.ID] = p
+				}
+				p.add(tc.InputJSON)
+				a.progress.streamed(tc.InputJSON)
+				if u := p.update(tc.ID, now, false); u != nil {
+					_ = a.server.SendSessionUpdate(sessionID, *u)
+				}
+			}
+			if tc := chunk.ToolCall; tc != nil {
+				// Providers without argument deltas still contribute the full count.
+				// Reconcile the fallback estimate once, never count fragments twice.
+				p := inputProgress[tc.ID]
+				if p == nil {
+					a.progress.streamed(tc.Name + tc.InputJSON)
+				} else {
+					missing := utf8.RuneCountInString(tc.InputJSON) - p.argumentRunes
+					if missing > 0 {
+						a.progress.streamedRunes(missing)
+					}
+					a.progress.streamed(tc.Name)
+					if u := p.update(tc.ID, now, true); u != nil {
+						_ = a.server.SendSessionUpdate(sessionID, *u)
+					}
+				}
 			}
 			announce := chunk.ToolCall
 			if announce == nil {
@@ -1176,6 +1247,21 @@ func (a *Agent) runReActLoop(
 				noteProgress(now)
 			}
 		})
+		if streamErr != nil {
+			status := "failed"
+			if streamCtx.Err() != nil {
+				status = "cancelled"
+			}
+			// Every call that streamed arguments announced a pending row; the
+			// stream died before any of them could execute, so none may stay
+			// pending. Calls that only announced a name keep their row - the
+			// same gap as before argument deltas existed.
+			for id := range inputProgress {
+				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
+				})
+			}
+		}
 		stopFirstTokenTimer()
 		streamCancel()
 		namedMu.Lock()
@@ -1193,7 +1279,9 @@ func (a *Agent) runReActLoop(
 		hasAnyOutput := sawDelta.Load() || (response != nil && (strings.TrimSpace(response.Content) != "" ||
 			len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != ""))
 		a.logLLMCallFinished(sessionID, turn, llmCalls, callStart, firstProgress.Load(), hasAnyOutput,
-			context.Cause(streamCtx), streamErr, response)
+			context.Cause(streamCtx), streamErr, response,
+			"call_reason", callReason, "provider_attempts", retryAllowance.Snapshot().Attempts-attemptsBefore.Attempts,
+			"transport_retries", retryAllowance.Snapshot().TransportRetries-attemptsBefore.TransportRetries, "retries_remaining", retryAllowance.Snapshot().Remaining)
 		// The provider's stall guard cut this stream (agent.llm_stream_idle_timeout_ms).
 		stalled := llm.IsStreamStalled(streamErr)
 		stallIdle := llm.StreamStalledIdle(streamErr)
@@ -1219,6 +1307,7 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
 			a.log.Warn("loop guard cut a degenerating response",
 				"channel", loopAbortChannelName(loopAbort), "nudge", loopNudges)
+			resetRetries("loop_guard")
 			continue
 		}
 
@@ -1266,6 +1355,8 @@ func (a *Agent) runReActLoop(
 					return string(acp.StopReasonRefused), stallAbortError(stallIdle, stallContinues, attemptRestarts)
 				}
 				stallContinues++
+				retryAllowance = nil
+				nextCallReason = "continuation"
 				recoveryTurns++
 				// Which nudge: "carry on from the message above" is only honest the first
 				// time, and only when there is visible text above to carry on from.
@@ -1310,8 +1401,8 @@ func (a *Agent) runReActLoop(
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
 		// surface a timeout error instead of a silent failure. The timer itself reports
 		// that it fired, so a cancellation from anywhere else is never mislabelled.
-		if ((firstTokenTimedOut.Load() && errors.Is(streamErr, context.Canceled)) || stalled) &&
-			!a.state.IsUserCancelledTurn() {
+		if ((firstTokenTimedOut.Load() && streamErr != nil && streamCtx.Err() != nil) || stalled) &&
+			ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
 			if !hasAnyOutput {
 				// Nothing reached the caller, so re-issuing the identical request
 				// cannot duplicate anything.
@@ -1322,13 +1413,18 @@ func (a *Agent) runReActLoop(
 				// answers. Only when that has not helped does the stall ladder
 				// below start waiting, which is the recovery a saturated gateway
 				// needs. The iteration is repeated, not counted, either way.
-				if stalls.enabled && firstTokenReissues < maxFirstTokenReissues {
+				if stalls.enabled && firstTokenReissues < maxFirstTokenReissues && retryAllowance.TakeRetry() {
 					firstTokenReissues++
+					nextCallReason = "first_token_retry"
 					a.log.Warn("no first token from the model; re-issuing the same request",
 						"timeout", firstTokenTimeout, "attempt", firstTokenReissues)
 					recoveryTurns++
 					replaying = true
 					continue
+				}
+				// Delayed reissues spend the same allowance as the immediate replay.
+				if !retryAllowance.TakeRetry() {
+					return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: retry allowance exhausted%s", stallGaveUpSuffix(&stalls))
 				}
 				// A saturated gateway is out for minutes, which is why this waits on
 				// its own schedule rather than leaning on the seconds-scale retries
@@ -1364,6 +1460,7 @@ func (a *Agent) runReActLoop(
 					// the limit it was waiting on and says what cut the wait.
 					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
 				}
+				resetRetries("quota_reset_wait")
 				turn--
 				replaying = true
 				continue
@@ -1386,6 +1483,8 @@ func (a *Agent) runReActLoop(
 					attemptRestarts++
 				}
 				stallContinues++
+				retryAllowance = nil
+				nextCallReason = "continuation"
 				recoveryTurns++
 				pause := errorContinueDelay(&a.cfg.Agent, stallContinues-1, streamErr)
 				a.log.Warn("provider failed mid-answer; carrying the answer on after a pause",
@@ -1492,6 +1591,9 @@ func (a *Agent) runReActLoop(
 			// as a silent one. internal/llm has already spent its own retries by
 			// now, but those are seconds against an outage measured in minutes.
 			if !hasAnyOutput && !a.state.IsUserCancelledTurn() && stallRetryableError(streamErr) {
+				if !retryAllowance.TakeRetry() {
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (retry allowance exhausted)%s", streamErr, stallGaveUpSuffix(&stalls))
+				}
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "provider error"); {
 				case retry:
 					recoveryTurns++
@@ -1629,34 +1731,48 @@ func (a *Agent) runReActLoop(
 					continue
 				}
 			}
+			if response.StopReason == "max_tokens" {
+				a.noteStopNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
+				return string(acp.StopReasonMaxTokens), nil
+			}
+			if ctx.Err() != nil || a.state.IsUserCancelledTurn() {
+				return string(acp.StopReasonCancelled), nil
+			}
 			// First recovery is the plain replay: drop the empty turn from the
 			// LLM-facing slice so the request going out is byte for byte the one
 			// that failed, and let the proxy hand it to another deployment. The
 			// transcript keeps that turn, because the user watched its reasoning
 			// stream in. Words come next, once a replay has not helped.
 			if strings.TrimSpace(response.Content) == "" && emptyReissues < maxEmptyAssistantReissues &&
-				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant {
+				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant && retryAllowance.TakeRetry() {
+
 				emptyReissues++
-				messages = messages[:len(messages)-1]
+				messages = emptyRecoveryProjection(messages, 0)
+				nextCallReason = "empty_reissue"
 				a.log.Warn("model answered with no text and no tool call; re-issuing the same request",
-					"attempt", emptyReissues)
+					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)
 				replaying = true
+				recoveryTurns++
 				continue
 			}
-			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations {
+			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations && retryAllowance.TakeRetry() {
+
 				emptyContinuations++
-				// LLM-facing only; never persisted to the transcript.
-				messages = append(messages, llm.Message{
-					Role:    llm.RoleUser,
-					Content: emptyAssistantContinuationNudge,
-				})
+				messages = emptyRecoveryProjection(messages, 1)
+				nextCallReason = "empty_nudge"
+				recoveryTurns++
+				a.log.Warn("model answered with no text and no tool call; nudging for an answer",
+					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)
 				continue
 			}
-			if response.StopReason == "max_tokens" {
-				// Nothing on screen separates this from a finished turn, so say it:
-				// the cap is a setting the user can raise, but only once told it was hit.
-				a.noteStopNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
-				return string(acp.StopReasonMaxTokens), nil
+			// The turn produced no visible answer at all (only reasoning / empty
+			// content) and the model never recovered after the continuation nudges.
+			// Surface a clear notice (rendered as a system message with a Retry
+			// control in the UI) instead of dead-ending silently on a thinking-only
+			// turn — otherwise the user sees no assistant reply. Seen with gpt-oss /
+			// harmony endpoints that route the tool call through the reasoning channel.
+			if strings.TrimSpace(response.Content) == "" && !turnHadVisibleText {
+				return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: only internal reasoning, with no answer text or tool call")
 			}
 			// A Stop hook may send the agent back to work with a follow-up that
 			// is submitted as the next user message (persisted, so the transcript
@@ -1669,7 +1785,7 @@ func (a *Agent) runReActLoop(
 				}
 				// The follow-up needs an iteration to be read in; on the last one
 				// it would only leave a dangling user message behind.
-				if turn+1 >= maxTurns {
+				if reactTurn+1 >= maxTurns {
 					a.log.Warn("stop hook follow-up dropped: the turn cap is reached", "max_turns", maxTurns)
 					return string(acp.StopReasonEndTurn), nil
 				}
@@ -1683,6 +1799,7 @@ func (a *Agent) runReActLoop(
 				messages = append(messages, follow)
 				a.state.AddMessage(follow)
 				a.refreshConversationContextUsage(true)
+				resetRetries("stop_hook")
 				continue
 			}
 
@@ -1696,6 +1813,7 @@ func (a *Agent) runReActLoop(
 			// The last one is counted in the model's own steps: iterations spent
 			// recovering from a provider do not shrink max_turns (see recoveryTurns).
 			if reactTurn+1 < maxTurns && a.readQueuedMessages(&messages) {
+				resetRetries("queued_followup")
 				continue
 			}
 			return string(acp.StopReasonEndTurn), nil
@@ -1845,6 +1963,7 @@ func (a *Agent) runReActLoop(
 			toolEnv.Background = a.backgroundPool(sd)
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.WebSearch = webSearchSettings(a.cfg)
+			toolEnv.PreviewServer = previewServerSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 			// The frozen system message described the configuration that was just
 			// replaced: its tool section, the skills catalogue, the response
@@ -1872,9 +1991,7 @@ func (a *Agent) runReActLoop(
 		// that alternates thinking and tool calls (gpt-oss / harmony) is abandoned mid-task.
 		// The replay budgets follow the same rule: a lane that answered once earns a
 		// fresh one.
-		emptyContinuations = 0
-		emptyReissues = 0
-		firstTokenReissues = 0
+		resetRetries("step")
 
 		// Inject any screenshots produced by browser tools this round as a user-role
 		// vision block so the model can see the page. This reuses the existing image

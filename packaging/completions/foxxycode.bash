@@ -9,8 +9,17 @@ _foxxycode() {
 
     commands="cli acp http desktop gateway serve sessions skills plugin mcp codex providers rules agents hooks docs update"
 
+    # One-shot console input, on the bare command and after cli.
+    local prompt_flags="-p --prompt -i --prompt-file --no-stdin"
+    case "${prev}" in
+        -i|--prompt-file)
+            COMPREPLY=($(compgen -f -- "${cur}"))
+            return
+            ;;
+    esac
+
     if [ "${COMP_CWORD}" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -t --test-config --dry-run -c --continue -p --prompt --resume" -- "${cur}"))
+        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -t --test-config --dry-run -c --continue ${prompt_flags} --resume" -- "${cur}"))
         return
     fi
 
@@ -56,7 +65,13 @@ _foxxycode() {
         update)
             COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
             ;;
-        cli|acp)
+        cli)
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token -c --continue ${prompt_flags} --model --mode --permission-mode" -- "${cur}"))
+            ;;
+        -*)
+            COMPREPLY=($(compgen -W "-c --continue ${prompt_flags} --model --mode --permission-mode --session-id --cwd --remote --remote-token" -- "${cur}"))
+            ;;
+        acp)
             COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
             ;;
         http)
