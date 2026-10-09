@@ -10,6 +10,7 @@
 
 ## Unreleased — 2026-10-07
 
+- Long MCP tool labels ellipsize in a narrow panel, keeping the duration visible and the full label in a tooltip without widening the page.
 - Ported upstream through 1.2.1: file/stdin CLI prompts, preview servers, per-call compaction models, tool-argument progress, bounded shared retries, and Codex/Devin quota panels.
 - Improved phone input and navigation, image preview cards and zoom, MCP labels and background activity. Preserved configurable send shortcuts, both compaction engines, continuation budgets and regular-file assets.
 - Reissuing a silent model request after a wait also spends the shared `agent.llm_retry_max` allowance, preventing waits from starting retries beyond the configured limit.

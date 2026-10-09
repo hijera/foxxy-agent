@@ -741,8 +741,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   // result, which its label already reads as failed, so the row says so too.
   const failedOnRow =
     !isSvnTool &&
-    (status === "failed" ||
-      (isBrowserTool && /^error:/i.test(preview.trim())));
+    (status === "failed" || (isBrowserTool && /^error:/i.test(preview.trim())));
   const hasBody =
     !!schedulerCard ||
     !!spawnAgent ||
@@ -775,7 +774,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             <span className="thinking-head">
               {isBrowserTool && <BrowserIcon />}
               {isSvnTool && <SvnIcon />}
-              <span className="thinking-label">{displayLabel}</span>
+              <span className="thinking-label" title={displayLabel}>
+                {displayLabel}
+              </span>
               {rowTarget ? (
                 <span
                   className="tool-summary-target"

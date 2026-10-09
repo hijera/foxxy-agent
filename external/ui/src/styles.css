@@ -10434,7 +10434,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* Label, target and duration are one non-wrapping unit: the row stays a single line and
-   the target is what gives way, clipped with an ellipsis. The browser and SVN icons and
+   long labels and targets give way, clipped with an ellipsis. The browser and SVN icons and
    the SVN failure pill travel inside the unit; a background-task chip is left outside,
    so it can still wrap below on a phone.
 
@@ -10453,10 +10453,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
 }
 
-.thinking-head .thinking-label,
 .thinking-head .thinking-dur,
 .thinking-head .svn-summary-error {
   flex: 0 0 auto;
+}
+
+.thinking-head .thinking-label {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thinking-head .svn-summary-error {
