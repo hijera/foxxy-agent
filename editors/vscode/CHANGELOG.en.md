@@ -8,13 +8,33 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-07
+## Unreleased — 2026-10-09
 
-- Long MCP tool labels ellipsize in a narrow panel, keeping the duration visible and the full label in a tooltip without widening the page.
-- Ported upstream through 1.2.1: file/stdin CLI prompts, preview servers, per-call compaction models, tool-argument progress, bounded shared retries, and Codex/Devin quota panels.
-- Improved phone input and navigation, image preview cards and zoom, MCP labels and background activity. Preserved configurable send shortcuts, both compaction engines, continuation budgets and regular-file assets.
-- Reissuing a silent model request after a wait also spends the shared `agent.llm_retry_max` allowance, preventing waits from starting retries beyond the configured limit.
-- `agent.llm_retry_max` now defaults to 10: with the standard timeouts, a completely silent model gets about 55 minutes 30 seconds to recover. An explicit limit in an existing config still applies.
+**A project preview can start from chat.**
+The `preview_server` tool starts a local server for project files. Its link and request log appear in Tasks; the server keeps running after the agent answers and can be stopped from the panel.
+
+**Context compaction can use a separate model.**
+The `/compact --model` command offers the available models, and Settings can save a compaction model. The selection works with both coddy and opencode engines.
+
+**Tool progress appears earlier.**
+The panel shows arguments as they arrive and distinguishes the MCP server and tool. Long labels ellipsize in narrow panels, with the complete name in a tooltip and the duration still visible. Background tasks keep updating after the answer.
+
+**Images can be inspected at a larger size.**
+Attachments have preview cards and a shared viewer with zoom and pan. Escape closes it; saved images remain available after reloading the session.
+
+**Retries share a limit and preserve steps for useful work.**
+Network errors and silent-model recovery spend one `agent.llm_retry_max` allowance, including reissues after a wait. The default allows 10 retries: with standard timeouts, a completely silent model gets about 55 minutes 30 seconds to recover. Explicit limits still apply. These retries do not spend `max_turns`; an interrupted answer uses the separate `llm_continue_max` budget. Stop interrupts the wait.
+
+**Codex and Devin quotas are available in the panel.**
+Provider limits appear in the UI and console through the shared usage cache. Credentials remain on the server.
+
+**Phone input and navigation are easier to use.**
+Phone mode follows input capabilities. Configurable send shortcuts and editor panel behavior are preserved; command completion works correctly with IME input.
+
+**The CLI accepts prompts from files or standard input.**
+The `-i` option reads files through the shared decoder, including Windows-1251. Standard input accepts UTF-8 and UTF-16 with a BOM; piped input and input watching are available.
+
+## 0.3.27 — 2026-10-06
 
 **Settings section names no longer get cut.**
 On a narrow panel the sections are named short — "Context compaction", "Session title", "Git and SVN"; the long wording remains only as the forms' headings. The names come from translations, the way coddy-agent does it.
