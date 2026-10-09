@@ -358,7 +358,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       (!props.title && kindLower === "write"));
   const isEditTool = !isPatchTool && rawNameLower === "edit";
   /** Tools whose argument preview can be arbitrarily large and needs a capped viewport. */
-  const isLargePreviewTool = isPatchTool || isWriteTool || isEditTool;
+  const isShellTool =
+    rawNameLower === "run_command" || rawNameLower === "ssh_run_command";
+  const isLargePreviewTool =
+    isPatchTool || isWriteTool || isEditTool || isShellTool;
   const argsTextIsCompleteJSON = useMemo(() => {
     if (!props.argsText) return false;
     try {
@@ -497,7 +500,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [props.toolCallId]);
 
   // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
-  // leaves a patch, write, or edit payload unparseable, so restored cards match live SSE
+  // leaves a shell, patch, write, or edit payload unparseable, so restored cards match live SSE
   // instead of rendering an empty preview. Any status qualifies: a session restored while
   // its tool was still in_progress carries the same truncated preview.
   const fetchFn = props.onFetchToolCallFull;
@@ -514,7 +517,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
       (isSpawnAgentTool && !spawnAgent && !pendingLike) ||
-      ((isWriteTool || isEditTool || isBrowserTool || isSvnTool) &&
+      ((isWriteTool || isEditTool || isShellTool || isBrowserTool || isSvnTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -526,6 +529,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     isEditTool,
     isPatchTool,
     isWriteTool,
+    isShellTool,
     isBrowserTool,
     isSpawnAgentTool,
     spawnAgent,
@@ -774,7 +778,14 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             <span className="thinking-head">
               {isBrowserTool && <BrowserIcon />}
               {isSvnTool && <SvnIcon />}
-              <span className="thinking-label" title={displayLabel}>
+              <span
+                className={
+                  isShellTool
+                    ? "thinking-label thinking-label--shell"
+                    : "thinking-label"
+                }
+                title={displayLabel}
+              >
                 {displayLabel}
               </span>
               {rowTarget ? (

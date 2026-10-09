@@ -22,6 +22,78 @@ function openToolDetails() {
   fireEvent.click(screen.getByLabelText("Tool summary"));
 }
 
+test.each(["run_command", "ssh_run_command"])(
+  "long %s input scrolls and resets on collapse",
+  (title) => {
+    const restore = mockPreviewOverflow();
+    try {
+      const command = "echo long command\n".repeat(40);
+      const { container } = render(
+        <ToolCallMessage
+          toolCallId="long-shell"
+          title={title}
+          status="completed"
+          argsText={JSON.stringify({ command })}
+          resultText="done"
+        />,
+      );
+      openToolDetails();
+      const viewport = screen.getByTestId("permission-preview-viewport");
+      expect(viewport).toHaveClass("permission-preview-viewport--clip");
+      expect(
+        container.querySelector(".permission-preview-shell-code")?.textContent,
+      ).toBe(command);
+      fireEvent.click(screen.getByTestId("tool-preview-more"));
+      expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+      viewport.scrollTop = 80;
+      fireEvent.click(screen.getByTestId("tool-preview-less"));
+      expect(viewport.scrollTop).toBe(0);
+      expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    } finally {
+      restore();
+    }
+  },
+);
+
+test("short command input has no overflow toggle", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="short-shell"
+      title="run_command"
+      status="completed"
+      argsText={JSON.stringify({ command: "git status" })}
+      resultText="clean"
+    />,
+  );
+  openToolDetails();
+  expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+});
+
+test("restored shell card recovers its full command from truncated arguments", async () => {
+  const fetch = vi.fn();
+  const command = "echo restored command\n".repeat(40);
+  function Harness() {
+    const [argsText, setArgsText] = useState('{"command":"echo restored');
+    return (
+      <ToolCallMessage
+        toolCallId="restored-shell"
+        title="run_command"
+        status="completed"
+        argsText={argsText}
+        resultText="done"
+        onFetchToolCallFull={async (id) => {
+          fetch(id);
+          setArgsText(JSON.stringify({ command }));
+        }}
+      />
+    );
+  }
+  const { container } = render(<Harness />);
+  openToolDetails();
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("restored-shell"));
+  expect(container.querySelector(".permission-preview-shell-code")?.textContent).toBe(command);
+});
+
 function mockPreviewOverflow() {
   const scrollHeight = Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,

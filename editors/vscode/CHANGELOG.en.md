@@ -10,6 +10,11 @@
 
 ## Unreleased — 2026-10-09
 
+**Command cards keep their output readable.**
+Short commands no longer overlap the first output line or sit inside an extra panel. Long and multiline commands wrap within the card and offer internal scrolling through More; Less returns the text to its beginning.
+
+## 0.3.28 — 2026-10-09
+
 **A project preview can start from chat.**
 The `preview_server` tool starts a local server for project files. Its link and request log appear in Tasks; the server keeps running after the agent answers and can be stopped from the panel.
 

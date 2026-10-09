@@ -4065,7 +4065,7 @@ a.rail-brand {
   cursor: wait;
 }
 
-.foxxycode-tool-call-body--question {
+.foxxycode-tool-call-body.foxxycode-tool-call-body--question {
   display: block;
   padding: 6px 12px;
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
@@ -4172,6 +4172,19 @@ a.rail-brand {
   border-radius: 0;
   /* The output continues the same panel, so the viewport draws no closing edge. */
   border-bottom: 0;
+}
+
+/* Keep the command overflow control inside the same surface as its output. */
+.permission-preview-toggle-row {
+  display: flex;
+}
+
+.foxxycode-tool-call-body--connected-result
+  > .permission-preview--shell
+  .permission-preview-toggle-row {
+  padding-bottom: 10px;
+  border-inline: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-inset);
 }
 
 /* ── Diff rows (shared by the permission tool previews) ───────────── */
@@ -4512,6 +4525,13 @@ a.rail-brand {
 }
 
 .foxxycode-tool-call-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -10465,6 +10485,12 @@ html:not([data-theme="light"]) .context-usage-note--error {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The translated shell action stays readable while the command gives way. */
+.thinking-head .thinking-label--shell {
+  flex: 0 0 auto;
+  max-width: 60%;
 }
 
 .thinking-head .svn-summary-error {
