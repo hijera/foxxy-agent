@@ -34,7 +34,7 @@ func TestComposerMentionLayoutFeature(t *testing.T) {
 		stopTab()
 	}()
 	var state, theme string
-	var width int64
+	var width, height int64
 	check := func(expression string) error {
 		var ok bool
 		if err := chromedp.Run(tab, chromedp.Evaluate(expression, &ok)); err != nil {
@@ -57,18 +57,18 @@ func TestComposerMentionLayoutFeature(t *testing.T) {
 		if err := chromedp.Run(tab, chromedp.CaptureScreenshot(&png)); err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dir, fmt.Sprintf("mentions-%s-%s-%s-%d.png", stage, state, theme, width)), png, 0o600)
+		return os.WriteFile(filepath.Join(dir, fmt.Sprintf("mentions-%s-%s-%s-%dx%d.png", stage, state, theme, width, height)), png, 0o600)
 	}
 	suite := godog.TestSuite{
 		Name:    "composer-mention-layout",
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/composer_mention_layout.feature"}, TestingT: t, Strict: true},
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^an (empty|docked) composer at (\d+) pixels in the (dark|light) theme$`, func(s string, w int, th string) error {
-				state, width, theme = s, int64(w), th
+			sc.Step(`^an (empty|docked) composer at (\d+) by (\d+) pixels in the (dark|light) theme$`, func(s string, w, h int, th string) error {
+				state, width, height, theme = s, int64(w), int64(h), th
 				url := server.baseURL + "/mention-picker-check.html?state=" + state + "&theme=" + theme
 				// The component mounts independently of unrelated page-load requests.
 				// Re-evaluate in the current document while navigation replaces its context.
-				return chromedp.Run(tab, chromedp.EmulateViewport(width, 900), chromedp.ActionFunc(func(ctx context.Context) error {
+				return chromedp.Run(tab, chromedp.EmulateViewport(width, height), chromedp.ActionFunc(func(ctx context.Context) error {
 					if _, _, _, err := page.Navigate(url).Do(ctx); err != nil {
 						return err
 					}
@@ -78,7 +78,7 @@ func TestComposerMentionLayoutFeature(t *testing.T) {
 					defer ticker.Stop()
 					for {
 						var ready bool
-						if err := chromedp.Evaluate(`(()=>{const ta=document.querySelector('#composer');return !!ta&&ta.value==='';})()`, &ready).Do(ctx); err == nil && ready {
+						if err := chromedp.Evaluate(`(()=>{const ta=document.querySelector('#composer');return !!ta&&ta.value===''&&document.fonts.status==='loaded';})()`, &ready).Do(ctx); err == nil && ready {
 							return nil
 						}
 						select {
@@ -98,7 +98,14 @@ func TestComposerMentionLayoutFeature(t *testing.T) {
 				return capture("open")
 			})
 			sc.Step(`^the mention picker stays above the composer and inside the viewport$`, func() error {
-				return check(`(()=>{const menu=document.querySelector('[data-testid="workspace-files-menu"]').getBoundingClientRect(),field=document.querySelector('.composer-field-wrap').getBoundingClientRect();return menu.bottom<=field.top-1&&menu.top>=0&&menu.left>=0&&menu.right<=innerWidth+1})()`)
+				return chromedp.Run(tab, chromedp.Poll(`(()=>{const el=document.querySelector('[data-testid="workspace-files-menu"]'),menu=el.getBoundingClientRect(),scroll=el.querySelector('.slash-menu-scroll'),field=document.querySelector('.composer-field-wrap').getBoundingClientRect(),rail=document.querySelector('.rail-column').getBoundingClientRect(),top=innerWidth<1200?rail.bottom:0;return menu.bottom<=field.top-1&&menu.top>=top+7&&menu.left>=0&&menu.right<=innerWidth+1&&scroll.scrollWidth<=scroll.clientWidth+1})()`, nil, chromedp.WithPollingTimeout(2*time.Second)))
+			})
+			sc.Step(`^I reduce the window height to (\d+) pixels$`, func(h int) error {
+				height = int64(h)
+				return chromedp.Run(tab, chromedp.EmulateViewport(width, height), chromedp.Poll(`innerHeight===`+fmt.Sprint(h), nil))
+			})
+			sc.Step(`^I can scroll the list to its last candidate without scrolling the page$`, func() error {
+				return check(`(()=>{const menu=document.querySelector('[data-testid="workspace-files-menu"]'),scroll=menu.querySelector('.slash-menu-scroll'),y=window.scrollY,lastRow=menu.querySelector('[data-testid="mention-row-directory-docs_"]');scroll.scrollTop=lastRow.offsetTop;const last=lastRow.getBoundingClientRect(),box=scroll.getBoundingClientRect();return scroll.scrollHeight>scroll.clientHeight&&scroll.scrollTop>0&&last.top>=box.top&&last.bottom<=box.bottom&&window.scrollY===y})()`)
 			})
 			sc.Step(`^I can click a folder and keep its mention in the draft$`, func() error {
 				if err := chromedp.Run(tab, chromedp.ScrollIntoView(`[data-testid="mention-row-directory-docs_"]`), chromedp.Click(`[data-testid="mention-row-directory-docs_"]`), chromedp.WaitVisible(`[data-testid="mention-row-file-docs_README_md"]`)); err != nil {

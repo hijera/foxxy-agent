@@ -289,7 +289,7 @@ const MENTION_PICKER_LIMIT = 50;
 /** Pause in typing before the draft's mentions are checked with the server. */
 const MENTION_CHECK_DELAY_MS = 150;
 
-/** Floating slash menu anchored to **`composer-field-wrap`** (viewport-relative). */
+/** Viewport bounds for a picker above the field (wide) or composer card (sheet). */
 type PickerFloatRect = {
   left: number;
   width: number;
@@ -787,11 +787,8 @@ export function Composer(props: {
       setPickerFloatRect(null);
       return;
     }
-    if (pickerUseSheet) {
-      setPickerFloatRect(null);
-      return;
-    }
-    const el = composerFieldWrapRef.current;
+    const useSheet = window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+    const el = useSheet ? composerCardRef.current : composerFieldWrapRef.current;
     if (!el) {
       setPickerFloatRect(null);
       return;
@@ -801,7 +798,22 @@ export function Composer(props: {
       setPickerFloatRect(null);
       return;
     }
-    const maxH = Math.min(260, Math.round(window.innerHeight * 0.42));
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    // The narrow shell's fixed navigation sits above the picker in z-order.
+    // Pixel bounds also avoid dynamic viewport units unsupported by JCEF 104.
+    const rail = useSheet
+      ? document.querySelector<HTMLElement>(".rail-column")
+      : null;
+    const top = Math.max(viewportTop, rail?.getBoundingClientRect().bottom ?? 0);
+    const maxH = Math.max(
+      0,
+      Math.min(
+        useSheet ? viewportHeight * 0.4 : Math.min(260, viewportHeight * 0.42),
+        r.top - top - 16,
+      ),
+    );
     setPickerFloatRect({
       left: r.left,
       width: r.width,
@@ -815,18 +827,21 @@ export function Composer(props: {
       setPickerFloatRect(null);
       return;
     }
-    if (pickerUseSheet) {
-      setPickerFloatRect(null);
-      return;
-    }
     measurePickerFloat();
-    const el = composerFieldWrapRef.current;
     let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined" && el) {
+    if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => measurePickerFloat());
-      ro.observe(el);
+      for (const el of [
+        composerFieldWrapRef.current,
+        composerCardRef.current,
+        document.querySelector<HTMLElement>(".rail-column"),
+      ]) {
+        if (el) ro.observe(el);
+      }
     }
     window.addEventListener("resize", measurePickerFloat);
+    window.visualViewport?.addEventListener("resize", measurePickerFloat);
+    window.visualViewport?.addEventListener("scroll", measurePickerFloat);
     const onMsgs = () => measurePickerFloat();
     const shellMobile =
       typeof document !== "undefined" &&
@@ -843,6 +858,8 @@ export function Composer(props: {
     return () => {
       ro?.disconnect();
       window.removeEventListener("resize", measurePickerFloat);
+      window.visualViewport?.removeEventListener("resize", measurePickerFloat);
+      window.visualViewport?.removeEventListener("scroll", measurePickerFloat);
       if (shellMobile) {
         window.removeEventListener("scroll", onMsgs);
       } else {
@@ -3490,10 +3507,9 @@ export function Composer(props: {
                   role={pickerRole}
                   aria-label={pickerAriaLabel}
                   style={
-                    sheetBottomPx != null
+                    pickerFloatRect != null
                       ? {
-                          bottom: sheetBottomPx,
-                          ["--context-sheet-bottom" as string]: `${sheetBottomPx}px`,
+                          bottom: pickerFloatRect.bottom,
                         }
                       : undefined
                   }

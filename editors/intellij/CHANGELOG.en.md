@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-09
 
+**Mention lists fit short windows.**
+The file and folder list shrinks to the space above the input and below the navigation. Long paths wrap within the list; extra rows scroll inside it, and its height updates when you resize the window, including in IntelliJ's embedded browser.
+
 **File and folder mentions work before the first request.**
 In narrow panels the picker stays above the input instead of covering the new chat's draft. A click selects a file or folder; after picking a folder, Escape closes the list while keeping its mention.
 

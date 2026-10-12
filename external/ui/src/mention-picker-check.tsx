@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Composer } from "./ui/chat/Composer";
+import { NavRail } from "./ui/nav/NavRail";
 import { setLocale } from "./ui/i18n/i18n";
 import "./styles.css";
 
@@ -24,7 +25,7 @@ window.fetch = async (input, init) => {
           ...Array.from({ length: 16 }, (_, i) => ({
             kind: "file",
             insert: `@file-${i}.md`,
-            label: `file-${i}.md`,
+            label: `src/main/vueprojects/projects/surety_kom/src/components/LongComponentName${i}.vue`,
           })),
           {
             kind: "directory",
@@ -59,6 +60,18 @@ function Check() {
   );
   return (
     <div className="shell">
+      <NavRail
+        historyOpen={false}
+        onOpenHistory={() => {}}
+        onNewChat={() => {}}
+        onOpenSettings={() => {}}
+        settingsOpen={false}
+        onOpenScheduler={() => {}}
+        schedulerOpen={false}
+        canWidenRail={false}
+        railLabelsWide={false}
+        onToggleRailLabels={() => {}}
+      />
       <div className="shell-main">
         <main className="main">
           <div className="chat-stack">
