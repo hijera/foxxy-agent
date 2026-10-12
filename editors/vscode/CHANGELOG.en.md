@@ -10,6 +10,9 @@
 
 ## Unreleased — 2026-10-09
 
+**File and folder mentions work before the first request.**
+In narrow panels the picker stays above the input instead of covering the new chat's draft. A click selects a file or folder; after picking a folder, Escape closes the list while keeping its mention.
+
 **Command cards keep their output readable.**
 Short commands no longer overlap the first output line or sit inside an extra panel. Long and multiline commands wrap within the card and offer internal scrolling through More; Less returns the text to its beginning.
 

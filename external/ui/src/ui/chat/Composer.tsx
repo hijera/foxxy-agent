@@ -715,7 +715,9 @@ export function Composer(props: {
       setSheetBottomPx(null);
       return;
     }
-    if (props.isEmpty) {
+    // Pickers keep the draft visible before the first turn as well. The idle
+    // context breakdown alone still uses the viewport's bottom edge.
+    if (props.isEmpty && !pickerOpen) {
       setSheetBottomPx(0);
       return;
     }
@@ -728,7 +730,7 @@ export function Composer(props: {
     }
     const r = el.getBoundingClientRect();
     setSheetBottomPx(Math.max(0, Math.round(window.innerHeight - r.top + 8)));
-  }, [props.isEmpty]);
+  }, [props.isEmpty, pickerOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2448,8 +2450,8 @@ export function Composer(props: {
                   onMouseEnter={() => setAtActive(idx)}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    applyAtChoice(row);
                   }}
+                  onClick={() => applyAtChoice(row)}
                 >
                   <span className="slash-row-line">
                     <span
@@ -3483,17 +3485,12 @@ export function Composer(props: {
                   }}
                 />
                 <div
-                  className={[
-                    "slash-menu slash-menu--sheet",
-                    !props.isEmpty ? "slash-menu--above-composer" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
+                  className="slash-menu slash-menu--sheet slash-menu--above-composer"
                   data-testid={pickerTestId}
                   role={pickerRole}
                   aria-label={pickerAriaLabel}
                   style={
-                    !props.isEmpty && sheetBottomPx != null
+                    sheetBottomPx != null
                       ? {
                           bottom: sheetBottomPx,
                           ["--context-sheet-bottom" as string]: `${sheetBottomPx}px`,
