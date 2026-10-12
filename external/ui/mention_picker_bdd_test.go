@@ -25,7 +25,14 @@ func TestComposerMentionLayoutFeature(t *testing.T) {
 	alloc, stopAlloc := chromedp.NewExecAllocator(ctx, headlessAllocatorOptions(t.TempDir(), nil)...)
 	defer stopAlloc()
 	tab, stopTab := chromedp.NewContext(alloc)
-	defer func() { _ = chromedp.Cancel(tab); stopTab() }()
+	defer func() {
+		// Close Chrome before its profile is removed; Crashpad can otherwise
+		// keep the metrics file open during TempDir cleanup on Windows.
+		if err := chromedp.Cancel(tab); err != nil && ctx.Err() == nil {
+			t.Logf("close mention picker browser: %v", err)
+		}
+		stopTab()
+	}()
 	var state, theme string
 	var width int64
 	check := func(expression string) error {
