@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/chromedp/chromedp"
 	"github.com/cucumber/godog"
@@ -17,7 +16,9 @@ import (
 func TestCommandToolLayoutFeature(t *testing.T) {
 	server := startLayoutDevServer(t)
 	t.Cleanup(func() { server.stop(t) })
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// The layout suite's budget: one cold Chrome launch plus every example,
+	// which a tighter window cut short on loaded runners.
+	ctx, cancel := context.WithTimeout(context.Background(), layoutBrowserTimeout)
 	defer cancel()
 	alloc, stopAlloc := chromedp.NewExecAllocator(ctx, headlessAllocatorOptions(t.TempDir(), nil)...)
 	defer stopAlloc()
@@ -130,7 +131,10 @@ func TestCommandToolLayoutFeature(t *testing.T) {
 			sc.Step(`^shell action labels remain readable beside long commands$`, func() error {
 				return check(`['long', 'wrapped'].every(id => {
 					const label = document.querySelector('[data-testid="tool-details-' + id + '"] .thinking-label');
-					return label.clientWidth >= label.scrollWidth - 1;
+					// No horizontal clipping, and the cap (if reached) truncates
+					// with an ellipsis rather than wrapping the row: a wrapped
+					// inline label reports more than one line box.
+					return label.clientWidth >= label.scrollWidth - 1 && label.getClientRects().length === 1;
 				})`)
 			})
 		},
