@@ -10487,10 +10487,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   white-space: nowrap;
 }
 
-/* The translated shell action stays readable while the command gives way. */
+/* The translated shell action stays readable while the command gives way. The
+   cap truncates on one line (the summary's title keeps the full text on hover):
+   a wrapped second line would grow the row the label is supposed to share. */
 .thinking-head .thinking-label--shell {
+  /* A block box, so text-overflow applies - an inline-flex label's text is an
+     anonymous flex item and never ellipsizes. */
+  display: block;
   flex: 0 0 auto;
   max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thinking-head .svn-summary-error {

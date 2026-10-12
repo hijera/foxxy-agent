@@ -10,7 +10,7 @@ An `error:` result is presented as failed even when the transport completed. Can
 
 ## Command tool cards
 
-Short commands and their output form one continuous card without an extra surrounding panel. The first output line stays fully visible below the input. Long or multiline `run_command` and `ssh_run_command` inputs wrap within the panel and use a measured preview cap (190px, 170px on phones). **More…** enables internal scrolling; **Less** returns the command to its beginning. Short commands have no overflow toggle. Input and output expand independently, and a command's overflow control remains inside the shared card surface. The summary keeps the shell action label readable while clipping a long command; exceptionally long labels are capped at 60% of the row.
+Short commands and their output form one continuous card without an extra surrounding panel. The first output line stays fully visible below the input. Long or multiline `run_command` and `ssh_run_command` inputs wrap within the panel and use a measured preview cap (190px, 170px on phones). **More…** enables internal scrolling; **Less** returns the command to its beginning. Short commands have no overflow toggle. Input and output expand independently, and a command's overflow control remains inside the shared card surface. The summary keeps the shell action label readable while clipping a long command; exceptionally long labels are capped at 60% of the row and truncate with an ellipsis on a single line.
 
 ![Short, failed and long command cards](../assets/command-tools-open-dark-1280.png)
 

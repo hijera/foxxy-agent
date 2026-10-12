@@ -33,6 +33,18 @@ test("the target shares the line box of the label beside it", () => {
   expect(rule(".tool-summary-target")).toMatch(/line-height:\s*20px/);
 });
 
+test("the shell label's cap truncates on one line instead of wrapping", () => {
+  // Beside a long command the shell action keeps its natural width up to 60% of
+  // the row; past the cap it ellipsizes. A block box, because an inline-flex
+  // label's text is an anonymous flex item and text-overflow never applies to it.
+  const label = rule(".thinking-head .thinking-label--shell");
+  expect(label).toMatch(/display:\s*block/);
+  expect(label).toMatch(/max-width:\s*60%/);
+  expect(label).toMatch(/overflow:\s*hidden/);
+  expect(label).toMatch(/text-overflow:\s*ellipsis/);
+  expect(label).toMatch(/white-space:\s*nowrap/);
+});
+
 test("the fold chevron is centred on the label's line, not on the whole row", () => {
   // The chevron is positioned inside .thinking-left. Centred on that box (top: 50%)
   // it followed the box's height, and a tool row's box is taller than its label's
