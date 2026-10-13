@@ -1359,7 +1359,45 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Activity payload"},
+						"200": map[string]interface{}{
+							"description": "Activity payload; pendingQuestion is present only while this process owns a live unanswered question, including when its SSE frame was missed. It disappears on answer or cancellation and is not restored from stale tool records after restart.",
+							"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"object":            map[string]string{"type": "string", "example": "foxxycode.session_activity"},
+									"sessionId":         map[string]string{"type": "string"},
+									"turnActive":        map[string]string{"type": "boolean"},
+									"activitySeq":       map[string]string{"type": "integer"},
+									"readActivitySeq":   map[string]string{"type": "integer"},
+									"unreadComplete":    map[string]string{"type": "boolean"},
+									"permissionPending": map[string]string{"type": "boolean"},
+									// Live-session fields: messageSeq only for a session
+									// this process owns, the turn* quartet and backgroundWake
+									// only while it runs the turn.
+									"messageSeq":          map[string]string{"type": "integer"},
+									"turnStartedAt":       map[string]string{"type": "string", "format": "date-time"},
+									"turnElapsedMs":       map[string]string{"type": "integer"},
+									"turnOutputTokens":    map[string]string{"type": "integer"},
+									"turnTokensEstimated": map[string]string{"type": "boolean"},
+									"backgroundWake": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+										"tasks": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"id":         map[string]string{"type": "string"},
+												"kind":       map[string]string{"type": "string"},
+												"label":      map[string]string{"type": "string"},
+												"agent":      map[string]string{"type": "string"},
+												"status":     map[string]string{"type": "string"},
+												"exitCode":   map[string]string{"type": "integer"},
+												"durationMs": map[string]string{"type": "integer"},
+												"error":      map[string]string{"type": "string"},
+											},
+										}},
+									}},
+									"pendingQuestion": map[string]string{"$ref": "#/components/schemas/QuestionRequest"},
+								},
+							}}},
+						},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -3602,6 +3640,29 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"schemas": map[string]interface{}{
+				"QuestionRequest": map[string]interface{}{
+					"type": "object", "description": "The same payload carried by event: question. Submit answers with its original requestId.",
+					"required": []string{"sessionId", "requestId", "questions"},
+					"properties": map[string]interface{}{
+						"sessionId":  map[string]string{"type": "string"},
+						"requestId":  map[string]string{"type": "string"},
+						"toolCallId": map[string]string{"type": "string"},
+						"questions": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+							"type": "object", "required": []string{"question", "options"},
+							"properties": map[string]interface{}{
+								"header":   map[string]string{"type": "string"},
+								"question": map[string]string{"type": "string"},
+								"multiple": map[string]string{"type": "boolean"},
+								"custom":   map[string]string{"type": "boolean"},
+								"options": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+									"type": "object", "required": []string{"label"}, "properties": map[string]interface{}{
+										"label": map[string]string{"type": "string"}, "description": map[string]string{"type": "string"},
+									},
+								}},
+							},
+						}},
+					},
+				},
 				"SubagentCatalogEntry": map[string]interface{}{
 					"type":        "object",
 					"description": "One subagent definition as the catalog shows it, with the trust decision for the requested workspace.",

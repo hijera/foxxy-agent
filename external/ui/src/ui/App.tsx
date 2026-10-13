@@ -906,6 +906,7 @@ export function App() {
   const turnActivity = useSessionTurnActivity({
     sessionId,
     connected: serverEventsConnected,
+    onQuestion: (payload) => handleComposerSseQuestion(payload),
     onTurnProgress: (sid, progress) =>
       progress
         ? applyTurnProgress(sid, progress, "activity")
@@ -1433,7 +1434,10 @@ export function App() {
       ) {
         return;
       }
+      // Fence an older activity read that still carries the previous question.
+      turnActivity.observe(key, true);
       setQuestionPendingSids((prev) => {
+        if (prev.has(key)) return prev;
         const next = new Set(prev);
         next.add(key);
         return next;
@@ -1444,6 +1448,7 @@ export function App() {
       });
       applyStreamItemsForSession(key, (prev) => {
         const ridInner = p.requestId;
+        if (prev.some((x) => x.type === "question_prompt" && !x.resolved && x.payload.requestId === ridInner)) return prev;
         const withoutStalePending = prev.filter(
           (x) => !(x.type === "question_prompt" && !x.resolved),
         );
@@ -6928,6 +6933,7 @@ export function App() {
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
             generating={generating}
+            turnActive={turnActivity.get(sessionId)}
             onContextRingOpen={() => {
               const sid = sessionId.trim();
               if (sid) {

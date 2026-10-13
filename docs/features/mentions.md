@@ -100,6 +100,20 @@ In remote mode (`foxxycode --remote`) the list comes from the server, where the 
 
 The composer's picker shows each candidate with its kind - file, folder, session, rule, subagent, plan; an empty `@` shows the session's recent picks first. The arrow keys move the highlight, **enter** or **tab** takes it, and it works while a turn runs, so a follow-up can mention a file too. A cut list says how many matched, on the title row. Typing `:` after a file opens the [line-range picker](../surfaces/web-ui.md#line-ranges-pathn-m).
 
+You can also click a file or folder. A folder inserts `@folder/` and opens its contents; **escape** closes the list without removing that folder mention. In narrow editor panels the list stays above the composer, including before the first request, and shrinks to the available height below the top navigation so it never covers the draft. Resize the window with the list open: its height adjusts immediately, and excess candidates remain reachable through the list's own scrollbar. Long paths wrap within the list instead of adding horizontal scrolling.
+
+![The mention picker above the draft before the first request, dark theme at 1280 pixels](../assets/mentions/mentions-new-chat-open-dark-1280.png)
+
+*The first request uses the same picker placement as an active chat.*
+
+![The mention picker above the visible draft in a narrow editor panel, dark theme at 390 pixels](../assets/mentions/mentions-new-chat-open-dark-390.png)
+
+*In a narrow panel the list scrolls above the composer instead of covering the draft.*
+
+![The mention picker capped to the available height in a short window, dark theme at 1280 pixels](../assets/mentions/mentions-short-window-dark-1280.png)
+
+*Reducing the window height shrinks the open list; excess rows scroll inside it.*
+
 ![The web composer's mention picker for "@ment": a folder and files from across the tree, each with its kind, and "50 of 221, type to narrow" on the title row](../assets/mentions/mentions-picker-dark-1280.png)
 
 *`@ment`: the workspace ranked against the fragment, the kind on every row, the cut on the title row*

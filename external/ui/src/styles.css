@@ -4065,7 +4065,7 @@ a.rail-brand {
   cursor: wait;
 }
 
-.foxxycode-tool-call-body--question {
+.foxxycode-tool-call-body.foxxycode-tool-call-body--question {
   display: block;
   padding: 6px 12px;
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
@@ -4172,6 +4172,19 @@ a.rail-brand {
   border-radius: 0;
   /* The output continues the same panel, so the viewport draws no closing edge. */
   border-bottom: 0;
+}
+
+/* Keep the command overflow control inside the same surface as its output. */
+.permission-preview-toggle-row {
+  display: flex;
+}
+
+.foxxycode-tool-call-body--connected-result
+  > .permission-preview--shell
+  .permission-preview-toggle-row {
+  padding-bottom: 10px;
+  border-inline: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-inset);
 }
 
 /* ── Diff rows (shared by the permission tool previews) ───────────── */
@@ -4512,6 +4525,13 @@ a.rail-brand {
 }
 
 .foxxycode-tool-call-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -5419,6 +5439,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   /* Match #composer horizontal padding so skills list lines up with typed text */
   padding: 10px 10px 5px;
   min-height: 0;
+  overscroll-behavior: contain;
 }
 
 /* Floating desktop menu is portaled under document.body so backdrop-filter blurs chat below composer */
@@ -5498,6 +5519,19 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 .slash-row-btn:hover {
   background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.mention-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mention-row .slash-row-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mention-row .slash-row-name {
+  white-space: normal;
 }
 
 .slash-row-name {
@@ -7096,16 +7130,6 @@ textarea#composer {
   min-height: 0;
   max-height: min(36vh, calc(100vh - var(--context-sheet-bottom, 120px) - 16px));
   max-height: min(36vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 16px));
-}
-
-.slash-menu--sheet.slash-menu--above-composer {
-  max-height: min(42vh, calc(100vh - var(--context-sheet-bottom, 120px) - 16px));
-  max-height: min(42vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 16px));
-}
-
-.slash-menu--sheet.slash-menu--above-composer .slash-menu-scroll {
-  max-height: min(40vh, calc(100vh - var(--context-sheet-bottom, 120px) - 24px));
-  max-height: min(40vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 24px));
 }
 
 .context-breakdown-menu--sheet .context-breakdown-summary {
@@ -10462,6 +10486,20 @@ html:not([data-theme="light"]) .context-usage-note--error {
   display: block;
   flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The translated shell action stays readable while the command gives way. The
+   cap truncates on one line (the summary's title keeps the full text on hover):
+   a wrapped second line would grow the row the label is supposed to share. */
+.thinking-head .thinking-label--shell {
+  /* A block box, so text-overflow applies - an inline-flex label's text is an
+     anonymous flex item and never ellipsizes. */
+  display: block;
+  flex: 0 0 auto;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

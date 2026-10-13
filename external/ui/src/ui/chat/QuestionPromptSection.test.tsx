@@ -33,6 +33,43 @@ function renderPrompt(onResolved: (r: unknown) => void) {
   return fetchMock;
 }
 
+test.each([404, 500])(
+  "a rejected answer (%s) stays selectable and is not marked answered",
+  async (status) => {
+    const resolved = vi.fn();
+    renderPrompt(resolved);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status })),
+    );
+    fireEvent.click(screen.getByText("Todo plan"));
+    fireEvent.click(screen.getByTestId("question-submit"));
+    await screen.findByRole("alert");
+    expect(resolved).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: /Todo plan/ })).toBeChecked();
+    expect(screen.getByTestId("question-submit")).toBeEnabled();
+  },
+);
+
+test("a network failure keeps the answer for a successful retry", async () => {
+  const resolved = vi.fn();
+  renderPrompt(resolved);
+  const send = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", send);
+  fireEvent.click(screen.getByText("Todo plan"));
+  fireEvent.click(screen.getByTestId("question-submit"));
+  await screen.findByRole("alert");
+  expect(resolved).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByTestId("question-submit"));
+  await waitFor(() => expect(resolved).toHaveBeenCalledTimes(1));
+  expect(resolved.mock.calls[0]?.[0]).toMatchObject({
+    answers: [["Todo plan"]],
+  });
+});
+
 // The Continue button advertises the Return key, so typing a custom answer and
 // pressing Return has to submit it. It used to swallow the key and do nothing.
 test("Return in the custom answer field submits the answer", async () => {

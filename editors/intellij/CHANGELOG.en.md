@@ -9,6 +9,20 @@
 
 ## Unreleased — 2026-10-09
 
+**Question answer options recover automatically.**
+A missed question event is recovered from server activity with the original answer options. Failed submissions keep the selection and show an error for retry; an old question no longer claims to await an answer after the backend stops.
+
+**Mention lists fit short windows.**
+The file and folder list shrinks to the space above the input and below the navigation. Long paths wrap within the list; extra rows scroll inside it, and its height updates when you resize the window, including in IntelliJ's embedded browser.
+
+**File and folder mentions work before the first request.**
+In narrow panels the picker stays above the input instead of covering the new chat's draft. A click selects a file or folder; after picking a folder, Escape closes the list while keeping its mention.
+
+**Command cards keep their output readable.**
+Short commands no longer overlap the first output line or sit inside an extra panel. Long and multiline commands wrap within the card and offer internal scrolling through More; Less returns the text to its beginning.
+
+## 0.3.28 — 2026-10-09
+
 **A project preview can start from chat.**
 The `preview_server` tool starts a local server for project files. Its link and request log appear in Tasks; the server keeps running after the agent answers and can be stopped from the panel.
 

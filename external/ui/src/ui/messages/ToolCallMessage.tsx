@@ -68,6 +68,7 @@ function QuestionToolTimelineReadout(props: {
   argsText?: string | undefined;
   resultText: string;
   status: string;
+  inactive?: boolean | undefined;
   t: (key: string) => string;
 }) {
   const qs = parseQuestionToolQuestionsFromArgs(props.argsText);
@@ -187,7 +188,11 @@ function QuestionToolTimelineReadout(props: {
                 <div className="question-prompt-resolved-a muted">
                   {terminal
                     ? props.t("prompts.noAnswer")
-                    : props.t("messages.toolAwaitingAnswer")}
+                    : props.t(
+                        props.inactive
+                          ? "prompts.questionInactive"
+                          : "messages.toolAwaitingAnswer",
+                      )}
                 </div>
               )
             ) : null}
@@ -254,6 +259,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   /** Set when this call started a background task, so the row can keep ticking
    *  after the tool itself returned. */
   backgroundTask?: BackgroundTask | undefined;
+  questionInactive?: boolean | undefined;
   /** Shared clock from the shell so every ticker advances together. */
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
@@ -358,7 +364,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       (!props.title && kindLower === "write"));
   const isEditTool = !isPatchTool && rawNameLower === "edit";
   /** Tools whose argument preview can be arbitrarily large and needs a capped viewport. */
-  const isLargePreviewTool = isPatchTool || isWriteTool || isEditTool;
+  const isShellTool =
+    rawNameLower === "run_command" || rawNameLower === "ssh_run_command";
+  const isLargePreviewTool =
+    isPatchTool || isWriteTool || isEditTool || isShellTool;
   const argsTextIsCompleteJSON = useMemo(() => {
     if (!props.argsText) return false;
     try {
@@ -497,7 +506,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [props.toolCallId]);
 
   // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
-  // leaves a patch, write, or edit payload unparseable, so restored cards match live SSE
+  // leaves a shell, patch, write, or edit payload unparseable, so restored cards match live SSE
   // instead of rendering an empty preview. Any status qualifies: a session restored while
   // its tool was still in_progress carries the same truncated preview.
   const fetchFn = props.onFetchToolCallFull;
@@ -514,7 +523,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
       (isSpawnAgentTool && !spawnAgent && !pendingLike) ||
-      ((isWriteTool || isEditTool || isBrowserTool || isSvnTool) &&
+      ((isWriteTool || isEditTool || isShellTool || isBrowserTool || isSvnTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -526,6 +535,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     isEditTool,
     isPatchTool,
     isWriteTool,
+    isShellTool,
     isBrowserTool,
     isSpawnAgentTool,
     spawnAgent,
@@ -774,7 +784,14 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             <span className="thinking-head">
               {isBrowserTool && <BrowserIcon />}
               {isSvnTool && <SvnIcon />}
-              <span className="thinking-label" title={displayLabel}>
+              <span
+                className={
+                  isShellTool
+                    ? "thinking-label thinking-label--shell"
+                    : "thinking-label"
+                }
+                title={displayLabel}
+              >
                 {displayLabel}
               </span>
               {rowTarget ? (
@@ -861,6 +878,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 argsText={props.argsText}
                 resultText={resultBody}
                 status={props.status}
+                inactive={props.questionInactive}
                 t={t}
               />
             ) : null}

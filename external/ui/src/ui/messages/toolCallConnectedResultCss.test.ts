@@ -8,6 +8,17 @@ const cssPath = join(
   "../../styles.css",
 );
 
+test("the tool foldout provides the gap that connected cards cancel", () => {
+  const css = readFileSync(cssPath, "utf8");
+  const body = css.match(/^\.foxxycode-tool-call-body\s*\{[^}]*\}/ms)?.[0];
+  expect(body).toMatch(/display:\s*flex/);
+  expect(body).toMatch(/flex-direction:\s*column/);
+  expect(body).toMatch(/gap:\s*8px/);
+  expect(body).toMatch(/padding:\s*0/);
+  expect(body).toMatch(/border:\s*0/);
+  expect(body).toMatch(/background:\s*transparent/);
+});
+
 test("a structured tool preview and its result form one continuous card", () => {
   const css = readFileSync(cssPath, "utf8");
   const joinedResult = css.match(

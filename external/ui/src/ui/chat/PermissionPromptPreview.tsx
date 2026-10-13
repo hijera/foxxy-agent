@@ -298,7 +298,9 @@ export function PermissionToolPreview({
       : preview.header;
   // A shell command carries its own copy control inside the command block, so the
   // header never gets a second one.
-  const copyTestId = interactive ? "permission-prompt-copy" : "tool-preview-copy";
+  const copyTestId = interactive
+    ? "permission-prompt-copy"
+    : "tool-preview-copy";
   const hasBody =
     preview.kind !== "path" &&
     !(preview.kind === "diff" && preview.lines.length === 0);
@@ -462,22 +464,26 @@ export function PermissionToolPreview({
             ) : null}
           </div>
           {canToggleOverflow && overflows ? (
-            <button
-              type="button"
-              className="tool-overflow-toggle"
-              aria-expanded={expanded}
-              data-testid={expanded ? "tool-preview-less" : "tool-preview-more"}
-              onClick={(e) => {
-                e.preventDefault();
-                // Collapsing keeps the scrolled position, so reset it before clipping.
-                if (expanded && viewportRef.current) {
-                  viewportRef.current.scrollTop = 0;
+            <div className="permission-preview-toggle-row">
+              <button
+                type="button"
+                className="tool-overflow-toggle"
+                aria-expanded={expanded}
+                data-testid={
+                  expanded ? "tool-preview-less" : "tool-preview-more"
                 }
-                setExpanded((value) => !value);
-              }}
-            >
-              {expanded ? t("messages.toolLess") : t("messages.toolMore")}
-            </button>
+                onClick={(e) => {
+                  e.preventDefault();
+                  // Collapsing keeps the scrolled position, so reset it before clipping.
+                  if (expanded && viewportRef.current) {
+                    viewportRef.current.scrollTop = 0;
+                  }
+                  setExpanded((value) => !value);
+                }}
+              >
+                {expanded ? t("messages.toolLess") : t("messages.toolMore")}
+              </button>
+            </div>
           ) : null}
         </>
       ) : null}

@@ -331,6 +331,108 @@ async function navigate(sid: string) {
   await screen.findByText(sid === A ? "Earlier A prompt" : "Earlier B prompt");
 }
 
+test.each(["post", "relay", "first post"])(
+  "a live question on the %s stream immediately offers clickable answers",
+  async (transport) => {
+    if (transport === "first post") {
+      history.replaceState(null, "", "/#/");
+      render(
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>,
+      );
+      await screen.findByRole("textbox", { name: "Message" });
+    } else {
+      if (transport === "relay") backend.activity.set(A, true);
+      await mount();
+    }
+    if (transport === "relay")
+      await waitFor(() => expect(backend.relays).toHaveLength(1));
+    else await send("Ask what to inspect");
+    const { sid, stream } = (
+      transport === "relay" ? backend.relays : backend.posts
+    )[0]!;
+    const questions = [
+      {
+        question: "What should be checked in this project?",
+        options: [{ label: "Active file" }, { label: "Whole project" }],
+      },
+    ];
+    await act(async () => {
+      stream.frame("tool_call", {
+        toolCallId: "call_question",
+        title: "question",
+        status: "in_progress",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: JSON.stringify({ questions }) },
+          },
+        ],
+      });
+      stream.frame("question", {
+        sessionId: sid,
+        requestId: "q_live",
+        toolCallId: "call_question",
+        questions,
+      });
+    });
+    const choice = await screen.findByRole("radio", { name: /Whole project/ });
+    fireEvent.click(choice);
+    expect(choice).toBeChecked();
+    backend.override = (r) =>
+      r.path.endsWith("/question") ? json({}) : undefined;
+    fireEvent.click(screen.getByTestId("question-submit"));
+    await waitFor(() =>
+      expect(backend.count(`/foxxycode/sessions/${sid}/question`, "POST")).toBe(
+        1,
+      ),
+    );
+    const submitted = backend.requests.find(
+      (r) => r.path.endsWith("/question") && r.method === "POST",
+    )!;
+    expect(JSON.parse(String(submitted.init.body))).toEqual({
+      requestId: "q_live",
+      answers: [["Whole project"]],
+    });
+  },
+);
+
+test("a pending question missing from SSE is recovered from session activity", async () => {
+  backend.activity.set(A, true);
+  const pendingQuestion = {
+    sessionId: A,
+    requestId: "q_recovered",
+    toolCallId: "call_question",
+    questions: [
+      {
+        question: "What should be checked?",
+        options: [{ label: "Whole project" }],
+      },
+    ],
+  };
+  backend.override = (r) =>
+    r.path.endsWith("/activity")
+      ? json({ sessionId: A, turnActive: true, pendingQuestion })
+      : r.path.endsWith("/question")
+        ? json({}, 200)
+        : undefined;
+  await mount();
+  const choice = await screen.findByRole("radio", { name: /Whole project/ });
+  fireEvent.click(choice);
+  fireEvent.click(screen.getByTestId("question-submit"));
+  await waitFor(() =>
+    expect(backend.count(`/foxxycode/sessions/${A}/question`, "POST")).toBe(1),
+  );
+  const submitted = backend.requests.find(
+    (r) => r.path.endsWith("/question") && r.method === "POST",
+  )!;
+  expect(JSON.parse(String(submitted.init.body))).toEqual({
+    requestId: "q_recovered",
+    answers: [["Whole project"]],
+  });
+});
+
 test.each(["post", "relay"])(
   "a late provider window replaces the model-list fallback on the %s stream",
   async (transport) => {

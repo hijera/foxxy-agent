@@ -1069,7 +1069,8 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	dir := fs.SessionPath(id)
-	turnActive := s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(dir)
+	question := pendingQuestion(id)
+	turnActive := question != nil || s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(dir)
 	actSeq, readSeq, err := fs.ReadDiskActivity(id)
 	if err != nil {
 		s.log.Error("foxxycode session activity", "error", err)
@@ -1084,6 +1085,9 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 		"readActivitySeq":   readSeq,
 		"unreadComplete":    actSeq > readSeq && !turnActive,
 		"permissionPending": session.PendingPermissionHeld(dir),
+	}
+	if question != nil {
+		out["pendingQuestion"] = question
 	}
 	// messageSeq moves inside a turn, which activitySeq does not: it advances
 	// once per completed turn. A client polling a long turn uses it to skip a

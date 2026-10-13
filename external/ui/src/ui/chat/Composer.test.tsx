@@ -1788,12 +1788,13 @@ function stubMentionsFetch(answers: Record<string, { items: MentionStubRow[]; to
 function MentionHarness(props: {
   onChange: (v: string) => void;
   generating?: boolean;
+  isEmpty?: boolean;
 }) {
   const [value, setValue] = useState("");
   return (
     <Composer
       value={value}
-      isEmpty={false}
+      isEmpty={props.isEmpty ?? false}
       mode="agent"
       modes={["agent", "plan"]}
       generating={props.generating ?? false}
@@ -1967,6 +1968,25 @@ test("a folder row keeps the picker open on what it holds", async () => {
   await waitFor(() => {
     expect(urls.some((u) => u.includes("q=src%2F"))).toBe(true);
   });
+  vi.unstubAllGlobals();
+});
+
+test.each([true, false])("clicking a folder and its file inserts mentions (empty chat: %s)", async (isEmpty) => {
+  stubShell(true);
+  localStorage.clear();
+  stubMentionsFetch({
+    src: { items: [{ kind: "directory", insert: "@src/", label: "src/", continue: true }] },
+    "src/": { items: [{ kind: "file", insert: "@src/app.go", label: "src/app.go" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} isEmpty={isEmpty} />);
+  typeDraft(screen.getByRole("textbox", { name: "Message" }), "@src");
+  fireEvent.click(await screen.findByTestId("mention-row-directory-src_"));
+  expect(onChange).toHaveBeenLastCalledWith("@src/");
+  fireEvent.click(await screen.findByTestId("mention-row-file-src_app_go"));
+  expect(onChange).toHaveBeenLastCalledWith("@src/app.go ");
+  await waitFor(() => expect(screen.queryByTestId("workspace-files-menu")).toBeNull());
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 

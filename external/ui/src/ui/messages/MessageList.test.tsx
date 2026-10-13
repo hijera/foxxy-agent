@@ -19,6 +19,65 @@ afterEach(() => {
   resetLlmRetryState();
 });
 
+test("an unfinished question from an idle runtime is not awaiting an answer", () => {
+  const questions = [
+    {
+      question: "What should be checked?",
+      options: [{ label: "Whole project" }],
+    },
+  ];
+  const items: TranscriptItem[] = [
+    {
+      id: "tool",
+      type: "tool_call",
+      toolCallId: "call_question",
+      title: "question",
+      status: "in_progress",
+      argsText: JSON.stringify({ questions }),
+    },
+    {
+      id: "qp",
+      type: "question_prompt",
+      payload: { sessionId: "sess_x", requestId: "q_stale", questions },
+    },
+  ];
+  render(<MessageList items={items} turnActive={false} />);
+  fireEvent.click(screen.getByLabelText("Tool summary"));
+  expect(screen.queryByText("Awaiting answer")).toBeNull();
+  expect(screen.queryByRole("radio")).toBeNull();
+  expect(screen.getAllByText(/This question is no longer active/)).toHaveLength(
+    2,
+  );
+});
+
+test.each([true, undefined])(
+  "a live or unconfirmed question remains selectable (%s)",
+  (turnActive) => {
+    render(
+      <MessageList
+        items={[
+          {
+            id: "qp",
+            type: "question_prompt",
+            payload: {
+              sessionId: "sess_x",
+              requestId: "q_live",
+              questions: [
+                {
+                  question: "What should be checked?",
+                  options: [{ label: "Whole project" }],
+                },
+              ],
+            },
+          },
+        ]}
+        turnActive={turnActive}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /Whole project/ })).toBeEnabled();
+  },
+);
+
 test("renders system error notice collapsed with an expandable body", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hello" },
