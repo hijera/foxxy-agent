@@ -891,10 +891,14 @@ func UISchemaMap() map[string]interface{} {
 					"description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
-				"status_line": boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
-				"effects":     boolProp("Animations and translucency", "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else."),
+				"status_line":                boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
+				"notifications":              boolProp("Notifications", "Show permission, question, plan-ready and turn-finished notifications in the desktop app and editor plugins."),
+				"notification_sound":         boolProp("Notification sound", "Play notification sounds. Turn off for silent notifications."),
+				"notification_sound_file":    strProp("Custom notification sound", "MP3 or WAV file for notifications (up to 5 MiB). Empty uses the standard sound. Relative paths are resolved against the agent home; the file picker saves a copy there."),
+				"notifications_when_focused": boolProp("Notifications in the active window", "Also show notifications while the FoxxyCode window or editor chat panel is active. Off by default; alerts normally appear only in the background."),
+				"effects":                    boolProp("Animations and translucency", "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else."),
 			},
-			[]string{"enable", "locale", "send_mode", "status_line", "effects"},
+			[]string{"enable", "locale", "send_mode", "status_line", "notifications", "notification_sound", "notification_sound_file", "notifications_when_focused", "effects"},
 			nil),
 	}
 

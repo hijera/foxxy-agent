@@ -1271,10 +1271,40 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/notification-sound": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get the selected notification sound",
+					"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Returns bounded MP3/WAV bytes; no path supplied by the caller is read. Empty selection uses the host's standard sound and returns 204.",
+					"operationId": "foxxycodeNotificationSoundGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Selected audio", "content": map[string]interface{}{
+							"audio/mpeg": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+							"audio/wav":  map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+						}},
+						"204": map[string]interface{}{"description": "No custom audio selected"},
+						"404": errorResponseRef(), "413": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Upload a notification sound",
+					"description": "Accepts raw MP3/WAV bytes, at most 5 MiB. Saves a persistent copy under the agent home with a safe content-hashed name. Does not change the selected sound: persist the returned file path as ui.notification_sound_file through config PUT. Uploaded copies are retained when returning to the standard sound.",
+					"operationId": "foxxycodeNotificationSoundPost",
+					"parameters":  []map[string]interface{}{{"name": "filename", "in": "query", "schema": map[string]interface{}{"type": "string"}, "description": "Display filename; path separators and invalid filename characters are sanitized."}},
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{
+						"audio/mpeg":               map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+						"audio/wav":                map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+						"application/octet-stream": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+					}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Saved file path", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []string{"file"}, "properties": map[string]interface{}{"file": map[string]interface{}{"type": "string"}}}}}},
+						"400": errorResponseRef(), "413": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). **`ui.notifications`** and **`ui.notification_sound`** independently control host alerts and their audio; both default to true when absent. **`ui.notifications_when_focused`** also permits alerts in the active window (default false). `ui.notification_sound_file` selects an MP3/WAV up to 5 MiB; empty uses the standard signal, and relative paths resolve against the agent home. PUT preserves explicit false values. Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{

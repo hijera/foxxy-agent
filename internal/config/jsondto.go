@@ -60,10 +60,14 @@ type BrowserJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled    *bool  `json:"enable,omitempty"`
-	Locale     string `json:"locale,omitempty"`
-	SendMode   string `json:"send_mode,omitempty"`
-	StatusLine *bool  `json:"status_line,omitempty"`
+	Enabled                  *bool  `json:"enable,omitempty"`
+	Locale                   string `json:"locale,omitempty"`
+	SendMode                 string `json:"send_mode,omitempty"`
+	StatusLine               *bool  `json:"status_line,omitempty"`
+	Notifications            *bool  `json:"notifications,omitempty"`
+	NotificationSound        *bool  `json:"notification_sound,omitempty"`
+	NotificationSoundFile    string `json:"notification_sound_file,omitempty"`
+	NotificationsWhenFocused *bool  `json:"notifications_when_focused,omitempty"`
 	// Effects mirrors UIConfig.Effects.
 	Effects *bool `json:"effects,omitempty"`
 }
@@ -767,7 +771,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.UI = UIJSON{
 		Enabled: c.UI.Enabled, Locale: c.UI.Locale,
 		SendMode: c.UI.SendMode, StatusLine: c.UI.StatusLine,
-		Effects: c.UI.Effects,
+		Notifications: c.UI.Notifications, NotificationSound: c.UI.NotificationSound,
+		NotificationsWhenFocused: c.UI.NotificationsWhenFocused,
+		NotificationSoundFile:    c.UI.NotificationSoundFile,
+		Effects:                  c.UI.Effects,
 	}
 	out.Browser = BrowserJSON{
 		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
@@ -1053,7 +1060,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.UI = UIConfig{
 		Enabled: j.UI.Enabled, Locale: j.UI.Locale,
 		SendMode: j.UI.SendMode, StatusLine: j.UI.StatusLine,
-		Effects: j.UI.Effects,
+		Notifications: j.UI.Notifications, NotificationSound: j.UI.NotificationSound,
+		NotificationsWhenFocused: j.UI.NotificationsWhenFocused,
+		NotificationSoundFile:    j.UI.NotificationSoundFile,
+		Effects:                  j.UI.Effects,
 	}
 	cfg.Browser = BrowserConfig{
 		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,

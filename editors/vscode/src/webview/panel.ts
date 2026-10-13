@@ -4,6 +4,7 @@ import { currentFoxxyCodeTheme } from "./themeBridge";
 import { readSettings } from "../settings";
 import { info } from "../notifications";
 import { OPEN_EXTERNAL_MESSAGE_TYPE, externalUrlFromMessage } from "./externalLink";
+import { chatNotificationFromMessage } from "./chatNotification";
 
 /** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`,
  *  structurally modelled on the working `coddy-vscode/src/coddyView.ts`.
@@ -58,6 +59,7 @@ export class FoxxyCodePanelController {
   private frameLive = false;
   /** Mentions requested before the wrapper existed; flushed by `render()`. */
   private pendingMentions: string[] = [];
+  private readonly liveNotifications = new Set<string>();
 
   constructor(
     private readonly webview: vscode.Webview,
@@ -68,8 +70,25 @@ export class FoxxyCodePanelController {
 
     // Receive Retry / Open Settings clicks from the error HTML, plus locale
     // changes forwarded from the embedded SPA by the wrapper script.
-    webview.onDidReceiveMessage((msg: { type?: string; locale?: string; url?: string }) => {
+    webview.onDidReceiveMessage((msg: { type?: string; locale?: string; url?: string; id?: string }) => {
       switch (msg?.type) {
+        case "foxxycode:notification": {
+          const n = chatNotificationFromMessage(msg);
+          if (!n || this.liveNotifications.has(n.id)) break;
+          this.liveNotifications.add(n.id);
+          if (this.liveNotifications.size > 128) this.liveNotifications.delete(this.liveNotifications.values().next().value!);
+          const buttons = n.actions.map((a) => ({ title: a.label, id: a.id }));
+          void vscode.window.showInformationMessage(`${n.title}\n${n.body}`, ...buttons).then((choice) => {
+            if (!this.liveNotifications.delete(n.id) || !choice) return;
+            if ("reveal" in this.target) this.target.reveal(undefined, false);
+            else this.target.show(false);
+            void this.webview.postMessage({ type: "foxxycode:notificationAction", id: n.id, action: choice.id });
+          });
+          break;
+        }
+        case "foxxycode:dismissNotification":
+          if (typeof msg.id === "string") this.liveNotifications.delete(msg.id);
+          break;
         case "foxxycode:retry":
           this.opts.onRetry?.();
           break;
@@ -187,6 +206,7 @@ export class FoxxyCodePanelController {
     }
   }
   dispose(): void {
+    this.liveNotifications.clear();
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
   }
@@ -271,6 +291,10 @@ export class FoxxyCodePanelController {
         var d = ev.data;
         if (!d) return;
         if (frame && ev.source === frame.contentWindow) {
+          if (ev.origin !== frameOrigin) return;
+          if (d.type === "foxxycode:notification" || d.type === "foxxycode:dismissNotification") {
+            vscodeApi.postMessage(d);
+          }
           if (d.type === "foxxycode:locale" && (d.locale === "en" || d.locale === "ru")) {
             vscodeApi.postMessage({ type: "foxxycode:locale", locale: d.locale });
           }
@@ -282,6 +306,9 @@ export class FoxxyCodePanelController {
         if (d.type === "${INSERT_FILE_MENTION_MESSAGE_TYPE}" && Array.isArray(d.paths)) {
           var msg = { type: d.type, paths: d.paths };
           if (frameLoaded) forward(msg); else queued.push(msg);
+        }
+        if (d.type === "foxxycode:notificationAction" && typeof d.id === "string" && typeof d.action === "string") {
+          forward({ type: d.type, id: d.id, action: d.action });
         }
       });
     } catch (e) {}

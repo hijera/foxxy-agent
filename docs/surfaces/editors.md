@@ -4,6 +4,15 @@ FoxxyCode reaches an editor two ways. The IntelliJ plugin and the VS Code extens
 
 ## The IntelliJ and VS Code plugins
 
+Chat permissions, questions, ready plans and finished tasks appear in the IDE's
+notification surface, with action buttons and **Open chat**. **Settings → General →
+Notifications** in the FoxxyCode panel controls both delivery and sound; the preferences
+are shared with the desktop app through `ui.notifications`, `ui.notification_sound`
+and `ui.notifications_when_focused` (off by default). Choose a custom MP3/WAV (up to
+5 MiB), preview it or restore the standard sound in the same section; the saved
+`ui.notification_sound_file` selection also applies to desktop.
+See [host notifications](web-ui.md#notifications-in-desktop-and-editor-hosts).
+
 The plugin (`editors/intellij`, every IntelliJ-based IDE from 2022.2) and the extension (`editors/vscode`) bundle the `foxxycode` binary, so an editor panel needs no separate install; both are attached to every [GitHub Release](https://github.com/hijera/foxxy-agent/releases). Each starts one `foxxycode http` for the open project on a free loopback port, with `--cwd` set to the project root and the shared `~/.foxxycode` as its home, and embeds the [web UI](web-ui.md) in a tool window (JCEF) or a webview. Everything the web UI does is there - sessions and History, modes and models, settings, skills, the scheduler - plus what only an editor can give it:
 
 - the open files and the active editor, sent to the agent with every prompt (`<foxxycode_ide_context>`), and the output of the IDE terminals behind `@terminal`;

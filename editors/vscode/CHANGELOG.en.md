@@ -8,7 +8,10 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-09
+## Unreleased — 2026-10-13
+
+**Chat notifications.** Permissions, questions, ready plans and finished tasks appear in VS Code notifications with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. Radio options switch between the Windows system notification sound (ding) and a custom file.
+
 
 **Question answer options recover automatically.**
 A missed question event is recovered from server activity with the original answer options. Failed submissions keep the selection and show an error for retry; an old question no longer claims to await an answer after the backend stops.

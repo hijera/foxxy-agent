@@ -1724,6 +1724,26 @@
           "title": "UI language",
           "type": "string"
         },
+        "notification_sound": {
+          "description": "Play notification sounds. Turn off for silent notifications.",
+          "title": "Notification sound",
+          "type": "boolean"
+        },
+        "notification_sound_file": {
+          "description": "MP3 or WAV file for notifications (up to 5 MiB). Empty uses the standard sound. Relative paths are resolved against the agent home; the file picker saves a copy there.",
+          "title": "Custom notification sound",
+          "type": "string"
+        },
+        "notifications": {
+          "description": "Show permission, question, plan-ready and turn-finished notifications in the desktop app and editor plugins.",
+          "title": "Notifications",
+          "type": "boolean"
+        },
+        "notifications_when_focused": {
+          "description": "Also show notifications while the FoxxyCode window or editor chat panel is active. Off by default; alerts normally appear only in the background.",
+          "title": "Notifications in the active window",
+          "type": "boolean"
+        },
         "send_mode": {
           "default": "enter",
           "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
@@ -1748,6 +1768,10 @@
         "locale",
         "send_mode",
         "status_line",
+        "notifications",
+        "notification_sound",
+        "notification_sound_file",
+        "notifications_when_focused",
         "effects"
       ]
     },

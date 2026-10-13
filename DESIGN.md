@@ -2,6 +2,63 @@
 
 Purpose: authoritative reference for the embedded SPA built from `external/ui/`. Tokens and layouts live here before CSS tweaks land in production stylesheets.
 
+## Host notifications
+
+The Windows x64 desktop uses native Windows toasts. VS Code uses its notification
+center; IntelliJ uses IDE balloons. Permission requests, questions, newly ready plans
+and completed turns name the chat and carry a short text excerpt. A click opens that
+chat; buttons return opaque action IDs to the live SPA. Resolved prompts invalidate
+their notifications, duplicate stream deliveries do not alert again, and old actions
+cannot answer a later prompt. Permission choices are localized through the same
+`permissionOptionLabel` helper as the inline card. Windows toasts have at most four
+choices plus **Open chat**; the transcript carries the full prompt.
+
+Completion is an observed running-to-idle transition confirmed by session activity,
+including completion recovered after a stream disconnect. The alert starts with
+**Task finished**, followed by the latest answer excerpt; a newly ready plan uses the
+plan-ready alert and its **Run plan** action. An intentional Stop does not alert.
+
+By default, alerts and sound are emitted only while the FoxxyCode window is minimized
+or in the background. The native host checks the foreground window and its owned
+dialogs again before Windows delivery; an active host suppresses the inline fallback
+too. Editor panels suppress alerts while their chat document is visible and focused.
+Events suppressed in the foreground are remembered so a later stream replay does
+not alert after blur.
+
+General settings uses three shared `SwitchField` controls: `ui.notifications` and
+`ui.notification_sound` default to on; `ui.notifications_when_focused` defaults to off.
+**Show notifications in the active window** also allows delivery and enabled audio
+while the desktop or editor chat has focus. This preference reaches the native Windows
+bridge with each alert, so the host applies the same rule. All switches save immediately
+and retain their previous value on persistence failure. Disabling notifications suppresses audio as well.
+
+Below the switches, a real radio group selects **Windows system sound (ding)** or
+**Custom sound**. Outside the native Windows host the first label is **Standard sound**.
+The default option is selected when `ui.notification_sound_file` is empty; selecting it
+immediately clears that preference without deleting uploaded copies. Custom sound
+restores the last chosen file while this settings section is open, or opens the file
+picker when none has been chosen. Cancelling that picker leaves the current selection.
+The selected filename is shown only for a custom sound, followed by three wrapping
+`settings-btn` actions: **Choose sound…**, **Preview** and **Stop playback**.
+It accepts MP3/WAV files up to 5 MiB, uploads a persistent copy into the agent home's
+`notification-sounds/` directory and immediately saves `ui.notification_sound_file`.
+An empty value selects the standard sound; relative configured paths resolve against
+the agent home. The radios save immediately and retain the previous choice if saving fails.
+Preview is an explicit user action and works while notifications or sound are disabled.
+Upload, save and playback errors appear inline; a failed save retains the previous selection.
+The filename wraps on narrow panels and the existing button tokens apply in both themes.
+
+Windows plays custom audio through the native player while silencing the toast's
+standard sound. MP3 is decoded into bounded PCM in process before playback. Editor
+panels use Web Audio for the same selected file. A missing or unplayable custom file
+falls back to the standard signal for automatic alerts and reports an error for Preview.
+Only one clip plays at a time; Stop playback, disabling sound/notifications, changing the selection,
+or returning to the foreground stops automatic audio (unless foreground alerts are enabled).
+Default audio belongs to Windows on desktop (the `Notification.Default` system event,
+including Preview); editor alerts use the Web Audio chime. Host alerts do not
+render an additional in-window stack when delivery succeeds. The permission stack is
+a desktop delivery-failure fallback.
+
 ## Design references
 
 Store the design reference images under `docs/assets/` and link to the specific file when describing a pixel sensitive UI detail. Navbar parity with Cursor - style mockups lives in [`docs/assets/INDEX.md`](docs/assets/INDEX.md) (see Navbar section).

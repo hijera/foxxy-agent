@@ -10,10 +10,13 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20250403032234-65de8f5d025b
 	github.com/chromedp/chromedp v0.13.6
 	github.com/cucumber/godog v0.15.1
+	github.com/deploymenttheory/go-bindings-win32 v0.5.0
+	github.com/deploymenttheory/go-bindings-winrt v0.6.1
 	github.com/go-pdf/fpdf v0.9.0
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
+	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/jedib0t/go-pretty/v6 v6.5.9
 	github.com/mattn/go-runewidth v0.0.15
