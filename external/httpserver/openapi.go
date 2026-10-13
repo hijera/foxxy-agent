@@ -1359,7 +1359,17 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Activity payload"},
+						"200": map[string]interface{}{
+							"description": "Activity payload; pendingQuestion is present only while this process owns a live unanswered question, including when its SSE frame was missed. It disappears on answer or cancellation and is not restored from stale tool records after restart.",
+							"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"sessionId":       map[string]string{"type": "string"},
+									"turnActive":      map[string]string{"type": "boolean"},
+									"pendingQuestion": map[string]string{"$ref": "#/components/schemas/QuestionRequest"},
+								},
+							}}},
+						},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -3602,6 +3612,29 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"schemas": map[string]interface{}{
+				"QuestionRequest": map[string]interface{}{
+					"type": "object", "description": "The same payload carried by event: question. Submit answers with its original requestId.",
+					"required": []string{"sessionId", "requestId", "questions"},
+					"properties": map[string]interface{}{
+						"sessionId":  map[string]string{"type": "string"},
+						"requestId":  map[string]string{"type": "string"},
+						"toolCallId": map[string]string{"type": "string"},
+						"questions": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+							"type": "object", "required": []string{"question", "options"},
+							"properties": map[string]interface{}{
+								"header":   map[string]string{"type": "string"},
+								"question": map[string]string{"type": "string"},
+								"multiple": map[string]string{"type": "boolean"},
+								"custom":   map[string]string{"type": "boolean"},
+								"options": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+									"type": "object", "required": []string{"label"}, "properties": map[string]interface{}{
+										"label": map[string]string{"type": "string"}, "description": map[string]string{"type": "string"},
+									},
+								}},
+							},
+						}},
+					},
+				},
 				"SubagentCatalogEntry": map[string]interface{}{
 					"type":        "object",
 					"description": "One subagent definition as the catalog shows it, with the trust decision for the requested workspace.",

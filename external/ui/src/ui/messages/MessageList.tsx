@@ -64,6 +64,7 @@ function turnLineProps(
 export function MessageList(props: {
   items: TranscriptItem[];
   generating?: boolean;
+  turnActive?: boolean | undefined;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
     sessionId: string,
@@ -359,6 +360,7 @@ export function MessageList(props: {
                 itemId={it.id}
                 payload={it.payload}
                 resolved={it.resolved}
+                inactive={props.turnActive === false && props.generating !== true}
                 onResolved={(state) =>
                   props.onQuestionPromptResolved?.(
                     it.payload.sessionId,
@@ -378,6 +380,7 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            questionInactive={props.turnActive === false && props.generating !== true}
             {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
             {...(props.onOpenSubagentTranscript
               ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }

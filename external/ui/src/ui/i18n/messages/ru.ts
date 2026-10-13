@@ -1241,6 +1241,8 @@ export const messagesRu: Record<string, string> = {
   "prompts.noAnswer": "(нет ответа)",
   "prompts.skip": "Пропустить",
   "prompts.continue": "Продолжить",
+  "prompts.questionInactive": "Этот вопрос больше не активен. Отправьте новое сообщение, чтобы продолжить.",
+  "prompts.answerSubmitFailed": "Не удалось отправить ответ. Выбор сохранён; попробуйте ещё раз.",
   "prompts.otherPlaceholder": "Другое…",
   "prompts.otherAriaLabel": "Другое, введите ответ",
   "prompts.optionsAriaLabel": "Варианты {index}",

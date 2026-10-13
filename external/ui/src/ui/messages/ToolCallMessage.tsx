@@ -68,6 +68,7 @@ function QuestionToolTimelineReadout(props: {
   argsText?: string | undefined;
   resultText: string;
   status: string;
+  inactive?: boolean | undefined;
   t: (key: string) => string;
 }) {
   const qs = parseQuestionToolQuestionsFromArgs(props.argsText);
@@ -187,7 +188,11 @@ function QuestionToolTimelineReadout(props: {
                 <div className="question-prompt-resolved-a muted">
                   {terminal
                     ? props.t("prompts.noAnswer")
-                    : props.t("messages.toolAwaitingAnswer")}
+                    : props.t(
+                        props.inactive
+                          ? "prompts.questionInactive"
+                          : "messages.toolAwaitingAnswer",
+                      )}
                 </div>
               )
             ) : null}
@@ -254,6 +259,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   /** Set when this call started a background task, so the row can keep ticking
    *  after the tool itself returned. */
   backgroundTask?: BackgroundTask | undefined;
+  questionInactive?: boolean | undefined;
   /** Shared clock from the shell so every ticker advances together. */
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
@@ -872,6 +878,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 argsText={props.argsText}
                 resultText={resultBody}
                 status={props.status}
+                inactive={props.questionInactive}
                 t={t}
               />
             ) : null}

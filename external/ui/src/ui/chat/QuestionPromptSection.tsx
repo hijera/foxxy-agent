@@ -191,6 +191,7 @@ export type QuestionPromptSectionProps = {
   itemId: string;
   payload: FoxxyCodeQuestionPayload;
   resolved?: QuestionResolvedState | undefined;
+  inactive?: boolean;
   onResolved: (resolution: QuestionResolvedState) => void;
 };
 
@@ -218,6 +219,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
     qs.map(() => ""),
   );
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const frameRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -225,6 +227,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
     setSingleSel(qs.map(() => ""));
     setExtraText(qs.map(() => ""));
     setSubmitting(false);
+    setSubmitError("");
   }, [itemId, payload.requestId, questionsSig]);
 
   const ready = useMemo(
@@ -240,6 +243,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
 
   const submit = useCallback(
     async (skip: boolean) => {
+      if (props.inactive || submitting) return;
       const sid = payload.sessionId.trim();
       const answersMatrix = buildAnswerRows(
         payload,
@@ -250,9 +254,11 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
       );
       const summaryLine = formatResolvedSummaryLine(qs, skip, answersMatrix);
       setSubmitting(true);
+      setSubmitError("");
       try {
-        try {
-          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/question`, {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/question`,
+          {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -262,9 +268,17 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
               requestId: payload.requestId,
               answers: answersMatrix,
             }),
-          });
-        } catch {
-          // still unblock transcript even if POST fails transiently
+          },
+        );
+        if (!res.ok) {
+          setSubmitError(
+            t(
+              res.status === 404
+                ? "prompts.questionInactive"
+                : "prompts.answerSubmitFailed",
+            ),
+          );
+          return;
         }
         startTransition(() => {
           onResolved({
@@ -273,17 +287,28 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
             summaryLine,
           });
         });
+        questionPromptFocusComposer();
+      } catch {
+        setSubmitError(t("prompts.answerSubmitFailed"));
       } finally {
         setSubmitting(false);
       }
-
-      questionPromptFocusComposer();
     },
-    [extraText, multiSel, onResolved, payload, qs, singleSel],
+    [
+      extraText,
+      multiSel,
+      onResolved,
+      payload,
+      props.inactive,
+      qs,
+      singleSel,
+      submitting,
+      t,
+    ],
   );
 
   useEffect(() => {
-    if (resolved) return;
+    if (resolved || props.inactive) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -302,7 +327,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ready, resolved, submit, submitting]);
+  }, [ready, resolved, props.inactive, submit, submitting]);
 
   // An answered card is a record of one exchange: the question, and under it what
   // the reader said. It used to carry a summary line on the head and the same
@@ -373,7 +398,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
         </div>
 
         <div className="question-prompt-body">
-          {qs.map((q, qi) => {
+          {props.inactive ? <p className="muted">{t("prompts.questionInactive")}</p> : null}
+          {!props.inactive && qs.map((q, qi) => {
             const letters = rowLettersForQuestion(q);
             return (
               <div
@@ -619,26 +645,37 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
           })}
         </div>
 
-        <div className="question-prompt-foot">
-          <button
-            type="button"
-            className="question-prompt-skip"
-            disabled={submitting}
-            data-testid="question-skip"
-            onClick={() => void submit(true)}
-          >
-            {t("prompts.skip")}<span className="question-prompt-kbd">Esc</span>
-          </button>
-          <button
-            type="button"
-            className="question-prompt-continue"
-            disabled={submitting || !ready}
-            data-testid="question-submit"
-            onClick={() => void submit(false)}
-          >
-            {t("prompts.continue")}<span className="question-prompt-continue-ic" aria-hidden>↵</span>
-          </button>
-        </div>
+        {submitError ? (
+          <p className="question-prompt-body" role="alert">
+            {submitError}
+          </p>
+        ) : null}
+        {!props.inactive ? (
+          <div className="question-prompt-foot">
+            <button
+              type="button"
+              className="question-prompt-skip"
+              disabled={submitting}
+              data-testid="question-skip"
+              onClick={() => void submit(true)}
+            >
+              {t("prompts.skip")}
+              <span className="question-prompt-kbd">Esc</span>
+            </button>
+            <button
+              type="button"
+              className="question-prompt-continue"
+              disabled={submitting || !ready}
+              data-testid="question-submit"
+              onClick={() => void submit(false)}
+            >
+              {t("prompts.continue")}
+              <span className="question-prompt-continue-ic" aria-hidden>
+                ↵
+              </span>
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
   );

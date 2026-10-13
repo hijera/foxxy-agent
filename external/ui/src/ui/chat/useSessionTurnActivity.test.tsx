@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useSessionTurnActivity } from "./useSessionTurnActivity";
 import type { TurnProgress } from "./turnProgress";
 
@@ -57,4 +57,23 @@ test("a read that finds the session idle drops the turn's progress, even when it
   await result.current.refresh("sess_a", false);
   expect(seen.at(-1)).toBeNull();
   expect(onReconcile).not.toHaveBeenCalled();
+});
+
+test("an older activity snapshot cannot replace a question observed after the read began", async () => {
+  let release: (value: Response) => void = () => {};
+  vi.stubGlobal("fetch", vi.fn((url: string) => url.endsWith("/activity")
+    ? new Promise<Response>((resolve) => { release = resolve; })
+    : Promise.resolve(new Response(JSON.stringify({ messages: [], version: 1 })))));
+  const onQuestion = vi.fn();
+  const { result } = renderHook(() => useSessionTurnActivity({
+    sessionId: "sess_a", connected: true, postPending: () => false,
+    onQueueRead: () => () => {}, onReconcile: () => {}, onQuestion,
+  }));
+  await act(async () => {
+    result.current.observe("sess_a", true);
+    release(new Response(JSON.stringify({ sessionId: "sess_a", turnActive: true,
+      pendingQuestion: { sessionId: "sess_a", requestId: "q_old" } })));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(onQuestion).not.toHaveBeenCalled();
 });

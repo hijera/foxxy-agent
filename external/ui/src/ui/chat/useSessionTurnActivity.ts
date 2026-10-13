@@ -21,6 +21,8 @@ type Options = {
    * one that notifies nobody, and then no reconcile runs for that turn at all.
    */
   onTurnProgress?: (sid: string, progress: TurnProgress | null) => void;
+  /** Recover a live answer gate if its SSE frame did not reach this client. */
+  onQuestion?: (payload: Record<string, unknown>) => void;
 };
 
 /** Server admission is independent of a browser's POST/relay connection. A lost
@@ -105,6 +107,7 @@ export function useSessionTurnActivity(options: Options) {
               const data = raw as {
                 sessionId?: string;
                 turnActive?: boolean;
+                pendingQuestion?: Record<string, unknown>;
               } | null;
               if (
                 !data ||
@@ -116,6 +119,8 @@ export function useSessionTurnActivity(options: Options) {
                 return;
               const wasActive = get(key) === true;
               observe(key, data.turnActive);
+              if (data.turnActive && data.pendingQuestion?.sessionId === key)
+                callbacks.current.onQuestion?.(data.pendingQuestion);
               const progress = turnProgressFromActivity(data, Date.now());
               if (progress || !data.turnActive)
                 callbacks.current.onTurnProgress?.(key, progress);

@@ -92,6 +92,7 @@ export function ChatScreen(props: {
   onDocsCommand?: (arg: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
+  turnActive?: boolean | undefined;
   onStop?: () => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
@@ -660,6 +661,7 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
+                turnActive={props.turnActive}
                 {...(props.pathRoots !== undefined
                   ? { pathRoots: props.pathRoots }
                   : {})}

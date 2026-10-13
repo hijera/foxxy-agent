@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-09
 
+**Question answer options recover automatically.**
+A missed question event is recovered from server activity with the original answer options. Failed submissions keep the selection and show an error for retry; an old question no longer claims to await an answer after the backend stops.
+
 **Mention lists fit short windows.**
 The file and folder list shrinks to the space above the input and below the navigation. Long paths wrap within the list; extra rows scroll inside it, and its height updates when you resize the window, including in IntelliJ's embedded browser.
 

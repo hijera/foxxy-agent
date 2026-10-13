@@ -546,6 +546,10 @@ Transport completion does not imply SVN success: an `error:` result gets a faile
 - The header contains one short action question and one technical tool-id badge. Do not repeat the raw tool name in the question or preview header. Both the inline card and the desktop toast take that wording from **`buildPermissionToolPreview`**, so they never disagree.
 - Buttons keep the backend option order: **Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**. The fork translates the labels client-side by **`optionId`** (**`chat/permissionOptionLabel.ts`**); the backend text is English and is only a fallback. The desktop toast's buttons go through the same function, so the toast and the card beside it never show different languages.
 
+### Live question card
+
+The static question offer remains in its tool row; the selectable **Questions** card sits immediately below the matching tool call. A live **`pendingQuestion`** in **`GET /foxxycode/sessions/{id}/activity`** restores the same card when its SSE frame is missed, retaining the original request id. A newer question event fences an older activity snapshot. Repeated snapshots of the same request keep the user's selection. Resolve a card only on a successful answer POST; network and HTTP errors remain inline with the selection available for retry. A confirmed idle runtime labels an unfinished question inactive and hides its obsolete answer controls. Unknown activity does not disable a live card, and an answered card keeps its record.
+
 ### Answered question card
 
 An answered **`question_prompt`** (**`QuestionPromptSection.tsx`**, resolved branch) is a record of one exchange and states it once: the **Questions** head, the question, and under it what the reader said (**`.question-prompt-answered`**, reusing **`.question-prompt-resolved-q`** / **`-a`**). It is **not** a foldout - it carried a summary line on its head and the same two lines again inside a **`<details>`**, which put the same exchange on screen twice behind a control that revealed nothing new, three times counting the tool row above it. The options are not repeated here either; the tool row keeps the offer.

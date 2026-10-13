@@ -802,6 +802,18 @@ Automated checks:
 - **external/ui/src/ui/messages/MessageList.test.tsx**
 - **external/ui/src/ui/messages/toolCallConnectedResultCss.test.ts**
 
+## Interactive questions
+
+The **asking** tool row records the question and all offered options. Choose an answer in the **Questions** card immediately below that row, then press **Continue**. The live card supports single or multiple choices and an optional custom answer; **Skip** sends an empty answer.
+
+If the question's stream event is missed, the chat restores the live card from the session activity snapshot with the original request id. Polling an active session also recovers it without reloading. An answer is marked accepted only after the server accepts its POST; a failed request keeps the selection and displays an error for retry. If the server no longer has the question, the card explains that it is inactive. After a backend restart, an unfinished tool record also says that the question is inactive instead of claiming it is still awaiting an answer.
+
+![A restored question with selectable answers](../assets/web-ui/question-pending-dark-1280.png)
+
+*The live answer card stays below its tool record, including when the stream event was lost.*
+
+Automated checks: **features/question_prompt_recovery.feature**, **App.stopQueue.test.tsx**, **QuestionPromptSection.test.tsx**, **MessageList.test.tsx**, and **external/httpserver/question_activity_test.go**.
+
 ## Message editing and conversation branches
 
 Editing a sent message does not overwrite the answer it produced - it forks the conversation, so both versions stay readable. Screenshot: `docs/assets/screenshot-fullhd-branches.png`.

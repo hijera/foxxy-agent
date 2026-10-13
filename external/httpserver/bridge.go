@@ -517,7 +517,8 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 	if sid == "" || rid == "" {
 		return nil, fmt.Errorf("sessionId and requestId are required")
 	}
-	ch := registerQuestionWait(sid, rid)
+	params.SessionID, params.RequestID = sid, rid
+	ch := registerQuestionWait(params)
 	defer unregisterQuestionWait(sid, rid)
 	if err := s.writeNamedEventJSON("question", params); err != nil {
 		return nil, err

@@ -1213,6 +1213,8 @@ export const messagesEn: Record<string, string> = {
   "prompts.noAnswer": "(no answer)",
   "prompts.skip": "Skip",
   "prompts.continue": "Continue",
+  "prompts.questionInactive": "This question is no longer active. Send a new message to continue.",
+  "prompts.answerSubmitFailed": "Could not send the answer. Your selection is saved; try again.",
   "prompts.otherPlaceholder": "Other…",
   "prompts.otherAriaLabel": "Other, type your answer",
   "prompts.optionsAriaLabel": "Options {index}",
