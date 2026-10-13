@@ -1364,8 +1364,36 @@ func openAPISpec() map[string]interface{} {
 							"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"sessionId":       map[string]string{"type": "string"},
-									"turnActive":      map[string]string{"type": "boolean"},
+									"object":            map[string]string{"type": "string", "example": "foxxycode.session_activity"},
+									"sessionId":         map[string]string{"type": "string"},
+									"turnActive":        map[string]string{"type": "boolean"},
+									"activitySeq":       map[string]string{"type": "integer"},
+									"readActivitySeq":   map[string]string{"type": "integer"},
+									"unreadComplete":    map[string]string{"type": "boolean"},
+									"permissionPending": map[string]string{"type": "boolean"},
+									// Live-session fields: messageSeq only for a session
+									// this process owns, the turn* quartet and backgroundWake
+									// only while it runs the turn.
+									"messageSeq":          map[string]string{"type": "integer"},
+									"turnStartedAt":       map[string]string{"type": "string", "format": "date-time"},
+									"turnElapsedMs":       map[string]string{"type": "integer"},
+									"turnOutputTokens":    map[string]string{"type": "integer"},
+									"turnTokensEstimated": map[string]string{"type": "boolean"},
+									"backgroundWake": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+										"tasks": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"id":         map[string]string{"type": "string"},
+												"kind":       map[string]string{"type": "string"},
+												"label":      map[string]string{"type": "string"},
+												"agent":      map[string]string{"type": "string"},
+												"status":     map[string]string{"type": "string"},
+												"exitCode":   map[string]string{"type": "integer"},
+												"durationMs": map[string]string{"type": "integer"},
+												"error":      map[string]string{"type": "string"},
+											},
+										}},
+									}},
 									"pendingQuestion": map[string]string{"$ref": "#/components/schemas/QuestionRequest"},
 								},
 							}}},
