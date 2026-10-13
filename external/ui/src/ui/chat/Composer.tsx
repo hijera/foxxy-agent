@@ -803,6 +803,11 @@ export function Composer(props: {
     const viewportHeight = viewport?.height ?? window.innerHeight;
     // The narrow shell's fixed navigation sits above the picker in z-order.
     // Pixel bounds also avoid dynamic viewport units unsupported by JCEF 104.
+    // The top bound and maxH follow the visual viewport (it shrinks under an
+    // on-screen keyboard), while bottom stays on the layout viewport, where
+    // position: fixed lives: a browser that splits the two can hang the sheet
+    // below the visible area. The supported editors' embedded browsers and
+    // the layout suite's emulated short windows never split them.
     const rail = useSheet
       ? document.querySelector<HTMLElement>(".rail-column")
       : null;
