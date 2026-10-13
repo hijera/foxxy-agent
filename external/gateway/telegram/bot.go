@@ -399,6 +399,16 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		return
 	}
 
+	// A typed "/model <id>" is a session-scoped pick on this surface even
+	// though the manager applies it inside the turn: the gateway remembers it
+	// like a keyboard tap (turn-scoped forms live in line.Turns and never
+	// reach this).
+	if line, err := session.ParseSettingsCommands(text); err == nil && line.Session.Model != nil {
+		if id := strings.TrimSpace(*line.Session.Model); b.runner.Cfg().FindModelEntry(id) != nil {
+			b.store.SetLastModel(id)
+		}
+	}
+
 	// --- Get or create session ---
 	sessionID, err := b.store.Get(key)
 	if err != nil {
@@ -416,6 +426,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.reply(bot, chatID, msg.MessageID, "❌ Failed to start session: "+err.Error())
 		return
 	}
+	b.applyInitialModel(ctx2, st)
 
 	// Show "typing…" in the chat header while the agent prepares its first response.
 	if _, err := bot.Request(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)); err != nil {

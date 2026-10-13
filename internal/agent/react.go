@@ -2750,7 +2750,7 @@ type llmTransport struct {
 func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	modelID := a.state.EffectiveModelID(a.cfg)
 	if modelID == "" {
-		return llmTransport{}, fmt.Errorf("no model configured")
+		return llmTransport{}, fmt.Errorf("no model configured: set agent.model in config.yaml or pass a model explicitly")
 	}
 
 	rm, err := a.cfg.ResolveLLM(modelID)

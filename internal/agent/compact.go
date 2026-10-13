@@ -567,7 +567,7 @@ func (a *Agent) compactionChainFor(run compactionRun) ([]compactionCandidate, er
 		if firstErr != nil {
 			return nil, firstErr
 		}
-		return nil, fmt.Errorf("no model configured")
+		return nil, fmt.Errorf("no model configured: set agent.model in config.yaml or pass a model explicitly")
 	}
 	return out, nil
 }

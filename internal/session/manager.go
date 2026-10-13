@@ -1078,8 +1078,8 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 
 	// The only place that waits for the configured MCP servers. Sitting here rather than in the
-	// HTTP handlers covers every surface at once — both HTTP turn routes, ACP session/prompt,
-	// run-plan and the scheduler — and it runs after the SSE headers are flushed, so the panel
+	// HTTP handlers covers every surface at once вЂ” both HTTP turn routes, ACP session/prompt,
+	// run-plan and the scheduler вЂ” and it runs after the SSE headers are flushed, so the panel
 	// shows a live status instead of an ambiguous pending request. There is no deadline of our
 	// own: mcp.Connect bounds each handshake, and turnCtx carries the user's Stop.
 	mcpStart := time.Now()
@@ -1398,7 +1398,7 @@ func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []con
 // declared for the session's cwd.
 //
 // The connect runs in the background. It used to run inline, on the goroutine that was loading
-// or creating the session — over HTTP that is a request a panel is waiting on, so one slow
+// or creating the session вЂ” over HTTP that is a request a panel is waiting on, so one slow
 // server (a cold npx downloading its package) stalled the panel for as long as it took. Only a
 // turn actually needs the tools, and it waits through State.WaitMCPReady.
 //
