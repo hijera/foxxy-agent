@@ -45,6 +45,9 @@ func cloneQuestionParams(params acp.QuestionRequestParams) acp.QuestionRequestPa
 
 // pendingQuestion returns the newest live gate of this session. It is runtime
 // state, never reconstructed from unfinished tool records after a process exit.
+// The scan walks every waiting gate on each activity poll: questions are asked
+// sequentially per session and finish in seconds, so the map stays small enough
+// that no per-session index is warranted.
 func pendingQuestion(sessionID string) *acp.QuestionRequestParams {
 	questionWaitsMu.Lock()
 	defer questionWaitsMu.Unlock()
