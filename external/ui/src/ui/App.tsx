@@ -20,6 +20,7 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
+import { isAbortError, remoteHttpErrorMessage, remoteSendErrorMessage, errorDetail } from "./env/remoteErrors";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import {
   isNewerSettings,
@@ -58,6 +59,7 @@ import {
   stableWakeItemId,
 } from "./chat/transcriptItemIds";
 import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
+import { uiLogNoticeFeed } from "./chat/uiLogNotices";
 import {
   appendDeferredAssistant,
   deferredAssistantItem,
@@ -87,6 +89,7 @@ import {
   permissionPendingSessionIdsFromStorage,
   resolvedPermissionToolCallIds,
   upsertPermissionPromptRecord,
+  clearPermissionPromptRecords,
 } from "./chat/permissionPromptSessionStore";
 import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
 import { createTurnReplayTrimGate } from "./chat/transcriptTurnTrim";
@@ -141,12 +144,6 @@ import { SwarmView } from "./swarm/SwarmView";
 import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
-import {
-  injectBranchNavItems,
-  deduplicateBranchNavs,
-  type BranchPointData,
-} from "./chat/branchInject";
-import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import {
   fetchOnboardingStatus,
@@ -175,6 +172,7 @@ import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
+  sessionScopedModelCommand,
 } from "./chat/llmModelSelection";
 import {
   readReasoningCookie,
@@ -505,11 +503,6 @@ export function App() {
   const [editingFiles, setEditingFiles] = useState<
     { name: string; mimeType: string }[]
   >([]);
-  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(
-    null,
-  );
-  // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
-  const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState(() => {
     if (initialRoute.branch !== "draft") return "";
     const id = initialRoute.draftId.trim();
@@ -520,6 +513,9 @@ export function App() {
   // attached verbatim at send time. Lost on reload — the backend then re-reads
   // the line range from the file instead. Capped; cleared after each send.
   const pasteLiteralsRef = useRef<Map<string, string>>(new Map());
+  // The files attached in the composer. Held here, not in the composer, so a
+  // send the server never took can put them back next to the text.
+  const [composerFiles, setComposerFiles] = useState<File[]>([]);
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
   const [worktreePref, setWorktreePref] = useState(false);
@@ -743,6 +739,7 @@ export function App() {
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
+    sessionRewound: (sid: string) => void;
     ready: () => void;
   }>({
     turnStarted: () => {},
@@ -752,6 +749,7 @@ export function App() {
     messageQueue: () => {},
     sessionSettings: () => {},
     subagentPermission: () => {},
+    sessionRewound: () => {},
     ready: () => {},
   });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
@@ -1324,6 +1322,12 @@ export function App() {
   const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
   // Sessions with an archive change in flight; see archiveSession.
   const archivingRef = useRef<Set<string>>(new Set());
+  // The archive flag's last write this client made, so a transcript read that
+  // was issued before the PATCH settled cannot put the older flag back (see
+  // loadMessages, which compares the read's issue time against this).
+  const viewedArchiveWriteRef = useRef<{ sid: string; archived: boolean; at: number } | null>(
+    null,
+  );
   // The same, for pinning.
   const pinningRef = useRef<Set<string>>(new Set());
   const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
@@ -1354,7 +1358,6 @@ export function App() {
    *  command at the start of the first message, where the server takes it. */
   const pendingPermissionModeRef = useRef("");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
-  const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
     setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
@@ -2683,14 +2686,11 @@ export function App() {
         .filter((r) => r.ownedBy !== "foxxycode")
         .map((r) => r.id);
       setLlmModelIds(backends);
-      const defaultYaml = (res.data.default_agent_model || "").trim();
-      setDefaultAgentYamlModel(defaultYaml);
       if (!viewedSessionIdRef.current.trim()) {
         setLlmModel(
           pickDefaultLlmModelForNewChat({
             backends,
             cookie: readLlmModelCookie(),
-            defaultAgentModel: defaultYaml,
           }),
         );
       }
@@ -2736,7 +2736,6 @@ export function App() {
       backends: llmModelIds,
       sessionModel: openSessionSelection.model,
       cookie: readLlmModelCookie(),
-      defaultAgentModel: defaultAgentYamlModel,
     });
     setLlmModel(nextModel);
     // A session carries a reasoning level only once something chose one for it,
@@ -2760,7 +2759,7 @@ export function App() {
     if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
       setMode(storedMode);
     }
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
+  }, [openSessionSelection, llmModelIds, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -3094,6 +3093,7 @@ export function App() {
           ? { allowWhileActive: opts.allowApplyWhileActive }
           : {}),
       });
+    const issuedAt = Date.now();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -3173,59 +3173,18 @@ export function App() {
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
       // The composer learns from the transcript, not from the session list: the
       // list skips the archive, so the conversation on screen may be in no page
-      // the client holds.
-      setViewedArchived(!!res.data.archived);
+      // the client holds. A transcript read issued before this client's own
+      // archive PATCH settled may carry the flag from before the write; the
+      // PATCH's answer is newer, so it wins while it is younger than the read.
+      const archiveWrite = viewedArchiveWriteRef.current;
+      setViewedArchived(
+        archiveWrite && archiveWrite.sid === sid && archiveWrite.at >= issuedAt
+          ? archiveWrite.archived
+          : !!res.data.archived,
+      );
     }
-    type UILogRow = {
-      id: string;
-      level: string;
-      message: string;
-      createdAt: string;
-    };
-    const noticesByTurn = new Map<number, UILogRow[]>();
-    for (const raw of res.data.uiLog || []) {
-      const msg = typeof raw.message === "string" ? raw.message.trim() : "";
-      if (!msg) continue;
-      const turn =
-        typeof raw.userTurnIndex === "number" &&
-        Number.isFinite(raw.userTurnIndex) &&
-        raw.userTurnIndex >= 1
-          ? Math.floor(raw.userTurnIndex)
-          : 1;
-      const id =
-        typeof raw.id === "string" && raw.id.trim() !== ""
-          ? raw.id.trim()
-          : newId("s");
-      const level = (raw.level || "error").trim() || "error";
-      const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : "";
-      const row: UILogRow = { id, level, message: msg, createdAt };
-      const bucket = noticesByTurn.get(turn) ?? [];
-      bucket.push(row);
-      noticesByTurn.set(turn, bucket);
-    }
-    for (const [turn, bucket] of noticesByTurn) {
-      bucket.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      noticesByTurn.set(turn, bucket);
-    }
-
     const next: TranscriptItem[] = [];
-    const pushUiNoticesForTurn = (turn: number) => {
-      for (const row of noticesByTurn.get(turn) || []) {
-        // Only the two levels the transcript knows how to render; a level a
-        // newer server may add stays invisible rather than mis-rendered.
-        if (row.level !== "error" && row.level !== "notice") continue;
-        next.push({
-          id: row.id,
-          type: "system_notice",
-          // The server calls the neutral level "notice"; the transcript has
-          // called it "info" since the re-attach rows, and renders one style
-          // for both.
-          level: row.level === "notice" ? "info" : "error",
-          message: row.message,
-          createdAtUtc: row.createdAt,
-        });
-      }
-    };
+    const notices = uiLogNoticeFeed(res.data.uiLog, newId);
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
@@ -3256,23 +3215,18 @@ export function App() {
     };
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
-      // Compaction summary rows travel as user-role messages flagged
-      // compaction_summary; render them as their own foldout, not a user turn.
-      if ((m as Record<string, unknown>).compaction_summary === true) {
-        next.push({
-          id: newId("compaction"),
-          type: "compaction",
-          summary: stripCompactionPreamble(m.content || ""),
-        });
-        continue;
-      }
       if (role === "user") {
-        // Flush notices for the previous turn before starting a new one so
-        // error notices land at the end of the turn they belong to, not at
-        // the top of the next one.
-        if (userTurnIdx > 0) {
-          flushAssistantForTurn();
-          pushUiNoticesForTurn(userTurnIdx);
+        flushAssistantForTurn();
+        next.push(...notices.beforeUserRow());
+        if ((m as Record<string, unknown>).compaction_summary === true) {
+          const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+          next.push({
+            id: newId("compaction"),
+            type: "compaction",
+            summary: stripCompactionPreamble(m.content || ""),
+            ...(cat ? { createdAtUtc: cat } : {}),
+          });
+          continue;
         }
         userTurnIdx++;
         thinkingInTurn = 0;
@@ -3280,8 +3234,8 @@ export function App() {
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         // Nobody typed the first message of a turn a finished background
         // task started, and nothing shows in its place: the turn reads as the
-        // agent carrying on. It still opens a turn, so the notices and the
-        // ids of the turn line up with the server's count of user messages.
+        // agent carrying on. It still opens a turn, so the ids of the turn
+        // line up with the server's count of user messages for a rewind.
         const wakeTasks = parseBackgroundWakeTasks(
           (m as Record<string, unknown>).background_wake,
         );
@@ -3427,7 +3381,7 @@ export function App() {
     }
     // Flush the final assistant row and notices (no later user message triggers it).
     flushAssistantForTurn();
-    pushUiNoticesForTurn(userTurnIdx);
+    next.push(...notices.end());
 
     // Enrich tool calls with persisted previews when available.
     const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
@@ -3475,7 +3429,7 @@ export function App() {
     }
     if (!sameStream()) return null;
     const prevShadow = streamShadowBySidRef.current.get(sid);
-    // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a branch).
+    // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a session).
     const localForMerge = opts?.freshLoad
       ? prevShadow && prevShadow.length > 0
         ? prevShadow
@@ -3504,7 +3458,7 @@ export function App() {
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
     // Final row order before preserveTranscriptItemIds does its positional match.
     merged = pinPlanDocumentsToTurnEnd(merged);
-    const appliedRaw =
+    const appliedRaw = opts?.freshLoad ? merged :
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
         sid,
@@ -3547,55 +3501,34 @@ export function App() {
       return applied;
     }
 
-    // Fetch branch points and inject branch_nav items if any exist.
-    let withBranches = applied;
-    try {
-      const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-        `/foxxycode/sessions/${encodeURIComponent(sid)}/branches`,
-        { headers: sid === sessionId ? headers : { [HDR]: sid } },
-      );
-      if (brRes.ok && brRes.data?.branchPoints?.length) {
-        withBranches = deduplicateBranchNavs(
-          injectBranchNavItems(
-            applied.filter((it) => it.type !== "branch_nav"),
-            brRes.data.branchPoints,
-          ),
-        );
-        if (canApplySnapshot() && sid === viewedSessionIdRef.current.trim()) {
-          setSessionHashInLocation(sid, { historySidebar: sessionsOpen });
-        }
-      }
-    } catch {
-      // ignore — branch nav is optional
-    }
-
     if (!sameStream()) return null;
+    let finalItems = applied;
     if (!canApplySnapshot()) {
-      return withBranches;
+      return finalItems;
     }
-    // Frames may have arrived while the optional branches request was in flight.
-    const beforeShadowMerge = withBranches;
-    withBranches = mergeTranscriptPreferLocalSuffix(
-      withBranches,
+    // Frames may have arrived while the messages request was in flight.
+    finalItems = mergeTranscriptPreferLocalSuffix(
+      finalItems,
       streamShadowBySidRef.current.get(sid),
     );
-    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
-    streamShadowBySidRef.current.set(sid, withBranches);
+    if (finalItems === applied) noteSnapshotRev(finalItems);
+    streamShadowBySidRef.current.set(sid, finalItems);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
     // another session or went home): keep the shadow for the next visit, but
     // never paint a stale transcript under the current route.
     if (viewedSessionIdRef.current.trim() !== sid) {
-      return withBranches;
+      return finalItems;
     }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
     }
     setSessionFadingOut(false);
-    setItems(withBranches);
+    itemsRef.current = finalItems;
+    setItems(finalItems);
     setSessionLoading(false);
-    return withBranches;
+    return finalItems;
   }
 
   function persistComposerDraftBeforeLeave() {
@@ -3614,11 +3547,6 @@ export function App() {
       updatedAt: new Date().toISOString(),
     });
     setClientDraftSessions(rows);
-  }
-
-  function switchBranch(id: string) {
-    skipLeafResolveRef.current.add(id);
-    pickSession(id);
   }
 
   function pickSession(id: string) {
@@ -3720,7 +3648,6 @@ export function App() {
         pickDefaultLlmModelForNewChat({
           backends: llmModelIds,
           cookie: readLlmModelCookie(),
-          defaultAgentModel: defaultAgentYamlModel,
         }),
       );
     }
@@ -3813,6 +3740,18 @@ export function App() {
       setSessionsError(t("app.backendUnavailable", { status: res.status }));
       return;
     }
+    // The conversation on screen learns its new state with the row: the
+    // composer swaps for the archived notice (or comes back) without waiting
+    // for the next transcript load. The ref is re-read here, not captured
+    // before the request - the viewer may have moved on while it was in
+    // flight, and a flag that belongs to a session no longer on screen must
+    // not mark the one that replaced it. The write is recorded either way, so
+    // a transcript read issued before the PATCH settled cannot put the older
+    // flag back.
+    viewedArchiveWriteRef.current = { sid: id, archived, at: Date.now() };
+    if (viewedSessionIdRef.current.trim() === id) {
+      setViewedArchived(archived);
+    }
     const rowStays =
       sessionsArchiveFilter === "all" ||
       (sessionsArchiveFilter === "only") === archived;
@@ -3887,10 +3826,11 @@ export function App() {
    */
   async function unarchiveViewedSession() {
     const sid = sessionId.trim();
-    if (!sid || unarchiving) {
+    if (!sid || unarchiving || archivingRef.current.has(sid)) {
       return;
     }
     setUnarchiving(true);
+    archivingRef.current.add(sid);
     try {
       const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
@@ -3901,7 +3841,18 @@ export function App() {
         setSessionsError(t("app.backendUnavailable", { status: res.status }));
         return;
       }
-      setViewedArchived(false);
+      // Same ordering as archiveSession: the write is recorded before the
+      // flag moves, and the flag moves only while this session is still the
+      // one on screen - the viewer may have navigated away while the PATCH
+      // was in flight.
+      viewedArchiveWriteRef.current = {
+        sid,
+        archived: false,
+        at: Date.now(),
+      };
+      if (viewedSessionIdRef.current.trim() === sid) {
+        setViewedArchived(false);
+      }
       setSessions((prev) =>
         prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
       );
@@ -3909,6 +3860,7 @@ export function App() {
     } catch {
       setSessionsError(t("app.backendUnavailable", { status: 0 }));
     } finally {
+      archivingRef.current.delete(sid);
       setUnarchiving(false);
     }
   }
@@ -3939,12 +3891,12 @@ export function App() {
     }
   });
 
-  async function handleBranchSend(text: string, userMsgIdx: number) {
-    const sourceSid = sessionId.trim();
-    if (!sourceSid) return;
+  async function handleRewindSend(text: string, userMsgIdx: number) {
+    const sid = sessionId.trim();
+    if (!sid) return;
 
-    const showBranchError = (msg: string) => {
-      applyStreamItemsForSession(sourceSid, (prev) => [
+    const showRewindError = (msg: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
           id: newId("s"),
@@ -3956,10 +3908,9 @@ export function App() {
       ]);
     };
 
-    let data: { newSessionId?: string; error?: { message?: string } } = {};
     try {
       const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(sourceSid)}/branches`,
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind`,
         {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
@@ -3967,32 +3918,49 @@ export function App() {
         },
       );
       if (!res.ok) {
-        let errMsg = t("app.branchCreationFailed", { status: res.status });
+        let errMsg = t("app.rewindFailed", { status: res.status });
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           if (body?.error?.message) errMsg = body.error.message;
         } catch {
           /* ignore */
         }
-        showBranchError(errMsg);
+        // The draft and the editing state stay untouched, so the message is not
+        // lost and the edit can be retried.
+        showRewindError(errMsg);
         return;
       }
-      data = (await res.json()) as { newSessionId?: string };
     } catch (err) {
-      showBranchError(
-        t("app.branchCreationError", {
+      showRewindError(
+        t("app.rewindError", {
           error: err instanceof Error ? err.message : String(err),
         }),
       );
       return;
     }
-    const newSid = (data.newSessionId || "").trim();
-    if (!newSid) {
-      showBranchError(t("app.branchCreationNoSessionId"));
+    // The history is cut on the server: drop everything this client kept of the
+    // tail - the shadow transcript and persisted permission prompts - then
+    // reload the kept prefix and send the edited message. The draft and the
+    // editing state stay until the reload and the send have both gone through,
+    // so a failure after the rewind does not lose the edited text.
+    streamShadowBySidRef.current.delete(sid);
+    clearPermissionPromptRecords(sid);
+    try {
+      await loadMessages(sid, { freshLoad: true });
+    } catch (err) {
+      setEditingUserMsgIdx(null);
+      setEditingAssetNote("");
+      setEditingFiles([]);
+      showRewindError(
+        `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return;
     }
-    pendingBranchSendRef.current = { text, sid: newSid };
-    pickSession(newSid);
+    setDraft("");
+    setEditingUserMsgIdx(null);
+    setEditingAssetNote("");
+    setEditingFiles([]);
+    void streamResponses(text);
   }
 
   useEffect(() => {
@@ -4008,78 +3976,12 @@ export function App() {
       void loadSessionsList(true);
       return;
     }
-    const pending = pendingBranchSendRef.current;
-    if (pending && pending.sid === sessionId) {
-      pendingBranchSendRef.current = null;
-      const text = pending.text;
-      const branchSid = sessionId;
-      void (async () => {
-        // Clear any stale shadow cache for the new branch session so loadMessages
-        // doesn't inherit a branch_nav from the previous session's items.
-        streamShadowBySidRef.current.delete(branchSid);
-        // Load the shared prefix first so the user sees prior context while streaming.
-        // freshLoad: skip itemsRef.current as localForMerge so old session items don't bleed in.
-        await loadMessages(branchSid, { freshLoad: true });
-        void streamResponses(text).then(async () => {
-          // After streaming completes, inject the branch_nav so the user can navigate threads.
-          try {
-            const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-              `/foxxycode/sessions/${encodeURIComponent(branchSid)}/branches`,
-              { headers: { [HDR]: branchSid } },
-            );
-            if (brRes.ok && brRes.data?.branchPoints?.length) {
-              applyStreamItemsForSession(branchSid, (prev) =>
-                deduplicateBranchNavs(
-                  injectBranchNavItems(
-                    prev.filter((it) => it.type !== "branch_nav"),
-                    brRes.data!.branchPoints!,
-                  ),
-                ),
-              );
-              if (branchSid === viewedSessionIdRef.current.trim()) {
-                setSessionHashInLocation(branchSid, {
-                  historySidebar: sessionsOpen,
-                });
-              }
-            }
-          } catch {
-            // ignore
-          }
-        });
-      })();
-      return;
-    }
     setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
-      // If the user explicitly navigated here via branch nav, skip leaf resolution
-      // so they stay on the session they chose rather than being redirected to the newest thread.
-      const skipLeaf = skipLeafResolveRef.current.has(sessionId);
-      skipLeafResolveRef.current.delete(sessionId);
-
-      if (!skipLeaf) {
-        // Resolve the most-recently-active leaf in the branch tree.
-        // If a more recent thread exists, navigate there instead of loading this one.
-        const leafId = await resolveLatestLeaf(sessionId, async (sid) => {
-          const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-            `/foxxycode/sessions/${encodeURIComponent(sid)}/branches`,
-            { headers: { [HDR]: sid } },
-          );
-          return r.ok ? (r.data ?? null) : null;
-        });
-        if (lifecycle.signal.aborted) return;
-        if (
-          leafId !== sessionId &&
-          viewedSessionIdRef.current.trim() === sessionId
-        ) {
-          openSessionFromRoute(leafId, { historySidebar: sessionsOpen });
-          return;
-        }
-      }
-
       // The transcript must not queue behind History: the list is a whole-store scan
       // and one more round trip, and blocking on it is what leaves the panel on a
       // spinner after a reload. Start it here, read it only where it is needed.
@@ -4409,7 +4311,7 @@ export function App() {
    */
   function startDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
-    if (!key || diskFallbackTimerRef.current.has(key)) return;
+    if (!appMountedRef.current || !key || diskFallbackTimerRef.current.has(key)) return;
     let firstTick = true;
     let quietTicks = 0;
 
@@ -4469,6 +4371,7 @@ export function App() {
     };
 
     const schedule = () => {
+      if (!appMountedRef.current) return;
       // Re-checked every tick: a stop clears the handle, and the poll ends by
       // simply not scheduling the next one.
       const handle = window.setTimeout(() => {
@@ -4536,6 +4439,24 @@ export function App() {
         void refreshBackgroundTasks({ silent: true });
       }
     },
+    sessionRewound: (sid: string) => {
+      const key = sid.trim();
+      if (!key) return;
+      // A tab that is streaming a turn - or holding an in-flight POST - for
+      // that session owns its transcript right now; most often this is the
+      // tab that issued the rewind itself and is already clearing the shadow
+      // and resending, so a refetch here would paint the truncated snapshot
+      // over the live stream.
+      if (
+        activeComposerSidRef.current.has(key) ||
+        postAbortBySidRef.current.has(key)
+      ) {
+        return;
+      }
+      streamShadowBySidRef.current.delete(key);
+      clearPermissionPromptRecords(key);
+      void loadMessages(key, { freshLoad: true });
+    },
     ready: () => {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
@@ -4564,6 +4485,7 @@ export function App() {
         serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
+      onSessionRewound: (sid) => serverEventHandlersRef.current.sessionRewound(sid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,
@@ -4991,13 +4913,15 @@ export function App() {
       runPlanSlug?: string;
       files?: File[];
       /**
-       * Put the text back in the composer if the server refuses this send as
-       * busy. Set by the message queue's fallback: the queue closes a moment
-       * before the turn releases its admission, so a follow-up written in that
-       * gap is told "no turn is running" and then refused as busy - and what
-       * the operator wrote must not vanish between the two answers.
+       * Put the text and the files back in the composer when the server never
+       * took this send: a refusal by status, a request that failed on the way,
+       * an attachment the browser could not read. Set for what the operator
+       * wrote - the composer and the message queue's fallback (the queue
+       * closes a moment before the turn releases its admission, so a
+       * follow-up written in that gap is told "no turn is running" and then
+       * refused as busy) - and never for a retry, whose text was not typed.
        */
-      restoreDraftOnBusy?: boolean;
+      restoreOnRefusal?: boolean;
     },
   ) {
     // One key per intentional submission; reconnects attach to the existing stream.
@@ -5019,6 +4943,39 @@ export function App() {
       : null;
 
     let sidEffective = "";
+    // Set once the POST has an answer: a failure before it means the server
+    // never admitted this send, and the prompt goes back to the composer.
+    let responded = false;
+    // The server never took this send: the bubble drawn for it (once drawn)
+    // leaves the transcript, and what the operator wrote returns to the
+    // composer - text and files - ahead of anything typed since. Defined
+    // before anything can throw, so a failure on the way to the POST (the
+    // new chat's workspace, the file read) loses nothing either.
+    let restoreKey = "";
+    let userItemId = "";
+    const giveBack = () => {
+      const key = restoreKey || sessionId.trim();
+      if (userItemId)
+        applyStreamItemsForSession(key, (prev) =>
+          prev.filter((it) => it.id !== userItemId),
+        );
+      if (
+        !opts?.restoreOnRefusal ||
+        (key && viewedSessionIdRef.current.trim() !== key)
+      )
+        return;
+      setDraft((current) =>
+        !current.trim() || current.trim() === text.trim()
+          ? text
+          : `${text}\n\n${current}`,
+      );
+      const files = opts.files ?? [];
+      if (files.length > 0)
+        setComposerFiles((prev) => [
+          ...files,
+          ...prev.filter((f) => !files.includes(f)),
+        ]);
+    };
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
@@ -5046,6 +5003,7 @@ export function App() {
       // Own the transcript before any asynchronous attachment preparation so
       // a concurrent GET /messages cannot erase the optimistic user row.
       addActiveComposer(postSessionKey);
+      restoreKey = postSessionKey;
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
       streamGenerationBySidRef.current.set(
@@ -5107,6 +5065,10 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      // The server never took this send: the bubble drawn for it leaves the
+      // transcript, and what the operator wrote returns to the composer - text
+      // and files - ahead of anything typed since.
+      userItemId = userItem.id;
       let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
@@ -5167,25 +5129,63 @@ export function App() {
         }
         pasteLiteralsRef.current.clear();
       }
+      // A typed "/model <id>" is a session-scoped pick made on this surface -
+      // the same memory the Model menu writes (turn-scoped forms return null).
+      const typedModel = sessionScopedModelCommand(text);
+      if (typedModel && llmModelIds.includes(typedModel)) {
+        writeLlmModelCookie(typedModel);
+      }
       if (opts?.files && opts.files.length > 0) {
+        let unreadable: { name: string; reason: string } | null = null;
         const inlineFiles = await Promise.all(
           opts.files.map(
             (f) =>
-              new Promise<{ name: string; data_url: string }>(
-                (resolve, reject) => {
+              new Promise<{ name: string; data_url: string } | null>(
+                (resolve) => {
                   const reader = new FileReader();
                   reader.onload = () =>
                     resolve({
                       name: f.name,
                       data_url: reader.result as string,
                     });
-                  reader.onerror = reject;
+                  // A picked file the browser can no longer read (moved,
+                  // changed on disk, a cloud photo not on the device) is
+                  // named, and nothing is sent without it.
+                  reader.onerror = () => {
+                    unreadable ??= {
+                      name: f.name,
+                      reason:
+                        errorDetail(reader.error) || "NotReadableError",
+                    };
+                    resolve(null);
+                  };
                   reader.readAsDataURL(f);
                 },
               ),
           ),
         );
-        reqBody.inline_files = inlineFiles;
+        if (unreadable !== null) {
+          const { name, reason } = unreadable as {
+            name: string;
+            reason: string;
+          };
+          applyStreamItems((prev) => [
+            ...prev,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "error" as const,
+              message: t("composer.attachReadFailed", { name, reason }),
+              createdAtUtc: new Date().toISOString(),
+            },
+          ]);
+          giveBack();
+          completedNormally = true;
+          return;
+        }
+        reqBody.inline_files = inlineFiles.filter(
+          (f): f is { name: string; data_url: string } => f !== null,
+        );
       }
       const yamlSel = llmModel.trim();
       const reasoningSel = llmReasoning.trim();
@@ -5222,6 +5222,7 @@ export function App() {
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+      responded = true;
       if (!ownsPost() || abortCtl.signal.aborted) return;
       pendingPostBySidRef.current.delete(postSessionKey);
 
@@ -5275,12 +5276,7 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (
-          opts?.restoreDraftOnBusy &&
-          viewedSessionIdRef.current.trim() === postSessionKey
-        ) {
-          setDraft((current) => current || text);
-        }
+        giveBack();
         completedNormally = true;
         if (busy.busy) {
           // Only into the chat the text was written in, and never over what the
@@ -5308,6 +5304,7 @@ export function App() {
         postSessionKey = sidHdr.trim();
         streamKey = postSessionKey;
         bumpTranscriptEpoch(postSessionKey);
+        restoreKey = postSessionKey;
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
         streamGenerationBySidRef.current.set(
@@ -5342,7 +5339,19 @@ export function App() {
       if (!res.ok || !res.body) {
         const msg = !res.body
           ? t("app.emptyResponseBody")
-          : t("app.requestFailedWithStatus", { status: res.status });
+          : remoteHttpErrorMessage(
+              res.status,
+              getEnv(),
+              await res
+                .json()
+                .then(
+                  (b: { error?: { message?: unknown } }) =>
+                    typeof b?.error?.message === "string"
+                      ? b.error.message
+                      : "",
+                )
+                .catch(() => ""),
+            );
         applyStreamItems((prev) => [
           ...prev,
           {
@@ -5353,6 +5362,8 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+        // A refusal by status: nothing of this send is in the conversation.
+        if (!res.ok) giveBack();
         completedNormally = true;
         return;
       }
@@ -5571,8 +5582,43 @@ export function App() {
       void refreshSessionStats(sidEffective);
       markViewedSessionActivityRead(sidEffective);
       completedNormally = true;
-    } catch (_err: unknown) {
-      // AbortError stops the stream client-side after optional POST cancel
+    } catch (err: unknown) {
+      // Stay silent only for the user's own Stop (AbortError). Surface real transport failures —
+      // an unreachable remote, DNS/TLS error, refused connection, or a CORS-blocked response all
+      // reject fetch() with no Response, so without this they vanish (issue #60).
+      // applyStreamItems is scoped to the try block; use the component-level session helper here
+      // (same one the finally uses), keyed by the session this turn targeted.
+      if (
+        !isAbortError(err) &&
+        ownsPost() &&
+        !abortCtl.signal.aborted &&
+        postSessionKey.trim() !== ""
+      ) {
+        applyStreamItemsForSession(postSessionKey, (prev) => [
+          ...prev,
+          {
+            id: newId("s"),
+            type: "system_notice",
+            level: "error" as const,
+            message: remoteSendErrorMessage(err, getEnv()),
+            createdAtUtc: new Date().toISOString(),
+          },
+        ]);
+      }
+      // The request failed before any answer (a dropped upload, a refused
+      // connection): the prompt returns to the composer, and the transcript is
+      // not read again, because that read would wipe the notice saying why and
+      // could not show a message the server does not have. Should the server
+      // have taken the turn after all, the activity refresh below attaches to
+      // it and its end reloads the transcript.
+      if (
+        !responded &&
+        !isAbortError(err) &&
+        (ownsPost() || !postSessionKey.trim())
+      ) {
+        giveBack();
+        completedNormally = true;
+      }
     } finally {
       releaseSessionId?.(sidEffective);
       if (pendingPostBySidRef.current.get(postSessionKey) === abortCtl) {
@@ -6534,7 +6580,7 @@ export function App() {
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
         // being lost between the two answers.
-        void streamResponses(body, { restoreDraftOnBusy: true });
+        void streamResponses(body, { restoreOnRefusal: true });
         return;
       }
       if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
@@ -7003,7 +7049,6 @@ export function App() {
                 })}
             {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
-            onBranchSwitch={(sid) => switchBranch(sid)}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onPasteChipCaptured={(key, literal) => {
               const m = pasteLiteralsRef.current;
@@ -7018,6 +7063,8 @@ export function App() {
               }
             }}
             onDocsCommand={openDocsCommand}
+            attachedFiles={composerFiles}
+            onAttachedFilesChange={setComposerFiles}
             onSend={(text: string, files?: File[]) => {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {
@@ -7028,19 +7075,24 @@ export function App() {
                 (turnActivity.get(sessionId) ??
                   activeComposerSidRef.current.has(sessionId.trim()))
               ) {
+                // Not sent: the composer already let go of the files.
+                if (files && files.length > 0)
+                  setComposerFiles((prev) => [...files, ...prev]);
                 return;
               }
-              setDraft("");
               if (editingUserMsgIdx !== null) {
                 const idx = editingUserMsgIdx;
                 const note = editingAssetNote;
-                setEditingUserMsgIdx(null);
-                setEditingAssetNote("");
-                setEditingFiles([]);
                 const textWithAssets = note ? `${text}\n${note}` : text;
-                void handleBranchSend(textWithAssets, idx);
+                // The draft and the editing state stay until the rewind lands;
+                // handleRewindSend clears them on success.
+                void handleRewindSend(textWithAssets, idx);
               } else {
-                void streamResponses(text, files ? { files } : undefined);
+                setDraft("");
+                void streamResponses(text, {
+                  restoreOnRefusal: true,
+                  ...(files ? { files } : {}),
+                });
               }
             }}
             onFetchToolCallFull={handleFetchToolCallFull}

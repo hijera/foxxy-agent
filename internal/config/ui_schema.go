@@ -407,9 +407,7 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"model": strProp("Default model", "Logical model id from the models list used when the client omits a model."),
 				"max_turns": intProp("Max turns",
-					"Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request."),
-				"max_tokens_per_turn": intProp("Max tokens per turn",
-					"Upper bound on total tokens (prompt + completion) the model may use in one agent step."),
+					"Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit."),
 				"llm_retry_max": intProp("LLM retry max",
 					"Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits."),
 				"llm_retry_base_ms": intProp("LLM retry base ms",
@@ -472,7 +470,7 @@ func UISchemaMap() map[string]interface{} {
 					"Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits."),
 			},
 			[]string{
-				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
+				"model", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "llm_stall_retry", "llm_stall_retry_delays_ms",
 				"llm_stall_retry_max_wait_ms", "llm_continue", "llm_continue_max", "llm_continue_stall_delays_ms",
 				"llm_continue_error_delays_ms", "llm_continue_retry_after_max_ms",
@@ -939,10 +937,13 @@ func toIfaceOrder(keys []string) []interface{} {
 //	swarm      - a relay's own deployment: bind address, credentials for a whole
 //	             fleet, and the parents this process joins. It is set in the file
 //	             or on the command line, not from a page one of its nodes serves.
+//	rules      - project rule discovery is a workspace concern; the Settings form
+//	             edits the user-global file, where it rarely needs touching.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
 	"swarm":      {},
+	"rules":      {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

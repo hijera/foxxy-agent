@@ -2,7 +2,7 @@ import type { TranscriptItem } from "./types";
 
 /**
  * Cut the transcript right after its last user_message that started a turn
- * (keeping any branch_nav rows attached to it); queued follow-ups after it go too. Used as the baseline when re-attaching to an in-flight
+ * Queued follow-ups after it go too. Used as the baseline when re-attaching to an in-flight
  * turn: the composer relay replays the turn's SSE bytes from the beginning, so
  * partial turn output loaded from disk would be duplicated by the replay.
  * (If the relay buffer overflowed, head-of-turn content reappears when the
@@ -35,11 +35,7 @@ export function trimTranscriptForTurnReplay(
     // relay sends it again as a user_message event, where the turn read it. The
     // cut goes after the prompt the turn started from.
     if (it.queued === true) continue;
-    let end = i + 1;
-    while (end < items.length && items[end]?.type === "branch_nav") {
-      end++;
-    }
-    return items.slice(0, end);
+    return items.slice(0, i + 1);
   }
   return [...items];
 }

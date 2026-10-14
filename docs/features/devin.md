@@ -79,7 +79,7 @@ Thinking streams into the transcript like any other provider's. Signed reasoning
 
 ## Account usage
 
-A `type: devin` row also reports the account's quota, read from the seat-management `GetUserStatus` RPC of the Devin API server - the same call the editor makes - with the row's own session token and user JWT. The answer reaches every surface through the shared usage panel: the console footer and `/usage`, the web UI context popover and banner, `GET /foxxycode/providers/{name}/usage` and the `provider_usage` updates ([Console](../surfaces/console.md#visual-model), [Configuration](../getting-started/configuration.md)).
+A `type: devin` row also reports the account's quota, read from the seat-management `GetUserStatus` RPC of the Devin API server - the same call the editor makes - with the row's own session token and **no** user JWT: the server omits `plan_status` (the quota fields) from its answer whenever the request metadata carries one, so this read is the one Devin call that must not mint a JWT. The answer reaches every surface through the shared usage panel: the console footer and `/usage`, the web UI context popover and banner, `GET /foxxycode/providers/{name}/usage` and the `provider_usage` updates ([Console](../surfaces/console.md#visual-model), [Configuration](../getting-started/configuration.md)).
 
 What the panel shows is what the plan reports:
 
@@ -112,10 +112,12 @@ models:
 
 The provider speaks the protocol the Devin CLI and Devin Desktop use with the Devin API server: Connect-RPC with protobuf messages. The session token is exchanged for a user JWT (`GetUserJwt`, cached until shortly before it expires), the catalog comes from `GetCliModelConfigs` (cached for thirty minutes per account), and a turn is one `GetChatMessage` server stream of gzip-compressed frames carrying text, thinking, tool-call fragments, usage and the stop reason. FoxxyCode's system prompt travels as the request's system prompt, its tools as tool definitions, and tool results as tool messages. Usage counts the prompt cache: the reported input adds the uncached part, the cache write and the cache read, and the cache read is reported as cached input.
 
+Protobuf strings must be valid UTF-8, and the server refuses a request that breaks the rule with `HTTP 400 invalid_argument: an internal error occurred`, the same answer for every cause. FoxxyCode therefore replaces every byte sequence that is not UTF-8 with U+FFFD before it is sent, wherever it comes from: a `grep` match or a command's output from a file in a legacy encoding, or a non-image attachment. The JSON providers get the same replacement from the JSON encoder.
+
 The protocol is not published by Cognition. FoxxyCode follows what the official clients send, so a change on Devin's side can break the provider until FoxxyCode follows it.
 
 A stream the server ends with an error before any text reached the caller is retried under the usual rules (a rate limit, `resource_exhausted`, counts as HTTP 429); once text has streamed it is not, so no delta is shown twice. A stream cut before its end frame keeps the text it delivered and drops the tool calls of the unfinished answer.
 
 ## Stands and tests
 
-`FOXXYCODE_DEVIN_API_SERVER_URL`, `FOXXYCODE_DEVIN_WEBAPP_URL` and `FOXXYCODE_DEVIN_API_URL` move the API server, the sign-in page and the code exchange for the whole process; `internal/devinfake` is the offline stand that plays all three, and `features/devin_provider.feature` drives the sign-in, the Devin CLI login and a full agent turn against it with no account and no network.
+`FOXXYCODE_DEVIN_API_SERVER_URL`, `FOXXYCODE_DEVIN_WEBAPP_URL` and `FOXXYCODE_DEVIN_API_URL` move the API server, the sign-in page and the code exchange for the whole process; `internal/devinfake` is the offline stand that plays all three, and `features/devin_provider.feature` drives the sign-in, the Devin CLI login, a full agent turn and a tool result that is not UTF-8 against it with no account and no network.

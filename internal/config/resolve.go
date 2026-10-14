@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 )
 
@@ -48,6 +49,23 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 		}
 	}
 	return nil
+}
+
+// FirstModelID returns the alphabetically first configured model id, or ""
+// when no models are configured. Surfaces use it as the initial pick for a
+// session before any surface-level preference exists.
+func (c *Config) FirstModelID() string {
+	ids := make([]string, 0, len(c.Models))
+	for _, m := range c.Models {
+		if s := strings.TrimSpace(m.Model); s != "" {
+			ids = append(ids, s)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
 }
 
 // MatchModelID resolves a model a person named to a configured models[].model.
@@ -233,11 +251,11 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 	}
 
 	if len(c.Models) > 0 {
-		rm := strings.TrimSpace(c.Agent.Model)
-		if rm == "" {
-			return fmt.Errorf("agent.model is required when models are configured")
-		}
-		if c.FindModelEntry(rm) == nil {
+		// agent.model is optional: interactive surfaces pick a model per
+		// session, and unattended paths that need one (foxxycode -p, foxxycode acp,
+		// API calls without a model selector) report the missing default when
+		// they resolve it. A name that is set must still resolve.
+		if rm := strings.TrimSpace(c.Agent.Model); rm != "" && c.FindModelEntry(rm) == nil {
 			return fmt.Errorf("agent.model %q: not found in models list", rm)
 		}
 	}

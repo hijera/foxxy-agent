@@ -3,8 +3,7 @@ Feature: A turn ends for a reason the user can see, and a sick provider does not
   A turn cut by its step limit, agent.max_turns, ends with a notice that names
   the limit: streamed into the answer, kept in the transcript next to it, and
   handed to the caller that reads the result rather than the stream.
-  FoxxyCode keeps 30 steps as the limit when none is set; upstream reads an
-  unset limit as none at all.
+  An omitted or zero step limit lets the turn run to its answer.
 
   A provider that breaks in the middle of an answer - a 500 from a proxy whose
   fallback failed, a connection cut - is a failure of the lane, not of the
@@ -14,13 +13,12 @@ Feature: A turn ends for a reason the user can see, and a sick provider does not
   type "continue". It spends the turn's continuation budget, as a stall does,
   and agent.llm_continue turns it off.
 
-  Scenario: Without a step limit configured a turn stops after 30 steps and says so
+  Scenario: Without a step limit a long task runs to its answer
     Given a model that reads a file 35 times before it answers
     And an agent with no step limit configured
     When the user sends a prompt
-    Then the turn stops at its step limit
-    And the transcript ends with a notice that names agent.max_turns and 30 steps
-    And the prompt result carries the same notice
+    Then the turn ends with the model's answer
+    And the model was called 36 times
 
   Scenario: A turn stopped by its step limit says so
     Given a model that reads a file 35 times before it answers

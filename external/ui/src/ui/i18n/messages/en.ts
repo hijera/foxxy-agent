@@ -96,6 +96,7 @@ export const messagesEn: Record<string, string> = {
   "composer.queueLabel": "Queued messages",
   "composer.queueRemove": "Remove from the queue",
   "composer.queueFull": "The queue is full: wait for the agent to read what is waiting.",
+  "composer.attachReadFailed": "Could not read the attached file {name}, nothing was sent ({reason}).",
   "composer.queueFailed": "The message could not be queued.",
   "composer.queueBusyElsewhere":
     "This chat's turn is running in another FoxxyCode window, and its queue is there. Your message is back in the composer.",
@@ -1313,8 +1314,8 @@ export const messagesEn: Record<string, string> = {
   "app.emptyResponseBody": "Empty response body",
   "app.requestFailed": "Request failed",
   "app.requestFailedWithStatus": "Request failed ({status})",
-  "app.branchCreationFailed": "Branch creation failed ({status})",
-  "app.branchCreationError": "Branch creation error: {error}",
+  "app.rewindFailed": "Rewind failed ({status})",
+  "app.rewindError": "Rewind error: {error}",
   "app.branchCreationNoSessionId": "Branch creation returned no session ID",
   // Background tasks (run_command background: true)
   "messages.subagentApproval.needed":

@@ -17,7 +17,7 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `read` | Read a file as text with an optional 1-based line range, or list a directory | `path`, `offset`, `limit`, `recursive`, `show_hidden`, `keep` | none | agent, plan, docs, ask, debug |
+| `read` | Read text with an optional 1-based line range, or list a directory; shared encoding detection supports UTF-16 and legacy code pages, while binary files are refused with type and size | `path`, `offset`, `limit`, `recursive`, `show_hidden`, `keep` | none | agent, plan, docs, ask, debug |
 | `keep_result` | Mark a page already read or a grep result as useful so result eviction keeps it ([Context compaction](../features/compaction.md#result-eviction)) | `path`, `offset`, `limit`, `pattern` | none | agent, plan, docs, ask, debug |
 | `glob` | Find files by glob pattern, newest first, at most 100 paths | `pattern`, `path` | none | agent, plan, docs, ask, debug |
 | `grep` | Regular-expression search over file contents | `pattern`, `path`, `glob`, `case_sensitive`, `max_results`, `keep` | none | agent, plan, docs, ask, debug |

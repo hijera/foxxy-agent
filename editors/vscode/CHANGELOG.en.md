@@ -8,7 +8,30 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-09
+## Unreleased — 2026-10-14
+
+**Edit the conversation in the same chat.**
+An edited message is sent in the same session: that message and the conversation after it are replaced by a new continuation. Workspace files are not rolled back.
+
+**Keep the draft when a send fails.**
+If the server rejects a request, the connection fails or an attachment cannot be read, the text and files return to the composer. The error includes its cause so the problem can be corrected before retrying.
+
+**Archived chats open without a composer.**
+The conversation remains readable; select Unarchive to continue it. The archive state survives reopening the chat.
+
+**Remember the selected model.**
+A new chat uses the last model selected on its surface; opening an existing chat restores that chat's own model. With no previous selection, the first configured model alphabetically is used. The `agent.model` configuration field is now optional.
+
+**Save settings cleanly and set step limits explicitly.**
+Saving configuration retains the other fields and omits `null` for unset values. An omitted or zero `agent.max_turns` allows unlimited steps; a positive value sets a cap. The `agent.max_tokens_per_turn` field has been removed and must be deleted from older configuration files that still contain it.
+
+**Clearer provider errors and file reads.**
+The HTTP API distinguishes provider rejection, rate limits, unavailability and timeouts. Devin usage reporting and text handling are corrected. The read tool reports a binary file's type and size instead of returning its bytes; support for text encodings is preserved.
+
+**MCP follows the workspace folder.**
+Changing the folder refreshes MCP connections and resource catalogs. Project settings still pass through the trust checks, and servers connect in the background.
+
+## 0.3.29 — 2026-10-09
 
 **Question answer options recover automatically.**
 A missed question event is recovered from server activity with the original answer options. Failed submissions keep the selection and show an error for retry; an old question no longer claims to await an answer after the backend stops.

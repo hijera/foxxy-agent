@@ -8,6 +8,18 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.10 — 2026-10-14
+
+Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following `75c31bcc0b726a46386b0977fee997353f62a9a1` (`1.2.1`).
+
+- Ported #332, #341, #343, #344, #345, #346, #349, the remaining #351 changes, and #354.
+- Config saves omit unset fields; model selection is remembered per surface and otherwise alphabetical. `agent.model` is optional.
+- Workspace changes reload configured MCP clients through the existing asynchronous readiness and trust gates, plus workspace catalogs.
+- Message edits rewind the same session and never roll workspace files back. Archived chats retain their archived state when opened.
+- The owner approved unlimited steps when `agent.max_turns` is omitted or zero, and removal of `agent.max_tokens_per_turn`. The `max-turns-default` and `deferred-351` registry entries are retired.
+- Provider HTTP status propagation, Devin usage and UTF-8 fixes, binary-read refusal and failed-send draft/attachment recovery are included. Existing retry, continuation, encoding and transcript stop-notice policies remain.
+- FoxxyCode PRs #127, #128 and #132 are explicitly excluded from this wave.
+
 ## Реестр постоянных расхождений
 
 Решения владельца, где форк сознательно оставляет своё поведение вместо upstream. Английский
@@ -32,11 +44,9 @@
 | `continue-budget` | 1.2.9: не больше 2 recovery подряд, каждый — шаг `max_turns`; 1.2.0: бюджет ретраев на шаг | Один бюджет на ход `agent.llm_continue_max` (3) для stall и сбоев, вне `max_turns`, с детектором повторов | 1.2.0 (#329): общий бюджет сетевых повторов и пустых попыток, продолжения — отдельно |
 | `stall-timeout-alias` | Ключ `llm_stream_idle_timeout_ms` | То же имя; `llm_stall_timeout_ms` читается как устаревший алиас | Держать алиас, пока владелец его не уберёт |
 | `stop-notice-transcript` | 1.2.9: `StopNotice` в UI-лог, отдельно печатается в Telegram, консоли и `-p` | Уведомление стримится в ответ и пишется в транскрипт; `StopNotice` — только в `meta.stop_notice`, remote-клиент и отчёт субагента | При порте 1.2.9 не брать печать `StopNotice` в `bot.go`, `print.go`, `app.go` |
-| `max-turns-default` | 1.2.9: незаданный `agent.max_turns` — без лимита | Незаданный — 30 | Оставить 30 |
 | `session-disk-refresh` | Нет: процесс отвечает по своей копии сессии | Ход перечитывает сессию, изменённую другим процессом; устаревшая копия не перезаписывает историю | Если upstream сделает свою синхронизацию — свести с владельцем |
 | `progress-chunks` | До 1.1.67 кадр без содержимого ничего не сообщает; 1.1.68 добавляет свой progress аргументов | `Progress` на каждый кадр без содержимого, мимо `emit` | 1.1.68: слить с форковым, правило «progress не ставит `emitted`» сохранить |
 | `switch-enable-alias` | Переключатели — `enable`, `enabled` неизвестен | `enable` канонический, `enabled` — алиас | Ничего: алиас покрывает новые переключатели |
-| `deferred-351` | 1.2.9 (#351): статус провайдера в HTTP API (#322), `max_turns: 0`, удаление `max_tokens_per_turn`, поздние исправления Devin | Базовый Devin портирован из 1.1.61; recovery и StopNotice уже взяты | В волне 1.2.9 брать из #351 только оставшиеся части |
 | `prompt-file-encoding` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `retry-recovery-steps` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `compaction-both-engines` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
@@ -2685,7 +2695,7 @@ files while refusing symlinks. Existing background command timeout policy stays 
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 75c31bcc..upstream/main` — список кандидатов (из `1.2.9` часть #351 уже взята, см. `deferred-351`).
+2. `git log --oneline --no-merges 5ed775c..upstream/main` — список кандидатов.
 3. Сверить кандидатов с «Реестром постоянных расхождений» в начале файла: `git grep -n 'fork(' --`
    по каждому файлу, который они трогают; где upstream снова меняет помеченное место — спросить
    владельца.

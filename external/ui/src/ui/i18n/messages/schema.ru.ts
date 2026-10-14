@@ -162,8 +162,8 @@ export const schemaTextRu: Record<string, string> = {
   "Logical model id from the models list used when the client omits a model.":
     "Логический id модели из списка моделей, используемый, когда клиент не указывает модель.",
   "Max turns": "Макс. шагов",
-  "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.":
-    "Жёсткий лимит итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя.",
+  "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.":
+    "0 отключает лимит итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя.",
   "Max tokens per turn": "Макс. токенов за шаг",
   "Upper bound on total tokens (prompt + completion) the model may use in one agent step.":
     "Верхняя граница суммарных токенов (промпт + ответ), которые модель может использовать за один шаг агента.",

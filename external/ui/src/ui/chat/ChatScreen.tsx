@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import {
   useCallback,
   useEffect,
@@ -88,6 +88,10 @@ export function ChatScreen(props: {
   onSend: (text: string, files?: File[]) => void;
   /** Pass-through to Composer: captured paste-chip literals (see Composer). */
   onPasteChipCaptured?: (key: string, literal: string) => void;
+  /** The files attached in the composer, when the caller owns them: a send the
+   *  server never took puts them back (App.tsx, streamResponses). */
+  attachedFiles?: File[];
+  onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
   /** `/docs [page or words]` typed in the composer opens the documentation reader. */
   onDocsCommand?: (arg: string) => void;
   onContextRingOpen?: () => void;
@@ -117,7 +121,6 @@ export function ChatScreen(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   editingFiles?: { name: string; mimeType: string }[];
-  onBranchSwitch?: (sessionId: string) => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
@@ -164,7 +167,6 @@ export function ChatScreen(props: {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   // Hero and docked are two branches of one ternary, so the composer unmounts on
   // the transition. Attachments live here to survive it.
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
   // One count for the live line and the header control.
@@ -183,6 +185,10 @@ export function ChatScreen(props: {
   // The jump owns the scroll position while it travels; a frame id says so.
   const jumpFrameRef = useRef<number | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // Shared by hero and docked composers so disabled files survive the first text turn.
+  const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
+  const attachedFiles = props.attachedFiles ?? localAttachedFiles;
+  const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
   const mobileDocScroll = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -700,10 +706,9 @@ export function ChatScreen(props: {
                   ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
                   : {})}
                 {...(props.onEdit ? { onEdit: props.onEdit } : {})}
-                {...(props.onBranchSwitch
-                  ? { onBranchSwitch: props.onBranchSwitch }
+                {...(props.knownSkillNames
+                  ? { knownSkillNames: props.knownSkillNames }
                   : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
                 {...(props.backgroundTasksByToolCallId
                   ? {
                       backgroundTasksByToolCallId:
