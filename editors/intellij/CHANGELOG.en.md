@@ -7,7 +7,13 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-09
+## Unreleased — 2026-10-14
+
+**Upstream 1.2.10.** Editing a message rewinds the same conversation without rolling back workspace files. Failed sends restore the draft and attachments, and reopening an archived chat keeps its composer hidden.
+**Models and configuration.** Each surface remembers its model choice; new sessions otherwise select alphabetically. `agent.model` is optional, unset step limits are unlimited, and `agent.max_tokens_per_turn` is removed. Config saves omit unset fields.
+**Providers and workspaces.** Workspace changes refresh trusted MCP connections and catalogs. Provider failures retain their HTTP status, Devin usage and text handling are corrected, and binary files are refused by the text reader.
+
+## 0.3.29 — 2026-10-09
 
 **Question answer options recover automatically.**
 A missed question event is recovered from server activity with the original answer options. Failed submissions keep the selection and show an error for retry; an old question no longer claims to await an answer after the backend stops.

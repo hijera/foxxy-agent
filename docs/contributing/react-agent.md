@@ -234,7 +234,9 @@ messages: [
 
 6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
-   - If turn_count >= max_turns -> DONE (stopReason: max_turns)
+   - If max_turns is set and turn_count >= max_turns -> DONE (stopReason: max_turns;
+     the turn's stop notice names the key that set the limit). max_turns 0, the
+     default, is no step limit
    - Otherwise -> back to step 2
 
    Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
@@ -393,8 +395,7 @@ turn says something:
   per-turn budget as a stall and the same repeat detector watches it. A refusal (4xx) and a
   limit (429) are not recovered. A failure before any text uses the shared
   **`llm_retry_max`** allowance; a stall wait cannot start a new allowance.
-- **The step limit.** A turn that reaches **`agent.max_turns`** (30 when unset; upstream
-  reads an unset limit as none) ends with a notice naming the limit, streamed and stored the
+- **The step limit.** A turn that reaches **`agent.max_turns`** (0 or unset means no step limit) ends with a notice naming the limit, streamed and stored the
   way the output-cap notice is (`internal/agent/stop_notice.go`). The session manager also
   hands the text back as **`SessionPromptResult.StopNotice`**, which the HTTP API passes on
   as **`meta.stop_notice`**; the surfaces that show the stream do not print it again.

@@ -240,6 +240,35 @@ With `debug.enable` the log carries one `llm call finished` line per model call,
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
 
+## A provider fails in the middle of a turn
+
+**Symptom.** The answer stops mid-sentence, and the session log shows a notice such as `The provider failed mid-turn (... server error 500: litellm.MidStreamFallbackError ...). The turn went on after a 5s pause (recovery 1 of 2).` The turn then continues on its own. Before this, such a turn ended with the error and waited for the user to type "continue" ([issue #246](https://github.com/hijera/foxxy-agent/issues/246)).
+
+**Cause.** The provider's lane failed, not the request: a 5xx from a proxy whose fallback also failed, a connection cut, a stream gone silent. The resilient wrapper retries a call only while nothing has reached the user, so a failure after the first words, or one that outlasts its backoff, reaches the turn. The turn treats it as a breaker:
+
+- the text the user already saw stays in the transcript, and the model is asked to go on from where it stopped rather than start over;
+- the pause before the first recovery is five times `agent.llm_retry_base_ms` (5 s by default) and four times longer before the second (20 s), or the pause the provider asked for in `Retry-After` when that is longer, at most 2 minutes;
+- after two recoveries in a row the breaker opens and the turn ends with the provider's error, and a call that succeeds closes it again;
+- a request the provider refused (a 4xx) is never repeated, a usage or rate limit (429) is left to the backoff and to [`wait_for_limit_reset`](#a-turn-stops-with-a-usage-limit), a Stop during the pause ends the turn as a stop (a deadline ends it with the provider's error), and `agent.llm_retry_max: 0` turns the recovery off together with every other retry.
+
+**Fix.** Nothing is needed for a lane that recovers in seconds. For one that keeps failing, check the provider's status, or put the model behind a gateway with healthier deployments. A longer outage is a reason to raise `agent.llm_retry_base_ms`, which stretches the pauses.
+
+## A turn stops before the task is done
+
+**Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `foxxycode -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/hijera/foxxy-agent/issues/255)).
+
+**Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn. It is off by default (`0`), so this notice appears only when the configuration sets it; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
+
+**Fix.** Send a message to let the agent continue, or raise the limit that the notice names:
+
+```yaml
+agent:
+  max_turns: 0          # no step limit
+models:
+  - model: openai/gpt-5.6-terra
+    max_tokens: 32000
+```
+
 ## `foxxycode update` refuses to overwrite a packaged binary
 
 **Symptom.** `foxxycode update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.
