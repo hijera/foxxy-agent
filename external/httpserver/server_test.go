@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openai/openai-go"
 	"github.com/tidwall/gjson"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -396,7 +397,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
+	for _, must := range []string{"/foxxycode/sessions/{id}/rewind", "/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -5228,5 +5229,66 @@ func TestFoxxyCodeConfigPutAgentModelOptional(t *testing.T) {
 	}
 	if back.Agent.Model != "" {
 		t.Fatalf("saved agent.model = %q, want empty", back.Agent.Model)
+	}
+}
+
+// upstreamHTTPError is the error the openai provider returns when the model's
+// server answers a status, headers included.
+func upstreamHTTPError(status int, hdr map[string]string) error {
+	h := make(http.Header)
+	for k, v := range hdr {
+		h.Set(k, v)
+	}
+	req := httptest.NewRequest(http.MethodPost, "https://api.example.test/v1/chat/completions", nil)
+	return fmt.Errorf("LLM error: provider \"local\": %w", &openai.Error{StatusCode: status, Request: req, Response: &http.Response{StatusCode: status, Header: h}})
+}
+
+// TestReplyForErrorMapsProviderStatus: every failure the provider answered
+// with a status keeps what it means for a client (issue #322), and only
+// FoxxyCode's own failures stay 500.
+func TestReplyForErrorMapsProviderStatus(t *testing.T) {
+	cases := []struct {
+		name         string
+		err          error
+		status       int
+		upstream     int64
+		retryAfter   string
+		typeUpstream bool
+	}{
+		{"upstream 400", upstreamHTTPError(400, nil), 400, 400, "", true},
+		{"upstream 401", upstreamHTTPError(401, nil), 401, 401, "", true},
+		{"upstream 429 with a pause", upstreamHTTPError(429, map[string]string{"Retry-After": "7"}), 429, 429, "7", true},
+		{"usage limit FoxxyCode did not wait for", &llm.QuotaResetError{Delay: 1500 * time.Millisecond, Cause: upstreamHTTPError(429, nil)}, 429, 429, "2", true},
+		{"upstream 503", upstreamHTTPError(503, nil), 502, 503, "", true},
+		{"upstream 503 with a pause", upstreamHTTPError(503, map[string]string{"Retry-After": "30"}), 502, 503, "30", true},
+		{"upstream 504", upstreamHTTPError(504, nil), 504, 504, "", true},
+		{"provider timeout", fmt.Errorf("LLM error: %w", context.DeadlineExceeded), 504, 0, "", true},
+		{"foxxycode's own failure", errors.New("save image parts failed"), 500, 0, "", false},
+		{"busy session", fmt.Errorf("prompt: %w", session.ErrSessionTurnBusy), 409, 0, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeErrorReply(rec, c.err)
+			body := rec.Body.String()
+			if rec.Code != c.status {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, c.status, body)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("Content-Type = %q, want application/json", ct)
+			}
+			if got := rec.Header().Get("Retry-After"); got != c.retryAfter {
+				t.Fatalf("Retry-After = %q, want %q", got, c.retryAfter)
+			}
+			if got := gjson.Get(body, "error.upstream_status").Int(); got != c.upstream {
+				t.Fatalf("upstream_status = %d, want %d: %s", got, c.upstream, body)
+			}
+			if got := gjson.Get(body, "error.type").String() == "upstream_error"; got != c.typeUpstream {
+				t.Fatalf("type upstream_error = %v, want %v: %s", got, c.typeUpstream, body)
+			}
+			if gjson.Get(body, "error.message").String() != c.err.Error() {
+				t.Fatalf("message = %s, want the error's text", gjson.Get(body, "error.message").Raw)
+			}
+		})
 	}
 }

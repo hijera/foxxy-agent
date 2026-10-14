@@ -134,7 +134,7 @@ type Server struct {
 	bgWG         sync.WaitGroup
 }
 
-// Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
+// Drain waits for all background goroutines to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
 	if s.removeUsageObserver != nil {
@@ -696,7 +696,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
-		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -712,7 +711,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
 			// differs between the two response shapes.
-			_ = bridge.SendError(err)
+			_ = bridge.SendErrorFor(err)
 			_ = bridge.FinishStream()
 			if !req.Stream {
 				if errors.Is(err, session.ErrSessionTurnBusy) {
@@ -725,11 +724,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 					return
 				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+				writeErrorReply(w, err)
 			}
 			return
 		}
-		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if promptRes != nil && promptRes.StopReason != "" {
 			// Remote clients (internal/remote) recover the ACP stop reason
@@ -812,9 +810,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("direct completion", "error", err)
 		if req.Stream {
-			_ = bridge.SendError(err)
+			_ = bridge.SendErrorFor(err)
 		} else {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			writeErrorReply(w, err)
 		}
 		return
 	}
@@ -1311,7 +1309,6 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
-		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
@@ -1331,7 +1328,7 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
-			_ = bridge.SendError(err)
+			_ = bridge.SendErrorFor(err)
 			_ = bridge.FinishStream()
 			if !body.Stream {
 				if errors.Is(err, session.ErrSessionTurnBusy) {
@@ -1344,11 +1341,10 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 					http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 					return
 				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+				writeErrorReply(w, err)
 			}
 			return
 		}
-		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if promptRes != nil && promptRes.StopReason != "" {
 			// Remote clients (internal/remote) recover the ACP stop reason
@@ -1422,9 +1418,9 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 		}
 		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {
-			_ = bridge.SendError(err)
+			_ = bridge.SendErrorFor(err)
 		} else {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			writeErrorReply(w, err)
 		}
 		return
 	}
