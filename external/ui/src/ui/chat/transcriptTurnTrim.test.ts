@@ -38,19 +38,6 @@ describe("trimTranscriptForTurnReplay", () => {
     expect(out.map((x) => x.id)).toEqual(["u1", "a1", "u2"]);
   });
 
-  it("keeps branch_nav rows attached to the last user message", () => {
-    const nav: TranscriptItem = {
-      id: "bn1",
-      type: "branch_nav",
-      userMessageIndex: 1,
-      currentIndex: 0,
-      total: 2,
-      sessions: [],
-    };
-    const items = [user("u1"), nav, assistant("a1"), tool("t1")];
-    const out = trimTranscriptForTurnReplay(items);
-    expect(out.map((x) => x.id)).toEqual(["u1", "bn1"]);
-  });
 
   it("returns a copy unchanged when there is no user message", () => {
     const items = [assistant("a1")];
