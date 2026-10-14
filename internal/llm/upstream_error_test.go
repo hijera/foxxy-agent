@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// Ported from upstream 1.2.9 (#351), without the Devin cases.
-
 // TestUpstreamStatus: the status a provider answered with is read from the
 // typed errors only, so a digit inside a message never passes for one.
 func TestUpstreamStatus(t *testing.T) {
@@ -25,6 +23,7 @@ func TestUpstreamStatus(t *testing.T) {
 		{"stream error after text", fmt.Errorf("openai stream: %w", &streamServerError{code: 500, emitted: true}), 500},
 		{"quota reset", &QuotaResetError{Cause: retryHTTPError(t, "openai", 429, nil)}, 429},
 		{"plain text", errors.New("dial failed after 500 ms"), 0},
+		{"devin 503", &devinAPIError{status: 503}, 503},
 		{"nil", nil, 0},
 	}
 	for _, c := range cases {
@@ -38,6 +37,9 @@ func TestUpstreamRetryAfter(t *testing.T) {
 	d, ok := UpstreamRetryAfter(retryHTTPError(t, "openai", 429, map[string]string{"Retry-After": "7"}))
 	if !ok || d != 7*time.Second {
 		t.Fatalf("UpstreamRetryAfter = %v, %v; want 7s", d, ok)
+	}
+	if d, ok := UpstreamRetryAfter(&devinAPIError{status: 429, retryAfter: 7 * time.Second}); !ok || d != 7*time.Second {
+		t.Fatalf("Devin Retry-After = %v, %v", d, ok)
 	}
 	reset := &QuotaResetError{Delay: 90 * time.Second, Cause: errors.New("limit")}
 	if d, ok := UpstreamRetryAfter(reset); !ok || d != 90*time.Second {

@@ -146,7 +146,6 @@ type ModelJSON struct {
 type AgentJSON struct {
 	Model                      string `json:"model"`
 	MaxTurns                   int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn           int    `json:"max_tokens_per_turn,omitempty"`
 	LLMRetryMax                *int   `json:"llm_retry_max,omitempty"`
 	LLMRetryBaseMS             int    `json:"llm_retry_base_ms,omitempty"`
 	LLMMinIntervalMS           int    `json:"llm_min_interval_ms,omitempty"`
@@ -552,7 +551,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Agent = AgentJSON{
 		Model:                      c.Agent.Model,
 		MaxTurns:                   c.Agent.MaxTurns,
-		MaxTokensPerTurn:           c.Agent.MaxTokensPerTurn,
 		LLMRetryMax:                c.Agent.LLMRetryMax,
 		LLMRetryBaseMS:             c.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:           c.Agent.LLMMinIntervalMS,
@@ -852,7 +850,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Agent = Agent{
 		Model:                      j.Agent.Model,
 		MaxTurns:                   j.Agent.MaxTurns,
-		MaxTokensPerTurn:           j.Agent.MaxTokensPerTurn,
 		LLMRetryMax:                j.Agent.LLMRetryMax,
 		LLMRetryBaseMS:             j.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:           j.Agent.LLMMinIntervalMS,
@@ -1194,7 +1191,7 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 
 // escapeYAMLSecrets returns a copy of cfg with always-literal proxy URLs "$"-escaped for disk.
 // It copies only what it mutates (the Providers slice and the gateway proxy string), leaving the
-// caller's in-memory *Config untouched вЂ” the live config keeps the real, unescaped values.
+// caller's in-memory *Config untouched — the live config keeps the real, unescaped values.
 func escapeYAMLSecrets(cfg *Config) *Config {
 	out := *cfg
 	if len(cfg.Providers) > 0 {

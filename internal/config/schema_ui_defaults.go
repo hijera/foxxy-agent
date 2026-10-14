@@ -56,7 +56,6 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		Agent: AgentJSON{
 			Model:                      "openai/gpt-5.6-terra",
 			MaxTurns:                   AgentDefaultMaxTurns,
-			MaxTokensPerTurn:           AgentDefaultMaxTokensPerTurn,
 			LLMRetryMax:                &llmRetryMax,
 			LLMRetryBaseMS:             AgentDefaultLLMRetryBaseMS,
 			LLMFirstTokenTimeoutMS:     &llmFirstTokenTimeoutMS,

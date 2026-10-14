@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"math"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -403,18 +404,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	finishCompaction()
 
-	maxTurns := a.cfg.Agent.MaxTurns
-	if maxTurns <= 0 {
-		// fork(max-turns-default): upstream 1.2.9 reads an unset max_turns as
-		// no step limit at all; FoxxyCode keeps 30.
-		maxTurns = 30
-	}
-	if a.subagent != nil {
-		maxTurns = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
-		if a.subagent.MaxTurns > 0 {
-			maxTurns = a.subagent.MaxTurns
-		}
-	}
+	maxTurns := a.turnCap()
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 
@@ -553,6 +543,24 @@ func (a *Agent) wireFileEditHook(env *tools.Env) {
 // gpt-oss / harmony endpoints that leak a tool call into the reasoning channel — while
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
+
+// turnCap is how many ReAct steps this turn may take: agent.max_turns, for a
+// subagent the definition's max_turns, then subagents.max_turns, then
+// agent.max_turns. None of them set (the default) is no step limit, which the
+// loop counts as math.MaxInt.
+func (a *Agent) turnCap() int {
+	limit := a.cfg.Agent.MaxTurns
+	if a.subagent != nil {
+		limit = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
+		if a.subagent.MaxTurns > 0 {
+			limit = a.subagent.MaxTurns
+		}
+	}
+	if limit <= 0 {
+		return math.MaxInt
+	}
+	return limit
+}
 
 // maxEmptyAssistantReissues bounds how many times an empty turn is answered by
 // replaying the identical request before the model is talked to in words. One
@@ -839,7 +847,7 @@ func (a *Agent) runReActLoop(
 	transportRev := a.state.SettingsRevision()
 	transportKey := a.transportKey()
 
-	for turn := 0; turn < maxTurns+recoveryTurns; turn++ {
+	for turn := 0; turn-recoveryTurns < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
 		}
@@ -964,7 +972,6 @@ func (a *Agent) runReActLoop(
 		var response *llm.Response
 		var streamErr error
 		var reasoningBuf strings.Builder
-
 		reasonClockStart := time.Time{}
 		reasonClockEnd := time.Time{}
 		// streamedAny records that a chunk of any kind reached the client

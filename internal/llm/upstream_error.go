@@ -9,17 +9,12 @@ import (
 	"github.com/openai/openai-go"
 )
 
-// Ported from upstream 1.2.9 (#351) without its Devin half: the fork has no
-// Devin provider yet. The HTTP API status passthrough of the same release
-// (#322) is not ported; UpstreamStatus is here because IsTransientProviderError
-// reads it.
-
 // UpstreamStatus reports the HTTP status the provider answered a failed call
 // with, or 0 when the error carries none (a transport failure, an error of
-// FoxxyCode's own). Only typed errors are read: unlike httpStatusFromError,
-// which decides retries and may guess from a message, a digit inside a message
-// never passes for a status here. A usage limit FoxxyCode chose not to wait
-// for is the 429 behind it.
+// FoxxyCode's own). Only typed errors are read: unlike httpStatusFromError, which
+// decides retries and may guess from a message, this is what an HTTP client
+// of FoxxyCode is told, so a digit inside a message never passes for a status. A
+// usage limit FoxxyCode chose not to wait for is the 429 behind it.
 func UpstreamStatus(err error) int {
 	if err == nil {
 		return 0
@@ -36,6 +31,10 @@ func UpstreamStatus(err error) int {
 	if errors.As(err, &ant) && ant.StatusCode > 0 {
 		return ant.StatusCode
 	}
+	var dev *devinAPIError
+	if errors.As(err, &dev) {
+		return dev.status
+	}
 	var sse *streamServerError
 	if errors.As(err, &sse) {
 		return sse.code
@@ -45,12 +44,15 @@ func UpstreamStatus(err error) int {
 
 // UpstreamRetryAfter reports the pause the provider asked for before the
 // next attempt: a Retry-After header, a reset time or a "retry in Ns" phrase
-// of a limit answer, or the reset of a usage limit FoxxyCode chose not to
-// wait for.
+// of a limit answer, or the reset of a usage limit FoxxyCode chose not to wait for.
 func UpstreamRetryAfter(err error) (time.Duration, bool) {
 	var reset *QuotaResetError
 	if errors.As(err, &reset) && reset.Delay > 0 {
 		return reset.Delay, true
+	}
+	var dev *devinAPIError
+	if errors.As(err, &dev) && dev.retryAfter > 0 {
+		return dev.retryAfter, true
 	}
 	return serverRetryDelay(err)
 }
@@ -92,7 +94,7 @@ func IsTransientProviderError(err error) bool {
 	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
-		return isDialFailure(transport.cause) || isTransientTransportError(transport.cause)
+		return (isDialFailure(transport.cause) || isTransientTransportError(transport.cause)) || isTransientTransportError(transport.cause)
 	}
 	if status := UpstreamStatus(err); status != 0 {
 		return transientStatus(status)
