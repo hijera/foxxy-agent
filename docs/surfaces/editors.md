@@ -10,7 +10,11 @@ Notifications** in the FoxxyCode panel controls both delivery and sound; the pre
 are shared with the desktop app through `ui.notifications`, `ui.notification_sound`
 and `ui.notifications_when_focused` (off by default). Choose a custom MP3/WAV (up to
 5 MiB), preview it or restore the standard sound in the same section; the saved
-`ui.notification_sound_file` selection also applies to desktop.
+`ui.notification_sound_file` selection also applies to desktop. With the standard
+sound selected, IntelliJ balloons play the IDE's system alert sound natively (the
+embedded browser cannot unlock audio before an in-page gesture); custom clips play
+inside the panel. VS Code notifications have no sound API, so VS Code plays the
+chime or clip inside the webview.
 See [host notifications](web-ui.md#notifications-in-desktop-and-editor-hosts).
 
 The plugin (`editors/intellij`, every IntelliJ-based IDE from 2022.2) and the extension (`editors/vscode`) bundle the `foxxycode` binary, so an editor panel needs no separate install; both are attached to every [GitHub Release](https://github.com/hijera/foxxy-agent/releases). Each starts one `foxxycode http` for the open project on a free loopback port, with `--cwd` set to the project root and the shared `~/.foxxycode` as its home, and embeds the [web UI](web-ui.md) in a tool window (JCEF) or a webview. Everything the web UI does is there - sessions and History, modes and models, settings, skills, the scheduler - plus what only an editor can give it:

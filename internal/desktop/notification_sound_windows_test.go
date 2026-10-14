@@ -48,7 +48,11 @@ func TestNativeCustomSoundPlayback(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer syswinrt.RoUninitialize()
-			if err := p.play(base64.StdEncoding.EncodeToString(audio.data)); err != nil {
+			prep, err := p.prepare(base64.StdEncoding.EncodeToString(audio.data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := p.play(prep); err != nil {
 				t.Fatal(err)
 			}
 			if !p.playing {
@@ -59,5 +63,44 @@ func TestNativeCustomSoundPlayback(t *testing.T) {
 				t.Fatal("native sound did not stop")
 			}
 		})
+	}
+}
+
+// Staging runs without an audio device, so its limits and cleanup are checked here.
+func TestNativeSoundPrepare(t *testing.T) {
+	p := &nativeSoundPlayer{}
+	defer p.close()
+	if prep, err := p.prepare(""); err != nil || !prep.system {
+		t.Fatalf("empty payload must select the system alias: %v %v", prep, err)
+	}
+	wav := make([]byte, 44+8)
+	copy(wav, "RIFF")
+	binary.LittleEndian.PutUint32(wav[4:], uint32(len(wav)-8))
+	copy(wav[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(wav[16:], 16)
+	binary.LittleEndian.PutUint16(wav[20:], 1)
+	binary.LittleEndian.PutUint16(wav[22:], 1)
+	binary.LittleEndian.PutUint32(wav[24:], 8000)
+	binary.LittleEndian.PutUint32(wav[28:], 16000)
+	binary.LittleEndian.PutUint16(wav[32:], 2)
+	binary.LittleEndian.PutUint16(wav[34:], 16)
+	copy(wav[36:], "data")
+	binary.LittleEndian.PutUint32(wav[40:], 8)
+	prep, err := p.prepare(base64.StdEncoding.EncodeToString(wav))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prep.system || prep.file == "" {
+		t.Fatalf("WAV payload must stage a file: %+v", prep)
+	}
+	if _, err := os.Stat(prep.file); err != nil {
+		t.Fatal(err)
+	}
+	p.discard(prep)
+	if _, err := os.Stat(prep.file); !os.IsNotExist(err) {
+		t.Fatalf("discarded clip must be removed: %v", err)
+	}
+	if _, err := p.prepare(base64.StdEncoding.EncodeToString([]byte("not audio"))); err == nil {
+		t.Fatal("non-audio payload must be rejected")
 	}
 }

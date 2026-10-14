@@ -504,6 +504,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         val script = """
             window.foxxycodeHostNotify = function (n) { ${query.inject("JSON.stringify(n)")}; return true; };
             window.foxxycodeHostDismiss = function (id) { ${query.inject("JSON.stringify({dismiss:id})")}; };
+            window.foxxycodeHostSystemSound = true;
         """.trimIndent()
         browser?.cefBrowser?.executeJavaScript(script, browser?.cefBrowser?.url ?: "", 0)
     }

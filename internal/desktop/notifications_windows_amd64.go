@@ -3,9 +3,11 @@
 package desktop
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -22,11 +24,13 @@ import (
 const notificationAppID = "FoxxyCode.Desktop"
 
 type notificationRequest struct {
-	n         Notification
-	hide      string
-	soundOnly bool
-	stopSound bool
-	reply     chan error
+	n            Notification
+	prepared     preparedSound
+	preparedDone bool // SoundData was staged by the bind goroutine
+	hide         string
+	soundOnly    bool
+	stopSound    bool
+	reply        chan error
 }
 
 type nativeToast struct {
@@ -43,6 +47,9 @@ func installNotifications(w webview2.WebView) (func(), error) {
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	ready := make(chan error, 1)
+	// The player is shared: bind callbacks stage clips on their own goroutines
+	// while only the worker thread below starts and stops playback.
+	player := &nativeSoundPlayer{}
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
@@ -68,13 +75,13 @@ func installNotifications(w webview2.WebView) (func(), error) {
 			return
 		}
 		defer notifier.Release()
-		player := &nativeSoundPlayer{}
 		defer player.close()
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
 		var audioID string
 		var audioWhenFocused bool
 		live := make(map[string]nativeToast)
+		var liveOrder []string
 		remove := func(id string) {
 			if item, ok := live[id]; ok {
 				_ = notifier.Hide(&item.toast.IToastNotification)
@@ -82,6 +89,12 @@ func installNotifications(w webview2.WebView) (func(), error) {
 				item.handler.Close()
 				item.toast.Release()
 				delete(live, id)
+				for i, existing := range liveOrder {
+					if existing == id {
+						liveOrder = append(liveOrder[:i], liveOrder[i+1:]...)
+						break
+					}
+				}
 			}
 		}
 		defer func() {
@@ -95,7 +108,9 @@ func installNotifications(w webview2.WebView) (func(), error) {
 			case <-done:
 				return
 			case <-ticker.C:
-				if player.playing && !audioWhenFocused && nativeNotificationWindowActive(hwnd) {
+				// Natural completion clears the flag, so the ticker idles
+				// instead of polling focus for the rest of the session.
+				if player.playing && (player.finished() || (!audioWhenFocused && nativeNotificationWindowActive(hwnd))) {
 					player.stop()
 					audioID = ""
 				}
@@ -110,9 +125,10 @@ func installNotifications(w webview2.WebView) (func(), error) {
 					audioWhenFocused = req.n.WhenFocused
 					audioID = ""
 					if req.n.suppressed(nativeNotificationWindowActive(hwnd)) {
+						player.discard(req.prepared)
 						req.reply <- nil
 					} else {
-						req.reply <- player.play(req.n.SoundData)
+						req.reply <- player.play(req.prepared)
 					}
 					continue
 				}
@@ -128,15 +144,15 @@ func installNotifications(w webview2.WebView) (func(), error) {
 				// Focus can change after the SPA checks it. Suppression is handled
 				// successfully so it cannot trigger an in-window fallback or sound.
 				if req.n.suppressed(nativeNotificationWindowActive(hwnd)) {
+					player.discard(req.prepared)
 					req.reply <- nil
 					continue
 				}
 				remove(req.n.ID)
-				if len(live) >= 128 {
-					for id := range live {
-						remove(id)
-						break
-					}
+				// Evict the oldest toast, matching the SPA's pending FIFO, so an
+				// actionable notification is never the one unregistered.
+				if len(live) >= 128 && len(liveOrder) > 0 {
+					remove(liveOrder[0])
 				}
 				item, err := createNativeToast(req.n, func(arguments string) {
 					select {
@@ -147,30 +163,34 @@ func installNotifications(w webview2.WebView) (func(), error) {
 					id, action, _ := strings.Cut(arguments, ":")
 					args, _ := json.Marshal([]string{id, action})
 					w.Dispatch(func() {
-						showWindow := user32DLL.NewProc("ShowWindow")
-						foreground := user32DLL.NewProc("SetForegroundWindow")
-						_, _, _ = showWindow.Call(uintptr(w.Window()), 9) // SW_RESTORE
-						_, _, _ = foreground.Call(uintptr(w.Window()))
+						bringWindowToFront(uintptr(w.Window()))
 						w.Eval("window.foxxycodeUi && window.foxxycodeUi.notificationAction.apply(null," + string(args) + ")")
 					})
 				})
 				if err == nil {
 					live[req.n.ID] = item
+					liveOrder = append(liveOrder, req.n.ID)
 					if req.n.suppressed(nativeNotificationWindowActive(hwnd)) {
 						remove(req.n.ID)
 					} else if err = notifier.Show(&item.toast.IToastNotification); err != nil {
 						remove(req.n.ID)
 					} else {
 						player.stop()
-						if !req.n.Silent && req.n.SoundData != "" && nativeSoundAllowed() {
+						if req.preparedDone && !req.n.Silent && nativeSoundAllowed() {
 							if setting, settingErr := notifier.Setting(); settingErr == nil && setting == 0 {
 								audioID, audioWhenFocused = req.n.ID, req.n.WhenFocused
-								if audioErr := player.play(req.n.SoundData); audioErr != nil {
-									_ = player.play("")
+								if audioErr := player.play(req.prepared); audioErr != nil {
+									_ = player.play(preparedSound{system: true})
 								}
+							} else {
+								player.discard(req.prepared)
 							}
+						} else {
+							player.discard(req.prepared)
 						}
 					}
+				} else {
+					player.discard(req.prepared)
 				}
 				req.reply <- err
 			}
@@ -190,7 +210,17 @@ func installNotifications(w webview2.WebView) (func(), error) {
 		}
 	}
 	if err := w.Bind("foxxycodeHostNotify", func(n Notification) (bool, error) {
-		err := send(notificationRequest{n: n})
+		req := notificationRequest{n: n}
+		if n.SoundData != "" {
+			// Decode off the worker thread; a corrupt clip degrades to the
+			// system ding instead of losing the toast.
+			prep, prepErr := player.prepare(n.SoundData)
+			if prepErr != nil {
+				prep = preparedSound{system: true}
+			}
+			req.prepared, req.preparedDone = prep, true
+		}
+		err := send(req)
 		return err == nil, err
 	}); err != nil {
 		closeService()
@@ -203,7 +233,12 @@ func installNotifications(w webview2.WebView) (func(), error) {
 		return nil, err
 	}
 	if err := w.Bind("foxxycodeHostPlaySound", func(data string, whenFocused bool) error {
-		return send(notificationRequest{soundOnly: true, n: Notification{SoundData: data, WhenFocused: whenFocused}})
+		// Preview sound errors reach the settings form, so they are not degraded.
+		prep, err := player.prepare(data)
+		if err != nil {
+			return err
+		}
+		return send(notificationRequest{soundOnly: true, prepared: prep, preparedDone: true, n: Notification{WhenFocused: whenFocused}})
 	}); err != nil {
 		closeService()
 		return nil, err
@@ -221,6 +256,31 @@ func registerNotificationApp() error {
 	return registerNotificationIdentity(notificationAppID)
 }
 
+//go:embed notification-icon.png
+var notificationIconPNG []byte
+
+// notificationIconFile materialises the toast logo once per user cache. The
+// registry IconUri must name an image; the executable path is ignored by
+// Windows and left the toast with a generic glyph.
+func notificationIconFile() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cache, "FoxxyCode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "notification-icon.png")
+	info, statErr := os.Stat(path)
+	if statErr != nil || info.Size() != int64(len(notificationIconPNG)) {
+		if err := os.WriteFile(path, notificationIconPNG, 0o600); err != nil {
+			return "", err
+		}
+	}
+	return path, nil
+}
+
 func registerNotificationIdentity(appID string) error {
 	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Classes\AppUserModelId\`+appID, registry.SET_VALUE)
 	if err != nil {
@@ -230,11 +290,13 @@ func registerNotificationIdentity(appID string) error {
 	if err := key.SetStringValue("DisplayName", "FoxxyCode"); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	icon, err := notificationIconFile()
 	if err != nil {
-		return err
+		// The identity is still usable without a logo; Windows substitutes a
+		// generic glyph rather than failing the toast.
+		return nil
 	}
-	return key.SetStringValue("IconUri", exe)
+	return key.SetStringValue("IconUri", icon)
 }
 
 func createNativeToast(n Notification, activated func(string)) (nativeToast, error) {

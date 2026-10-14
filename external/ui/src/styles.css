@@ -10872,12 +10872,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
 }
 
-.desktop-toast-body {
-  font-size: 13px;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
-}
-
 .desktop-toast-actions {
   display: flex;
   flex-wrap: wrap;

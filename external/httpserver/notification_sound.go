@@ -55,6 +55,9 @@ func (s *Server) notificationSoundGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
+	// Uploads are validated by header sniffing only; keep browsers from
+	// re-sniffing them into something executable, as sibling file routes do.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if cfg.UI.NotificationSoundFile == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -62,6 +65,8 @@ func (s *Server) notificationSoundGet(w http.ResponseWriter, r *http.Request) {
 	data, kind, err := notificationsound.Load(cfg.Paths.Home, cfg.UI.NotificationSoundFile)
 	if err != nil {
 		switch {
+		case errors.Is(err, notificationsound.ErrLocation):
+			writeFoxxyCodeConfigErr(w, 403, "sound path is outside the notification-sounds directory")
 		case errors.Is(err, os.ErrNotExist):
 			writeFoxxyCodeConfigErr(w, 404, "sound file not found")
 		case errors.Is(err, notificationsound.ErrFormat):

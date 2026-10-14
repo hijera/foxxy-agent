@@ -24,18 +24,32 @@ func TestNotificationSoundErrors(t *testing.T) {
 	}{
 		{"invalid upload", http.MethodPost, []byte("not audio"), "", http.StatusUnsupportedMediaType},
 		{"large upload", http.MethodPost, make([]byte, notificationsound.MaxBytes+1), "", http.StatusRequestEntityTooLarge},
+		{"selected file outside the sounds directory", http.MethodGet, nil, "outside.wav", http.StatusForbidden},
 		{"missing selected file", http.MethodGet, nil, "missing.wav", http.StatusNotFound},
 		{"invalid selected file", http.MethodGet, []byte("not audio"), "invalid.wav", http.StatusUnsupportedMediaType},
 		{"large selected file", http.MethodGet, make([]byte, notificationsound.MaxBytes+1), "large.wav", http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			if tc.method == http.MethodGet && tc.body != nil {
-				if err := os.WriteFile(filepath.Join(home, tc.selected), tc.body, 0o600); err != nil {
-					t.Fatal(err)
+			selected := tc.selected
+			if tc.method == http.MethodGet {
+				// Only uploads under the agent's notification-sounds directory
+				// are served; the "outside" case keeps its path under home.
+				if tc.status == http.StatusForbidden {
+					selected = filepath.Join(home, tc.selected)
+				} else {
+					selected = filepath.Join(home, "notification-sounds", tc.selected)
+				}
+				if tc.body != nil {
+					if err := os.MkdirAll(filepath.Dir(selected), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(selected, tc.body, 0o600); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
-			cfg := &config.Config{Paths: config.Paths{Home: home}, UI: config.UIConfig{NotificationSoundFile: tc.selected}}
+			cfg := &config.Config{Paths: config.Paths{Home: home}, UI: config.UIConfig{NotificationSoundFile: selected}}
 			s := New(cfg, nil, slog.Default(), home)
 			defer s.Drain()
 			res := httptest.NewRecorder()

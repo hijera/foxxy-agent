@@ -20,6 +20,8 @@ let playingPreview = false;
 let playbackRevision = 0;
 let cachedFile = "";
 let cachedAudio: Promise<ArrayBuffer> | null = null;
+let cachedDataFile = "";
+let cachedData: Promise<string> | null = null;
 
 function audioBytes(file: string): Promise<ArrayBuffer> {
   if (!cachedAudio || file !== cachedFile) {
@@ -40,11 +42,21 @@ function audioBytes(file: string): Promise<ArrayBuffer> {
 }
 
 export async function notificationSoundData(file: string): Promise<string> {
-  const bytes = new Uint8Array(await audioBytes(file));
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 32768)
-    binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
-  return btoa(binary);
+  // The same multi-megabyte base64 body ships with every alert; build it once.
+  if (!cachedData || cachedDataFile !== file) {
+    cachedDataFile = file;
+    cachedData = audioBytes(file).then((buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 32768)
+        binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+      return btoa(binary);
+    });
+    void cachedData.catch(() => {
+      if (cachedDataFile === file) cachedData = null;
+    });
+  }
+  return cachedData;
 }
 
 export function stopNotificationSound(): void {

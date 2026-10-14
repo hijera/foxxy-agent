@@ -1872,7 +1872,7 @@
         },
         "notification_sound_file": {
           "type": "string",
-          "description": "MP3 or WAV file for notification audio (up to 5 MiB). Empty uses the standard sound. Relative paths are resolved against the agent home; the Settings file picker uploads a persistent copy under that home.",
+          "description": "MP3 or WAV file for notification audio (up to 5 MiB). Empty uses the standard sound. The sound endpoint serves only files inside the agent home's notification-sounds directory, where the Settings file picker uploads a persistent copy; relative paths are resolved against the agent home.",
           "default": ""
         },
         "effects": {

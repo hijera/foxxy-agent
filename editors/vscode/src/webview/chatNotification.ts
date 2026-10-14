@@ -42,6 +42,8 @@ export function chatNotificationFromMessage(
     id: n.id,
     title: n.title.slice(0, 256),
     body: n.body.slice(0, 500),
+    // Contract-only here: VS Code notifications have no sound switch, so the
+    // SPA keeps playing the alert itself; the IntelliJ bridge reads this flag.
     silent: n.silent === true,
     actions: n.actions.map((a) => ({ id: a.id, label: a.label.slice(0, 120) })),
   };

@@ -15,8 +15,10 @@ choices plus **Open chat**; the transcript carries the full prompt.
 
 Completion is an observed running-to-idle transition confirmed by session activity,
 including completion recovered after a stream disconnect. The alert starts with
-**Task finished**, followed by the latest answer excerpt; a newly ready plan uses the
-plan-ready alert and its **Run plan** action. An intentional Stop does not alert.
+**Task finished**, followed by the latest answer excerpt as capped plain text
+(markdown syntax is stripped, so no fence markers or link syntax reach the toast);
+a newly ready plan uses the plan-ready alert and its **Run plan** action. An
+intentional Stop does not alert.
 
 By default, alerts and sound are emitted only while the FoxxyCode window is minimized
 or in the background. The native host checks the foreground window and its owned
@@ -42,8 +44,8 @@ The selected filename is shown only for a custom sound, followed by three wrappi
 `settings-btn` actions: **Choose sound…**, **Preview** and **Stop playback**.
 It accepts MP3/WAV files up to 5 MiB, uploads a persistent copy into the agent home's
 `notification-sounds/` directory and immediately saves `ui.notification_sound_file`.
-An empty value selects the standard sound; relative configured paths resolve against
-the agent home. The radios save immediately and retain the previous choice if saving fails.
+An empty value selects the standard sound; the read endpoint serves only files inside
+that directory, and relative configured paths resolve against the agent home. The radios save immediately and retain the previous choice if saving fails.
 Preview is an explicit user action and works while notifications or sound are disabled.
 Upload, save and playback errors appear inline; a failed save retains the previous selection.
 The filename wraps on narrow panels and the existing button tokens apply in both themes.

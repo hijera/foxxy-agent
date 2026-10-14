@@ -21,10 +21,67 @@ afterEach(() => {
   delete window.foxxycodeHostNotify;
   delete window.foxxycodeHostIsActive;
   delete window.foxxycodeHostPlaySound;
+  delete window.foxxycodeHostSystemSound;
   delete document.documentElement.dataset.embed;
   applyNotificationConfig({});
   vi.clearAllMocks();
   vi.restoreAllMocks();
+});
+
+test("notification bodies are capped before they reach any host", async () => {
+  const host = vi.fn().mockResolvedValue(true);
+  window.foxxycodeHostNotify = host;
+  await showHostNotification(
+    {
+      id: "body-cap",
+      sessionId: "s",
+      title: "Chat",
+      body: "b".repeat(600),
+      actions: [],
+    },
+    vi.fn(),
+  );
+  expect(host).toHaveBeenCalledWith(
+    expect.objectContaining({ body: "b".repeat(500) }),
+  );
+});
+
+test("a host that owns the system sound skips the in-page chime", async () => {
+  document.documentElement.dataset.embed = "intellij";
+  window.foxxycodeHostSystemSound = true;
+  const host = vi.fn().mockResolvedValue(true);
+  window.foxxycodeHostNotify = host;
+  await showHostNotification(
+    {
+      id: "host-system-sound",
+      sessionId: "s",
+      title: "Chat",
+      body: "Done",
+      actions: [],
+    },
+    vi.fn(),
+  );
+  expect(host).toHaveBeenCalledWith(expect.objectContaining({ silent: false }));
+  expect(playNotificationSound).not.toHaveBeenCalled();
+});
+
+test("a host that owns the system sound still plays a custom clip in page", async () => {
+  document.documentElement.dataset.embed = "intellij";
+  window.foxxycodeHostSystemSound = true;
+  const host = vi.fn().mockResolvedValue(true);
+  window.foxxycodeHostNotify = host;
+  applyNotificationConfig({ ui: { notification_sound_file: "clip.wav" } });
+  await showHostNotification(
+    {
+      id: "host-custom-clip",
+      sessionId: "s",
+      title: "Chat",
+      body: "Done",
+      actions: [],
+    },
+    vi.fn(),
+  );
+  expect(playNotificationSound).toHaveBeenCalledTimes(1);
 });
 
 test("native notifications receive the selected custom audio", async () => {

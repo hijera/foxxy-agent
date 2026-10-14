@@ -1272,19 +1272,19 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"/foxxycode/notification-sound": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary":     "Get the selected notification sound",
-					"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Returns bounded MP3/WAV bytes; no path supplied by the caller is read. Empty selection uses the host's standard sound and returns 204.",
-					"operationId": "foxxycodeNotificationSoundGet",
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Selected audio", "content": map[string]interface{}{
-							"audio/mpeg": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
-							"audio/wav":  map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
-						}},
-						"204": map[string]interface{}{"description": "No custom audio selected"},
-						"404": errorResponseRef(), "413": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(),
+					"get": map[string]interface{}{
+						"summary":     "Get the selected notification sound",
+						"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Only files inside the agent home's notification-sounds directory are served; no path supplied by the caller is read. Returns bounded MP3/WAV bytes. Empty selection uses the host's standard sound and returns 204.",
+						"operationId": "foxxycodeNotificationSoundGet",
+						"responses": map[string]interface{}{
+							"200": map[string]interface{}{"description": "Selected audio", "content": map[string]interface{}{
+								"audio/mpeg": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+								"audio/wav":  map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+							}},
+							"204": map[string]interface{}{"description": "No custom audio selected"},
+							"403": errorResponseRef(), "404": errorResponseRef(), "413": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(),
+						},
 					},
-				},
 				"post": map[string]interface{}{
 					"summary":     "Upload a notification sound",
 					"description": "Accepts raw MP3/WAV bytes, at most 5 MiB. Saves a persistent copy under the agent home with a safe content-hashed name. Does not change the selected sound: persist the returned file path as ui.notification_sound_file through config PUT. Uploaded copies are retained when returning to the standard sound.",

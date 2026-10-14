@@ -58,13 +58,16 @@ configured in Windows.
 **Choose sound…** selects a custom MP3 or WAV (up to 5 MiB), saves a copy in the agent's
 `notification-sounds/` directory and sets `ui.notification_sound_file` immediately.
 **Preview** plays the selected sound even with notifications or sound disabled;
-**Stop playback** stops playback. You can also configure an absolute path or a path relative to the agent home.
+**Stop playback** stops playback. The sound endpoint serves only files inside that
+`notification-sounds/` directory; the picker uploads there automatically.
 The same selection applies to desktop and editor panels. Missing or unplayable files
 fall back to the standard sound for alerts; Preview shows an error instead.
 
 Turning notifications off also suppresses their sound. Automatic audio stops when you
 disable sound, change its file, or return to the active window with foreground alerts off.
-Windows uses system audio by default; editor panels use the FoxxyCode chime.
+Windows uses system audio by default; IntelliJ balloons play the system alert sound
+through the IDE, and browser or VS Code panels use the FoxxyCode chime. Custom clips
+play in-page in every panel.
 Windows notification settings and Do Not Disturb
 may suppress delivery even when FoxxyCode notifications are enabled.
 

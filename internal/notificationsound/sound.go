@@ -18,6 +18,9 @@ const MaxBytes = 5 << 20
 var (
 	ErrTooLarge = errors.New("notification sound exceeds 5 MiB")
 	ErrFormat   = errors.New("notification sound must be MP3 or WAV")
+	// ErrLocation guards the read endpoint: the served file must live under
+	// the agent's notification-sounds directory, never elsewhere on disk.
+	ErrLocation = errors.New("notification sound must live under the agent notification-sounds directory")
 )
 
 func Format(data []byte) (string, error) {
@@ -66,18 +69,40 @@ func Store(home, name string, data []byte) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(root, fmt.Sprintf("%x-%s.%s", sha256.Sum256(data), stem, kind))
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	// Content-addressed writes stage through a temp file: a concurrent read of
+	// the same digest never observes a truncated upload.
+	tmp, err := os.CreateTemp(root, ".sound-*")
+	if err != nil {
 		return "", err
+	}
+	tmpName := tmp.Name()
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr == nil && cerr == nil {
+		werr = os.Rename(tmpName, path)
+	}
+	if werr != nil {
+		_ = os.Remove(tmpName)
+		if cerr != nil {
+			return "", cerr
+		}
+		return "", werr
 	}
 	return path, nil
 }
 
-// Load resolves relative paths against the agent home and never reads unbounded files.
+// Load resolves relative paths against the agent home, serves only files inside
+// the notification-sounds directory and never reads unbounded files.
 func Load(home, path string) ([]byte, string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(home, path)
 	}
-	info, err := os.Stat(path)
+	if rel, err := filepath.Rel(filepath.Join(home, "notification-sounds"), path); err != nil ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return nil, "", ErrLocation
+	}
+	// Lstat so a symlink planted inside the directory cannot point elsewhere.
+	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, "", err
 	}

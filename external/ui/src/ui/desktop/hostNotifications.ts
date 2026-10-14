@@ -32,6 +32,8 @@ declare global {
       n: HostNotificationPayload,
     ) => Promise<boolean> | boolean;
     foxxycodeHostDismiss?: (id: string) => Promise<unknown> | void;
+    /** Set by hosts that play the system alert sound natively (IntelliJ). */
+    foxxycodeHostSystemSound?: boolean;
   }
 }
 
@@ -177,8 +179,17 @@ export async function showHostNotification(
     rememberNotification(n.id);
     if (pending.size > 128)
       dismissHostNotification(pending.keys().next().value!);
-    // Desktop uses Windows audio; IDE APIs have no per-notification sound switch.
-    if (latest.sound && (!active || latest.whenFocused) && isEditorEmbed())
+    // Desktop uses Windows audio and IntelliJ balloons beep natively (a JCEF
+    // audio context stays suspended until an in-page gesture); VS Code embeds
+    // and custom clips still play in-page through Web Audio.
+    const hostOwnsSystemSound =
+      !!window.foxxycodeHostSystemSound && !latest.soundFile;
+    if (
+      latest.sound &&
+      (!active || latest.whenFocused) &&
+      isEditorEmbed() &&
+      !hostOwnsSystemSound
+    )
       playNotificationSound();
   } else {
     pending.delete(n.id);

@@ -245,6 +245,13 @@ jobs:
       - name: Run platform-dependent tests
         run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
 
+      # The desktop shell compiles only with `desktop` (it links the httpserver,
+      # hence both tags), so without this step its notification tests are never
+      # executed by CI. The WinRT/audio acceptance tests inside stay opt-in via
+      # FOXXYCODE_TEST_NATIVE_* and skip on headless runners.
+      - name: Run desktop shell notification tests (native paths opt-in)
+        run: go test -tags "desktop http" ./internal/desktop/...
+
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...
 

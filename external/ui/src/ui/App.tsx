@@ -160,7 +160,7 @@ import { isDesktopShell } from "./desktopShell";
 import { dismissHostNotification, dismissSessionNotifications, limitNotificationActions, showHostNotification, type HostNotification } from "./desktop/hostNotifications";
 import { applyNotificationConfig, getNotificationPreferences, onNotificationPreferences } from "./desktop/notificationConfig";
 import { permissionOptionLabel } from "./chat/permissionOptionLabel";
-import { finishedTurnContent } from "./desktop/finishedTurnContent";
+import { finishedTurnContent, plainTurnExcerpt } from "./desktop/finishedTurnContent";
 import {
   DesktopNotifications,
   type DesktopNotification,
@@ -545,7 +545,8 @@ export function App() {
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
-  // Desktop-only bottom-right toasts (permission prompts + plan-ready).
+  // Desktop-only bottom-right toasts (permission prompts; plan-ready and
+  // finished-turn alerts go through the host bridge).
   const [desktopNotifications, setDesktopNotifications] = useState<
     DesktopNotification[]
   >([]);
@@ -967,13 +968,24 @@ export function App() {
 
   function notifyFinishedTurn(sid: string) {
     if (!isDesktopShell() && !isEditorEmbed()) return;
-    const stopped = stoppedTurnBySidRef.current.has(sid);
-    const notificationId = `done_${sid}_${turnActivity.generation(sid)}`;
+    // Fence by generation, like attachViewedComposer: only the turn the user
+    // stopped is quieted, and a later normally-finished one still alerts.
+    const generation = turnActivity.generation(sid);
+    const notificationId = `done_${sid}_${generation}`;
     void loadMessages(sid, {
       preserveOnError: true,
       skipSetItems: true,
     }).then((rows) => {
-      if (stopped || !rows || turnActivity.get(sid) === true) return;
+      // Re-read after the fetch: a Stop can land while it is in flight, and its
+      // marker only appears after the cancel round-trip (stopPendingBySidRef
+      // covers that window).
+      if (
+        stopPendingBySidRef.current.has(sid) ||
+        stoppedTurnBySidRef.current.get(sid) === generation ||
+        !rows ||
+        turnActivity.get(sid) === true
+      )
+        return;
       dismissSessionNotifications(sid);
       const { reply, plans } = finishedTurnContent(rows);
       const plan = plans.find((it) => it.type === "plan_document" && !notifiedPlanKeysRef.current.has(`${sid}:${it.slug}`));
@@ -986,8 +998,11 @@ export function App() {
           } }] });
       } else {
         const stableId = reply?.type === "assistant_message" && reply.createdAtUtc ? `done_${sid}_${encodeURIComponent(reply.createdAtUtc)}` : notificationId;
+        const excerpt = reply?.type === "assistant_message" && reply.content.trim()
+          ? `${t("desktopNotify.finished")}\n${plainTurnExcerpt(reply.content)}`
+          : t("desktopNotify.finished");
         void notifyHost({ id: stableId, sessionId: sid,
-          body: reply?.type === "assistant_message" && reply.content.trim() ? `${t("desktopNotify.finished")}\n${reply.content}` : t("desktopNotify.finished"), actions: [] });
+          body: excerpt, actions: [] });
       }
     });
   }
@@ -1450,20 +1465,23 @@ export function App() {
         payload: p,
       });
       const question = p.questions[0];
-      void notifyHost({ id: `question_${key}_${rid}`, sessionId: key,
-        body: question?.question || t("desktopNotify.question"), actions:
-        p.questions.length === 1 && question && !question.multiple ? question.options.slice(0, 3).map((o) => ({
-          id: `answer_${question.options.indexOf(o)}`, label: o.label, run: () => {
-            void (async () => {
-              try {
-                const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(key)}/question`, { method: "POST", headers: { "Content-Type": "application/json", [HDR]: key }, body: JSON.stringify({ requestId: rid, answers: [[o.label]] }) });
-                if (!res.ok) { openSessionFromRoute(key); return; }
-                resolveQuestionPrompt(key, `qp_${rid}`, { answers: [[o.label]], skipped: false, summaryLine: o.label });
-              } catch { openSessionFromRoute(key); }
-            })();
-          },
-        })) : [],
-      });
+      // Host alerts exist only in the desktop shell and editor embeds; a plain
+      // browser tab has the inline prompt and no host to reach.
+      if (isDesktopShell() || isEditorEmbed())
+        void notifyHost({ id: `question_${key}_${rid}`, sessionId: key,
+          body: question?.question || t("desktopNotify.question"), actions:
+          p.questions.length === 1 && question && !question.multiple ? question.options.slice(0, 3).map((o) => ({
+            id: `answer_${question.options.indexOf(o)}`, label: o.label, run: () => {
+              void (async () => {
+                try {
+                  const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(key)}/question`, { method: "POST", headers: { "Content-Type": "application/json", [HDR]: key }, body: JSON.stringify({ requestId: rid, answers: [[o.label]] }) });
+                  if (!res.ok) { openSessionFromRoute(key); return; }
+                  resolveQuestionPrompt(key, `qp_${rid}`, { answers: [[o.label]], skipped: false, summaryLine: o.label });
+                } catch { openSessionFromRoute(key); }
+              })();
+            },
+          })) : [],
+        });
       applyStreamItemsForSession(key, (prev) => {
         const ridInner = p.requestId;
         if (prev.some((x) => x.type === "question_prompt" && !x.resolved && x.payload.requestId === ridInner)) return prev;
@@ -6260,13 +6278,19 @@ export function App() {
     }
   }, [sessionId, clearSessionRoute]);
 
-  // After the onboarding form is dismissed (saved or skipped), play the guided
-  // tour once — desktop shell only, and only if it has not been seen before.
+  // A Run-plan click on a notification lands here: the plan starts once the
+  // messages are loaded and no other turn is generating.
   useEffect(() => {
     const pending = pendingNotificationPlan;
     if (!pending || sessionId !== pending.sessionId) return;
+    const plan = items.some((it) => it.type === "plan_document" && it.slug === pending.slug && !it.discarded);
+    // While another turn runs, the request stays queued instead of being
+    // dropped: the effect re-runs when generation ends.
+    if (generating || !plan) {
+      if (!generating && !plan) setPendingNotificationPlan(null);
+      return;
+    }
     setPendingNotificationPlan(null);
-    if (generating || !items.some((it) => it.type === "plan_document" && it.slug === pending.slug && !it.discarded)) return;
     void streamResponses(t("chat.runPlanMessage"), { modeOverride: "agent", runPlanSlug: pending.slug });
   }, [pendingNotificationPlan, sessionId, generating, items]);
 
@@ -7123,23 +7147,6 @@ export function App() {
                 summaryLine: label,
               });
             })();
-          }}
-          onRunPlan={(n) => {
-            setDesktopNotifications((prev) =>
-              prev.filter((x) => x.id !== n.id),
-            );
-            const sid = n.sessionId.trim();
-            if (
-              !sid ||
-              sid !== sessionId.trim() ||
-              activeComposerSidRef.current.has(sid)
-            ) {
-              return;
-            }
-            void streamResponses(t("chat.runPlanMessage"), {
-              modeOverride: "agent",
-              runPlanSlug: n.slug,
-            });
           }}
         />
       </div>

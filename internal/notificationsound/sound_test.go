@@ -38,10 +38,26 @@ func TestRejectInvalidAudio(t *testing.T) {
 		}
 	}
 	home := t.TempDir()
-	if _, _, err := Load(home, home); err == nil {
+	// The read endpoint serves uploads only: any other location is refused
+	// before the file is touched, which also blocks symlink targets.
+	for _, path := range []string{
+		home,
+		filepath.Join(home, "elsewhere", "x.wav"),
+		filepath.Join(home, "..", "x.wav"),
+		`\\server\share\x.wav`,
+	} {
+		if _, _, err := Load(home, path); !errors.Is(err, ErrLocation) {
+			t.Fatalf("path outside the sound directory accepted: %s: %v", path, err)
+		}
+	}
+	sounds := filepath.Join(home, "notification-sounds")
+	if err := os.MkdirAll(filepath.Join(sounds, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Load(home, filepath.Join(sounds, "sub")); err == nil {
 		t.Fatal("directory accepted as sound")
 	}
-	if _, _, err := Load(home, "missing.wav"); !errors.Is(err, os.ErrNotExist) {
+	if _, _, err := Load(home, filepath.Join(sounds, "missing.wav")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing file: %v", err)
 	}
 }
