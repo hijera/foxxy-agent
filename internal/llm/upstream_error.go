@@ -94,7 +94,7 @@ func IsTransientProviderError(err error) bool {
 	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
-		return (isDialFailure(transport.cause) || isTransientTransportError(transport.cause)) || isTransientTransportError(transport.cause)
+		return isDialFailure(transport.cause) || isTransientTransportError(transport.cause)
 	}
 	if status := UpstreamStatus(err); status != 0 {
 		return transientStatus(status)
