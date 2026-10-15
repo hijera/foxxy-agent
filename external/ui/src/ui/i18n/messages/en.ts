@@ -455,6 +455,9 @@ export const messagesEn: Record<string, string> = {
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
   "onboarding.provider.neuraldeep.description":
     "Russian AI hub — models via api.neuraldeep.ru",
+  "onboarding.neuralDeepAuth.fieldLabel": "or sign in to NeuralDeep",
+  "onboarding.neuralDeepAuth.description":
+    "Skip the key entirely: sign in with your NeuralDeep hub account and the hub issues a personal key for FoxxyCode. The free tier's default model is filled in below, and the model picker lists your tier's catalog with this login.",
   "onboarding.openHub": "Open hub.neuraldeep.ru",
   "onboarding.title": "Choose a provider",
   "onboarding.lead":

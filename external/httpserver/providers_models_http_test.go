@@ -16,6 +16,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -239,6 +240,65 @@ func TestProviderModelsProbeCodexUsesManagedOAuth(t *testing.T) {
 	}
 	if gotAuth != "Bearer "+accessToken || gotAccount != "acct-onboarding" {
 		t.Fatalf("missing Codex OAuth headers: Authorization=%q account=%q", gotAuth, gotAccount)
+	}
+}
+
+func TestProviderModelsProbeNeuralDeepUsesStoredHubLogin(t *testing.T) {
+	home := t.TempDir()
+	authPath := config.NeuralDeepAuthPath(home, "neuraldeep")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authBody, err := json.Marshal(map[string]string{
+		"api_key":     "nd-hub-key",
+		"hub":         "https://hub.neuraldeep.ru",
+		"obtained_at": time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, authBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.6-35b-a3b"}]}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(llm.EnvNeuralDeepBaseURL, upstream.URL+"/v1")
+
+	// No api_key in the body and no provider row in the config: the onboarding
+	// sign-in probe, whose only credential is the stored hub login.
+	ts := newProviderModelsServer(t, &config.Config{Paths: config.Paths{Home: home}})
+	res, err := http.Post(
+		ts.URL+"/foxxycode/providers/models-probe",
+		"application/json",
+		strings.NewReader(`{"type":"neuraldeep","provider_name":"neuraldeep","api_key":""}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		OK     bool `json:"ok"`
+		Models []struct {
+			ID string `json:"id"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || len(body.Models) != 1 || body.Models[0].ID != "qwen3.6-35b-a3b" {
+		t.Fatalf("unexpected body: %+v", body)
+	}
+	if gotAuth != "Bearer nd-hub-key" {
+		t.Fatalf("upstream Authorization = %q, want the stored hub login key", gotAuth)
 	}
 }
 
