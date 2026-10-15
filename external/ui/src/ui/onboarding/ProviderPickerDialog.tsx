@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Combobox } from "../settings/Combobox";
 import { CodexAuthField } from "../settings/CodexAuthField";
+import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { ProxyUrlField } from "../settings/ProxyUrlField";
 import type { FetchedModel } from "../settings/useProviderModels";
 import { useProbeModels } from "./useProbeModels";
@@ -31,6 +32,15 @@ type ProviderPreset = {
   /** Whether the provider's models accept image/file inputs (models[].multimodal). */
   multimodal: boolean;
   defaultModel: string;
+  /**
+   * Context window written as models[].max_context_tokens when the preset
+   * knows one. Unset leaves the field empty, so the provider's own model
+   * listing fills it. NeuralDeep's free tier caps a request at 46112 input
+   * tokens regardless of the model's native window, so its preset pins that
+   * number: the context ring and the compaction trigger then measure against
+   * the tier's ceiling, not the catalog's.
+   */
+  maxContextTokens?: number;
   envKey?: string;
   website?: string;
 };
@@ -101,7 +111,13 @@ const PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: true,
     apiBase: "https://api.neuraldeep.ru/v1",
     apiBaseFixed: true,
-    defaultModel: "neuraldeep/gpt-oss-120b",
+    // The Qwen 3.6 35B A3B id every tier serves (the free tier's only chat
+    // model), so the saved ref resolves for a fresh sign-in and a paid key
+    // alike. The name must stay lowercase: it is the provider row's own
+    // conventional name, and the model prefix has to match it exactly or the
+    // saved models[].model names no provider.
+    defaultModel: "neuraldeep/qwen3.6-35b-a3b",
+    maxContextTokens: 46112,
     envKey: "${NEURALDEEP_API_KEY}",
     website: "https://hub.neuraldeep.ru",
   },
@@ -144,12 +160,17 @@ function buildConfigBody(
   modelId: string,
   baseDoc: Record<string, unknown>,
   catalog: FetchedModel[],
+  hubLogin = false,
 ): Record<string, unknown> {
   const provider: Record<string, unknown> = {
     name: preset.providerName,
     type: preset.providerType,
   };
-  if (preset.providerType !== "codex") {
+  // A hub login is the credential: writing the env reference (let alone a
+  // typed key) would shadow the stored login, so the row stays keyless and
+  // requests resolve the key from the login file. Codex never carries a key.
+  const keyless = preset.providerType === "codex" || hubLogin;
+  if (!keyless) {
     provider.api_key = apiKey.trim() || preset.envKey || "";
   }
   // Presets whose provider type pins its own endpoint never write api_base: the
@@ -190,6 +211,9 @@ function buildConfigBody(
         model,
         max_tokens: 8192,
         temperature: 0.2,
+        ...(preset.maxContextTokens
+          ? { max_context_tokens: preset.maxContextTokens }
+          : {}),
         multimodal: listed ? listed.vision === true : preset.multimodal,
       },
     ],
@@ -219,6 +243,9 @@ export function ProviderPickerDialog(props: {
   const [error, setError] = useState<string | null>(null);
   const [testOk, setTestOk] = useState(false);
   const [baseDoc, setBaseDoc] = useState<Record<string, unknown>>({});
+  // True while the NeuralDeep hub login is the credential the saved row will
+  // authenticate with: the device-flow widget set it, and no key was typed.
+  const [hubLogin, setHubLogin] = useState(false);
   const {
     loading: modelsLoading,
     models: fetchedModels,
@@ -240,17 +267,32 @@ export function ProviderPickerDialog(props: {
       ? ""
       : apiBase.trim() || preset.apiBase || "";
 
+  /** A neuraldeep probe without a typed key reads the provider's stored hub
+   * login server-side, so the catalog is listed for a device-flow sign-in the
+   * same way Codex lists its models through the OAuth file. */
+  const probeUsesStoredLogin =
+    preset.providerType === "neuraldeep" && !apiKey.trim() && hubLogin;
   const probeInput = useMemo(
     () => ({
       type: preset.providerType,
-      ...(preset.providerType === "codex"
+      ...(preset.providerType === "codex" || probeUsesStoredLogin
         ? { provider_name: preset.providerName }
         : {}),
       api_base: probeApiBase,
-      api_key: preset.providerType === "codex" ? "" : apiKey.trim(),
+      api_key:
+        preset.providerType === "codex" || probeUsesStoredLogin
+          ? ""
+          : apiKey.trim(),
       proxy: proxy.trim(),
     }),
-    [apiKey, preset.providerName, preset.providerType, probeApiBase, proxy],
+    [
+      apiKey,
+      preset.providerName,
+      preset.providerType,
+      probeApiBase,
+      probeUsesStoredLogin,
+      proxy,
+    ],
   );
 
   const presetLabel = useCallback(
@@ -277,6 +319,7 @@ export function ProviderPickerDialog(props: {
   useEffect(() => {
     setTestOk(false);
     setError(null);
+    setHubLogin(false);
     // Pre-select fixed recommendations so they show in the combobox instead of
     // only as placeholder text; generic API providers start empty.
     const next = PRESETS.find((p) => p.id === selected) ?? PRESETS[0];
@@ -302,14 +345,25 @@ export function ProviderPickerDialog(props: {
     if (preset.providerType === "codex") {
       return;
     }
-    if (!probeInput.api_key) {
+    if (!probeInput.api_key && !probeUsesStoredLogin) {
       return;
     }
     const handle = window.setTimeout(() => {
       void probeModels(probeInput);
     }, 600);
     return () => window.clearTimeout(handle);
-  }, [props.open, probeInput, preset.providerType, probeModels]);
+  }, [
+    props.open,
+    probeInput,
+    probeUsesStoredLogin,
+    preset.providerType,
+    probeModels,
+  ]);
+
+  // The hub login is the credential only while no key is typed: a typed key
+  // shadows the stored login (the settings widget says so too), so the saved
+  // row must then carry the key, not stay keyless.
+  const hubCredential = hubLogin && !apiKey.trim();
 
   const configBody = useMemo(
     () =>
@@ -321,8 +375,9 @@ export function ProviderPickerDialog(props: {
         modelId,
         baseDoc,
         fetchedModels,
+        hubCredential,
       ),
-    [preset, apiKey, apiBase, proxy, modelId, baseDoc, fetchedModels],
+    [preset, apiKey, apiBase, proxy, modelId, baseDoc, fetchedModels, hubCredential],
   );
 
   /** Catalog entry behind the chosen model, when the probe listed it. */
@@ -498,6 +553,17 @@ export function ProviderPickerDialog(props: {
             </label>
           )}
 
+          {selected === "neuraldeep" ? (
+            <NeuralDeepAuthField
+              providerName={preset.providerName}
+              hasExplicitKey={apiKey.trim() !== ""}
+              apiBase=""
+              descriptionKey="onboarding.neuralDeepAuth.description"
+              fieldLabelKey="onboarding.neuralDeepAuth.fieldLabel"
+              onConnectedChange={setHubLogin}
+            />
+          ) : null}
+
           {showApiBase ? (
             <label className="provider-picker-field">
               <span>{t("onboarding.apiBase")}</span>
@@ -575,7 +641,9 @@ export function ProviderPickerDialog(props: {
                 onClick={() => void probeModels(probeInput)}
                 disabled={
                   modelsLoading ||
-                  (preset.providerType !== "codex" && !apiKey.trim())
+                  (preset.providerType !== "codex" &&
+                    !apiKey.trim() &&
+                    !probeUsesStoredLogin)
                 }
                 data-testid="provider-fetch-models"
               >

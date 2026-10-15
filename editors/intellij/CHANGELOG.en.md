@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-14
 
+**Sign in to NeuralDeep right from onboarding.**
+The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving.
+
 **Edit the conversation in the same chat.**
 An edited message is sent in the same session: that message and the conversation after it are replaced by a new continuation. Workspace files are not rolled back.
 
