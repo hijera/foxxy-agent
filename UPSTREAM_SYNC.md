@@ -21,7 +21,7 @@ Checkpoint: `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (tag `1.2.18`), following
 - Preserved SVN/browser/IDE features, provider import/export, configurable send shortcuts, config-backed localization, project trust approvals, file downloads, encoding, retry/continuation budgets, disk refresh, stop notices and the Chromium 104 baseline.
 - Validation: the full tagged Go regression passed every package except one UI BDD binding whose anchored Vitest name omitted its describe group; that binding was corrected and `TestWebUISmallFixesFeature` passed on rerun. The final standalone UI suite passed 299 files / 2806 tests. `make lint`, typechecking, docsgen, the embedded build and Chromium 104 compatibility checks passed.
 - Browser verification covered long transcript paging/anchoring in Chromium and WebKit, phone overflow across the grid, chevron alignment, and folder-dialog scrolling in both engines. The latter exposed WebKit scroll chaining; the modal now locks document scrolling while open and restores it on close. Screenshots of the affected surfaces accompany the documentation; additional light/narrow and before/after evidence remains in the local validation workspace.
-- Implementation is in the current `codex/upstream-1.2.18` working tree; `fork_commits` can be populated after it is committed. Validation details belong to the final delivery report.
+- Implementation commit: `e80acc45e6512fa6e28b96ea51ec15962e20d9e1` on `codex/upstream-1.2.18`; all 67 upstream records in `ports.yaml` reference this consolidated port. Local race detection requires an unavailable CGo compiler; the PR CI runs that check on Linux.
 
 ## Sync through upstream 1.2.10 — 2026-10-14
 

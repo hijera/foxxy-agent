@@ -10237,336 +10237,403 @@ ports:
   remaining: []
 - upstream_sha: 1d50aa23da275a3297ad0c1e408a3cdd3042879f
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(httpserver,ui): fetch provider models for unsaved rows (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(httpserver,ui): fetch provider models for unsaved rows (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 448ed395dd70ea5677b820cf78c409701989ea36
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(httpserver): harden POST /coddy/providers/models credential inheritance. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(httpserver): harden POST /coddy/providers/models credential inheritance. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: e73120a8a66705577a72f1c1ed4aaa02fcad912b
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): fetch advertised models from the provider editor (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): fetch advertised models from the provider editor (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 75f9b993dbcf4652052e021f730f585fe65def07
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: docs(web-ui): document the provider-side Fetch models flow (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: docs(web-ui): document the provider-side Fetch models flow (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 5facd36ab694497ca9ccd15a92a9b0726bd941c8
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(providers): show provider-reported context window in the fetch list. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(providers): show provider-reported context window in the fetch list. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 595f00fe9f0feb59374722c98f9362d1ac94f05c
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(settings): field help hints, provider advanced fold, stale-model marking (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(settings): field help hints, provider advanced fold, stale-model marking (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: a6a9119a6e5cd6f09f33853cc78f141bb76bb64d
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(settings): fold provider advanced group last, stale-model minus, usage switch beside type (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(settings): fold provider advanced group last, stale-model minus, usage switch beside type (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f7cfbe20fa28970bbf9f345456b426e1353a3bc1
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Package an opt-in systemd user service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Package an opt-in systemd user service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 8a555403c6326622feef66a084ecaee802eb9c8d
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Add systemd user service setup command. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Add systemd user service setup command. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 8a94670145d6b9daad62d9c8b345935fb52dcf4a
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(ui): render structured tool call cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(ui): render structured tool call cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 2cbb051ef03712bb961241f766ce2f59e6600b95
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: docs(ui): capture complete narrow tool cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: docs(ui): capture complete narrow tool cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 835abc2031b6b0555f0e0597cf47b4eb888d6bd9
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(settings): row rhythm in provider advanced fold, placeholders on every input (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(settings): row rhythm in provider advanced fold, placeholders on every input (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 2acec3b90a62d76ed726a3f7514a945d350a3585
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge remote-tracking branch 'origin/main' into fix/335-provider-models-ux. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge remote-tracking branch 'origin/main' into fix/335-provider-models-ux. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 00dbbee6f10a98771c5de5c07498d54032e9a5bb
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(settings): tabs by meaning, fieldsets on every tab, skill versions from metadata (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(settings): tabs by meaning, fieldsets on every tab, skill versions from metadata (#335). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f4a6a9d49c42628376e5a3a376d3dcbf61b4533a
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: test(cli): give the reasoning waits room on a slow runner. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: test(cli): give the reasoning waits room on a slow runner. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 2b47c1f7e2163e8edd4b5910562fb43efffb0e30
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #350 from coddy-project/fix/335-provider-models-fetch. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #350 from coddy-project/fix/335-provider-models-fetch. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 43f6b3d5090aaf33b7b886f50fe5809ad8e4a939
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge remote-tracking branch 'origin/main' into codex/structured-tool-cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge remote-tracking branch 'origin/main' into codex/structured-tool-cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: e14ba0651ba9a9f83e426792a88a4f4d33135636
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): keep a long command on a phone above its output. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): keep a long command on a phone above its output. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 7462a4ab970a17a4590c98ce725edb27589e1e8a
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(ui): structured cards read the tools' real output, cover the rest and MCP. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(ui): structured cards read the tools' real output, cover the rest and MCP. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 7bdf80cc69685e26e11b025a4642ab83fa11e4f6
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): let a structured card's bar wrap instead of clipping. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): let a structured card's bar wrap instead of clipping. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 60de8d9a5596bff0e82ab40aa0c5b486ece3d4fb
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: docs(ui): structured tool cards and MCP calls, shot from the running app. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: docs(ui): structured tool cards and MCP calls, shot from the running app. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 0952e55962956ecee398ac0664a02a88b9049b43
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): structured cards keep the request payload and each written plan. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): structured cards keep the request payload and each written plan. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 15ff8708c18919682c54f8a327234003744dcfcb
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: docs(ui): the request payload, each written plan and text notes on the cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: docs(ui): the request payload, each written plan and text notes on the cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: a4444e691240a7f7dea5c25d1cdbd4b7aad63982
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): structured card parsers follow Go on userinfo and fragments. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): structured card parsers follow Go on userinfo and fragments. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 6aa9a57309a80e5d4185ac5505fead5abdec4a82
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(ui): phone tier of the layout grid, transcript never wider than the page (#340). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(ui): phone tier of the layout grid, transcript never wider than the page (#340). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f7b03e474d9a3a2c10f5fe6fbf74e53e4d546547
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #353 from coddy-project/codex/structured-tool-cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #353 from coddy-project/codex/structured-tool-cards. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: fa993300b488a630f1e74ceee5cf420cdb587c53
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): tool row trail moves as one group, stricter grid and overflow checks (#340). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): tool row trail moves as one group, stricter grid and overflow checks (#340). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f230e75c8690b978925a7d27d7fbb93ba7beb34c
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge remote-tracking branch 'origin/main' into feat/phone-layout-tier. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge remote-tracking branch 'origin/main' into feat/phone-layout-tier. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: bc0a30d604d0bf318b5735c2b18ce9a0d7d09b09
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(providers): sign in a saved row the settings form is switching to neuraldeep or codex (#334). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(providers): sign in a saved row the settings form is switching to neuraldeep or codex (#334). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: d06fe9794bc94498e85071ed3d31d0e111a899fe
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(providers): cancel and supersede Codex sign-ins, JSON-only device starts. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(providers): cancel and supersede Codex sign-ins, JSON-only device starts. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 2da2d24d92cd2a4c7157cce86e9fee83a4932f7b
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): structured cards show the numbers a server sent, not JSON.parse's (#355). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): structured cards show the numbers a server sent, not JSON.parse's (#355). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 731dad1af4c12fd85f984d91a8ff64e235bcfa07
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #355 from coddy-project/feat/phone-layout-tier. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #355 from coddy-project/feat/phone-layout-tier. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 0aead6c11740850cbff7eb06ac875c7725261fd8
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(serve): setup installs the unit for any binary, works in ~/Coddy, uninstall removes it. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(serve): setup installs the unit for any binary, works in ~/Coddy, uninstall removes it. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: b6adecc70cd35f14a930c034d93a43db1a87b0c3
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(packaging): say the user unit is installed and not enabled, and what to do on upgrade and removal. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(packaging): say the user unit is installed and not enabled, and what to do on upgrade and removal. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 3343fdab5287257965ad2a2ddd27c680ce36fc1a
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: docs(serve): the systemd user service for package and script installs. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: docs(serve): the systemd user service for package and script installs. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: e68b01dce6dd36fb7b664aa94eefcf9cfa3289f9
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(serve): review round 2 on the systemd user service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(serve): review round 2 on the systemd user service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f80fec48b45f710f6232c799911ce042ac168e87
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(providers): several profiles of one provider type. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(providers): several profiles of one provider type. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 7d01be8c4ab11d74e88129d8da96ec65e18122e0
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(serve): review round 2, Devin's findings on the systemd user service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(serve): review round 2, Devin's findings on the systemd user service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f4df52c395c7bec152d5b5c6eadbf6f50bd724d8
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: docs(serve): --daemon refuses over the service's home, uninstall after a package removal, distinct headings. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: docs(serve): --daemon refuses over the service's home, uninstall after a package removal, distinct headings. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 29ffb76b0e8a763eba54236b9a6c8a6fd9564937
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #356 from coddy-project/fix/334-signin-retyped-provider. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #356 from coddy-project/fix/334-signin-retyped-provider. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: e2279adccda62bcd827d7e0951db05f484c52954
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(serve): relink on handover to the packaged unit, CI check that can fail. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(serve): relink on handover to the packaged unit, CI check that can fail. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 470d45b26eca67007f76596fd2b562b44e362a5d
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: ci(packages): read the rpm payload the way Ubuntu's rpm 4.18 writes it. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: ci(packages): read the rpm payload the way Ubuntu's rpm 4.18 writes it. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: c28f830ac65beed2f1327c1e31ba01d482621972
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: refactor(serve): rename `coddy serve setup` to `coddy serve install`. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: refactor(serve): rename `coddy serve setup` to `coddy serve install`. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: b5d6acc0b4f72e0e0e93c0a84a00d2d531f47962
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #352 from coddy-project/feat/systemd-user-service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #352 from coddy-project/feat/systemd-user-service. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: fac9b67a8f4514d6286548fa36ed746f10f9858b
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): five small web UI fixes (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): five small web UI fixes (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 89e309430b9c9d87e919c88febb27ee62a7d3b01
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): archive and read-row edge cases found in cross-review (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): archive and read-row edge cases found in cross-review (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 4480e6955bea6adde1a0c2cc764f8e178e08cf6a
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): indent only the page list of a contents group (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): indent only the page list of a contents group (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: e9c074fcefd4c8dd32d8cebeb46f55e50a6ddf46
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): docs reader leaves no empty strip on tablets, header on the page's columns (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): docs reader leaves no empty strip on tablets, header on the page's columns (#368). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 5a6375a34989c6585c86ec6989341293db8f8610
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): no keyboard by itself on touch devices; scroll-to-bottom above the keyboard, only down. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): no keyboard by itself on touch devices; scroll-to-bottom above the keyboard, only down. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 03c292da9e33d8f3aacb4918a38f3bff98df8fb7
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #369 from coddy-project/fix/368-web-small-fixes. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #369 from coddy-project/fix/368-web-small-fixes. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 4de9e85fc05f17adf8ce48beab3671c999624c40
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Wake parent on background completion by default. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Wake parent on background completion by default. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f3262ac4f6bc510005ac54944d8ac42cde30a17d
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(http): read a session's history page by page (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(http): read a session's history page by page (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 33b5e24103bdff6055ea60f10bbd0fcd9597c9d4
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: feat(ui): hold a long conversation as a sliding window (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: feat(ui): hold a long conversation as a sliding window (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: f89f238c73a9f33859cf8effde35cfdc2b08875e
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): a failed read of the page above waits for Retry (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): a failed read of the page above waits for Retry (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 77c608bcf78ddd260df641b636082ee288f58ff6
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(http): tool-calls refuses a range that ends before it starts (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(http): tool-calls refuses a range that ends before it starts (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: cfa2a68bf2a95fa210b373e87d88d32fe1096699
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): cross-review of the transcript window (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): cross-review of the transcript window (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: d92f3dd0aea6ad3f383bee1cc8c32b308c2abec6
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): only a prompt of the turn in flight holds the window's bottom (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): only a prompt of the turn in flight holds the window's bottom (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: a31106a22ac938788953f0c462d04bcfbf5dca1f
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: fix(ui): the transcript window check cleans up when it is stopped (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: fix(ui): the transcript window check cleans up when it is stopped (#338). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 051bfb3b2db06c57052fd4cb71881ce8d2c38037
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #372 from coddy-project/feat/338-transcript-sliding-window. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #372 from coddy-project/feat/338-transcript-sliding-window. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: ad2ea4d846071584243a6c2ce764369135a0357d
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: agent: prompts promise only what the turn has, cross-review fixes (#363). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: agent: prompts promise only what the turn has, cross-review fixes (#363). Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: aa0d092e4bca3b0f868c2c29e1f84e7c6d832fdc
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: skills: configure-coddy names agent.model, not the default_agent_model field. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: skills: configure-coddy names agent.model, not the default_agent_model field. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 86e066a967fb0e4c8b5dd6b283897c400d516538
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: http: GET /v1/models marks the default row instead of default_agent_model. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: http: GET /v1/models marks the default row instead of default_agent_model. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 4533cdb9e95fb3ea0bfc8993b0d4490a03e25bcb
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: scheduler: a run under a definition takes its reasoning level. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: scheduler: a run under a definition takes its reasoning level. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 68eb111cd152a9194d0ee3deed09cff4a05b737e
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: review: the default row is the first models[] one, job model decides the level. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: review: the default row is the first models[] one, job model decides the level. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 3f41d73d2958c85c49f36a460a4826bc83ed2ad7
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: review: remote fallback case, reasoning: default in the scheduler page. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: review: remote fallback case, reasoning: default in the scheduler page. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: 5f7076bc76f8541ab509909e16a7a75a06ead910
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: test: the default row's happy path runs client against server, not the console. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: test: the default row's happy path runs client against server, not the console. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
 - upstream_sha: a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5
   status: adapted
-  fork_commits: []
-  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #371 from coddy-project/feat/issue-363-agent-wakes. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is in the codex/upstream-1.2.18 working tree pending commit."
+  fork_commits:
+  - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
+  reason: "Consolidated net-diff port through 1.2.18: Merge pull request #371 from coddy-project/feat/issue-363-agent-wakes. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
   remaining: []
