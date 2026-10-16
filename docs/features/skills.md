@@ -28,10 +28,10 @@ recorded in **`${FOXXYCODE_HOME}/skills/.bundled.json`** beside the skills it wr
 - a skill it has never handed over is written;
 - a skill you deleted stays deleted - it is not written again by the next start;
 - a copy older than the one in the release is **replaced**, so `foxxycode update` brings the newer skill
-  with it. A copy that declares no `version:` at all counts as older - it predates these skills
+  with it. A copy that declares no version at all counts as older - it predates these skills
   carrying one - and is replaced too;
 - a copy that is newer is left exactly as it is. That is also how you keep an edit: raise the
-  `version:` of the copy in your home above the one the release carries, otherwise the next release
+  `metadata.version` of the copy in your home above the one the release carries, otherwise the next release
   that raises its own overwrites it;
 - a copy FoxxyCode cannot read - a `SKILL.md` behind permissions it does not have - is left whole. It is
   neither absent nor unversioned, and the delivery does not judge what it cannot open.
@@ -250,7 +250,19 @@ Three surfaces stay in parity — pick whichever fits:
 ### Versions and updates
 
 A marketplace `marketplace.json` may declare a `version` per plugin (semantic version), and a skill's
-`SKILL.md` frontmatter may carry its own `version:`. FoxxyCode records the installed version in the
+`SKILL.md` frontmatter may carry its own under the Agent Skills `metadata` map:
+
+```yaml
+---
+name: rpa-feat
+metadata:
+  version: 1.0.1
+description: ...
+---
+```
+
+A top-level `version:` key, the form older skills used, is still read; `metadata.version` wins when a
+file has both. FoxxyCode records the installed version in the
 `${FOXXYCODE_HOME}/skills/.remote.json` lockfile and shows it in `foxxycode skills list`, `foxxycode plugin list`,
 the HTTP skill rows, and the Settings UI. `foxxycode plugin marketplace sync` (or the UI **Refresh**
 button, backed by `GET /foxxycode/skills/updates`) re-reads each source's manifest and reports which skills
@@ -337,7 +349,7 @@ Full skill body here...
 
 `name` sets the canonical slash-command identifier (e.g. `/code-review`). It overrides the filesystem-derived name when set. `description` is shown in the catalog and the Settings → Skills panel.
 
-Two optional fields pick what the skill runs on. `model` names a configured model id and `reasoning` (alias `effort`) a level that model offers, `off` or `default`; when the skill is invoked, by `/code-review` in a prompt or by the model's `load_skill`, they apply for the rest of that turn and the session's own settings return with the next one ([Session settings](session-settings.md#the-model-switches-itself)):
+Two optional fields pick what the skill runs on. `model` names a configured model id and `reasoning` (alias `effort`) a level that model offers, `off` or `default`; when the skill is invoked, by `/code-review` in a prompt or by the model's `load_skill`, they apply for the rest of that turn and the session's own settings return with the next one ([Session settings](session-settings.md#changing-the-model-on-request)):
 
 ```markdown
 ---

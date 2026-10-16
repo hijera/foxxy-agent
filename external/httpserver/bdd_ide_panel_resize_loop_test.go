@@ -281,7 +281,8 @@ func (s *panelLoopState) panelOpensTranscript(width int) error {
 	if err := s.waitUntil(`!!document.getElementById("composer")`, 20*time.Second); err != nil {
 		return fmt.Errorf("composer never rendered: %w (browser: %s)", err, s.browserLog.String())
 	}
-	return s.waitUntil(`document.querySelectorAll("#messages details").length >= 10`, 20*time.Second)
+	// The transcript window mounts the visible tail, not every historical tool.
+	return s.waitUntil(`document.querySelectorAll("#messages details").length > 0`, 20*time.Second)
 }
 
 func (s *panelLoopState) userDraftsAndGrowsTheComposer() error {
@@ -381,7 +382,7 @@ func (s *panelLoopState) transcriptAndComposerRendered() error {
 	if err := s.eval(`document.querySelectorAll("#messages details").length`, &rows); err != nil {
 		return err
 	}
-	if rows < 10 {
+	if rows == 0 {
 		return fmt.Errorf("only %d tool rows rendered", rows)
 	}
 	return nil

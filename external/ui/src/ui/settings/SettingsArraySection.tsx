@@ -1,13 +1,15 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { t as translate } from "../i18n/i18n";
 import { tSchemaText } from "../i18n/schemaStrings";
+import { Chevron } from "../components/Chevron";
 import {
   IconTrash,
   SchemaForm,
   defaultForSchema,
   type FieldOverride,
   type JsonSchema,
+  type SchemaFormGroup,
 } from "./SchemaForm";
 
 type View = { mode: "list" } | { mode: "edit"; index: number };
@@ -59,14 +61,134 @@ export function SettingsArraySection(props: {
   renderItemFooter?:
     | ((ctx: { item: Record<string, unknown>; index: number }) => ReactNode)
     | undefined;
+  /** What the item form's back control names: the list it returns to (the
+   * section's own label, "LLM providers"). Defaults to "Back to list". */
+  backLabel?: string | undefined;
+  /** Fieldsets of the item form (SchemaForm groups). */
+  groups?: SchemaFormGroup[] | undefined;
+  /** The row the address names (`?id=<label>`): the form opens on it, and a
+   * name that matches no row sends the view back to the list. */
+  routeItem?: string | null | undefined;
+  /** Reports the open row's label (null for the list, or for a row with no
+   * name yet) so the address can follow the view, renames included. */
+  onRouteItemChange?: ((item: string | null) => void) | undefined;
+  /** Leaves the back link out when something else already leads back (the
+   * drawer's head). */
+  hideBackLink?: boolean | undefined;
+  /** Told whether a row form is open, so the drawer's head can title it and
+   * lead back from it; told false when the section goes away. */
+  onEditingChange?: ((editing: boolean) => void) | undefined;
+  /** Each change closes an open row form, back onto the list. */
+  closeSignal?: number | undefined;
+  /** Rendered after the item form in edit mode (the providers section closes
+   * its form with the list of models the provider advertises). */
+  itemFooter?:
+    | ((item: Record<string, unknown>, index: number) => React.ReactNode)
+    | undefined;
 }) {
   const { t } = useT();
   const { schema, value, onChange, labelField, fieldOverride } = props;
-  const [view, setView] = useState<View>({ mode: "list" });
   // Field path to focus once after opening an item form (set by appendItems).
   const [pendingFocusPath, setPendingFocusPath] = useState<string | null>(null);
   const itemSchema = schema.items;
   const arr = Array.isArray(value) ? value : [];
+  const labelOf = (row: unknown): string => {
+    if (
+      !labelField ||
+      row === null ||
+      typeof row !== "object" ||
+      Array.isArray(row)
+    ) {
+      return "";
+    }
+    const v = (row as Record<string, unknown>)[labelField];
+    return v === undefined || v === null ? "" : String(v).trim();
+  };
+  const findByLabel = (label: string) =>
+    label ? arr.findIndex((row) => labelOf(row) === label) : -1;
+
+  const routeItem = (props.routeItem ?? "").trim();
+  const [view, setView] = useState<View>(() => {
+    const i = findByLabel(routeItem);
+    return i >= 0 ? { mode: "edit", index: i } : { mode: "list" };
+  });
+  const openLabel = view.mode === "edit" ? labelOf(arr[view.index]) : "";
+
+  // The address followed: open the row it names, or the list when it names
+  // none. A name that matches no row (a typo, a row deleted since) goes back
+  // to the list and takes the dead name out of the address. The row already
+  // open under that name stays open, so a rename that made two rows share a
+  // name does not jump to the other one.
+  const onRouteRef = useRef(props.onRouteItemChange);
+  useEffect(() => {
+    onRouteRef.current = props.onRouteItemChange;
+  });
+  useEffect(() => {
+    if (!routeItem) {
+      setView((v) =>
+        v.mode === "edit" && labelOf(arr[v.index]) !== ""
+          ? { mode: "list" }
+          : v,
+      );
+      return;
+    }
+    if (openLabel === routeItem) {
+      return;
+    }
+    const i = findByLabel(routeItem);
+    if (i >= 0) {
+      setView({ mode: "edit", index: i });
+    } else if (arr.length === 0) {
+      // Rows not there yet (a document still arriving): nothing to judge the
+      // name against, so it stays in the address until they are.
+      return;
+    } else {
+      setView({ mode: "list" });
+      onRouteRef.current?.(null);
+    }
+    // Only a change of the address drives this; the row's own edits are
+    // reported by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeItem, arr.length === 0]);
+
+  const editing = view.mode === "edit";
+  const onEditingRef = useRef(props.onEditingChange);
+  useEffect(() => {
+    onEditingRef.current = props.onEditingChange;
+  });
+  useEffect(() => {
+    onEditingRef.current?.(editing);
+  }, [editing]);
+  useEffect(() => () => onEditingRef.current?.(false), []);
+
+  // A row that is gone (the document was replaced under an open form) is
+  // never edited through a stale index: the view falls back to the list.
+  useEffect(() => {
+    if (view.mode === "edit" && view.index >= arr.length) {
+      setView({ mode: "list" });
+    }
+  }, [view, arr.length]);
+
+  // The head's back arrow: a new signal closes the form.
+  const closeSignal = props.closeSignal ?? 0;
+  const seenClose = useRef(closeSignal);
+  useEffect(() => {
+    if (closeSignal !== seenClose.current) {
+      seenClose.current = closeSignal;
+      setView({ mode: "list" });
+    }
+  }, [closeSignal]);
+
+  // The view followed back into the address: opening a row, going back, and
+  // renaming the open row all rewrite `?id=` (replaceState, no history entry).
+  const reported = useRef(routeItem);
+  useEffect(() => {
+    if (openLabel === reported.current) {
+      return;
+    }
+    reported.current = openLabel;
+    onRouteRef.current?.(openLabel || null);
+  }, [openLabel]);
 
   // Append parsed items, then open the first new item's form, focusing the
   // requested field (e.g. `api_key` right after an import). Kept generic:
@@ -92,31 +214,30 @@ export function SettingsArraySection(props: {
         ? (arr[index] as Record<string, unknown>)
         : (defaultForSchema(itemSchema) as Record<string, unknown>);
     return (
-      <div className="settings-detail">
-        <div className="settings-detail-head">
-          <button
-            type="button"
-            className="settings-btn settings-btn-back"
-            data-testid="settings-detail-back"
-            title={t("settings.backToList")}
-            onClick={() => {
-              setPendingFocusPath(null);
-              setView({ mode: "list" });
-            }}
-          >
-            <span className="settings-btn-back-arrow" aria-hidden>
-              ←
-            </span>
-            {props.backLabelUsesItemName
-              ? rowLabel(item, labelField, index)
-              : t("settings.backToList")}
-          </button>
-        </div>
+      // Keyed by the row: a form opened on another row (the address can switch
+      // rows without passing through the list) starts afresh, so nothing a
+      // field remembers - the proxy URL, a filter, a fold - crosses rows.
+      <div className="settings-detail" key={index}>
+        {props.hideBackLink ? null : (
+          <div className="settings-detail-head">
+            <button
+              type="button"
+              className="settings-back-link"
+              data-testid="settings-detail-back"
+              title={t("settings.backToList")}
+              onClick={() => { setPendingFocusPath(null); setView({ mode: "list" }); }}
+            >
+              <Chevron pointing="left" />
+              <span>{props.backLabel ?? t("settings.backToList")}</span>
+            </button>
+          </div>
+        )}
         <SchemaForm
           schema={itemSchema}
           value={item}
           fieldOverride={fieldOverride}
           focusPath={pendingFocusPath ?? undefined}
+          groups={props.groups}
           onChange={(nv) => {
             const next = [...arr];
             next[index] = nv;
@@ -126,6 +247,7 @@ export function SettingsArraySection(props: {
         {props.renderItemFooter
           ? props.renderItemFooter({ item, index })
           : null}
+        {props.itemFooter?.(item, index)}
       </div>
     );
   }

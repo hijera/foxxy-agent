@@ -8,6 +8,21 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.18 — 2026-10-16
+
+Checkpoint: `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (tag `1.2.18`), following `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (`1.2.10`).
+
+- Ported the net changes of #350, #353, #355, #356, #352, #369, #372 and #371.
+- Provider settings fetch unsaved rows, expose catalog context windows and retain FoxxyCode's advisory vision flag. OAuth profiles isolate CLI fallback; autocomplete follows the same profile decision.
+- Added structured tool cards, semantic settings groups and field hints, provider/model deep links, the 599px phone tier, archive feedback and bounded transcript pagination/rendering.
+- The owner approved default completion wakes for commands and subagents, user-requested changes to the agent's own model/reasoning/compaction model, and autonomous child-model selection. Explicit `notify_on_finish: false` still disables a wake.
+- The owner approved the full opt-in systemd user service, including packaged units. Installation does not enable a system-wide service.
+- The catalog exposes `default` per model row. New web chats retain the valid model cookie, otherwise the alphabetically first configured model.
+- Preserved SVN/browser/IDE features, provider import/export, configurable send shortcuts, config-backed localization, project trust approvals, file downloads, encoding, retry/continuation budgets, disk refresh, stop notices and the Chromium 104 baseline.
+- Validation: the full tagged Go regression passed every package except one UI BDD binding whose anchored Vitest name omitted its describe group; that binding was corrected and `TestWebUISmallFixesFeature` passed on rerun. The final standalone UI suite passed 299 files / 2806 tests. `make lint`, typechecking, docsgen, the embedded build and Chromium 104 compatibility checks passed.
+- Browser verification covered long transcript paging/anchoring in Chromium and WebKit, phone overflow across the grid, chevron alignment, and folder-dialog scrolling in both engines. The latter exposed WebKit scroll chaining; the modal now locks document scrolling while open and restores it on close. Screenshots of the affected surfaces accompany the documentation; additional light/narrow and before/after evidence remains in the local validation workspace.
+- Implementation is in the current `codex/upstream-1.2.18` working tree; `fork_commits` can be populated after it is committed. Validation details belong to the final delivery report.
+
 ## Sync through upstream 1.2.10 — 2026-10-14
 
 Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following `75c31bcc0b726a46386b0977fee997353f62a9a1` (`1.2.1`).

@@ -37,7 +37,7 @@ test.each([
 ])("aliased %s rows use the provider brand in both existing surfaces", (providerType, brand) => {
   const usage = snapshot({ providerType, windows: [{ id: "week", label: "week", usedPercent: 85 }] });
   const { container } = render(<><UsageSection usage={usage} modelId={modelId} /><UsageBanner usage={usage} modelId={modelId} /></>);
-  expect(container.querySelector(".context-usage-title")?.textContent).toBe(`${brand} · Plus`);
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe(`${brand}${brand === "work" ? "" : " · work"} · Plus`);
   expect(container.querySelector(".usage-banner-text")?.textContent).toContain(`your ${brand} week limit`);
 });
 
@@ -72,7 +72,7 @@ test.each([undefined, "unavailable", "invalid"])("a plan without quotas has an e
   expect(summarizeUsage(usage, modelId).kind).toBe("unavailable");
   expect(modelUnlimited(usage, modelId)).toBe(false);
   const { container } = render(<><UsageSection usage={usage} modelId={modelId} /><UsageBanner usage={usage} modelId={modelId} /></>);
-  expect(container.querySelector(".context-usage-title")?.textContent).toBe("Codex · Plus");
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe("Codex · work · Plus");
   const note = container.querySelector(".context-usage-note");
   expect(note?.textContent).toBe("Quota data unavailable");
   expect(note?.classList.contains("context-usage-note--warn")).toBe(!!error);

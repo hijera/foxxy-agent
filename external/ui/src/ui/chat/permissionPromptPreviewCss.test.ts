@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import postcss from "postcss";
+
+import { PHONE_MAX_WIDTH_PX } from "../shellBreakpoint";
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -56,14 +59,16 @@ test("overflow toggles are left-aligned and taller on mobile", () => {
   const resultFooter = css.match(
     /\.foxxycode-tool-call-body\s*>\s*\.tool-call-result-card\s*\+\s*\.tool-result-toggle-row\s*\{[^}]*\}/s,
   );
-  const mobile = css.match(
-    /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.tool-overflow-toggle\s*\{[^}]*\}/,
-  );
+  const mobile: string[] = [];
+  postcss.parse(css).walkAtRules("media", (query) => {
+    if (query.params !== `(max-width: ${PHONE_MAX_WIDTH_PX}px)`) return;
+    query.walkRules(".tool-overflow-toggle", (rule) => { mobile.push(rule.toString()); });
+  });
 
   expect(toggle?.[0]).toMatch(/align-self:\s*flex-start/);
   expect(toggle?.[0]).toMatch(/margin:\s*-1px\s+0\s+0\s+8px/);
   expect(resultFooter?.[0]).toMatch(/margin-top:\s*-8px/);
-  expect(mobile?.[0]).toMatch(/min-height:\s*36px/);
+  expect(mobile.join("\n")).toMatch(/min-height:\s*36px/);
 });
 
 test("plan exit uses themed progress and semantic completion colors", () => {
