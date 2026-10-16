@@ -160,7 +160,7 @@ func TestProviderHasCredentialsDoesNotRunKeyCommand(t *testing.T) {
 		{"neuraldeep without login", config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}, false},
 	}
 	for _, tc := range cases {
-		if got := providerHasCredentials(home, tc.p); got != tc.want {
+		if got := providerHasCredentials(home, tc.p, true); got != tc.want {
 			t.Errorf("%s: providerHasCredentials = %v want %v", tc.name, got, tc.want)
 		}
 	}
@@ -176,7 +176,7 @@ func TestProviderHasCredentialsStoredNeuralDeepLogin(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"api_key":"nd-hub-key","hub":"https://hub.example"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !providerHasCredentials(home, config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}) {
+	if !providerHasCredentials(home, config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}, true) {
 		t.Fatal("a stored hub login must count as a credential")
 	}
 }

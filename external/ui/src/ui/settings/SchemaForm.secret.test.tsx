@@ -60,6 +60,7 @@ test("string field description renders the Russian overlay under ru locale", () 
 
   // Regression for the bug where the string branch rendered raw English
   // schema.description instead of the translated desc.
+  fireEvent.mouseEnter(screen.getAllByTestId("field-hint")[0]!);
   expect(
     screen.getByText(/Можно задать ключ напрямую/),
   ).toBeTruthy();

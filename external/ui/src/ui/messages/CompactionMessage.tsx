@@ -11,11 +11,14 @@ import { useT } from "../i18n/I18nProvider";
 
 export const CompactionMessage = memo(function CompactionMessage(props: {
   summary: string;
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
 }) {
   const { t } = useT();
   const text = (props.summary || "").trim();
   return (
-    <div className="thinking-row">
+    <div className="thinking-row" data-row-id={props.rowId}>
       <details className="thinking-details">
         <summary
           className="thinking-summary"

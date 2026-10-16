@@ -22,6 +22,12 @@ Bootstrap the config when missing:
 mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 ```
 
+The script installs no systemd unit. On Linux, to keep **`foxxycode serve`** running as a service of
+your account, run **`foxxycode serve install`** once the configuration has a provider key: it writes
+**`~/.config/systemd/user/foxxycode.service`** for the binary the script installed, enables it and
+starts it in **`~/FoxxyCode`**. The script ends by saying so. See
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux).
+
 ## Linux packages (deb, rpm)
 
 Every release publishes a **`.deb`** and an **`.rpm`** for **x86_64** and **arm64** beside the
@@ -60,13 +66,17 @@ sha256sum -c --ignore-missing SHA256SUMS
 | **`/usr/share/man/man1/foxxycode.1.gz`** | **`man foxxycode`** |
 | **`/usr/share/bash-completion/completions/foxxycode`** | bash completion |
 | **`/usr/share/zsh/site-functions/_foxxycode`** | zsh completion |
+| **`/usr/lib/systemd/user/foxxycode.service`** | systemd user unit for **`foxxycode serve`**, installed and **not enabled** |
 | **`/usr/share/doc/foxxycode/config.example.yaml`** | starting point for **`~/.foxxycode/config.yaml`** |
 | **`/usr/share/doc/foxxycode/LICENSE`**, **`copyright`** | licence |
 
-That is the whole package: a binary and its documentation. No service, no system account, nothing
-under **`/etc`**. Configuration, sessions, skills and credentials stay in the invoking user's
-**`~/.foxxycode`**, so one installed package serves every user on the machine, each with their own
-state, and what to run - the console, the HTTP gateway, an editor over ACP - stays your decision.
+The package enables the unit for nobody, and there is no system service, no system account and
+nothing under **`/etc`**. Configuration, sessions, skills and credentials stay in the invoking
+user's **`~/.foxxycode`**, so one installed package serves every user on the machine, each with their
+own state, and what to run - the console, the HTTP gateway, an editor over ACP, a service - stays
+each user's decision. The message printed at installation says the unit is there and not enabled;
+**`foxxycode serve install`**, run as the user the service is for, enables and starts it (see
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux)).
 
 ### First run
 
@@ -86,12 +96,21 @@ replacing a packaged file (see [update.md](update.md#installations-owned-by-a-pa
 ```bash
 sudo apt-get install ./foxxycode_<newer>_linux_amd64.deb   # or dnf install ./...rpm
 sudo foxxycode update -y                                   # downloads and installs the package
+foxxycode serve install                                    # if you run the service: restart it on the new binary
 ```
 
+A running service keeps the binary it started with until it restarts, which is what the last line
+does; the upgrade prints the same reminder.
+
 ```bash
+foxxycode serve uninstall        # first, as each user that enabled the service
 sudo apt-get remove foxxycode    # or: sudo dnf remove foxxycode
-rm -rf ~/.foxxycode              # only if you also want the sessions and config gone
+rm -rf ~/.foxxycode ~/FoxxyCode      # only if you also want the sessions, config and workspace gone
 ```
+
+The package removal cannot reach into each account's **`~/.config`**, so it leaves an enabled
+service enabled and prints the commands that clear it
+([Removing the service](../operate/serve.md#removing-the-service)).
 
 There is no apt or dnf repository to subscribe to: the packages are release assets, so a new version
 arrives when you install the newer file or run **`sudo foxxycode update`**, not from a background
@@ -144,13 +163,15 @@ foxxycode -v
 # edit ~/.foxxycode/config.yaml
 foxxycode serve            # every subsystem config.yaml enables, in this terminal
 foxxycode serve --daemon   # in the background, restarted if it dies
+foxxycode serve install    # Linux: as a systemd user service
 ```
 
-The packages install no service unit, because FoxxyCode keeps its state per user under
-**`~/.foxxycode`**. **`foxxycode serve --daemon`** is the built-in way to keep it running
-without one; under a supervisor that already owns process lifetimes (`systemd`, Docker)
-use the foreground form and let that supervisor restart it. See [the daemon
-guide](../operate/serve.md). **`foxxycode http`** is still there for the API alone.
+On Linux with systemd, **`foxxycode serve install`** runs it as a user service of your account instead:
+it enables the unit a package installed, or writes one for a binary the install script put in
+place, and starts it working in **`~/FoxxyCode`**. **`foxxycode serve uninstall`** takes it away again. See
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux) for the log, keeping it
+running after logout and removing it. **`foxxycode serve --daemon`** is the route where there is no
+systemd.
 
 ## Windows
 

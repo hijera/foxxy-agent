@@ -94,21 +94,11 @@ function ReasoningModelsHarness() {
   );
 }
 
-// Fork note: picking a fetched model also seeds `multimodal` from the catalog
-// (ModelField syncsMultimodal), so every expectation below carries it.
-
-// addFetchedModel walks the form the way an operator does: Add, Fetch models,
-// then pick the fetched id out of the combobox.
-async function addFetchedModel() {
+// Add a logical model manually; advertised-model additions live in the provider form.
+async function addModel() {
   fireEvent.click(screen.getByTestId("settings-master-add"));
-  fireEvent.click(screen.getByTestId("model-field-fetch"));
-  await waitFor(() =>
-    expect(screen.getByTestId("model-field-fetch").textContent).toBe(
-      "Fetch models",
-    ),
-  );
-  fireEvent.focus(screen.getByTestId("model-field-model"));
-  fireEvent.mouseDown(await screen.findByText("valera/qwen3.8-27b"));
+  fireEvent.change(screen.getByTestId("model-field-provider"), { target: { value: "valera" } });
+  fireEvent.change(screen.getByTestId("model-field-model"), { target: { value: "qwen3.8-27b" } });
 }
 
 function savedModels(): unknown {
@@ -116,17 +106,17 @@ function savedModels(): unknown {
     .models;
 }
 
-test("adding a fetched model leaves reasoning auto-detection enabled", async () => {
+test("adding a logical model leaves reasoning auto-detection enabled", async () => {
   stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  await addModel();
 
   // reasoning_levels is absent (auto-detect), while stream keeps its schema
   // default: the item factory omits the one key whose empty value means
   // something, not every key it was not told about.
   expect(savedModels()).toEqual([
-    { model: "valera/qwen3.8-27b", multimodal: false, stream: true },
+    { model: "valera/qwen3.8-27b", stream: true },
   ]);
 });
 
@@ -134,14 +124,13 @@ test("fetch reasoning levels fills the field for the model being edited", async 
   const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  await addModel();
 
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
   await waitFor(() =>
     expect(savedModels()).toEqual([
       {
         model: "valera/qwen3.8-27b",
-        multimodal: false,
         stream: true,
         reasoning_levels: ["low", "medium", "high"],
       },
@@ -157,7 +146,7 @@ test("fetch reasoning levels fills the field for the model being edited", async 
   // And the operator can hand the decision back to the backend.
   fireEvent.click(screen.getByTestId("reasoning-levels-auto"));
   expect(savedModels()).toEqual([
-    { model: "valera/qwen3.8-27b", multimodal: false, stream: true },
+    { model: "valera/qwen3.8-27b", stream: true },
   ]);
 });
 
@@ -165,7 +154,7 @@ test("fetch reasoning levels sends the type of the provider row in the form", as
   const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  await addModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // valera is an openai provider in the (unsaved) settings document, and that
@@ -202,7 +191,7 @@ test("a fetch that answers after the model row was removed does not bring it bac
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  await addModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // Back to the list, delete the row while the request is still in flight.
@@ -244,13 +233,13 @@ test("a fetch that answers after a sibling field changed keeps that change", asy
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  await addModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // While the request is in flight the operator turns streaming off.
   fireEvent.click(screen.getByRole("switch", { name: /Stream responses/ }));
   expect(savedModels()).toEqual([
-    { model: "valera/qwen3.8-27b", multimodal: false, stream: false },
+    { model: "valera/qwen3.8-27b", stream: false },
   ]);
 
   settle();
@@ -266,7 +255,6 @@ test("a fetch that answers after a sibling field changed keeps that change", asy
   expect(savedModels()).toEqual([
     {
       model: "valera/qwen3.8-27b",
-      multimodal: false,
       stream: false,
       reasoning_levels: ["low", "medium", "high"],
     },
@@ -277,7 +265,7 @@ test("a model id with no reasoning family is left without an override", async ()
   stubModelsAndLevels([]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  await addModel();
 
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
   await waitFor(() =>
@@ -287,6 +275,6 @@ test("a model id with no reasoning family is left without an override", async ()
   );
   // An empty list here would hide the composer's reasoning selector for good.
   expect(savedModels()).toEqual([
-    { model: "valera/qwen3.8-27b", multimodal: false, stream: true },
+    { model: "valera/qwen3.8-27b", stream: true },
   ]);
 });

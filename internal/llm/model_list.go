@@ -24,10 +24,10 @@ type ModelEntry struct {
 	Name   string `json:"name,omitempty"`
 	Vision bool   `json:"vision,omitempty"`
 	// ContextWindow is the context window the listing reports for the model,
-	// 0 when it reports none. It stays out of the JSON the provider models
-	// route serves; the session manager reads it for models whose
+	// 0 when it reports none. Served as context_window on the provider models
+	// route; the session manager also reads it for models whose
 	// max_context_tokens is unset.
-	ContextWindow int `json:"-"`
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 // modelEntryVision reports whether one catalog entry advertises image input.
@@ -263,7 +263,7 @@ func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL stri
 	}
 	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
 	defer cancel()
-	cred, err := newManagedCodexAuthSource(in.AuthPath, hc).Credential(ctx)
+	cred, err := newManagedCodexAuthSource(in.AuthPath, !in.NoCLILogin, hc).Credential(ctx)
 	if err != nil {
 		return nil, err
 	}

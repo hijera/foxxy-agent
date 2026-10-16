@@ -54,13 +54,13 @@ func runCodex(args []string) error {
 	case "login":
 		return codexLogin(cfg, prov, name, authPath, *noConfig)
 	case "status":
-		return codexStatus(name, authPath)
+		return codexStatus(name, authPath, cfg.ProviderMayUseCLILogin(name, "codex"))
 	case "logout":
 		if err := llm.RemoveCodexAuth(authPath); err != nil {
 			return fmt.Errorf("codex logout: %w", err)
 		}
 		fmt.Printf("Removed the FoxxyCode-managed Codex credential for provider %q.\n", name)
-		return codexStatus(name, authPath)
+		return codexStatus(name, authPath, cfg.ProviderMayUseCLILogin(name, "codex"))
 	default:
 		return codexUsageErr()
 	}
@@ -122,7 +122,7 @@ func codexLogin(cfg *config.Config, prov *config.ProviderConfig, name, authPath 
 	if !noConfig {
 		codexWriteConfig(ctx, cfg, prov, name, authPath)
 	}
-	return codexStatus(name, authPath)
+	return codexStatus(name, authPath, cfg.ProviderMayUseCLILogin(name, "codex"))
 }
 
 // codexWriteConfig publishes the subscription catalog into config.yaml and
@@ -143,8 +143,8 @@ func codexWriteConfig(ctx context.Context, cfg *config.Config, prov *config.Prov
 	fmt.Println("A running server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 }
 
-func codexStatus(name, authPath string) error {
-	status, err := llm.InspectCodexAuth(authPath)
+func codexStatus(name, authPath string, cliLogin bool) error {
+	status, err := llm.InspectCodexAuth(authPath, cliLogin)
 	if err != nil {
 		return fmt.Errorf("codex status: %w", err)
 	}

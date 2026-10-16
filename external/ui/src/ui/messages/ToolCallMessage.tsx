@@ -24,6 +24,7 @@ import {
 import {
   buildToolCallPreview,
   toolCallTargetIsPath,
+  toolCallTargetRange,
   toolCallTargetText,
 } from "../chat/permissionToolPreview";
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
@@ -46,6 +47,10 @@ import { svnOperation, svnFailed } from "./svnActionDisplay";
 import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
 import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
 import { SchedulerToolCard } from "./SchedulerToolCard";
+import {
+  StructuredToolCard,
+  supportsStructuredToolCard,
+} from "./StructuredToolCard";
 import {
   isSchedulerTool,
   schedulerReadout,
@@ -240,6 +245,9 @@ function WebSearchEngines(props: { report: WebSearchReport }) {
 
 export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
   title?: string | undefined;
   kind?: string | undefined;
   status: string;
@@ -355,6 +363,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         ? relativeToolTarget(summaryTargetFull, props.pathRoots || [])
         : summaryTargetFull,
     [props.pathRoots, summaryTargetFull, targetContext],
+  );
+  // The lines a read takes, in a mention's spelling (":120-180"), so a collapsed
+  // row tells two pages of one file apart. Empty for a whole file and for every
+  // tool but read.
+  const summaryTargetRange = useMemo(
+    () => (summaryTargetFull ? toolCallTargetRange(targetContext) : ""),
+    [summaryTargetFull, targetContext],
   );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =
@@ -687,6 +702,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         : null,
     [isSchedulerToolCall, props.argsText, rawNameLower, resultBody, status],
   );
+  // The raw name, not its lower-case form: an MCP server's tool keeps the
+  // spelling its server gave it in the card's header.
+  const structuredCard = useMemo(
+    () => supportsStructuredToolCard(rawName, props.argsText, status),
+    [rawName, props.argsText, status],
+  );
   const searchLoading =
     loadsWholeSearch &&
     !full &&
@@ -706,16 +727,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !isSvnTool &&
     !isLoadSkillTool &&
     !schedulerCard &&
+    !structuredCard &&
     toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
   const showResult =
-    !isQuestionTool &&
-    !isPatchTool &&
     !isBrowserTool &&
     !isSvnTool &&
+    !isQuestionTool &&
+    !isPatchTool &&
+    !structuredCard &&
     (!schedulerCard || searchLoading) &&
     !(
       status === "completed" &&
@@ -754,6 +777,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     (status === "failed" || (isBrowserTool && /^error:/i.test(preview.trim())));
   const hasBody =
     !!schedulerCard ||
+    structuredCard ||
     !!spawnAgent ||
     isQuestionTool ||
     showBrowserAction ||
@@ -764,11 +788,80 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !!toggleButton ||
     !!backgroundTask;
 
+  // What trails the label on the summary row: the target, the failure marker and
+  // the duration. They travel together (.thinking-trail), so a label that leaves no
+  // room on its line moves all three under it rather than the duration alone.
+  const trailElements: ReactElement[] = [];
+  if (rowTarget && summaryTargetRange) {
+    // The path gives way to the ellipsis and the range never does: a long path
+    // clipped at its end would take the range with it.
+    trailElements.push(
+      <span
+        key="target"
+        className="tool-summary-target tool-summary-target--ranged"
+        data-testid="tool-summary-target"
+        title={summaryTargetFull + summaryTargetRange}
+      >
+        <span className="tool-summary-target-path">{rowTarget}</span>
+        <span className="tool-summary-target-range">{summaryTargetRange}</span>
+      </span>,
+    );
+  } else if (rowTarget) {
+    trailElements.push(
+      <span
+        key="target"
+        className="tool-summary-target"
+        data-testid="tool-summary-target"
+        title={summaryTargetFull}
+      >
+        {rowTarget}
+      </span>,
+    );
+  }
+  if (isSvnTool && svnFailed(status, full || preview)) {
+    trailElements.push(
+      <span key="svn-failed" className="svn-summary-error">
+        {t("messages.svn.failed")}
+      </span>,
+    );
+  }
+  if (failedOnRow) {
+    trailElements.push(
+      <span
+        key="failed"
+        className="tool-failed-marker"
+        data-testid="tool-failed-marker"
+      >
+        {t("messages.toolFailedMarker")}
+      </span>,
+    );
+  }
+  if (backgroundTask && !agentTaskName(backgroundTask)) {
+    if (backgroundElapsed) {
+      trailElements.push(
+        <span
+          key="dur"
+          className="thinking-dur"
+          data-testid={`tool-bgtask-elapsed-${backgroundTask.id}`}
+        >
+          {backgroundElapsed}
+        </span>,
+      );
+    }
+  } else if (durationLabel.trim() !== "") {
+    trailElements.push(
+      <span key="dur" className="thinking-dur" aria-hidden="true">
+        {durationLabel}
+      </span>,
+    );
+  }
+
   return (
     <div
       className="thinking-row foxxycode-tool-call-row"
       data-kind={props.kind || ""}
       data-status={props.status}
+      data-row-id={props.rowId}
     >
       <details
         className="thinking-details foxxycode-tool-details"
@@ -784,50 +877,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             <span className="thinking-head">
               {isBrowserTool && <BrowserIcon />}
               {isSvnTool && <SvnIcon />}
-              <span
-                className={
-                  isShellTool
-                    ? "thinking-label thinking-label--shell"
-                    : "thinking-label"
-                }
-                title={displayLabel}
-              >
+              <span className={isShellTool ? "thinking-label thinking-label--shell" : "thinking-label"} title={displayLabel}>
                 {displayLabel}
               </span>
-              {rowTarget ? (
+              {trailElements.length > 0 ? (
                 <span
-                  className="tool-summary-target"
-                  data-testid="tool-summary-target"
-                  title={summaryTargetFull}
+                  className={
+                    status === "failed"
+                      ? "thinking-trail thinking-trail--failed"
+                      : "thinking-trail"
+                  }
                 >
-                  {rowTarget}
-                </span>
-              ) : null}
-              {isSvnTool && svnFailed(status, full || preview) ? (
-                <span className="svn-summary-error">
-                  {t("messages.svn.failed")}
-                </span>
-              ) : null}
-              {failedOnRow ? (
-                <span
-                  className="tool-failed-marker"
-                  data-testid="tool-failed-marker"
-                >
-                  {t("messages.toolFailedMarker")}
-                </span>
-              ) : null}
-              {backgroundTask && !agentTaskName(backgroundTask) ? (
-                backgroundElapsed ? (
-                  <span
-                    className="thinking-dur"
-                    data-testid={`tool-bgtask-elapsed-${backgroundTask.id}`}
-                  >
-                    {backgroundElapsed}
-                  </span>
-                ) : null
-              ) : durationLabel.trim() !== "" ? (
-                <span className="thinking-dur" aria-hidden="true">
-                  {durationLabel}
+                  {trailElements}
                 </span>
               ) : null}
             </span>
@@ -912,6 +973,22 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             ) : null}
             {schedulerCard ? (
               <SchedulerToolCard readout={schedulerCard} status={status} />
+            ) : null}
+            {structuredCard ? (
+              <StructuredToolCard
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
+                // A truncated answer caps the card's body, not the card: the bar
+                // naming the call stays in view while the body scrolls.
+                bodyRef={resultViewportRef}
+                bodyClassName={
+                  useTallViewport
+                    ? `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`
+                    : undefined
+                }
+              />
             ) : null}
             {showPatchResult || showResult ? (
               <div

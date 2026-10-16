@@ -191,6 +191,48 @@ test("menu flips up on start screen when the window is too short below the trigg
   }
 });
 
+// On a phone or a tablet a focused field opens the on-screen keyboard over
+// half of the screen: opening the start screen or a chat must not do that by
+// itself. The keyboard comes when the reader taps the field.
+test("a touch-only device keeps the keyboard closed on the start screen and in a chat", () => {
+  stubViewport({ narrow: true, touchOnly: true });
+  try {
+    const hero = render(
+      <Composer value="" isEmpty sessionId="" mode="agent" modes={["agent"]}
+        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+    );
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveFocus();
+    hero.unmount();
+
+    const { rerender } = render(
+      <Composer value="" isEmpty={false} sessionId="sess-a" mode="agent" modes={["agent"]}
+        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+    );
+    const ta = screen.getByRole("textbox", { name: "Message" });
+    expect(ta).not.toHaveFocus();
+    rerender(
+      <Composer value="" isEmpty={false} sessionId="sess-b" mode="agent" modes={["agent"]}
+        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+    );
+    expect(ta).not.toHaveFocus();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("a narrow desktop window still focuses the field: it has a keyboard", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  try {
+    render(
+      <Composer value="" isEmpty sessionId="" mode="agent" modes={["agent"]}
+        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+    );
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 test("yaml model menu opens down on start screen when backends exist", () => {
   renderComposerWithLlm({ isEmpty: true });
 
@@ -2369,3 +2411,12 @@ test("a keyCode 229 long after a composition ended still takes the @ row", async
   now.mockRestore();
   vi.unstubAllGlobals();
 });
+
+function stubViewport(opts: { narrow: boolean; touchOnly: boolean }) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width") ? opts.narrow : query.includes("hover") || query.includes("pointer") ? opts.touchOnly : false,
+    media: query,
+    addEventListener: () => {}, removeEventListener: () => {},
+    addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+  }));
+}

@@ -2,6 +2,7 @@
 # folds the interpret/facts pair into a single investigation section and drops
 # the injection-resistance section. Section IDs render in this order.
 header
+capabilities
 notes
 investigation
 tools_policy

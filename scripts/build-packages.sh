@@ -79,7 +79,9 @@ trap 'rm -rf "$stage"' EXIT
 gzip -9 -n -c packaging/man/foxxycode.1 > "$stage/foxxycode.1.gz"
 cp packaging/completions/foxxycode.bash "$stage/foxxycode.bash"
 cp packaging/completions/foxxycode.zsh "$stage/foxxycode.zsh"
+cp packaging/systemd/foxxycode.service "$stage/foxxycode.service"
 cp packaging/scripts/postinstall.sh "$stage/postinstall.sh"
+cp packaging/scripts/preremove.sh "$stage/preremove.sh"
 cp config.example.yaml "$stage/config.example.yaml"
 cp LICENSE "$stage/LICENSE"
 

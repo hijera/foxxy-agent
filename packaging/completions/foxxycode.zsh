@@ -52,6 +52,7 @@ _foxxycode() {
                 providers)
                     if (( CURRENT > 3 )); then
                         _arguments \
+                            '--type[login: type of a provider config.yaml does not list yet]:type:(neuraldeep codex devin)' \
                             '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
                             '--device[neuraldeep: the device flow, which is the default]' \
                             '--devin-cli[devin: use the login devin auth login already holds]' \
@@ -134,7 +135,7 @@ _foxxycode() {
                     ;;
                 serve)
                     _arguments \
-                        '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher" set-password\:"write the web UI sign-in account into config.yaml"))' \
+                        '1: :((install\:"run foxxycode serve as a systemd user service" uninstall\:"stop, disable and remove the systemd user service" status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher" set-password\:"write the web UI sign-in account into config.yaml"))' \
                         '--user[account name for the web UI sign-in form (set-password)]:user:' \
                         '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \

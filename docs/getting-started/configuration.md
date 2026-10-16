@@ -31,9 +31,9 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`FOXXYCODE_HOME`** - agent state directory. Default **`~/.foxxycode`**. Holds `config.yaml`, `sessions/`, `skills/`, managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`FOXXYCODE_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`FOXXYCODE_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
-- **`CODEX_HOME`** - Codex CLI state directory read by `type: codex` providers when no FoxxyCode-managed credential exists. Default **`~/.codex`**.
-- **`FOXXYCODE_CODEX_BASE_URL`** - process-level Codex backend override. The default is the official backend; `providers[].api_base` is intentionally ignored for Codex.
-- **`FOXXYCODE_DEVIN_CLI_CREDENTIALS`** - Devin CLI `credentials.toml` used when no FoxxyCode-managed login exists. The default is `~/.local/share/devin/credentials.toml` or the equivalent under `$XDG_DATA_HOME`. `FOXXYCODE_DEVIN_API_SERVER_URL`, `FOXXYCODE_DEVIN_WEBAPP_URL` and `FOXXYCODE_DEVIN_API_URL` override Devin endpoints for the whole process; see [Devin](../features/devin.md).
+- **`CODEX_HOME`** - Codex CLI state directory read by a **`type: codex`** provider when no FoxxyCode-managed credential exists: the only codex row, or the row named **`codex`** among several ([Several profiles of one provider type](#several-profiles-of-one-provider-type)). Default **`~/.codex`**.
+- **`FOXXYCODE_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
+- **`FOXXYCODE_DEVIN_CLI_CREDENTIALS`** - the Devin CLI **`credentials.toml`** read by **`type: devin`** providers when no FoxxyCode-managed login exists. Default **`~/.local/share/devin/credentials.toml`** (or under **`$XDG_DATA_HOME`**). **`FOXXYCODE_DEVIN_API_SERVER_URL`**, **`FOXXYCODE_DEVIN_WEBAPP_URL`** and **`FOXXYCODE_DEVIN_API_URL`** move the Devin endpoints for the whole process, for stands and tests; see [Devin](../features/devin.md).
 
 If no **`--config`** is given, the loader uses **`$FOXXYCODE_HOME/config.yaml`** (default home **`~/.foxxycode`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -687,6 +687,32 @@ NeuralDeep hub (**`https://hub.neuraldeep.ru`**). It speaks the OpenAI wire prot
 ### `devin`
 
 Devin (Cognition) account models use a browser login via `foxxycode providers login devin`, or the existing Devin CLI login with `--devin-cli`. The managed session token is stored under `$FOXXYCODE_HOME/providers/<name>/devin-auth.json`. Without it the provider reads the CLI's `credentials.toml`; an explicit `api_key`, `api_key_command` or `DEVIN_API_KEY` wins over both logins. Login adds one model per family, such as `devin/claude-opus-5`, with family variants exposed as reasoning levels. `api_base` is ignored; the optional `proxy` routes sign-in, catalog and chat. See [Devin](../features/devin.md).
+
+### Several profiles of one provider type
+
+A row is a profile: several rows may share a type, each under a name of its own, and each keeps its own sign-in, its own models and its own usage. Three ChatGPT accounts are three **`codex`** rows, two NeuralDeep accounts are two **`neuraldeep`** rows:
+
+```yaml
+providers:
+  - name: "codex"
+    type: "codex"
+  - name: "codex-work"
+    type: "codex"
+  - name: "neuraldeep"
+    type: "neuraldeep"
+  - name: "nd-tech"
+    type: "neuraldeep"
+    api_base: "https://api.neuraldeep.tech/v1"
+models:
+  - model: "codex-work/gpt-5.5"
+  - model: "nd-tech/qwen3.6-35b-a3b"
+```
+
+Each row signs in separately: the Sign In button on its row in Settings, or **`foxxycode providers login <name>`** in a terminal. A row config.yaml does not list yet is created by its login when **`--type`** names the type (**`foxxycode providers login codex-work --type codex`**). The login lands under **`$FOXXYCODE_HOME/providers/<name>/`**, a model of the row is **`<name>/<model id>`**, and the row's **`<NAME>_API_KEY`** variable (**`CODEX_WORK_API_KEY`**, **`ND_TECH_API_KEY`**) belongs to that row only.
+
+The Codex CLI login (**`~/.codex/auth.json`**, **`CODEX_HOME`**) and the Devin CLI login are one account each, so each stands in for one row without a login of its own: the only row of its type, or, when there are several, the row named **`codex`** (**`devin`**). Every other row signs in itself instead of quietly running on that account - adding a second codex row to a setup whose only row, **`chatgpt`**, ran on the Codex CLI login leaves **`chatgpt`** unsigned too, until it signs in or is renamed **`codex`**. The startup log, **`foxxycode --dry-run`**, **`foxxycode providers list`** and the Settings row name such a row and the row the CLI login serves, and **`--devin-cli`** refuses a row the Devin CLI login does not serve.
+
+The rows stay apart where they are shown too: the usage panel heading and the console's **`/usage`** name the row next to the brand (**`Codex · codex-work`**) unless the row is named after its type, and a NeuralDeep sign-in labels its key on the hub with the row (**`foxxycode @ host (nd-tech)`**).
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.
