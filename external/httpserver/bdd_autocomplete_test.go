@@ -153,10 +153,10 @@ func (s *autocompleteFeatureState) suggestionIsInsertable() error {
 }
 
 func (s *autocompleteFeatureState) modelSawBothSidesOfCaret() error {
-	if !strings.Contains(s.promptSeen, autocompleteCursor) {
+	if !strings.Contains(s.promptSeen, "<CURSOR>") {
 		return fmt.Errorf("prompt has no caret marker: %q", s.promptSeen)
 	}
-	before, after, ok := strings.Cut(s.promptSeen, autocompleteCursor)
+	before, after, ok := strings.Cut(s.promptSeen, "<CURSOR>")
 	if !ok {
 		return fmt.Errorf("prompt has no caret marker: %q", s.promptSeen)
 	}

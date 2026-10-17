@@ -1,20 +1,18 @@
-//go:build http
-
-package httpserver
+package autocomplete
 
 import (
 	"sync"
 	"sync/atomic"
 )
 
-// autocompleteState is the per-process memory behind inline completion: the counters that say
+// state is the per-process memory behind inline completion: the counters that say
 // whether the feature is worth keeping, and which models turned out not to serve raw FIM.
 //
 // The counters exist because "is the suggestion good enough" cannot be judged by feel. The
 // server knows latency, token cost and how often the model returned nothing; the editors know
 // how often a suggestion was shown, accepted, dismissed, or served from their prefix cache. The
 // two halves meet in GET /foxxycode/completion/stats.
-type autocompleteState struct {
+type state struct {
 	requests    atomic.Int64 // completion requests that reached the model path (enabled, non-empty context)
 	served      atomic.Int64 // requests answered with a non-empty suggestion
 	empty       atomic.Int64 // requests answered with an empty suggestion (model had nothing, or filters dropped it)
@@ -54,42 +52,42 @@ type autocompleteState struct {
 	thinking sync.Map
 }
 
-func (st *autocompleteState) markThinking(model string) { st.thinking.Store(model, true) }
+func (st *state) markThinking(model string) { st.thinking.Store(model, true) }
 
-func (st *autocompleteState) isThinking(model string) bool {
+func (st *state) isThinking(model string) bool {
 	_, ok := st.thinking.Load(model)
 	return ok
 }
 
-// fimEmptyStreakLimit is how many empty raw answers in a row retire FIM for a model.
-const fimEmptyStreakLimit = 3
+// FIMEmptyStreakLimit is how many empty raw answers in a row retire FIM for a model.
+const FIMEmptyStreakLimit = 3
 
-func (st *autocompleteState) markFIMBroken(model string) { st.fimBroken.Store(model, true) }
+func (st *state) markFIMBroken(model string) { st.fimBroken.Store(model, true) }
 
 // noteFIMEmpty records an empty raw answer and reports whether the model has now produced enough
 // of them in a row to be treated as FIM-incapable.
-func (st *autocompleteState) noteFIMEmpty(model string) bool {
+func (st *state) noteFIMEmpty(model string) bool {
 	v, _ := st.fimEmptyStreak.LoadOrStore(model, new(atomic.Int64))
 	n := v.(*atomic.Int64).Add(1)
-	if n >= fimEmptyStreakLimit {
+	if n >= FIMEmptyStreakLimit {
 		st.markFIMBroken(model)
 		return true
 	}
 	return false
 }
 
-func (st *autocompleteState) noteFIMServed(model string) {
+func (st *state) noteFIMServed(model string) {
 	if v, ok := st.fimEmptyStreak.Load(model); ok {
 		v.(*atomic.Int64).Store(0)
 	}
 }
 
-func (st *autocompleteState) isFIMBroken(model string) bool {
+func (st *state) isFIMBroken(model string) bool {
 	_, broken := st.fimBroken.Load(model)
 	return broken
 }
 
-func (st *autocompleteState) recordLatency(ms int64) {
+func (st *state) recordLatency(ms int64) {
 	st.latencyMS.Add(ms)
 	for {
 		cur := st.latencyMax.Load()
@@ -100,7 +98,7 @@ func (st *autocompleteState) recordLatency(ms int64) {
 }
 
 // feedback applies one editor-reported outcome; unknown events are ignored.
-func (st *autocompleteState) feedback(event string) bool {
+func (st *state) feedback(event string) bool {
 	switch event {
 	case "shown":
 		st.shown.Add(1)
@@ -116,7 +114,7 @@ func (st *autocompleteState) feedback(event string) bool {
 	return true
 }
 
-func (st *autocompleteState) snapshot() map[string]interface{} {
+func (st *state) snapshot() map[string]interface{} {
 	requests := st.requests.Load()
 	served := st.served.Load()
 	shown := st.shown.Load()

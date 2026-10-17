@@ -264,7 +264,7 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 
 // broadcastEditApplied fans a filesystem write out to connected native editor clients.
 func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
-	ideEvents.broadcast(ideEvent{
+	ideEvents.Broadcast(ideEvent{
 		Type:       "edit_applied",
 		ToolCallID: u.ToolCallID,
 		SessionID:  sessionID,
@@ -487,7 +487,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 // pushes it to native editor clients so they can render an inline Accept/Reject preview.
 // No-op for non-write tools or when no IDE client is connected.
 func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON string) {
-	if !ideEvents.hasSubscribers() {
+	if !ideEvents.HasSubscribers() {
 		return
 	}
 	s.mu.Lock()
@@ -497,7 +497,7 @@ func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON
 	if !ok || err != nil {
 		return
 	}
-	ideEvents.broadcast(ideEvent{
+	ideEvents.Broadcast(ideEvent{
 		Type:       "edit_proposed",
 		ToolCallID: toolCallID,
 		SessionID:  sessionID,

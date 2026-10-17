@@ -1,12 +1,13 @@
-//go:build http
-
-package httpserver
+package autocomplete
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
+
+var completionFenceRe = regexp.MustCompile("(?s)^```[a-zA-Z0-9]*\\n?|```$")
 
 // The pure text rules of inline completion: what a suggestion may look like, where it must
 // stop, and when it is not worth showing. Everything here is deterministic and unit-tested; the
@@ -138,7 +139,7 @@ func stripFence(out string) string {
 	if !strings.HasPrefix(lead, "```") {
 		return out
 	}
-	return enhanceFenceRe.ReplaceAllString(lead, "")
+	return completionFenceRe.ReplaceAllString(lead, "")
 }
 
 // trimSuffixOverlap drops the tail of a suggestion that re-types what already follows the

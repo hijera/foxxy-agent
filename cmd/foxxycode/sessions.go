@@ -15,7 +15,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
+	svn "github.com/hijera/foxxycode-agent/internal/svn"
 )
 
 // sessionsExportUsage is the usage line of `foxxycode sessions export`.
@@ -118,7 +118,7 @@ func sessionsExport(w io.Writer, store *session.FileStore, cfg *config.Config, c
 	if ws := strings.TrimSpace(snap.Meta.CWD); ws != "" {
 		if fi, statErr := os.Stat(ws); statErr == nil && fi.IsDir() {
 			in.GitBranch = gitws.Describe(ws).Branch
-			in.SVNBranch = toolsvn.BranchFor(context.Background(), cfg, ws)
+			in.SVNBranch = svn.BranchFor(context.Background(), cfg, ws)
 		}
 	}
 	if stats, statsErr := session.ReadSessionStats(snap.Dir); statsErr == nil {

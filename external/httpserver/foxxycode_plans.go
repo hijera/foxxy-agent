@@ -67,8 +67,8 @@ func (s *Server) foxxycodeDesignPlanOpenInIDE(w http.ResponseWriter, r *http.Req
 		s.foxxycodePlanHTTPError(w, err)
 		return
 	}
-	delivered := ideEvents.hasSubscribers()
-	ideEvents.broadcast(ideEvent{Type: "open_file", SessionID: id, Path: path})
+	delivered := ideEvents.HasSubscribers()
+	ideEvents.Broadcast(ideEvent{Type: "open_file", SessionID: id, Path: path})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "foxxycode.ide_open_file",

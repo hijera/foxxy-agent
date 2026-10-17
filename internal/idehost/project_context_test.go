@@ -1,4 +1,4 @@
-package session_test
+package idehost_test
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/idehost"
 )
 
 func TestLoadIntelliJProjectContextRecursivelyLoadsUTF8Files(t *testing.T) {
@@ -23,7 +23,7 @@ func TestLoadIntelliJProjectContextRecursivelyLoadsUTF8Files(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := session.LoadIntelliJProjectContext(tmp)
+	got := idehost.LoadIntelliJProjectContext(tmp)
 	for _, want := range []string{
 		"IntelliJ IDEA project context",
 		`.idea/externalDependencies.xml`,
@@ -50,7 +50,7 @@ func TestLoadIntelliJProjectContextSkipsBinaryFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := session.LoadIntelliJProjectContext(tmp)
+	got := idehost.LoadIntelliJProjectContext(tmp)
 	if !strings.Contains(got, `.idea/misc.xml`) {
 		t.Fatalf("text metadata is missing:\n%s", got)
 	}
@@ -60,7 +60,7 @@ func TestLoadIntelliJProjectContextSkipsBinaryFiles(t *testing.T) {
 }
 
 func TestLoadIntelliJProjectContextWithoutIdeaDirectoryIsEmpty(t *testing.T) {
-	if got := session.LoadIntelliJProjectContext(t.TempDir()); got != "" {
+	if got := idehost.LoadIntelliJProjectContext(t.TempDir()); got != "" {
 		t.Fatalf("context = %q, want empty", got)
 	}
 }
@@ -78,7 +78,7 @@ func TestLoadIntelliJProjectContextCapsTotalSizeAndReportsOmittedFiles(t *testin
 		}
 	}
 
-	got := session.LoadIntelliJProjectContext(tmp)
+	got := idehost.LoadIntelliJProjectContext(tmp)
 	if len(got) > 600*1024 {
 		t.Fatalf("context is unexpectedly large: %d bytes", len(got))
 	}
@@ -100,7 +100,7 @@ func TestLoadVSCodeProjectContextLoadsWorkspaceFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := session.LoadVSCodeProjectContext(tmp)
+	got := idehost.LoadVSCodeProjectContext(tmp)
 	for _, want := range []string{
 		"VS Code project context",
 		"<vscode_project_context>",
@@ -128,7 +128,7 @@ func TestLoadVSCodeProjectContextSkipsBinaryFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := session.LoadVSCodeProjectContext(tmp)
+	got := idehost.LoadVSCodeProjectContext(tmp)
 	if !strings.Contains(got, `.vscode/extensions.json`) {
 		t.Fatalf("text metadata is missing:\n%s", got)
 	}
@@ -138,7 +138,7 @@ func TestLoadVSCodeProjectContextSkipsBinaryFiles(t *testing.T) {
 }
 
 func TestLoadVSCodeProjectContextWithoutDirectoryIsEmpty(t *testing.T) {
-	if got := session.LoadVSCodeProjectContext(t.TempDir()); got != "" {
+	if got := idehost.LoadVSCodeProjectContext(t.TempDir()); got != "" {
 		t.Fatalf("context = %q, want empty", got)
 	}
 }
@@ -156,7 +156,7 @@ func TestLoadVSCodeProjectContextCapsTotalSizeAndReportsOmittedFiles(t *testing.
 		}
 	}
 
-	got := session.LoadVSCodeProjectContext(tmp)
+	got := idehost.LoadVSCodeProjectContext(tmp)
 	if len(got) > 600*1024 {
 		t.Fatalf("context is unexpectedly large: %d bytes", len(got))
 	}
@@ -183,7 +183,7 @@ func TestLoadVSCodeProjectContextReadsKnownFilesFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := session.LoadVSCodeProjectContext(tmp)
+	got := idehost.LoadVSCodeProjectContext(tmp)
 	if !strings.Contains(got, `editor.tabSize`) {
 		t.Fatalf("settings.json must outrank bulky neighbours:\n%s", got[:min(len(got), 400)])
 	}
@@ -202,7 +202,7 @@ func TestLoadVSCodeProjectContextKeepsJSONWithCommentsVerbatim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := session.LoadVSCodeProjectContext(tmp)
+	got := idehost.LoadVSCodeProjectContext(tmp)
 	for _, want := range []string{"// the formatter of record", `"golang.go",`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("context is missing %q:\n%s", want, got)
