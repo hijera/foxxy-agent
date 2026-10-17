@@ -198,8 +198,8 @@ func TestDesignPlanOpenInIDE(t *testing.T) {
 	}
 
 	// A subscribed plugin must receive the event.
-	sub := ideEvents.subscribe()
-	defer ideEvents.unsubscribe(sub)
+	sub := ideEvents.Subscribe()
+	defer ideEvents.Unsubscribe(sub)
 
 	req = httptest.NewRequest(http.MethodPost, "/foxxycode/sessions/"+id+"/plans/demo/open-in-ide", nil)
 	req.SetPathValue("id", id)

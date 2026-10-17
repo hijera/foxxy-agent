@@ -19,8 +19,8 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	svn "github.com/hijera/foxxycode-agent/internal/svn"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
-	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
 )
 
 // workspaceContextPayload builds the JSON body shared by the context GET and
@@ -86,7 +86,7 @@ func (s *Server) svnEnabled() bool {
 // describeSVN inspects cwd with the configured svn client. It returns an empty
 // Info when Subversion support is disabled.
 func (s *Server) describeSVN(ctx context.Context, cwd string) svnws.Info {
-	return toolsvn.DescribeFor(ctx, s.activeCfg(), cwd)
+	return svn.DescribeFor(ctx, s.activeCfg(), cwd)
 }
 
 // foxxycodeWorkspaceContextGet reports the workspace state for ?path= when given
@@ -433,64 +433,23 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 	return 0, nil
 }
 
-// svnWorkingCopyAt reports whether dir itself is an existing svn working copy
-// root (not merely a folder below one).
-func svnWorkingCopyAt(ctx context.Context, dir string, opts svnws.Options) bool {
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return false
-	}
-	info := svnws.Describe(ctx, dir, opts)
-	return info.IsSVNRepo && !info.Nested
-}
-
-// applySVNBranchSwitch moves the session to an SVN branch. Subversion has no
-// worktrees, so separateFolder checks the branch out into its own folder under
-// <home>/worktrees/<wc>/ and moves the session there - the branch-folder
-// workflow. Otherwise the working copy is switched in place.
+// applySVNBranchSwitch retains HTTP/session policy around the domain operation.
 func (s *Server) applySVNBranchSwitch(ctx context.Context, st *session.State, branch string, separateFolder bool) (int, error) {
-	cwd := st.GetCWD()
-	if !s.svnEnabled() {
-		return http.StatusConflict, fmt.Errorf("subversion support is disabled (vcs.svn.enable)")
-	}
-	opts := toolsvn.OptionsFor(s.activeCfg())
-	info := svnws.Describe(ctx, cwd, opts)
-	if !info.Available {
-		return http.StatusConflict, fmt.Errorf("svn client not found; install Subversion or set vcs.svn.binary")
-	}
-	if !info.IsSVNRepo {
-		return http.StatusBadRequest, fmt.Errorf("workspace is not an svn working copy: %s", cwd)
-	}
-	branch = strings.TrimSpace(branch)
-	if branch == info.Branch && !separateFolder {
-		return 0, nil
-	}
-	url, err := svnws.BranchURL(info, branch)
+	result, err := svn.SwitchBranch(ctx, s.activeCfg(), st.GetCWD(), branch, separateFolder)
 	if err != nil {
+		var workspaceErr *svn.WorkspaceError
+		if errors.As(err, &workspaceErr) && workspaceErr.Conflict {
+			return http.StatusConflict, err
+		}
 		return http.StatusBadRequest, err
 	}
-
-	if separateFolder {
-		dest := filepath.Join(info.WCRoot, ".foxxycode", "branches", svnws.BranchDirName(branch))
-		if cfg := s.activeCfg(); cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
-			dest = filepath.Join(cfg.Paths.Home, "worktrees",
-				filepath.Base(info.WCRoot), svnws.BranchDirName(branch))
-		}
-		// An existing checkout of that branch is reused instead of re-fetched.
-		// The folder has to be a working copy in its own right: Describe would
-		// otherwise resolve an enclosing working copy above it.
-		if !svnWorkingCopyAt(ctx, dest, opts) {
-			if _, err := svnws.Checkout(ctx, opts, url, dest, ""); err != nil {
-				return http.StatusConflict, err
-			}
-		}
-		if err := s.mgr.SetSessionWorkspace(ctx, st, dest); err != nil {
+	if result.Path != "" {
+		if err := s.mgr.SetSessionWorkspace(ctx, st, result.Path); err != nil {
 			return http.StatusBadRequest, err
 		}
-		return 0, nil
 	}
-	if _, err := svnws.Switch(ctx, cwd, opts, url); err != nil {
-		return http.StatusConflict, err
+	if result.Reload {
+		s.mgr.ReloadSessionWorkspace(ctx, st)
 	}
-	s.mgr.ReloadSessionWorkspace(ctx, st)
 	return 0, nil
 }

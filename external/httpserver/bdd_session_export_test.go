@@ -92,7 +92,7 @@ func (s *sessionExportFeatureState) reset() error {
 
 func (s *sessionExportFeatureState) close() {
 	if s.ideCh != nil {
-		ideEvents.unsubscribe(s.ideCh)
+		ideEvents.Unsubscribe(s.ideCh)
 		s.ideCh = nil
 	}
 	// The file route writes into the real OS temp dir, outside the scenario root.
@@ -799,7 +799,7 @@ func (s *sessionExportFeatureState) docxOrderedNumbering() error {
 // listenAsPlugin stands in for a connected IntelliJ / VS Code plugin by
 // subscribing to the same process-global hub the SSE route serves from.
 func (s *sessionExportFeatureState) listenAsPlugin() error {
-	s.ideCh = ideEvents.subscribe()
+	s.ideCh = ideEvents.Subscribe()
 	return nil
 }
 
