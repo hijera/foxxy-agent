@@ -8729,6 +8729,45 @@ html:not([data-theme="light"]) .context-usage-note--error {
   align-items: center;
 }
 
+.notification-settings-controls {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.notification-sound-picker {
+  display: grid;
+  gap: 8px;
+}
+.notification-sound-options {
+  display: grid;
+  gap: 8px;
+}
+.notification-sound-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.notification-sound-option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.notification-sound-name {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--text);
+}
+.notification-sound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.notification-sound-actions .settings-btn {
+  max-width: 100%;
+}
+
 /* A real <label for>: clicking the text toggles the switch. */
 .settings-switch-field-label {
   font-size: 0.9rem;
@@ -10753,12 +10792,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 12px;
   line-height: 1.45;
   color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
-}
-
-.desktop-toast-body {
-  font-size: 13px;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
 }
 
 .desktop-toast-actions {

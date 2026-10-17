@@ -30,6 +30,15 @@ type UIConfig struct {
 	// StatusLine toggles the live status label next to the typing dots. A nil pointer means
 	// the default (true). Use IsStatusLineEnabled to read the effective value.
 	StatusLine *bool `yaml:"status_line" json:"status_line,omitempty"`
+	// Notifications enables permission, question and turn-finished alerts in desktop and IDE hosts.
+	// Unset defaults to true; the ordinary inline prompt remains available when disabled.
+	Notifications *bool `yaml:"notifications" json:"notifications,omitempty"`
+	// NotificationSound controls alert audio independently. Unset defaults to true.
+	NotificationSound *bool `yaml:"notification_sound" json:"notification_sound,omitempty"`
+	// NotificationSoundFile selects an MP3/WAV file. Empty keeps each host's standard sound.
+	NotificationSoundFile string `yaml:"notification_sound_file" json:"notification_sound_file,omitempty"`
+	// NotificationsWhenFocused also allows alerts in the active host window. Unset defaults to false.
+	NotificationsWhenFocused *bool `yaml:"notifications_when_focused" json:"notifications_when_focused,omitempty"`
 	// Effects toggles the web UI's visual effects: the long-lived animations and the
 	// translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings -> Appearance and
 	// shared by every client. A nil pointer means each client's default: off in the IntelliJ
@@ -51,6 +60,7 @@ func (u *UIConfig) IsStatusLineEnabled() bool {
 // Normalize trims locale and normalizes send_mode (empty -> "enter").
 func (u *UIConfig) Normalize() {
 	u.Locale = strings.TrimSpace(u.Locale)
+	u.NotificationSoundFile = strings.TrimSpace(u.NotificationSoundFile)
 	u.SendMode = strings.ToLower(strings.TrimSpace(u.SendMode))
 	if u.SendMode == "" {
 		u.SendMode = UISendModeEnter
@@ -62,6 +72,9 @@ func (u *UIConfig) ApplyDefaults() {}
 
 // Validate checks ui.locale and ui.send_mode.
 func (u *UIConfig) Validate() error {
+	if strings.ContainsAny(u.NotificationSoundFile, "\x00\r\n\"") {
+		return fmt.Errorf("ui.notification_sound_file contains invalid path characters")
+	}
 	switch u.Locale {
 	case "", "en", "ru":
 	default:

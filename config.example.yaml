@@ -660,6 +660,10 @@ logger:
 #                         #   "off"        keyboard send disabled (Send button only)
 #   status_line: true     # false = only animated dots while the agent works, no live
 #                         # status label (current tool / waiting for the model / elapsed)
+#   notifications: true   # desktop/IDE permission, question, plan-ready and completion alerts
+#   notification_sound: true # false = silent alerts; independent of notifications
+#   notification_sound_file: "" # custom MP3/WAV, up to 5 MiB; empty = standard; relative to home
+#   notifications_when_focused: false # true = also alert while FoxxyCode is active
 #   effects: true         # animations and translucent glass panels, in every client;
 #                         # unset = the client's default: off in the IntelliJ panel (JCEF
 #                         # copies every frame into the IDE), on elsewhere. Written by
