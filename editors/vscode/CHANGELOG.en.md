@@ -8,10 +8,34 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-13
+## Unreleased — 2026-10-17
 
 **Chat notifications.** Permissions, questions, ready plans and finished tasks appear in VS Code notifications with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt as plain text, without Markdown syntax. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. Radio options switch between the Windows system notification sound (ding) and a custom file.
 
+## 0.3.30 — 2026-10-14
+
+**Edit the conversation in the same chat.**
+An edited message is sent in the same session: that message and the conversation after it are replaced by a new continuation. Workspace files are not rolled back.
+
+**Keep the draft when a send fails.**
+If the server rejects a request, the connection fails or an attachment cannot be read, the text and files return to the composer. The error includes its cause so the problem can be corrected before retrying.
+
+**Archived chats open without a composer.**
+The conversation remains readable; select Unarchive to continue it. The archive state survives reopening the chat.
+
+**Remember the selected model.**
+A new chat uses the last model selected on its surface; opening an existing chat restores that chat's own model. With no previous selection, the first configured model alphabetically is used. The `agent.model` configuration field is now optional.
+
+**Save settings cleanly and set step limits explicitly.**
+Saving configuration retains the other fields and omits `null` for unset values. An omitted or zero `agent.max_turns` allows unlimited steps; a positive value sets a cap. The `agent.max_tokens_per_turn` field has been removed and must be deleted from older configuration files that still contain it.
+
+**Clearer provider errors and file reads.**
+The HTTP API distinguishes provider rejection, rate limits, unavailability and timeouts. Devin usage reporting and text handling are corrected. The read tool reports a binary file's type and size instead of returning its bytes; support for text encodings is preserved.
+
+**MCP follows the workspace folder.**
+Changing the folder refreshes MCP connections and resource catalogs. Project settings still pass through the trust checks, and servers connect in the background.
+
+## 0.3.29 — 2026-10-09
 
 **Question answer options recover automatically.**
 A missed question event is recovered from server activity with the original answer options. Failed submissions keep the selection and show an error for retry; an old question no longer claims to await an answer after the backend stops.

@@ -119,7 +119,7 @@ func (s *coldStartState) chatLeftOnDisk() error {
 }
 
 func (s *coldStartState) panelOpensEveryView() error {
-	paths := []string{"messages", "tool-calls", "stats", "branches", "activity", "plans"}
+	paths := []string{"messages", "tool-calls", "stats", "activity", "plans"}
 	s.statuses = make([]int, len(paths))
 	var wg sync.WaitGroup
 	start := make(chan struct{})

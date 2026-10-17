@@ -15,6 +15,7 @@ type ConfigJSON struct {
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
+	Rules        RulesJSON        `json:"rules,omitempty"`
 	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
 	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
@@ -52,6 +53,7 @@ type SVNJSON struct {
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
 // value round-trips as "use default" (true) rather than an explicit false.
 type BrowserJSON struct {
+	Screenshots    *bool  `json:"screenshots,omitempty"`
 	Enabled        bool   `json:"enable,omitempty"`
 	Headless       *bool  `json:"headless,omitempty"`
 	ExecutablePath string `json:"executable_path,omitempty"`
@@ -148,7 +150,6 @@ type ModelJSON struct {
 type AgentJSON struct {
 	Model                      string `json:"model"`
 	MaxTurns                   int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn           int    `json:"max_tokens_per_turn,omitempty"`
 	LLMRetryMax                *int   `json:"llm_retry_max,omitempty"`
 	LLMRetryBaseMS             int    `json:"llm_retry_base_ms,omitempty"`
 	LLMMinIntervalMS           int    `json:"llm_min_interval_ms,omitempty"`
@@ -174,6 +175,7 @@ type AgentJSON struct {
 
 // PromptsJSON mirrors Prompts for JSON APIs.
 type PromptsJSON struct {
+	DocsPrompt  string                  `json:"docs_prompt,omitempty"`
 	Dir         string                  `json:"dir,omitempty"`
 	AgentPrompt string                  `json:"agent_prompt,omitempty"`
 	PlanPrompt  string                  `json:"plan_prompt,omitempty"`
@@ -192,6 +194,12 @@ type SkillsJSON struct {
 	Dirs          []string `json:"dirs,omitempty"`
 	Sources       []string `json:"sources,omitempty"`
 	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
+}
+
+// RulesJSON mirrors Rules for JSON APIs.
+type RulesJSON struct {
+	AutoDiscover *bool    `json:"auto_discover,omitempty"`
+	Systems      []string `json:"systems,omitempty"`
 }
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
@@ -293,11 +301,12 @@ type ToolOutputLimitsJSON struct {
 
 // LoggerJSON mirrors Logger for JSON APIs.
 type LoggerJSON struct {
-	Level    string             `json:"level,omitempty"`
-	Outputs  []string           `json:"outputs,omitempty"`
-	File     string             `json:"file,omitempty"`
-	Format   string             `json:"format,omitempty"`
-	Rotation LoggerRotationJSON `json:"rotation,omitempty"`
+	Levels   []LoggerComponentLevel `json:"levels,omitempty"`
+	Level    string                 `json:"level,omitempty"`
+	Outputs  []string               `json:"outputs,omitempty"`
+	File     string                 `json:"file,omitempty"`
+	Format   string                 `json:"format,omitempty"`
+	Rotation LoggerRotationJSON     `json:"rotation,omitempty"`
 }
 
 // DebugJSON mirrors Debug for JSON APIs. CaptureLLM is a pointer so an unset
@@ -389,6 +398,7 @@ type TitleJSON struct {
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
+	Enabled        *bool         `json:"enable,omitempty"`
 	Host           string        `json:"host,omitempty"`
 	Port           int           `json:"port,omitempty"`
 	AuthToken      string        `json:"auth_token,omitempty"`
@@ -434,6 +444,7 @@ type HTTPRemoteJSON struct {
 // config reports only whether one is set, the way HTTPServerJSON does, so an
 // authenticated endpoint never hands back the token that reached it.
 type SwarmJSON struct {
+	Enabled                  bool                `json:"enable,omitempty"`
 	Host                     string              `json:"host,omitempty"`
 	Port                     int                 `json:"port,omitempty"`
 	Name                     string              `json:"name,omitempty"`
@@ -544,7 +555,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Agent = AgentJSON{
 		Model:                      c.Agent.Model,
 		MaxTurns:                   c.Agent.MaxTurns,
-		MaxTokensPerTurn:           c.Agent.MaxTokensPerTurn,
 		LLMRetryMax:                c.Agent.LLMRetryMax,
 		LLMRetryBaseMS:             c.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:           c.Agent.LLMMinIntervalMS,
@@ -568,7 +578,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitForLimitResetMaxMS:     cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
 	out.Prompts = PromptsJSON{
-		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
+		DocsPrompt: c.Prompts.DocsPrompt,
+		Dir:        c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
 	}
 	if c.Prompts.PerProvider.Enabled != nil {
 		out.Prompts.PerProvider = &PerProviderPromptsJSON{Enabled: c.Prompts.PerProvider.Enabled}
@@ -578,6 +589,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Dirs:          append([]string(nil), c.Skills.Dirs...),
 		Sources:       append([]string(nil), c.Skills.Sources...),
 		AutoDiscovery: c.Skills.AutoDiscovery,
+	}
+	out.Rules = RulesJSON{
+		AutoDiscover: cloneBoolPtr(c.Rules.AutoDiscover),
+		Systems:      append([]string(nil), c.Rules.Systems...),
 	}
 	for _, s := range c.MCPServers {
 		mj := MCPServerJSON{
@@ -627,18 +642,19 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		},
 	}
 	out.Logger = LoggerJSON{
-		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
+		Levels: append([]LoggerComponentLevel(nil), c.Logger.Levels...),
+		Level:  c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
 		File: c.Logger.File, Format: c.Logger.Format,
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
 	out.Debug = DebugJSON{Enabled: c.Debug.Enabled, CaptureLLM: c.Debug.CaptureLLM}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
 	out.Memory = MemoryJSON{
-		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
+		Enabled: c.Memory.Enabled, Model: c.Memory.Model,
+		FallbackModels: append([]string(nil), c.Memory.FallbackModels...), Dir: c.Memory.Dir,
 		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
-		FallbackModels:   append([]string(nil), c.Memory.FallbackModels...),
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
 	out.Compaction = CompactionJSON{
@@ -670,6 +686,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		RelatedFiles:   c.Autocomplete.RelatedFiles,
 	}
 	out.HTTPServer = HTTPServerJSON{
+		Enabled:           cloneBoolPtr(c.HTTPServer.Enabled),
 		Host:              c.HTTPServer.Host,
 		Port:              c.HTTPServer.Port,
 		PublicDocs:        c.HTTPServer.PublicDocs,
@@ -697,6 +714,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
 	}
 	out.Swarm = SwarmJSON{
+		Enabled:                  c.Swarm.Enabled,
 		Host:                     c.Swarm.Host,
 		Port:                     c.Swarm.Port,
 		Name:                     c.Swarm.Name,
@@ -777,7 +795,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Effects:                  c.UI.Effects,
 	}
 	out.Browser = BrowserJSON{
-		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
+		Screenshots: cloneBoolPtr(c.Browser.Screenshots),
+		Enabled:     c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
 	}
 	out.VCS = VCSJSON{SVN: SVNJSON{
@@ -838,7 +857,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Agent = Agent{
 		Model:                      j.Agent.Model,
 		MaxTurns:                   j.Agent.MaxTurns,
-		MaxTokensPerTurn:           j.Agent.MaxTokensPerTurn,
 		LLMRetryMax:                j.Agent.LLMRetryMax,
 		LLMRetryBaseMS:             j.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:           j.Agent.LLMMinIntervalMS,
@@ -862,7 +880,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitForLimitResetMaxMS:     cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
 	cfg.Prompts = Prompts{
-		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
+		DocsPrompt: j.Prompts.DocsPrompt,
+		Dir:        j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
 	}
 	if j.Prompts.PerProvider != nil {
 		cfg.Prompts.PerProvider = PerProviderPrompts{Enabled: j.Prompts.PerProvider.Enabled}
@@ -872,6 +891,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Dirs:          append([]string(nil), j.Skills.Dirs...),
 		Sources:       append([]string(nil), j.Skills.Sources...),
 		AutoDiscovery: j.Skills.AutoDiscovery,
+	}
+	cfg.Rules = Rules{
+		AutoDiscover: cloneBoolPtr(j.Rules.AutoDiscover),
+		Systems:      append([]string(nil), j.Rules.Systems...),
 	}
 	for _, s := range j.MCPServers {
 		mc := MCPServerConfig{
@@ -921,7 +944,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 	}
 	cfg.Logger = Logger{
-		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),
+		Levels: append([]LoggerComponentLevel(nil), j.Logger.Levels...),
+		Level:  j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),
 		File: j.Logger.File, Format: j.Logger.Format,
 		Rotation: LoggerRotation{
 			MaxSizeMB: j.Logger.Rotation.MaxSizeMB, MaxFiles: j.Logger.Rotation.MaxFiles,
@@ -930,11 +954,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Debug = Debug{Enabled: j.Debug.Enabled, CaptureLLM: j.Debug.CaptureLLM}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
 	cfg.Memory = MemoryConfig{
-		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
+		Enabled: j.Memory.Enabled, Model: j.Memory.Model,
+		FallbackModels: append([]string(nil), j.Memory.FallbackModels...), Dir: j.Memory.Dir,
 		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
-		FallbackModels:   append([]string(nil), j.Memory.FallbackModels...),
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
 	cfg.Compaction = CompactionConfig{
@@ -966,6 +990,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		RelatedFiles:   j.Autocomplete.RelatedFiles,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
+		Enabled:   cloneBoolPtr(j.HTTPServer.Enabled),
 		Host:      j.HTTPServer.Host,
 		Port:      j.HTTPServer.Port,
 		AuthToken: j.HTTPServer.AuthToken,
@@ -988,6 +1013,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
 	}
 	cfg.Swarm = SwarmConfig{
+		Enabled:                  j.Swarm.Enabled,
 		Host:                     j.Swarm.Host,
 		Port:                     j.Swarm.Port,
 		Name:                     j.Swarm.Name,
@@ -1066,7 +1092,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Effects:                  j.UI.Effects,
 	}
 	cfg.Browser = BrowserConfig{
-		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
+		Screenshots: cloneBoolPtr(j.Browser.Screenshots),
+		Enabled:     j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
 	}
 	cfg.VCS = VCSConfig{SVN: SVNConfig{

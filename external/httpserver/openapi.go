@@ -79,7 +79,8 @@ func openAPISpec() map[string]interface{} {
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
 						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
-						"The last entry in **messages** must have role **user**.",
+						"The last entry in **messages** must have role **user**." +
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of foxxycode itself.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -119,7 +120,10 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": sessionBusyResponseRef(),
+						"429": errorResponseRef(),
 						"500": errorResponseRef(),
+						"502": errorResponseRef(),
+						"504": errorResponseRef(),
 					},
 				},
 			},
@@ -128,7 +132,8 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
 						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
-						"Optional **Idempotency-Key** reserves a logical submission before any session or model mutation. Keys are opaque strings after trimming; JSON escaping and internal whitespace remain significant. Reuse the key with the same JSON payload and session header (including absence) to replay the original status, headers and JSON/SSE body, including errors; responses set **Idempotency-Replayed: true**. Keys persist without automatic expiry. Different payload/session returns **409**. Unfinished requests, including empty legacy claims, return **202** with their status and never run again. A new claim is published only after its receipt is saved. Older receipts retain their former key matching conservatively. Keyed requests require a filesystem store (**503** if unavailable) and a readable body no larger than 32 MiB (**413** otherwise).",
+						"Optional **Idempotency-Key** reserves a logical submission before any session or model mutation. Keys are opaque strings after trimming; JSON escaping and internal whitespace remain significant. Reuse the key with the same JSON payload and session header (including absence) to replay the original status, headers and JSON/SSE body, including errors; responses set **Idempotency-Replayed: true**. Keys persist without automatic expiry. Different payload/session returns **409**. Unfinished requests, including empty legacy claims, return **202** with their status and never run again. A new claim is published only after its receipt is saved. Older receipts retain their former key matching conservatively. Keyed requests require a filesystem store (**503** if unavailable) and a readable body no larger than 32 MiB (**413** otherwise)." +
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of foxxycode itself.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -185,8 +190,11 @@ func openAPISpec() map[string]interface{} {
 						"404": errorResponseRef(),
 						"409": sessionBusyResponseRef(),
 						"413": errorResponseRef(),
+						"429": errorResponseRef(),
 						"500": errorResponseRef(),
 						"503": errorResponseRef(),
+						"502": errorResponseRef(),
+						"504": errorResponseRef(),
 					},
 				},
 			},
@@ -329,7 +337,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/bulk-delete": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Delete many sessions in one request",
-					"description": "Removes several session trees with the same semantics as **DELETE /foxxycode/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
+					"description": "Removes several session trees with the same semantics as **DELETE /foxxycode/sessions/{id}** applied to each id: background tasks and subagent children stopped, bundles removed deepest first. " +
 						"The body names either an explicit **ids** list, **scope** **`all`**, or **scope** **`archived`**, either of the two scopes with an optional **except** list of ids to keep. The scopes are resolved on the server against the session listing " +
 						"(scheduler runs excluded, subagent children going with their parents), so they mean the whole stored history rather than the page a client happens to have loaded. " +
 						"**`all`** reaches into the archive as well - a scope that left sessions behind because they were put aside would not be the whole history - while **`archived`** empties the archive and touches nothing else. " +
@@ -1272,19 +1280,19 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"/foxxycode/notification-sound": map[string]interface{}{
-					"get": map[string]interface{}{
-						"summary":     "Get the selected notification sound",
-						"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Only files inside the agent home's notification-sounds directory are served; no path supplied by the caller is read. Returns bounded MP3/WAV bytes. Empty selection uses the host's standard sound and returns 204.",
-						"operationId": "foxxycodeNotificationSoundGet",
-						"responses": map[string]interface{}{
-							"200": map[string]interface{}{"description": "Selected audio", "content": map[string]interface{}{
-								"audio/mpeg": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
-								"audio/wav":  map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
-							}},
-							"204": map[string]interface{}{"description": "No custom audio selected"},
-							"403": errorResponseRef(), "404": errorResponseRef(), "413": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(),
-						},
+				"get": map[string]interface{}{
+					"summary":     "Get the selected notification sound",
+					"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Only files inside the agent home's notification-sounds directory are served; no path supplied by the caller is read. Returns bounded MP3/WAV bytes. Empty selection uses the host's standard sound and returns 204.",
+					"operationId": "foxxycodeNotificationSoundGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Selected audio", "content": map[string]interface{}{
+							"audio/mpeg": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+							"audio/wav":  map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}},
+						}},
+						"204": map[string]interface{}{"description": "No custom audio selected"},
+						"403": errorResponseRef(), "404": errorResponseRef(), "413": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(),
 					},
+				},
 				"post": map[string]interface{}{
 					"summary":     "Upload a notification sound",
 					"description": "Accepts raw MP3/WAV bytes, at most 5 MiB. Saves a persistent copy under the agent home with a safe content-hashed name. Does not change the selected sound: persist the returned file path as ui.notification_sound_file through config PUT. Uploaded copies are retained when returning to the standard sound.",
@@ -1320,7 +1328,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**, as in **config.yaml**; **`enabled`**, the name FoxxyCode used before 0.3.x, is still accepted in a request body and answered as **`enable`**.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. **`agent.model`** is optional and stored as sent; calls without an explicit model report a missing default when it is empty. Keys the file never had appear only when their value differs from the built-in defaults: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**, as in **config.yaml**; **`enabled`**, the name FoxxyCode used before 0.3.x, is still accepted in a request body and answered as **`enable`**.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1954,7 +1962,6 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Delete a persisted session",
 					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
 						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
-						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
 						"Deleting an id with no bundle on disk still answers **200**.",
 					"operationId": "foxxycodeSessionDelete",
 					"parameters": []interface{}{
@@ -1993,18 +2000,18 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/foxxycode/sessions/{id}/branches": map[string]interface{}{
+			"/foxxycode/sessions/{id}/rewind": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary": "Fork the session at one user message",
-					"description": "Creates a sibling conversation that receives every message **before** the user message at **userMessageIndex** (0-based over **`user`** rows), so an edited version of that message can be resent without overwriting the original branch. " +
-						"Workspace turn diffs recorded **after** the branch point are reversed in the session cwd first, so the files match the state the branch starts from; **fileRollbackNote** reports which turns were reversed or why none were. " +
-						"Both branches are recorded in **branches.json** inside the source session bundle and are listed by **GET** on this path.",
-					"operationId": "foxxycodeBranchCreate",
+					"summary": "Rewind the session history to a user message",
+					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"A **`session_rewound`** event is published on **`GET /foxxycode/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
+					"operationId": "foxxycodeRewind",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Source session id.",
+							"description": "Session id.",
 						},
 					},
 					"requestBody": map[string]interface{}{
@@ -2017,7 +2024,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"userMessageIndex": map[string]interface{}{
 											"type": "integer", "minimum": 0,
-											"description": "0-based index of the user message to branch at.",
+											"description": "0-based index of the user message the history rewinds to (the message itself is dropped).",
 										},
 									},
 								},
@@ -2026,17 +2033,15 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Branch created",
+							"description": "History truncated in place",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object":           map[string]string{"type": "string"},
-											"newSessionId":     map[string]string{"type": "string"},
-											"branchIndex":      map[string]string{"type": "integer"},
-											"totalBranches":    map[string]string{"type": "integer"},
-											"fileRollbackNote": map[string]string{"type": "string"},
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
 										},
 									},
 								},
@@ -2045,7 +2050,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "The source is a subagent child session: its transcript is read-only and cannot be forked; branch the parent instead.",
+							"description": "The session is a read-only transcript (a subagent child or the session of a scheduler job), or a turn is in flight.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -2055,73 +2060,16 @@ func openAPISpec() map[string]interface{} {
 						"500": errorResponseRef(),
 					},
 				},
-				"get": map[string]interface{}{
-					"summary": "List branch points visible from a session",
-					"description": "Reads **branches.json** from the session bundle. Each entry carries **userMessageIndex**, **currentIndex**, **total**, the sibling **sessions** (**sessionId**, **branchIndex**, **preview**, **lastUpdatedAt**), and **own** - **`true`** for a branch point this session introduced, **`false`** for the sibling view inherited from its parent. " +
-						"Sessions whose bundle no longer exists are skipped and **currentIndex** is derived from the surviving list, so a stale branch file heals itself on read; a branch point with fewer than two surviving threads is not reported. " +
-						"The bundled UI renders each entry as a **`‹ n/m ›`** navigator under that user message.",
-					"operationId": "foxxycodeBranchList",
-					"parameters": []interface{}{
-						map[string]interface{}{
-							"name": "id", "in": "path", "required": true,
-							"schema":      map[string]string{"type": "string"},
-							"description": "Session id.",
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{
-							"description": "Branch points",
-							"content": map[string]interface{}{
-								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{
-										"type": "object",
-										"properties": map[string]interface{}{
-											"object":    map[string]string{"type": "string"},
-											"sessionId": map[string]string{"type": "string"},
-											"branchPoints": map[string]interface{}{
-												"type": "array",
-												"items": map[string]interface{}{
-													"type": "object",
-													"properties": map[string]interface{}{
-														"userMessageIndex": map[string]string{"type": "integer"},
-														"currentIndex":     map[string]string{"type": "integer"},
-														"total":            map[string]string{"type": "integer"},
-														"own":              map[string]string{"type": "boolean"},
-														"sessions": map[string]interface{}{
-															"type": "array",
-															"items": map[string]interface{}{
-																"type": "object",
-																"properties": map[string]interface{}{
-																	"sessionId":     map[string]string{"type": "string"},
-																	"branchIndex":   map[string]string{"type": "integer"},
-																	"preview":       map[string]string{"type": "string"},
-																	"lastUpdatedAt": map[string]string{"type": "integer"},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						"400": errorResponseRef(),
-						"404": errorResponseRef(),
-						"500": errorResponseRef(),
-					},
-				},
 			},
 			"/foxxycode/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Switch the session workspace folder, git branch, worktree, or svn branch",
-					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
-						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
+					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder — validated before the session exists, so a fresh session is created straight in the target workspace — and re-derives workspace-scoped state: skills, project rules, slash commands, the SessionStart hook context (re-fired with source `workspace`), and the configured MCP servers, which are re-dialed for the new cwd through the trust gate (the new workspace's `.foxxycode/mcp.json` is merged and freshly gated) while the previous workspace's configured clients are closed and ACP client-supplied servers are preserved. " +
+						"Body **`{\"branch\": b}`** checks the branch out in place and runs the same workspace-scoped reload; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
 						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created on demand under **`<repo>/.foxxycode/worktrees/<branch>/`**, below a self-ignoring folder) and moves the session cwd into it. " +
 						"**`vcs`** selects the version control system: **`git`** (default) or **`svn`**. With **`{\"vcs\": \"svn\", \"branch\": b}`** the working copy is switched in place (`svn switch`); " +
 						"Subversion has no worktrees, so **`{\"vcs\": \"svn\", \"branch\": b, \"worktree\": true}`** checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** and moves the session cwd there. An existing checkout of that branch is reused. " +
-						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
+						"The workspace is chosen **once per session**: as soon as the conversation has messages or a turn is running, switching yields **409** (`workspace is locked once the conversation starts`). " +
 						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enable: false`** or no svn client installed. " +
 						"The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "foxxycodeSessionWorkspacePost",
@@ -2339,7 +2287,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself. Emits **event: session_settings** with **`{object, sessionId, settings, notice, source}`** whenever any surface changes session settings; **settings.version** lets clients discard older snapshots.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself. Emits **event: session_rewound** with **`{object, sessionId, messagesRev}`** after a rewind, so watching clients reload their transcripts. Emits **event: session_settings** with **`{object, sessionId, settings, notice, source}`** whenever any surface changes session settings; **settings.version** lets clients discard older snapshots.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -3804,10 +3752,12 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"message":    map[string]string{"type": "string"},
-								"code":       map[string]string{"type": "string", "description": "Machine-readable error kind when the server has one; `session_busy` for a 409 raised by a live agent turn."},
-								"sessionId":  map[string]string{"type": "string", "description": "Session the error refers to (sent with `session_busy`)."},
-								"turnActive": map[string]string{"type": "boolean", "description": "True when the named session has an agent turn in flight (sent with `session_busy`)."},
+								"message":         map[string]string{"type": "string"},
+								"type":            map[string]string{"type": "string", "description": "upstream_error when the model provider failed."},
+								"upstream_status": map[string]string{"type": "integer", "description": "The HTTP status returned by the model provider."},
+								"code":            map[string]string{"type": "string", "description": "Machine-readable error kind when the server has one; `session_busy` for a 409 raised by a live agent turn."},
+								"sessionId":       map[string]string{"type": "string", "description": "Session the error refers to (sent with `session_busy`)."},
+								"turnActive":      map[string]string{"type": "boolean", "description": "True when the named session has an agent turn in flight (sent with `session_busy`)."},
 							},
 						},
 					},

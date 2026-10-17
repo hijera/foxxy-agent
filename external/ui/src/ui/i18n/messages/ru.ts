@@ -112,6 +112,7 @@ export const messagesRu: Record<string, string> = {
   "composer.queueLabel": "Сообщения в очереди",
   "composer.queueRemove": "Убрать из очереди",
   "composer.queueFull": "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
+  "composer.attachReadFailed": "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.queueBusyElsewhere":
     "Ход этого чата выполняется в другом окне FoxxyCode, и его очередь там. Сообщение возвращено в поле ввода.",
@@ -1368,8 +1369,8 @@ export const messagesRu: Record<string, string> = {
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.requestFailed": "Ошибка запроса",
   "app.requestFailedWithStatus": "Ошибка запроса ({status})",
-  "app.branchCreationFailed": "Не удалось создать ветку ({status})",
-  "app.branchCreationError": "Ошибка создания ветки: {error}",
+  "app.rewindFailed": "Не удалось обрезать историю ({status})",
+  "app.rewindError": "Ошибка обрезки истории: {error}",
   "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
   // Фоновые задачи (run_command background: true)
   "messages.subagentApproval.needed":

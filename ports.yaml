@@ -7,11 +7,12 @@ notes: 'Historical decisions migrated from the local UPSTREAM_SYNC.md journal an
   branding, API, localization and media differences; it does not assert a patch-identical cherry-pick, a new semantic
   audit or completion of every historical live-test/documentation follow-up. fork_commits may identify an implementation
   bundle or its merge. The journal sometimes names branch tips as release checkpoints; the 1.1.51-1.1.61 records
-  use actual upstream main merges. The 2026-10-07 wave separately reviews 4b091359e027df31acf00d32378f112b8af4dba6 (exclusive) through
-  75c31bcc0b726a46386b0977fee997353f62a9a1 (inclusive, tag 1.2.1): 38 constituent commits, 10 PR merges and
-  6 overlapping integration merges. The latter are skipped as redundant, rather than applied twice. Later
-  partial/deferred PR #351 records stay open. Commits after this checkpoint remain unreviewed unless listed
-  individually.'
+  use actual upstream main merges. The 2026-10-07 wave separately reviews 4b091359e027df31acf00d32378f112b8af4dba6
+  (exclusive) through 75c31bcc0b726a46386b0977fee997353f62a9a1 (inclusive, tag 1.2.1): 38 constituent commits, 10
+  PR merges and 6 overlapping integration merges. The latter are skipped as redundant, rather than applied twice.
+  The 2026-10-14 wave covers the next 24 constituent commits through 5ed775c47789a5c9ec49cfb66c0d575730599cf8 (tag
+  1.2.10), completing the partial/deferred PR #351 records. Commits after this checkpoint remain unreviewed unless
+  listed individually.'
 ports:
 - upstream_sha: 11cc5e9fb1584f3cc2e765ba5be8f5d13442453d
   status: adapted
@@ -9299,34 +9300,46 @@ ports:
     e701fe40..4b091359; fork branding and documented divergences retained.'
   remaining: []
 - upstream_sha: 61d59d402b39728526a22c053b119b6270c23472
-  status: partial
+  status: adapted
   fork_commits:
-  - 24f61078e129274b898de926577dd0720b344c57
-  reason: 'UPSTREAM_SYNC.md and divergence deferred-351: only provider recovery and StopNotice were ported from
-    PR #351; the fork keeps its continuation policy and transcript notices.'
-  remaining:
-  - 'Port provider HTTP status propagation from upstream issue #322.'
-  - Review max_turns=0 and removal of max_tokens_per_turn with the owner; preserve the current fork guards until
-    approved.
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix: keep a provider''s status on the HTTP API, ride out a
+    failing lane, say why a turn stopped. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn
+    and surface model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets
+    and transcript stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions
+    are completed by this wave.'
+  remaining: []
 - upstream_sha: 7755751cf5df01f0dacbdff9271405c4aecdbb63
-  status: partial
+  status: adapted
   fork_commits:
-  - 24f61078e129274b898de926577dd0720b344c57
-  reason: 'UPSTREAM_SYNC.md and divergence deferred-351: only provider recovery and StopNotice were ported from
-    PR #351; the fork keeps its continuation policy and transcript notices.'
-  remaining:
-  - 'Port provider HTTP status propagation from upstream issue #322.'
-  - Review max_turns=0 and removal of max_tokens_per_turn with the owner; preserve the current fork guards until
-    approved.
-  - Review the later Devin and turn-error changes; the 1.1.61 provider port does not cover them.
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #351 from coddy-project/fix/devin-invalid-utf8-400.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
 - upstream_sha: e0547133d03ae66733be6162cddd70ee75ee78e6
-  status: deferred
-  fork_commits: []
-  reason: 'PR #351 constituent outside the recorded checkpoint; deferred-351 does not claim its later Devin and
-    UI changes were ported.'
-  remaining:
-  - 'Review and port the Devin invalid-UTF-8, tool-output and visible turn-error fixes as part of the remaining
-    PR #351 work.'
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(llm,tools,ui): keep non-UTF-8 bytes from failing a devin
+    turn and keep turn errors on screen. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn
+    and surface model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets
+    and transcript stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions
+    are completed by this wave.'
+  remaining: []
 - upstream_sha: 4ddabc2fd518c3691e029b0c2bb206ccc4cefb82
   status: adapted
   fork_commits:
@@ -9938,4 +9951,287 @@ ports:
     FoxxyCode main; owner-approved encoding, send-mode, compaction, retry and session-asset
     divergences are preserved where applicable. Documentation and real UI captures
     accompany the implementation.'
+  remaining: []
+- upstream_sha: 0966db57a2eefc8e1c865f2ca12e1da5bc16a132
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(config): stop writing nulls and materializing unset sections
+    on save (#265). Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and
+    surface model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets
+    and transcript stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions
+    are completed by this wave.'
+  remaining: []
+- upstream_sha: 7c6719a4c6627e9beaaf858f1746628da4106fa6
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #332 from coddy-project/fix/265-config-save-nulls.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: a33b403dbb442c93a86b98ad9864a7af7d248b0e
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Remember each surface''s last-picked model for new sessions
+    (#341). Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface
+    model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: 2ec2304cd83935b3998d5a57f28c48f7319d1979
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: feat(session): reload workspace-scoped state on workspace
+    switch. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface
+    model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: 33cd1392e2c575fed622b2139510df257417743e
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #343 from coddy-project/feat/workspace-mcp-reload.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: d24b0b848291fc27f6e13332126aaec2aa0c4f4b
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(config): make agent.model optional (#336). Owner approved
+    in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory. Preserves
+    fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices. FoxxyCode
+    PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: 6557a43d0773b6b01874b4dc1a189c7eb273fd1a
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #344 from coddy-project/fix/336-agent-model-autofill.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: d6c96aa470cd580c672e0af0d30d7a1a9aed2190
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(devin): read account usage without a user JWT (#345).
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: 228c367c69233f651a5d2fbd01839a9a4bb8fbcf
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: feat(session): in-place history rewind for message editing.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: 5aac81ea87ca15571705d192d57318a62b9602ae
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: feat(httpserver): POST /coddy/sessions/{id}/rewind + session_rewound
+    event. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model
+    memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: 1e7c265be09381b68069a8ddb8b5795b3f58a73d
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: refactor(session,httpserver): remove branch forking and workspace
+    turn diffs. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface
+    model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: c5abcb0adcc2d95450c3dce84f04d58e54e93d64
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(ui): swap composer for archived notice when the open session
+    is archived. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface
+    model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: c444302d3fb98139cd443a450099a29318810677
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: feat(ui): rewind session in place on message edit; move pencil
+    to message foot. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and
+    surface model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets
+    and transcript stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions
+    are completed by this wave.'
+  remaining: []
+- upstream_sha: 6a35b8957811d941cf38fda569b92cfbd9cad92e
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #346 from coddy-project/fix/archived-open-session-composer.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: eab75fa3df979ad1346826f41f6ef8f45155e873
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: docs: describe message-edit rewind; drop branch navigator
+    references. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface
+    model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: def81bf9d512180c90dc25f6ea381609e6e8de69
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(session,httpserver,ui): cross-review fixes for in-place
+    rewind. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface
+    model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript
+    stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by
+    this wave.'
+  remaining: []
+- upstream_sha: 32e616dd7226e59f78c5b4227e1749c7e8881c5d
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(session): keep the live session state on concurrent loads.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: d6182c043d240198c1dffc637ba0173c6adef01b
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #349 from coddy-project/feat/session-edit-rewind.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: ea94d3451649cbb1e0977d672d95ac2e019c14fd
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(ui): give a send the server never took back to the composer.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
+  remaining: []
+- upstream_sha: 2f5999e3d2bdf7b83249d3aed8be2fbf846aec20
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: fix(ui): restore a prompt that failed before its bubble, pin
+    the no-reload in the test. Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn
+    and surface model memory. Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets
+    and transcript stop notices. FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions
+    are completed by this wave.'
+  remaining: []
+- upstream_sha: 5ed775c47789a5c9ec49cfb66c0d575730599cf8
+  status: adapted
+  fork_commits:
+  - 8b9fba31402b13336c38a778714d9c86e1bc5599
+  - 271d92bef4df082aa00ff3550fefd125b02d09bd
+  - 5be8b1fa07921512935689139af9291374526cb0
+  - 93fa83b2af65b6958d71d7e06f8c9e5caf5fb399
+  - b62616b253efb96b6d01b7321bcbd39e34908d10
+  reason: 'Consolidated port through upstream 1.2.10: Merge pull request #354 from coddy-project/fix/failed-send-keeps-prompt.
+    Owner approved in-place rewind, unlimited default steps, removal of max_tokens_per_turn and surface model memory.
+    Preserves fork encoding, asynchronous trusted MCP loading, retry/continuation budgets and transcript stop notices.
+    FoxxyCode PRs #127, #128 and #132 are excluded. Earlier partial #351 decisions are completed by this wave.'
   remaining: []

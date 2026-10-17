@@ -128,8 +128,7 @@ models:
 
 agent:
   model: "openai/gpt-4o"
-  max_turns: 30
-  max_tokens_per_turn: 200000
+  max_turns: 0
   # LLM retry and pacing. Transport retries and consecutive empty-answer or
   # first-token recoveries share llm_retry_max extra attempts per model step.
   # Tool progress starts a fresh allowance; no-answer recovery preserves max_turns.

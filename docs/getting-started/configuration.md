@@ -228,10 +228,12 @@ models:
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
-  model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
-  max_turns: 30                # max LLM calls per prompt turn
-  max_tokens_per_turn: 200000  # max tokens across all calls in one turn
-  llm_retry_max: 10            # shared extra attempts for transport failures and no-answer recovery (0 disables retries)
+  model: "openai/gpt-5.6-terra"  # optional default LLM until the client overrides per session;
+                               # unset, interactive surfaces pick a model per session, while
+                               # foxxycode -p / foxxycode acp / API calls without a model report "no model configured"
+  max_turns: 0                 # ReAct iterations per prompt, unanswered retries and continuations excluded; 0 (default) = no limit
+  llm_retry_max: 10             # shared per-step budget: transport retries + no-answer recoveries
+                               # (default 10; 0 disables these retries, not separately configured continuations)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
                                # pause (Retry-After-Ms / Retry-After headers, "Limit resets
                                # at" / "retry in Ns" body phrases) overrides the backoff,

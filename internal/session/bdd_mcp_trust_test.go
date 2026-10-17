@@ -247,7 +247,7 @@ func (s *mcpTrustState) switchWorkspace() error {
 	if st == nil {
 		return fmt.Errorf("session %q is not live", s.sessionID)
 	}
-	if err := s.mgr.SetSessionWorkspace(st, s.secondCWD); err != nil {
+	if err := s.mgr.SetSessionWorkspace(context.Background(), st, s.secondCWD); err != nil {
 		return err
 	}
 	return s.awaitMCP()

@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func ReadTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "read",
-			Description: "Read a file as text, or list a directory's entries. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
+			Description: "Read a file as text, or list a directory's entries. Text in another encoding (UTF-16, a legacy code page) is converted to UTF-8; a binary file (an image, a PDF, an archive) is refused with its type and size instead of its bytes. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -103,6 +104,9 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		return "", fmt.Errorf("read: %w", err)
 	}
 
+	if kind := sniffKind(data); !strings.HasPrefix(kind, "text/") && kind != "application/octet-stream" {
+		return "", fmt.Errorf("read: %s is a binary file, not text (%s, %d bytes); read shows text files only", args.Path, kind, len(data))
+	}
 	content, _, err := decodeText(data)
 	if err != nil {
 		return "", fmt.Errorf("read: decode: %w", err)
@@ -123,6 +127,15 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	}
 
 	return content, nil
+}
+
+// sniffKind names the sniffed content type of a file, without parameters.
+func sniffKind(data []byte) string {
+	kind := http.DetectContentType(data)
+	if i := strings.IndexByte(kind, ';'); i >= 0 {
+		kind = kind[:i]
+	}
+	return kind
 }
 
 func listDirContent(dirPath string, recursive, showHidden bool) (string, error) {

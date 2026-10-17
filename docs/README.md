@@ -46,7 +46,7 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
-- [Sessions](features/sessions.md) - Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
+- [Sessions](features/sessions.md) - Session bundles on disk, resuming, in-place history rewind on edit, todo lists, the sessions CLI.
 - [Rules and instructions](features/rules.md) - Rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
