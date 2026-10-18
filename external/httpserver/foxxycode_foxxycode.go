@@ -1372,7 +1372,8 @@ const maxMessagePage = 1000
 // limit and before for a page ending at before (the end when absent), or from
 // for a window running from a message to before or the end. Without any of
 // them it is the whole history. Positions past the history are clamped by
-// session.PageMessages; a value that is not a non-negative integer is refused.
+// session.PageMessages; a value that is not a non-negative integer, and a
+// window whose from lies past its before, are refused.
 func messagePageQuery(r *http.Request) (session.MessagePageQuery, error) {
 	q := session.MessagePageQuery{From: -1, Before: -1}
 	from, hasFrom, err := queryIndex(r, "from")
@@ -1397,6 +1398,11 @@ func messagePageQuery(r *http.Request) (session.MessagePageQuery, error) {
 	// read the whole prefix, the very read paging exists to avoid.
 	if hasBefore && !hasFrom && !hasLimit {
 		return q, errors.New("before needs limit or from")
+	}
+	// The same mistake the tool-calls list refuses: an empty window read
+	// backwards, silently, would hide the client bug from its author.
+	if hasFrom && hasBefore && from > before {
+		return q, errors.New("from must not be after before")
 	}
 	if hasFrom {
 		q.From = from

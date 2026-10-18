@@ -262,6 +262,7 @@ func TestSessionMessagesRejectsABadWindow(t *testing.T) {
 		"?from=1.5",
 		"?from=2&limit=4",
 		"?before=4",
+		"?from=6&before=2",
 	} {
 		rec, _ := getPaged(t, srv, base+q)
 		if rec.Code != http.StatusBadRequest {
