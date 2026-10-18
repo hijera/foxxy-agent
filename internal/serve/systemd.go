@@ -490,6 +490,14 @@ func (s *UserService) placeUnit(ctx context.Context) (path, source string, err e
 		}
 		return s.PackagedUnit, "installed by the package", nil
 	}
+	// A line break in a command path would end the unit's line and start a
+	// setting of its own; systemd refuses the unit at daemon-reload with an
+	// error that names neither the path nor its cause, so refuse it here.
+	for _, p := range []string{s.Exe, s.Mkdir} {
+		if strings.ContainsAny(p, "\r\n") {
+			return "", "", fmt.Errorf("the unit's command path %q has a line break, which a unit cannot carry", p)
+		}
+	}
 	if err := writeFileAtomic(userUnit, []byte(UnitFile(UnitHeaderWritten, s.Exe, s.Mkdir))); err != nil {
 		return "", "", fmt.Errorf("write %s: %w", userUnit, err)
 	}

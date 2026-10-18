@@ -124,6 +124,22 @@ func TestInstallStopsOnTheFirstSystemctlFailure(t *testing.T) {
 	}
 }
 
+func TestInstallRefusesACommandPathWithALineBreak(t *testing.T) {
+	f := newFakeService(t)
+	f.Exe = filepath.Join(f.Home, "two\nlines", "foxxycode")
+	err := f.Install(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "line break") {
+		t.Fatalf("error = %v", err)
+	}
+	// The refusal happens before anything is asked of systemd or written.
+	if changes := f.changes(); len(changes) != 0 {
+		t.Fatalf("systemctl calls = %q, want none", changes)
+	}
+	if fileExists(f.userUnit()) {
+		t.Fatalf("unit %s was written for a broken command path", f.userUnit())
+	}
+}
+
 func TestInstallReportsAServiceThatDidNotStayUp(t *testing.T) {
 	f := newFakeService(t)
 	f.answer = func(args []string) ([]byte, error) {
