@@ -181,10 +181,25 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: make build TAGS="http ui swarm"
 
+      # The browser below is a download of a few hundred MB, so it is cached
+      # per resolved Playwright version (the package is not in the lockfile):
+      # `playwright install` is a no-op while the cache holds.
+      - name: Resolve the Playwright version
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        id: playwright
+        run: echo "version=$(npm view playwright version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browsers
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
       - name: Drive a long transcript in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: |
-          npm --prefix external/ui i --no-save playwright
+          npm --prefix external/ui i --no-save playwright@${{ steps.playwright.outputs.version }}
           (cd external/ui && npx playwright install --with-deps chromium)
           FOXXYCODE_BIN="$PWD/build/foxxycode" FOXXYCODE_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
 
