@@ -10,7 +10,7 @@
 ## Unreleased — 2026-10-16
 
 **The model catalog sits with its provider.**
-Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins.
+Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins. Initial setup also keeps another profile off the shared CLI login.
 
 **Long chats open faster.**
 The newest messages load first and earlier messages arrive as you scroll up. The rendered history stays bounded; message editing and returning to the current answer preserve positions in the full conversation.

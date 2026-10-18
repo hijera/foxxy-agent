@@ -272,6 +272,52 @@ func TestProviderModelsProbeBadRequest(t *testing.T) {
 	}
 }
 
+func TestProviderModelsProbeKeepsCodexCLILoginOnItsAssignedRow(t *testing.T) {
+	cliHome := t.TempDir()
+	t.Setenv("CODEX_HOME", cliHome)
+	token := codexHTTPTestJWT(map[string]any{"exp": time.Now().Add(time.Hour).Unix()})
+	auth, err := json.Marshal(map[string]any{"auth_mode": "chatgpt", "tokens": map[string]string{
+		"access_token": token, "account_id": "acct-cli-probe",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cliHome, "auth.json"), auth, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5","display_name":"GPT-5"}]}`))
+	}))
+	defer upstream.Close()
+	t.Setenv("FOXXYCODE_CODEX_BASE_URL", upstream.URL)
+	ts := newProviderModelsServer(t, &config.Config{
+		Paths:     config.Paths{Home: t.TempDir()},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+	})
+	for _, tc := range []struct {
+		name string
+		ok   bool
+	}{{"codex", true}, {"work", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := http.Post(ts.URL+"/foxxycode/providers/models-probe", "application/json",
+				strings.NewReader(`{"type":"codex","provider_name":"`+tc.name+`"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			var body struct {
+				OK bool `json:"ok"`
+			}
+			if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.OK != tc.ok {
+				t.Fatalf("probe %q: ok = %v, want %v", tc.name, body.OK, tc.ok)
+			}
+		})
+	}
+}
+
 func TestProviderModelsUpstreamErrorReturnsOKFalse(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

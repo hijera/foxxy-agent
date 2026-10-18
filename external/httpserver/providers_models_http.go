@@ -203,6 +203,7 @@ func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Req
 			return
 		}
 		providerInput.AuthPath = config.ProviderAuthPath(c.Paths.Home, probe.Name, probe.Type)
+		providerInput.NoCLILogin = !c.ProviderMayUseCLILogin(probe.Name, probe.Type)
 	}
 
 	models, err := llm.ListModels(r.Context(), providerInput)
