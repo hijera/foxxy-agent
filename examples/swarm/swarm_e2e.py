@@ -249,7 +249,7 @@ def read_long_session_in_pages(base: str, token: str, total: int, where: str) ->
     msgs = page.get("messages") or []
     if window.get("total") != total or window.get("offset", 0) <= 0:
         fail(f"{where}: the newest page should start inside the history: {window}")
-    if window["offset"] + len(msgs) != total or msgs[0].get("role") != "user":
+    if not msgs or window["offset"] + len(msgs) != total or msgs[0].get("role") != "user":
         fail(f"{where}: the newest page should end the history and open with a prompt: {window}, {msgs[:1]}")
     read = len(msgs)
     offset = window["offset"]
