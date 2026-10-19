@@ -132,8 +132,9 @@ func (b *busySession) wake() chan error {
 		return err
 	})
 	waker.Attach(b.pool)
-	waker.OnSnapshot(bgtask.Snapshot{ID: "bg_busy", SessionID: b.sessionID,
-		Status: bgtask.StatusSucceeded, NotifyOnFinish: true})
+	if _, err := b.pool.Start(bgtask.Spec{SessionID: b.sessionID, Command: "echo wake", NotifyOnFinish: true}); err != nil {
+		out <- err
+	}
 	return out
 }
 
@@ -178,7 +179,10 @@ func TestWakeTurnStopsRetryingOnceDraining(t *testing.T) {
 	wakeErr := b.wake()
 
 	// Let it enter the retry loop, then close the pool the way Drain does.
-	time.Sleep(1200 * time.Millisecond)
+	deadline := time.Now().Add(15 * time.Second)
+	for b.attempts.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if b.attempts.Load() == 0 {
 		t.Fatal("wake did not attempt the busy session")
 	}

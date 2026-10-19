@@ -165,7 +165,7 @@
           "type": "integer"
         }
       },
-      "title": "ReAct agent",
+      "title": "ReAct loop",
       "type": "object",
       "x-foxxycode-property-order": [
         "model",
@@ -985,7 +985,7 @@
           "type": "integer"
         }
       },
-      "title": "Long-term memory",
+      "title": "Memory copilot",
       "type": "object",
       "x-foxxycode-property-order": [
         "enable",
@@ -1148,12 +1148,12 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex and devin, which use their official endpoints.",
+            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.",
             "title": "API base URL",
             "type": "string"
           },
           "api_key": {
-            "description": "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
+            "description": "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
             "title": "API key",
             "type": "string",
             "x-foxxycode-provider-api-key-env-placeholder": true,
@@ -1166,9 +1166,9 @@
           },
           "name": {
             "default": "openai",
-            "description": "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
+            "description": "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
             "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$",
-            "title": "Provider name",
+            "title": "Provider id",
             "type": "string"
           },
           "proxy": {
@@ -1197,7 +1197,7 @@
           },
           "usage_limits_panel": {
             "default": true,
-            "description": "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
+            "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
             "title": "Usage limits panel",
             "type": "boolean"
           }
@@ -1212,6 +1212,7 @@
           "type",
           "api_base",
           "api_key",
+          "api_key_command",
           "proxy",
           "timeout_ms",
           "usage_limits_panel"
@@ -1799,22 +1800,22 @@
     "models",
     "agent",
     "compaction",
+    "memory",
     "autocomplete",
+    "title",
     "tools",
-    "subagents",
-    "hooks",
     "mcp_servers",
     "skills",
-    "memory",
-    "title",
-    "scheduler",
-    "prompts",
-    "instructions",
-    "logger",
-    "sessions",
-    "gateways",
+    "subagents",
+    "hooks",
     "browser",
     "vcs",
+    "scheduler",
+    "gateways",
+    "logger",
+    "sessions",
+    "prompts",
+    "instructions",
     "ui",
     "debug"
   ]

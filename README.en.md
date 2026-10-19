@@ -631,7 +631,7 @@ See [Architecture docs](docs/contributing/architecture.md) for full details.
 - [ZCode hooks](docs/contributing/zcode-hooks.md) - the same for ZCode sessions
 - [MCP Integration](docs/features/mcp.md) - MCP server integration guide
 - [Diagnostics](docs/operate/debugging.md) - opt-in `debug:` layer: raw LLM capture, per-session turn trace, `GET /foxxycode/sessions/{id}/debug`, runtime toggle
-- [The `serve` daemon](docs/operate/serve.md) - one process for every enabled subsystem: foreground, the background dispatcher (`--daemon`), `serve status|stop|restart`
+- [The `serve` daemon](docs/operate/serve.md) - one process for every enabled subsystem: foreground, the background dispatcher (`--daemon`), `serve status|stop|restart`; on Linux, an opt-in systemd user service with `serve install|uninstall`
 - [Swarm](docs/operate/swarm.md) - the relay nodes register into: `foxxycode serve`, chained relays, the reverse tunnel for a node behind a firewall, and the topology screen in the web UI
 - [Messenger Gateway](docs/surfaces/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 

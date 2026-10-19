@@ -400,3 +400,5 @@ Optional layers **`external/httpserver`**, **`external/ui`**, **`external/schedu
 ## Shared retry allowance
 
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
+
+The built-in prompt sections also receive `ModelSwitch` and `BackgroundWake` capability flags. They explain user-requested model changes and completion wakes only when the corresponding capability is available.

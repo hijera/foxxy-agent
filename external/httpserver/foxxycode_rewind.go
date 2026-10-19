@@ -27,6 +27,12 @@ func (s *Server) registerRewindRoute() {
 //
 //	{ "object": "foxxycode.session_rewound", "sessionId": "...", "messagesRev": N }
 func (s *Server) foxxycodeRewind(w http.ResponseWriter, r *http.Request) {
+	// Truncating history is work on the server, so a page on another site must
+	// not be able to start it with a "simple" request (see requireJSONRequest).
+	if !isJSONRequest(r) {
+		writeSubagentsError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)

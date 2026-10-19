@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
+import { LegendWithHint } from "./FieldHint";
+import { IconCheck, IconSync } from "./icons";
 import { SwitchField } from "./SwitchField";
 import { t } from "../i18n/i18n";
 import { tSchemaText } from "../i18n/schemaStrings";
@@ -84,29 +86,6 @@ async function apiSend(
   return { ok: true };
 }
 
-function IconPlug() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M7 22H4a2 2 0 0 1-2-2v-3a2 2 0 0 0-2 0V7a2 2 0 0 0 2 0H7" />
-      <path d="M15 7h4a2 2 0 0 1 2 2v4a2 2 0 0 0 0 2v3a2 2 0 0 1-2 2h-3" />
-      <line x1="12" y1="2" x2="12" y2="22" />
-    </svg>
-  );
-}
-
-function IconSync() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M21 2v6h-6" />
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-    </svg>
-  );
-}
-
 // Download-to-tray glyph for the "download update" action.
 function IconDownload() {
   return (
@@ -115,16 +94,6 @@ function IconDownload() {
       <path d="M12 3v12" />
       <polyline points="7 10 12 15 17 10" />
       <path d="M5 21h14" />
-    </svg>
-  );
-}
-
-// Checkmark shown briefly after a successful sync.
-function IconCheck() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <polyline points="20 6 9 17 4 12" />
     </svg>
   );
 }
@@ -158,14 +127,14 @@ function SourcesEditor(props: {
   const lowerSystem = new Set(system.map((one) => one.trim().toLowerCase()));
   return (
     <fieldset className="settings-fieldset">
-      <legend>{t("settings.skills.sourcesLegend")}</legend>
-      <p className="settings-field-desc">
+      <LegendWithHint label={t("settings.skills.sourcesLegend")} description={<>
+
         {t("settings.skills.sourcesDescBefore")}{" "}
         <a href="https://agents.md" target="_blank" rel="noreferrer">
           {t("settings.skills.sourcesDescStandard")}
         </a>{" "}
         {t("settings.skills.sourcesDescAfter")}
-      </p>
+      </>} />
       <ul className="settings-array">
         {system.map((src) => (
           <li key={`system-${src}`} className="settings-array-row">
@@ -567,9 +536,22 @@ export function SkillsSection(props: {
 
       <SchemaForm schema={schema} value={value} onChange={onChange} fieldOverride={fieldOverride} />
 
-      <fieldset className="settings-fieldset skills-installed-box">
-        <legend>{t("settings.skills.installedLabel")}</legend>
+      <fieldset
+        className="settings-fieldset skills-installed-box"
+        data-testid="skills-installed"
+      >
+        {/* How else a skill gets here is about the whole list, so it is the
+            (i) of the legend rather than a line inside the box. */}
+        <LegendWithHint
+          label={t("settings.skills.installedLabel")}
+          description={t("skills.install.cliHint")}
+        />
 
+        {!hasSources ? (
+          <p className="settings-muted" data-testid="skills-install-no-sources">
+            {t("settings.skills.noSourcesHint")}
+          </p>
+        ) : null}
         <div className="skills-install">
           <input
             className="settings-input skills-install-input"
@@ -643,61 +625,70 @@ export function SkillsSection(props: {
           ) : null}
         </div>
 
-        {!hasSources ? (
-          <p className="settings-field-desc" data-testid="skills-install-no-sources">
-            {t("settings.skills.noSourcesHint")}
-          </p>
-        ) : null}
-
-        <p className="settings-field-desc">
-          {t("settings.skills.installHintBefore")} <code>npx skills</code>{" "}
-          {t("settings.skills.installHintOr")} <code>npx skillsbd</code>{" "}
-          {t("settings.skills.installHintLand")} <code>~/.agents/skills/</code>{" "}
-          {t("settings.skills.installHintAfter")}
-        </p>
         {error ? <p className="settings-error">{error}</p> : null}
         {status ? <p className="settings-muted">{status}</p> : null}
 
-        {installed.length === 0 ? (
-        loading ? (
+        {loading ? (
           <p className="settings-muted">{t("settings.loading")}</p>
         ) : (
-          <p className="settings-muted">
-            {t("settings.skills.emptyBefore")} <code>npx skills</code>{" "}
-            {t("settings.skills.installHintOr")} <code>npx skillsbd</code>{" "}
-            {t("settings.skills.emptyAfter")}
-          </p>
-        )
-      ) : (
-        <ul className="skills-list">
-          {installed.map((sk) => {
-            const upd = updates[sk.name];
-            const hasUpdate = !!upd?.update_available;
-            return (
-              <li
-                key={sk.name}
-                className={`skills-list-item${sk.enabled ? "" : " is-disabled"}${sk.name === justInstalled ? " is-just-installed" : ""}`}
-              >
-                <IconPlug />
-                <div className="skills-list-item-text">
-                  <div className="skills-list-item-name">
-                    {sk.name}
-                    {sk.version ? (
-                      <span className="skills-list-item-version">v{sk.version}</span>
-                    ) : null}
-                    {sk.source ? (
-                      <span
-                        className="skills-list-item-badge"
-                        title={t("settings.skills.syncedFrom", { source: sk.source })}
-                      >
-                        {t("settings.skills.remoteBadge")}
-                      </span>
+          <ul className="skills-list">
+            {installed.map((sk) => {
+              const upd = updates[sk.name];
+              const hasUpdate = !!upd?.update_available;
+              return (
+                <li
+                  key={sk.name}
+                  className={`skills-list-item${sk.enabled ? "" : " is-disabled"}${sk.name === justInstalled ? " is-just-installed" : ""}`}
+                >
+                  {/* The on/off switch leads the row, where an icon that said
+                      nothing used to stand. */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={sk.enabled}
+                    className="skill-switch"
+                    disabled={!!busy[sk.name]}
+                    onClick={() => onToggle(sk)}
+                    title={
+                      sk.enabled
+                        ? t("skills.switch.enabledTitle")
+                        : t("skills.switch.disabledTitle")
+                    }
+                    aria-label={t(
+                      sk.enabled
+                        ? "skills.switch.disableAria"
+                        : "skills.switch.enableAria",
+                      { name: sk.name },
+                    )}
+                    data-testid={`skills-toggle-${sk.name}`}
+                  >
+                    <span className="skill-switch-thumb" />
+                  </button>
+                  <div className="skills-list-item-text">
+                    <div className="skills-list-item-name">
+                      {sk.name}
+                      {sk.version ? (
+                        <span className="skills-list-item-version">
+                          v{sk.version}
+                        </span>
+                      ) : null}
+                      {sk.source ? (
+                        <span
+                          className="skills-list-item-badge"
+                          title={t("settings.skills.syncedFrom", {
+                            source: sk.source,
+                          })}
+                        >
+                          {t("settings.skills.remoteBadge")}
+                        </span>
+                      ) : null}
+                    </div>
+                    {sk.description ? (
+                      <div className="skills-list-item-desc">
+                        {sk.description}
+                      </div>
                     ) : null}
                   </div>
-                  {sk.description ? (
-                    <div className="skills-list-item-desc">{sk.description}</div>
-                  ) : null}
-                </div>
                 {hasUpdate ? (
                   <button
                     type="button"
@@ -718,23 +709,6 @@ export function SkillsSection(props: {
                     <IconDownload />
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={sk.enabled}
-                  className="skill-switch"
-                  disabled={!!busy[sk.name]}
-                  onClick={() => onToggle(sk)}
-                  title={
-                    sk.enabled
-                      ? t("settings.skills.clickToDisable")
-                      : t("settings.skills.clickToEnable")
-                  }
-                  aria-label={`${sk.enabled ? t("settings.skills.disable") : t("settings.skills.enable")} ${sk.name}`}
-                  data-testid={`skills-toggle-${sk.name}`}
-                >
-                  <span className="skill-switch-thumb" />
-                </button>
                 <button
                   type="button"
                   className="settings-btn settings-btn-icon settings-btn-danger"

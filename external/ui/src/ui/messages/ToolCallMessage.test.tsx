@@ -1347,8 +1347,52 @@ test("an MCP call names the server and the tool, never the registry id", () => {
     screen.getByText("calling create_issue on the MCP server github"),
   ).toHaveClass("thinking-label");
   expect(screen.queryByText("mcp__github__create_issue")).toBeNull();
-  // The argument preview the row already had survives the new label.
-  expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
+  // The argument preview the row already had survives the new label (the
+  // card under the row names the same argument again, as a field).
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("Crash on start");
+});
+
+test("the target, the failure marker and the duration trail the label as one group", () => {
+  // The head wraps: a label that leaves no room on its line - an MCP tool names
+  // its server and its tool in a sentence - keeps the line, and the group moves
+  // under it as a whole instead of the duration landing on a line of its own.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-mcp-trail"
+      title="github__search_repositories_with_extended_filters"
+      status="failed"
+      argsText={JSON.stringify({ query: "language:go" })}
+      resultText="boom"
+      durationMs={12}
+    />,
+  );
+  const head = container.querySelector(".thinking-head");
+  expect([...(head?.children ?? [])].map((el) => el.className)).toEqual([
+    "thinking-label",
+    "thinking-trail thinking-trail--failed",
+  ]);
+  expect(head?.querySelector(".thinking-label")?.textContent).toBe(
+    "calling search_repositories_with_extended_filters on the MCP server github",
+  );
+  const trail = head?.querySelector(".thinking-trail");
+  expect([...(trail?.children ?? [])].map((el) => el.className)).toEqual([
+    "tool-summary-target",
+    "tool-failed-marker",
+    "thinking-dur",
+  ]);
+});
+
+test("a row with nothing to trail its label renders no empty group", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-question"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({ questions: [] })}
+      resultText=""
+    />,
+  );
+  expect(container.querySelector(".thinking-trail")).toBeNull();
 });
 
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
@@ -1574,6 +1618,56 @@ test("the row spells a path against the worktree it lives in, the tooltip keeps 
   );
 });
 
+test("a read of part of a file shows the lines next to the path, like a mention", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-read-range"
+      title="read"
+      kind="read"
+      status="completed"
+      pathRoots={["/storage/Repository/foxxycode/foxxycode-agent"]}
+      argsText={JSON.stringify({
+        path: "/storage/Repository/foxxycode/foxxycode-agent/internal/tools/fs/read.go",
+        offset: 120,
+        limit: 61,
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  expect(target.textContent).toBe("internal/tools/fs/read.go:120-180");
+  expect(target).toHaveAttribute(
+    "title",
+    "/storage/Repository/foxxycode/foxxycode-agent/internal/tools/fs/read.go:120-180",
+  );
+  // The path is what gives way to the ellipsis; the range never does.
+  expect(container.querySelector(".tool-summary-target-path")?.textContent).toBe(
+    "internal/tools/fs/read.go",
+  );
+  expect(container.querySelector(".tool-summary-target-range")?.textContent).toBe(
+    ":120-180",
+  );
+});
+
+test("a read of the whole file shows the path alone, as before", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-read-whole"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "internal/tools/fs/read.go" })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  expect(target.textContent).toBe("internal/tools/fs/read.go");
+  expect(target).toHaveAttribute("title", "internal/tools/fs/read.go");
+  expect(container.querySelector(".tool-summary-target-range")).toBeNull();
+});
+
 test("a command is never respelt against the session directory", () => {
   render(
     <ToolCallMessage
@@ -1594,10 +1688,7 @@ test("a command is never respelt against the session directory", () => {
   );
 });
 
-test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
-  // background_output takes a task id and a line count: no path, no command,
-  // nothing for the header bar to say. The bar was rendered anyway, so the card
-  // opened with a 34px empty strip above the arguments.
+test("background output names the task instead of opening with an empty strip", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bgout"
@@ -1605,24 +1696,21 @@ test("a call whose arguments name nothing opens with its body, not an empty stri
       kind="background_output"
       status="completed"
       argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
-      resultText="bg_3 [running] go test ./..."
+      resultText="bg_3 [running] go test ./... (elapsed 4s)"
       durationMs={4}
     />,
   );
   openToolDetails();
 
-  expect(
-    container.querySelector(".permission-preview-bar"),
-    "a header bar with nothing in it is a strip of empty border",
-  ).toBeNull();
-  // With no bar the body carries the whole card, top corners included.
-  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
-    "permission-preview-viewport--headless",
+  expect(container.querySelector(".permission-preview-location")?.textContent).toBe(
+    "bg_3",
   );
-  // The arguments themselves still show.
-  expect(
-    container.querySelector(".permission-preview-code")?.textContent,
-  ).toContain("bg_3");});
+  // The status reads through the Tasks drawer's own labels.
+  expect(container.querySelector(".scheduler-tool-row")?.textContent).toContain(
+    "Running",
+  );
+  expect(container.querySelector(".permission-preview-code")).toBeNull();
+});
 
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(

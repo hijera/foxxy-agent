@@ -49,7 +49,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
 					"description": "Returns **agent**, then **plan**, then **docs**, then **ask**, then **debug** (**`owned_by`**: **`foxxycode`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
-						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
+						"The backend row a session with no selected model runs on carries **`default: true`**, using the same model resolution as the session. The web UI keeps its remembered model or the alphabetically first model. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
 					"responses": map[string]interface{}{
@@ -159,7 +159,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update** (pending file-writing calls may include `_meta.foxxycode.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution), **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **turn_progress** (`startedAt`, `elapsedMs`, `outputTokens`, `estimated` for the running turn, sent at start and while model output arrives), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **llm_retry** (`{\"phase\":\"waiting\",\"attempt\":1,\"delayMs\":60000}` then `{\"phase\":\"retrying\"}`, emitted only while a turn is parked between two attempts at the same model call because the provider produced no output — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`stop_notice`** when the turn stopped before its answer: the notice the answer has already streamed), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update** (pending file-writing calls may include `_meta.foxxycode.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution), **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **turn_progress** (`startedAt`, `elapsedMs`, `outputTokens`, `estimated` for the running turn, sent at start and while model output arrives), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **llm_retry** (`{\"phase\":\"waiting\",\"attempt\":1,\"delayMs\":60000}` then `{\"phase\":\"retrying\"}`, emitted only while a turn is parked between two attempts at the same model call because the provider produced no output — transient status, not a transcript row), **background_wake** (background tasks finished with **notify_on_finish**, enabled by default, and the server started a new agent turn carrying their outcomes), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`stop_notice`** when the turn stopped before its answer: the notice the answer has already streamed), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -1973,7 +1973,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/rewind": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
-					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
+					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over the **`user`** rows that are **not** compaction summaries - the numbering **`turnsBefore`** reports - a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**, because truncating history is work a page on another site must not be able to start. " +
 						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
 						"A **`session_rewound`** event is published on **`GET /foxxycode/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "foxxycodeRewind",
@@ -1994,7 +1994,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"userMessageIndex": map[string]interface{}{
 											"type": "integer", "minimum": 0,
-											"description": "0-based index of the user message the history rewinds to (the message itself is dropped).",
+											"description": "0-based index of the user message the history rewinds to (the message itself is dropped). Counts the `user` rows that are not compaction summaries, so a client adds `turnsBefore` to the position of the prompt inside its page; a background wake counts as one.",
 										},
 									},
 								},
@@ -2027,6 +2027,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2100,17 +2101,55 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Read conversation transcript",
 					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** is the stored session profile (**`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**), so a client restores the composer's Mode on load instead of dropping every reopened session back to **agent**. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
-						"A **user** row that opened a turn nobody typed - finished background tasks the model started with **notify_on_finish** woke the agent - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). " +
+						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /foxxycode/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /foxxycode/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
-						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. The response also includes the current **settings** snapshot (model, reasoning, mode, permissionMode, configuredPermissionMode, overrides and version).",
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
+						"The response also includes the current **settings** snapshot (model, reasoning, mode, permissionMode, configuredPermissionMode, overrides and version). **Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, a **limit** outside 1..1000, a **from** at or past its **before**, and a **from** and a **before** that fall inside one tool step are **400** - both ends move back to the assistant that issued the call, so such a window holds no whole step to answer with. " +
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "limit", "in": "query", "required": false, "description": "Read a page of about this many messages ending at **before** (1..1000).", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
+						map[string]interface{}{"name": "before", "in": "query", "required": false, "description": "Message index the page ends at, exclusive (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "Message index a window starts at, read to **before** or the end; not with **limit**, and earlier than **before** when both are given.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload"},
+						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload with its **window**"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/tool-calls": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List the tool calls of a transcript",
+					"description": "One row per tool call of the session in the order the history issued them: **toolCallId**, **name**, **kind**, **status**, **argsPreview** (200 characters), **resultPreview** (19 content lines plus a final **...** row when truncated, see **resultPreviewTruncated** and **resultTotalLines**), **startedAt** / **finishedAt**, and for todo mutations the **planSnapshot** they produced. **`?from=K&to=E`** lists only the calls issued by messages **K** to **E** (exclusive; **to** defaults to the end), so a client holding one page of **GET /foxxycode/sessions/{id}/messages** reads the files of that page's calls only. A value that is not a non-negative integer, or a **from** past its **to**, is **400**.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "First message index whose calls are listed.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+						map[string]interface{}{"name": "to", "in": "query", "required": false, "description": "Message index the listing stops before (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "**`{object: \"foxxycode.tool_calls\", sessionId, toolCalls}`**"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/tool-calls/{toolCallId}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read one tool call in full",
+					"description": "The full persisted **result** of one tool call, with its **meta** (name, kind, status, timings) and raw **args** - the same call the list route caps into **resultPreview**. A call that has not persisted yet falls back to the live history (status **pending**, the result of a finished turn read from its message), and an id no message of the session ever issued answers the same 200 shape with empty fields. The bundled UI requests this when the user activates **More...** after a streamed or listed preview was truncated.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "toolCallId", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "**`{object: \"foxxycode.tool_call\", sessionId, toolCallId, meta, args, result}`**"},
 						"404": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
@@ -2748,28 +2787,58 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/providers/models": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Fetch models for a provider description",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. Returns the same **`{ok:true, models:[{id,name,context_window}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one); a malformed body or an invalid provider row returns 400.",
+					"operationId": "fetchProviderModels",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"name"},
+									"properties": map[string]interface{}{
+										"name":            map[string]string{"type": "string", "description": "Provider name; when it matches a saved provider, empty fields inherit the saved row."},
+										"type":            map[string]string{"type": "string", "description": "Provider type (openai, anthropic, neuraldeep, codex, devin, ...)."},
+										"api_base":        map[string]string{"type": "string"},
+										"api_key":         map[string]string{"type": "string"},
+										"api_key_command": map[string]string{"type": "string"},
+										"proxy":           map[string]string{"type": "string"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
+						"400": errorResponseRef(),
+						"415": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/providers/{name}/codex-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get Codex OAuth status",
-					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential, falling back to the Codex CLI login only for the row that login serves (the only codex row, or the row named `codex` among several); another row gets `cli_login_row` naming it. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that Settings is switching to codex (only its `proxy` applies).",
 					"operationId": "getProviderCodexAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret Codex OAuth connection status.", "#/components/schemas/CodexAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Remove FoxxyCode-managed Codex OAuth credentials",
-					"description": "Deletes only the credential stored under `FOXXYCODE_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
+					"description": "Cancels the provider's pending device sign-in, if any, so a confirmation that arrives afterwards cannot store the credential again, then deletes only the credential stored under `FOXXYCODE_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
 					"operationId": "deleteProviderCodexAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after removal.", "#/components/schemas/CodexAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2777,13 +2846,14 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/codex-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start Codex ChatGPT device authorization",
-					"description": "Starts the official ChatGPT device flow. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"description": "Starts the official ChatGPT device flow. The request must be `Content-Type: application/json` (the body is ignored, send `{}`); any other type is refused with 415 before the issuer is contacted, because a page on another site can send the other types without a preflight. A new start supersedes the provider's previous pending attempt, including one still waiting for the issuer to answer (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
 					"operationId": "startProviderCodexDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
+						"415": errorResponseRef(),
 						"502": errorResponseRef(),
 					},
 				},
@@ -2791,7 +2861,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that the form has just retyped to neuraldeep (the credential file is keyed by name alone).",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that Settings is switching to neuraldeep: only its `proxy` applies, its `api_key`, `api_key_command` and `api_base` do not count toward `source` and `endpoint_hub`.",
 					"operationId": "getProviderNeuralDeepAuth",
 					"parameters": []interface{}{
 						codexProviderNameParameter(),
@@ -2822,7 +2892,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow. The client presented to the hub is `foxxycode`, the identifier NeuralDeep issued for this agent - it is the hub's name, not this fork's, and the hub refuses any other; the response echoes it as `hub_client` so a client can tell the user what the sign-in page will call them. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for the hub client `coddy` (the hub allowlists this identifier). The response echoes it as `hub_client` for the sign-in UI. The request must be `Content-Type: application/json`, the body optional; any other type is refused with 415 before the hub is contacted, because a page on another site can send the other types without a preflight. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base` (none for a row still saved as another type, so the default deployment); a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions, labelled `foxxycode @ <hostname>` (plus the provider row's name in parentheses unless the row is the conventional `neuraldeep`) so the hub's dashboard tells two rows signed in from one machine apart - the label is the only machine metadata the sign-in sends.",
+					"operationId": "startProviderNeuralDeepDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
 					"requestBody": map[string]interface{}{
 						"required": false,
 						"content": map[string]interface{}{
@@ -2831,12 +2903,11 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 					},
-					"operationId": "startProviderNeuralDeepDeviceAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
+						"415": errorResponseRef(),
 						"502": errorResponseRef(),
 					},
 				},
@@ -2877,7 +2948,6 @@ func openAPISpec() map[string]interface{} {
 						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -3312,7 +3382,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,vision}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. A codex or devin row that is not the row the machine-wide CLI login of its type stands in for (**`cli_login_row`** on **GET /foxxycode/providers/{name}/codex-auth**) and holds no sign-in of its own answers **`{ok:false}`** without the backend being contacted - one CLI login is one account and serves one row only. Returns **`{ok:true, models:[{id,name,vision,context_window}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3331,7 +3401,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/models-probe": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "List models for an unsaved provider (onboarding probe)",
-					"description": "Fetches the model list for a provider that is not saved in the config yet: API credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). For `type: codex`, `provider_name` is required and the server reads that name's managed OAuth credential; no token enters the request body. Returns **`{ok:true, models:[{id,name,vision}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** carries the same advisory image-input flag as **`GET /foxxycode/providers/{name}/models`**. Malformed body, invalid Codex provider name, or unsupported `type` returns 400.",
+					"description": "Fetches the model list for a provider that is not saved in the config yet: API credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). For `type: codex`, `provider_name` is required and the server reads that name's managed OAuth credential. Shared CLI-login fallback follows the configured-provider catalog's row assignment, counting the unsaved row too; no token enters the request body. Returns **`{ok:true, models:[{id,name,vision,context_window}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** carries the same advisory image-input flag as **`GET /foxxycode/providers/{name}/models`**. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**, so a page on another site cannot make the server fetch an **`api_base`** it chose. Malformed body, invalid Codex provider name, or unsupported `type` returns 400.",
 					"operationId": "probeProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3354,6 +3424,7 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"400": errorResponseRef(),
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -3987,6 +4058,10 @@ func openAPISpec() map[string]interface{} {
 							"type": "string", "enum": []string{"foxxycode", "codex_cli"},
 						},
 						"account_id": map[string]string{"type": "string"},
+						"cli_login_row": map[string]interface{}{
+							"type":        "string",
+							"description": "Set when this row is not signed in while a Codex CLI login exists on the server that it may not use: the row that login serves. The Codex CLI login is one account and stands in for one codex row - the only one, or the row named `codex` among several.",
+						},
 					},
 					"required": []string{"connected"},
 				},
@@ -4000,7 +4075,7 @@ func openAPISpec() map[string]interface{} {
 						"connected":        map[string]string{"type": "boolean"},
 						"hub_client": map[string]string{
 							"type":        "string",
-							"example":     "foxxycode",
+							"example":     "coddy",
 							"description": "What the hub's own sign-in page calls this agent, when that differs from the product name. Present on the NeuralDeep start; absent on the Codex one.",
 						},
 					},
@@ -4021,10 +4096,6 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object": map[string]string{"type": "string", "example": "list"},
-						"default_agent_model": map[string]interface{}{
-							"type":        "string",
-							"description": "Configured **`agent.model`** (**`models[].model`** selector). Omitted when empty. The embedded UI uses it as the default LLM choice for ReAct turns.",
-						},
 						"data": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
@@ -4047,6 +4118,10 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_default": map[string]string{
 										"type":        "string",
 										"description": "Reasoning level pre-selected for new chats with this model. Omitted when none is configured.",
+									},
+									"default": map[string]string{
+										"type":        "boolean",
+										"description": "True on the one backend row a session that selects no model runs on: configured `agent.model`, or the first `models[]` row when `agent.model` names a model the configuration does not list. Omitted elsewhere, and on every row while `agent.model` is empty. The embedded UI keeps its own pick; the remote console shows this model.",
 									},
 								},
 							},
@@ -4101,7 +4176,7 @@ func openAPISpec() map[string]interface{} {
 						"background_wake": map[string]interface{}{
 							"type":                 "object",
 							"readOnly":             true,
-							"description":          "FoxxyCode transcript extension on a user row nobody typed: background tasks the model started with notify_on_finish ended and the server woke the agent. `tasks` lists each with `id`, `kind`, `label`, `agent`, `status`, `exit_code`, `duration_ms` and `error`. The row's content is the instruction the model read.",
+							"description":          "FoxxyCode transcript extension on a user row nobody typed: background tasks the model started ended with their wake on (notify_on_finish, on by default) and the server woke the agent. `tasks` lists each with `id`, `kind`, `label`, `agent`, `status`, `exit_code`, `duration_ms` and `error`. The row's content is the instruction the model read.",
 							"additionalProperties": true,
 						},
 					},
@@ -4684,7 +4759,7 @@ func codexProviderNameParameter() map[string]interface{} {
 		"in":          "path",
 		"required":    true,
 		"schema":      map[string]string{"type": "string"},
-		"description": "Codex provider name. Valid unsaved provider names are accepted by the OAuth routes.",
+		"description": "Provider name. The sign-in routes also accept a valid unsaved name and a saved row of another type, which Settings may be switching before the save.",
 	}
 }
 

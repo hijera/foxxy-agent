@@ -84,7 +84,7 @@ func missingProviderAPIKeys(c *config.Config) []string {
 	}
 	var out []string
 	for _, p := range c.Providers {
-		if providerHasCredentials(c.Paths.Home, p) {
+		if providerHasCredentials(c.Paths.Home, p, c.ProviderMayUseCLILogin(p.Name, p.Type)) {
 			continue
 		}
 		out = append(out, p.Name)
@@ -108,7 +108,7 @@ func agentProviderHasCredentials(c *config.Config) bool {
 	if prov == nil {
 		return false
 	}
-	return providerHasCredentials(c.Paths.Home, *prov)
+	return providerHasCredentials(c.Paths.Home, *prov, c.ProviderMayUseCLILogin(prov.Name, prov.Type))
 }
 
 // providerHasCredentials mirrors the resolution order of
@@ -118,7 +118,7 @@ func agentProviderHasCredentials(c *config.Config) bool {
 // one), an api_key_command (never run here - the status is read on every UI
 // start and must not spawn a shell), the conventional NAME_API_KEY variable, or
 // a stored hub / ChatGPT login for the neuraldeep and codex provider types.
-func providerHasCredentials(home string, p config.ProviderConfig) bool {
+func providerHasCredentials(home string, p config.ProviderConfig, cliLogin bool) bool {
 	if strings.TrimSpace(p.APIKey) != "" {
 		return true
 	}
@@ -133,7 +133,7 @@ func providerHasCredentials(home string, p config.ProviderConfig) bool {
 		st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(home, p.Name))
 		return err == nil && st.Connected
 	case "codex":
-		st, err := llm.InspectCodexAuth(config.CodexAuthPath(home, p.Name))
+		st, err := llm.InspectCodexAuth(config.CodexAuthPath(home, p.Name), cliLogin)
 		return err == nil && st.Connected
 	}
 	return false

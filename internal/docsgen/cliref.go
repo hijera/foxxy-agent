@@ -25,6 +25,8 @@ var cliSections = []cliSection{
 	{"foxxycode acp", []string{"acp", "--help"}},
 	{"foxxycode http", []string{"http", "--help"}},
 	{"foxxycode serve", []string{"serve", "--help"}},
+	{"foxxycode serve install", []string{"serve", "install", "--help"}},
+	{"foxxycode serve uninstall", []string{"serve", "uninstall", "--help"}},
 	{"foxxycode serve status | stop | restart", []string{"serve", "status", "--help"}},
 	{"foxxycode sessions list", []string{"sessions", "list", "--help"}},
 	{"foxxycode sessions export", []string{"sessions", "export", "--help"}},

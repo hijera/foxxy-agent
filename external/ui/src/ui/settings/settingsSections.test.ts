@@ -57,6 +57,9 @@ test("derives tabs in schema order with General and Appearance first and System 
     "mcp_servers",
     "skills",
     "memory",
+    "scheduler",
+    "logger",
+    "gateways",
     "system",
   ]);
 });
@@ -95,14 +98,7 @@ test("subagents is a hybrid tab that keeps its schema key", () => {
 test("System group folds the rarely edited tail keys", () => {
   const system = deriveSettingsSections(rootSchema).find((s) => s.id === "system");
   expect(system?.kind).toBe("group");
-  expect(system?.childKeys).toEqual([
-    "scheduler",
-    "prompts",
-    "instructions",
-    "logger",
-    "sessions",
-    "gateways",
-  ]);
+  expect(system?.childKeys).toEqual(["prompts", "instructions"]);
 });
 
 test("skills is its own combined tab; labels prefer the curated i18n form", () => {
@@ -139,15 +135,14 @@ test("General, Appearance and Sessions are present even without a schema", () =>
   ]);
 });
 
-test("the session management tab is synthetic and edits no config key", () => {
+test("the session management tab also edits session storage", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  // `sessions` in the schema is the storage directory and stays in System; the
-  // management tab must not be confused with it.
+  // Storage configuration belongs with the stored-session table.
   expect(byId.sessions).toBeUndefined();
   expect(byId.sessions_manager?.kind).toBe("sessions");
-  expect(byId.sessions_manager?.schemaKey).toBeUndefined();
+  expect(byId.sessions_manager?.schemaKey).toBe("sessions");
   expect(byId.sessions_manager?.label).toBe("Sessions");
   expect(byId.sessions_manager?.description).toBe("Stored chats & cleanup");
 });

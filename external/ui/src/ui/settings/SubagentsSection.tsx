@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { Chevron } from "../components/Chevron";
 import { useT } from "../i18n/I18nProvider";
 import { SchemaForm, type JsonSchema } from "./SchemaForm";
 import {
@@ -33,6 +34,8 @@ function IconShield() {
   );
 }
 
+import { LegendWithHint } from "./FieldHint";
+
 /**
  * The Subagents tab. Hybrid, like the Skills tab: the generated form edits the
  * `subagents` config section (including `project_trust`, which saves with the
@@ -40,6 +43,11 @@ function IconShield() {
  * API-driven — approving a definition writes a receipt immediately, because a
  * receipt is not configuration but a signed statement about one file's current
  * content.
+ *
+ * A row is the definition's name behind the app's chevron, its badges, its
+ * description and its file; the chevron and the name together fold open what
+ * the definition declares (model, tools, timeout, ...). Rows carry no rule
+ * between them, like every other list of the drawer.
  */
 export function SubagentsSection(props: {
   schema: JsonSchema;
@@ -58,6 +66,8 @@ export function SubagentsSection(props: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const factsId = useId();
   const workspacePath = props.workspacePath;
 
   const load = useCallback(
@@ -115,15 +125,26 @@ export function SubagentsSection(props: {
 
   return (
     <div className="settings-subagents-section">
-      <SchemaForm schema={props.schema} value={props.value} onChange={props.onChange} />
+      <SchemaForm
+        schema={props.schema}
+        value={props.value}
+        onChange={props.onChange}
+        groups={[
+          {
+            id: "subagents",
+            legend: t("subagents.settings.legend"),
+            description: t("subagents.settings.description"),
+          },
+        ]}
+      />
 
-      <fieldset className="settings-fieldset subagents-catalog-box">
-        <legend>{t("settings.subagents.legend")}</legend>
-        <p className="settings-field-desc">
+      <fieldset className="settings-fieldset subagents-catalog-box" data-testid="subagents-catalog">
+        <LegendWithHint label={t("settings.subagents.legend")} description={<>
+
           {t("settings.subagents.desc.start")} <code>.foxxycode/agents</code>{" "}
           {t("settings.subagents.desc.and")} <code>.claude/agents</code>{" "}
           {t("settings.subagents.desc.end")}
-        </p>
+        </>} />
         <p className="settings-field-desc">{t("settings.subagents.policyAppliesAfterSave")}</p>
         {catalog?.workspace ? (
           <p className="settings-field-desc subagents-workspace">
@@ -142,34 +163,55 @@ export function SubagentsSection(props: {
             {loading ? t("settings.subagents.loading") : t("settings.subagents.empty")}
           </p>
         ) : (
-          <ul className="mcp-list subagents-list" data-testid="subagents-list">
-            {items.map((entry) => (
-              <li
-                key={entry.name}
-                className="mcp-list-item"
-                data-testid={`subagent-row-${entry.name}`}
-              >
-                <div className="mcp-list-item-head">
-                  <div className="mcp-list-item-text">
-                    <div className="skills-list-item-name">
-                      {entry.name}
+          <ul className="subagents-list" data-testid="subagents-list">
+            {items.map((entry, index) => {
+              const isOpen = !!open[entry.name];
+              const facts = `${factsId}-${index}`;
+              const action = isOpen
+                ? t("subagents.catalog.hideDeclared")
+                : t("subagents.catalog.showDeclared");
+              return (
+                <li
+                  key={entry.name}
+                  className={`subagents-item${isOpen ? " is-open" : ""}`}
+                  data-testid={`subagent-row-${entry.name}`}
+                >
+                  <div className="subagents-item-head">
+                    <button
+                      type="button"
+                      className="subagents-toggle"
+                      aria-expanded={isOpen}
+                      aria-controls={facts}
+                      title={action}
+                      data-testid={`subagent-toggle-${entry.name}`}
+                      onClick={() =>
+                        setOpen((p) => ({ ...p, [entry.name]: !isOpen }))
+                      }
+                    >
+                      <Chevron open={isOpen} />
+                      <span className="subagents-item-name">{entry.name}</span>
+                    </button>
+                    <span className="skills-list-item-badge">
+                      {t(scopeBadgeKey(entry.scope))}
+                    </span>
+                    {entry.hidden ? (
                       <span className="skills-list-item-badge">
-                        {t(scopeBadgeKey(entry.scope))}
+                        {t("subagents.badge.hidden")}
                       </span>
-                      {entry.hidden ? (
-                        <span className="skills-list-item-badge">
-                          {t("settings.subagents.badge.hidden")}
-                        </span>
-                      ) : null}
-                      {entry.needs_approval ? (
-                        <span
-                          className="skills-list-item-badge subagents-badge-pending"
-                          data-testid={`subagent-pending-${entry.name}`}
-                        >
-                          {t("settings.subagents.badge.needsApproval")}
-                        </span>
-                      ) : null}
-                    </div>
+                    ) : null}
+                    {entry.needs_approval ? (
+                      <span
+                        className="skills-list-item-badge subagents-badge-pending"
+                        title={t("subagents.badge.needsApprovalTitle", {
+                          name: entry.name,
+                        })}
+                        data-testid={`subagent-pending-${entry.name}`}
+                      >
+                        {t("settings.subagents.badge.needsApproval")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="subagents-item-body">
                     {/*
                       Plain text on purpose: this description comes out of a
                       file nobody has approved yet, so it is never markdown and
@@ -180,6 +222,29 @@ export function SubagentsSection(props: {
                         ? t("settings.subagents.descriptionWithheld")
                         : entry.description}
                     </div>
+                    {entry.path ? (
+                      <code
+                        className="subagents-file"
+                        data-testid={`subagent-file-${entry.name}`}
+                      >
+                        {entry.path}
+                      </code>
+                    ) : null}
+                    <dl
+                      id={facts}
+                      className="subagents-facts"
+                      data-testid={`subagent-declared-${entry.name}`}
+                      hidden={!isOpen}
+                    >
+                      {subagentApprovalFacts(entry).map((fact) => (
+                        <div key={fact.labelKey}>
+                          <dt>{t(fact.labelKey)}</dt>
+                          <dd>
+                            <code>{fact.valueKey ? t(fact.valueKey) : fact.value}</code>
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
                   </div>
                   {showsSubagentTrustControl(entry, policy) ? (
                     <button
@@ -205,7 +270,6 @@ export function SubagentsSection(props: {
                       <IconShield />
                     </button>
                   ) : null}
-                </div>
 
                 {entry.needs_approval ? (
                   <div
@@ -237,7 +301,8 @@ export function SubagentsSection(props: {
                   </div>
                 ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </fieldset>
