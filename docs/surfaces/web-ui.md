@@ -16,6 +16,66 @@ Short commands and their output form one continuous card without an extra surrou
 
 *Command input and output in the Dark theme, including a multiline input with its overflow control.*
 
+## Notifications in desktop and editor hosts
+
+The Windows x64 desktop app sends native Windows 10/11 notifications for permission
+requests, interactive questions, ready plans and finished turns. Each alert names the
+chat and shows the requested action or the answer excerpt. Clicking it restores
+FoxxyCode and opens that chat. Permission buttons use the same options as the inline
+card; a simple single-choice question can be answered directly; **Run plan** opens the
+chat and starts its plan. Questions requiring several answers or free text open the chat.
+
+By default, alerts and their sound appear only when FoxxyCode is minimized or another
+application is in the foreground. An active FoxxyCode window, including its native
+dialogs, stays quiet. Events suppressed while the window is active are not replayed
+as notifications after switching away. The app must keep running to receive new events.
+
+A completed task starts its alert with **Task finished**, followed by the latest answer
+excerpt. Completion is confirmed through session activity, including recovery after
+a stream disconnect, and duplicate completion events do not alert again. An intentional
+Stop does not produce a completion alert; a newly ready plan uses the plan-ready alert.
+Rebasing the visible history in a long chat does not suppress its completion alert.
+
+VS Code uses its notification center and IntelliJ uses IDE notification balloons, with
+the same actions and **Open chat** button. The ordinary browser does not send host
+notifications. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus.
+Desktop delivery failures keep permission prompts available in an
+in-window fallback; inline transcript cards remain available on every surface.
+
+**Settings → General → Notifications** has independent **Show notifications** and
+**Play notification sounds** switches, saved immediately as `ui.notifications` and
+`ui.notification_sound`. Both default to on and apply to all clients using that config.
+**Show notifications in the active window** (`ui.notifications_when_focused`, default
+off) also permits alerts and enabled sound while the desktop window or editor chat
+panel has focus. Its change applies immediately to future events.
+The radio options select **Windows system sound (ding)** or **Custom sound**. In browser
+and editor panels the first option is called **Standard sound**. The system/default
+option is selected initially and restores the standard signal immediately; uploaded
+copies stay on disk. The custom option restores your last chosen file while this settings
+section is open, or opens the picker when none has been chosen. Cancelling keeps the
+previous selection. On Windows, Preview uses the system notification sound you have
+configured in Windows.
+
+**Choose sound…** selects a custom MP3 or WAV (up to 5 MiB), saves a copy in the agent's
+`notification-sounds/` directory and sets `ui.notification_sound_file` immediately.
+**Preview** plays the selected sound even with notifications or sound disabled;
+**Stop playback** stops playback. The sound endpoint serves only files inside that
+`notification-sounds/` directory; the picker uploads there automatically.
+The same selection applies to desktop and editor panels. Missing or unplayable files
+fall back to the standard sound for alerts; Preview shows an error instead.
+
+Turning notifications off also suppresses their sound. Automatic audio stops when you
+disable sound, change its file, or return to the active window with foreground alerts off.
+Windows uses system audio by default; IntelliJ balloons play the system alert sound
+through the IDE, and browser or VS Code panels use the FoxxyCode chime. Custom clips
+play in-page in every panel.
+Windows notification settings and Do Not Disturb
+may suppress delivery even when FoxxyCode notifications are enabled.
+
+![Notification and sound controls in General settings](../assets/web-ui/notifications-settings-dark-1280.png)
+
+*General settings: delivery, foreground alerts and audio switches, with a radio choice between standard and custom sounds.*
+
 ## Constraints
 
 - UI ships as static assets embedded into the `foxxycode` binary (build tag `http`).
@@ -879,8 +939,8 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 The inline approval gate is implemented by **PermissionPromptSection** and **PermissionPromptPreview**.
 
 - Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
-- Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated. The desktop notification toast reuses the same question text.
-- Actions follow the server-provided option list and order (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**); a fourth button needs no client change beyond layout. Labels are localized by **`optionId`** in **`chat/permissionOptionLabel.ts`** rather than rendered from the backend's English text; the desktop notification toast labels its buttons through the same function.
+- Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated. The desktop notification reuses the same question text.
+- Actions follow the server-provided option list and order (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**). Labels are localized by **`optionId`** in **`chat/permissionOptionLabel.ts`** rather than rendered from the backend's English text; host notification buttons use the same function. Native notifications offer up to four choices plus **Open chat** (Windows allows five buttons); the full option list stays in the inline card.
 - The program-wide option only reaches the client for **run_command** on a single plain invocation. The backend label already names the exact grant (**`curl`**, **`git status`**), so the program name is carried through the translation verbatim rather than re-derived.
 - Match the prompt to its **tool_call** by **toolCallId** and prefer that row's **argsText**; fall back to **Arguments:** content in the permission payload.
 - **apply_patch** and **edit** render old/new line gutters and theme-aware added/deleted/context rows. Other filesystem mutation tools and **run_command** use compact structured previews rather than JSON.

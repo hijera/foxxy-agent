@@ -18,6 +18,7 @@
 
 import { isEditorEmbed } from "./embedShell";
 import { emitFileMention } from "./skills/fileMentionBus";
+import { receiveNotificationAction } from "./desktop/hostNotifications";
 
 export const INSERT_FILE_MENTION_MESSAGE_TYPE = "foxxycode:insertFileMention";
 
@@ -67,6 +68,11 @@ export function installEmbedHostBridge(): (() => void) | null {
   }
   const onMessage = (ev: MessageEvent) => {
     if (ev.source !== window.parent) {
+      return;
+    }
+    const msg = ev.data;
+    if (msg?.type === "foxxycode:notificationAction" && typeof msg.id === "string" && typeof msg.action === "string") {
+      receiveNotificationAction(msg.id, msg.action);
       return;
     }
     for (const rel of hostMentionPaths(ev.data)) {

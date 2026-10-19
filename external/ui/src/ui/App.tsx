@@ -24,6 +24,7 @@ import {
   readMessageCreatedAtUTC,
   reasoningDurationCacheKey,
   transcriptItemsFromMessages,
+  type RawSessionMessage,
   type ToolCallListRow,
 } from "./chat/transcriptFromMessages";
 import type { RawUiLogRow } from "./chat/uiLogNotices";
@@ -165,11 +166,14 @@ import { GuidedTour } from "./onboarding/GuidedTour";
 import { TOUR_STEPS } from "./onboarding/tourSteps";
 import { isTourSeen, markTourSeen, resetTour } from "./onboarding/tourState";
 import { isDesktopShell } from "./desktopShell";
+import { dismissHostNotification, dismissSessionNotifications, limitNotificationActions, showHostNotification, type HostNotification } from "./desktop/hostNotifications";
+import { applyNotificationConfig, getNotificationPreferences, onNotificationPreferences } from "./desktop/notificationConfig";
+import { permissionOptionLabel } from "./chat/permissionOptionLabel";
+import { finishedTurnContent, plainTurnExcerpt } from "./desktop/finishedTurnContent";
 import {
   DesktopNotifications,
   type DesktopNotification,
   type DesktopPermissionNotification,
-  type DesktopPlanNotification,
 } from "./desktop/DesktopNotifications";
 import {
   armNotificationSoundUnlock,
@@ -532,15 +536,18 @@ export function App() {
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
-  // Desktop-only bottom-right toasts (permission prompts + plan-ready).
+  // Desktop-only bottom-right toasts (permission prompts; plan-ready and
+  // finished-turn alerts go through the host bridge).
   const [desktopNotifications, setDesktopNotifications] = useState<
     DesktopNotification[]
   >([]);
+  useEffect(() => onNotificationPreferences(() => {
+    if (!getNotificationPreferences().enabled) setDesktopNotifications([]);
+  }), []);
   // Plan-ready keys (`${sessionId}:${slug}`) already surfaced as a toast, so we
   // don't re-notify on message reloads or when re-opening an old session.
   const notifiedPlanKeysRef = useRef<Set<string>>(new Set());
-  const prevGeneratingRef = useRef(false);
-  const prevGenSessionRef = useRef("");
+  const [pendingNotificationPlan, setPendingNotificationPlan] = useState<{ sessionId: string; slug: string } | null>(null);
   const [toolsPermissionPolicy, setToolsPermissionPolicy] =
     useState<ToolsPermissionPolicy | null>(null);
   const toolsPermissionPolicyRef = useRef<ToolsPermissionPolicy | null>(null);
@@ -972,7 +979,18 @@ export function App() {
     });
   });
 
+  const notifyHost = useStableHandler((n: Omit<HostNotification, "title">) => {
+    const row = sessions.find((s) => s.id === n.sessionId);
+    const name = row?.title?.trim() || row?.cwd?.split(/[\\/]/).filter(Boolean).at(-1) || t("sessions.newChatFallback");
+    const open = () => openSessionFromRoute(n.sessionId);
+    return showHostNotification({ ...n, title: `FoxxyCode — ${name}`, actions: [
+      ...limitNotificationActions(n.actions),
+      { id: "open", label: t("desktopNotify.openChat"), run: open },
+    ] }, open);
+  });
+
   const turnActivity = useSessionTurnActivity({
+    onTurnFinished: (sid) => notifyFinishedTurn(sid),
     sessionId,
     connected: serverEventsConnected,
     onQuestion: (payload) => handleComposerSseQuestion(payload),
@@ -1029,6 +1047,57 @@ export function App() {
       if (viewedSessionIdRef.current.trim() === sid) slideTranscriptToTail();
     });
     void refreshSessionStats(sid);
+  }
+
+  function notifyFinishedTurn(sid: string) {
+    if (!isDesktopShell() && !isEditorEmbed()) return;
+    // Fence by generation, like attachViewedComposer: only the turn the user
+    // stopped is quieted, and a later normally-finished one still alerts.
+    const generation = turnActivity.generation(sid);
+    const notificationId = `done_${sid}_${generation}`;
+    // Read a bounded snapshot independently of the visible transcript. Its
+    // end-of-turn rebase can supersede loadMessages while this read is pending.
+    void fetchJSON<{ messages: RawSessionMessage[]; window?: unknown }>(
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery({ kind: "tail" })}`,
+      { headers: { [HDR]: sid } },
+    ).then((res) => {
+      // Re-read after the fetch: a Stop can land while it is in flight, and its
+      // marker only appears after the cancel round-trip (stopPendingBySidRef
+      // covers that window).
+      if (
+        stopPendingBySidRef.current.has(sid) ||
+        stoppedTurnBySidRef.current.get(sid) === generation ||
+        !res.ok || !res.data ||
+        turnActivity.get(sid) === true
+      )
+        return;
+      const messages = res.data.messages || [];
+      const rows = transcriptItemsFromMessages({
+        messages,
+        window: parseTranscriptWindow(res.data.window, messages.length),
+        uiLog: undefined,
+        newId,
+        reasoningDurations: reasoningDurationMsByContentRef.current,
+      }).items;
+      dismissSessionNotifications(sid);
+      const { reply, plans } = finishedTurnContent(rows);
+      const plan = plans.find((it) => it.type === "plan_document" && !notifiedPlanKeysRef.current.has(`${sid}:${it.slug}`));
+      if (plan?.type === "plan_document") {
+        notifiedPlanKeysRef.current.add(`${sid}:${plan.slug}`);
+        void notifyHost({ id: `plan_${sid}_${plan.slug}`, sessionId: sid,
+          body: `${t("desktopNotify.planReadyTitle")}\n${plan.name || plan.overview}`, actions: [{ id: "run", label: t("desktopNotify.runPlan"), run: () => {
+            openSessionFromRoute(sid);
+            void loadMessages(sid).then(() => setPendingNotificationPlan({ sessionId: sid, slug: plan.slug }));
+          } }] });
+      } else {
+        const stableId = reply?.type === "assistant_message" && reply.createdAtUtc ? `done_${sid}_${encodeURIComponent(reply.createdAtUtc)}` : notificationId;
+        const excerpt = reply?.type === "assistant_message" && reply.content.trim()
+          ? `${t("desktopNotify.finished")}\n${plainTurnExcerpt(reply.content)}`
+          : t("desktopNotify.finished");
+        void notifyHost({ id: stableId, sessionId: sid,
+          body: excerpt, actions: [] });
+      }
+    });
   }
 
   /** Reads the queue as it stands, for a tab that attaches to a turn already running. */
@@ -1134,61 +1203,21 @@ export function App() {
   // Arm audio unlock once so the first desktop chime is not swallowed by the
   // browser autoplay policy.
   useEffect(() => {
-    if (isDesktopShell()) {
+    if (isDesktopShell() || isEditorEmbed()) {
       armNotificationSoundUnlock();
     }
   }, []);
 
-  // Desktop plan-ready toast + chime. Fires on the generation-finished edge
-  // (true -> false) for the viewed session, so merely opening an old session
-  // with an existing plan never notifies. Plans present when a turn *starts*
-  // are seeded as already-seen so only a freshly produced plan triggers.
+  // Seed historical plans on turn start; only a new plan can alert at completion.
   useEffect(() => {
     const sid = sessionId.trim();
-    const was = prevGeneratingRef.current;
-    const wasSid = prevGenSessionRef.current;
-    prevGeneratingRef.current = generating;
-    prevGenSessionRef.current = sid;
-    if (!isDesktopShell() || !sid || wasSid !== sid) {
-      return;
-    }
-    if (!was && generating) {
+    if (sid && generating) {
       for (const it of itemsRef.current) {
         if (it.type === "plan_document" && it.slug) {
           notifiedPlanKeysRef.current.add(`${sid}:${it.slug}`);
         }
       }
-      return;
     }
-    if (was && !generating) {
-      const timers = [0, 350, 900].map((delay) =>
-        window.setTimeout(() => {
-          if (viewedSessionIdRef.current.trim() !== sid) return;
-          for (const it of itemsRef.current) {
-            if (it.type !== "plan_document" || !it.slug || it.discarded) {
-              continue;
-            }
-            const planKey = `${sid}:${it.slug}`;
-            if (notifiedPlanKeysRef.current.has(planKey)) continue;
-            notifiedPlanKeysRef.current.add(planKey);
-            const body = (it.name || it.overview || "").trim();
-            const planNotif: DesktopPlanNotification = {
-              kind: "plan",
-              id: `plan_${planKey}`,
-              sessionId: sid,
-              slug: it.slug,
-              title: t("desktopNotify.planReadyTitle"),
-              body,
-            };
-            setDesktopNotifications((prev) => [...prev, planNotif]);
-            playNotificationSound();
-            break;
-          }
-        }, delay),
-      );
-      return () => timers.forEach((tm) => window.clearTimeout(tm));
-    }
-    return;
   }, [generating, sessionId]);
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
@@ -1558,6 +1587,24 @@ export function App() {
         requestId: p.requestId.trim(),
         payload: p,
       });
+      const question = p.questions[0];
+      // Host alerts exist only in the desktop shell and editor embeds; a plain
+      // browser tab has the inline prompt and no host to reach.
+      if (isDesktopShell() || isEditorEmbed())
+        void notifyHost({ id: `question_${key}_${rid}`, sessionId: key,
+          body: question?.question || t("desktopNotify.question"), actions:
+          p.questions.length === 1 && question && !question.multiple ? question.options.slice(0, 3).map((o) => ({
+            id: `answer_${question.options.indexOf(o)}`, label: o.label, run: () => {
+              void (async () => {
+                try {
+                  const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(key)}/question`, { method: "POST", headers: { "Content-Type": "application/json", [HDR]: key }, body: JSON.stringify({ requestId: rid, answers: [[o.label]] }) });
+                  if (!res.ok) { openSessionFromRoute(key); return; }
+                  resolveQuestionPrompt(key, `qp_${rid}`, { answers: [[o.label]], skipped: false, summaryLine: o.label });
+                } catch { openSessionFromRoute(key); }
+              })();
+            },
+          })) : [],
+        });
       applyStreamItemsForSession(key, (prev) => {
         const ridInner = p.requestId;
         if (prev.some((x) => x.type === "question_prompt" && !x.resolved && x.payload.requestId === ridInner)) return prev;
@@ -1634,10 +1681,10 @@ export function App() {
         result.splice(insertAt, 0, row);
         return result;
       });
-      if (isDesktopShell()) {
+      if (isDesktopShell() || isEditorEmbed()) {
         const notif: DesktopPermissionNotification = {
           kind: "permission",
-          id: `perm_${tcid}`,
+          id: `perm_${key}_${tcid}`,
           sessionId: key,
           toolCallId: tcid,
           itemId: stablePermissionPromptItemId(tcid),
@@ -1649,13 +1696,20 @@ export function App() {
             name: o.name,
           })),
         };
-        setDesktopNotifications((prev) => [
-          ...prev.filter(
-            (n) => !(n.kind === "permission" && n.toolCallId === tcid),
-          ),
-          notif,
-        ]);
-        playNotificationSound();
+        void notifyHost({ id: notif.id, sessionId: key, body: `${notif.title}\n${notif.detail}`, actions: p.options.map((o) => ({
+          id: o.optionId, label: permissionOptionLabel(o), run: () => {
+            void (async () => {
+              try {
+                await submitPermissionChoice(key, tcid, o.optionId);
+                resolvePermissionPrompt(key, notif.itemId, { optionId: o.optionId, summaryLine: permissionOptionLabel(o) });
+              } catch { openSessionFromRoute(key); }
+            })();
+          },
+        })) }).then((handled) => {
+          if (handled || !isDesktopShell()) return;
+          setDesktopNotifications((prev) => [...prev.filter((n) => n.id !== notif.id), notif]);
+          if (getNotificationPreferences().sound) playNotificationSound();
+        });
       }
     },
     [],
@@ -1724,6 +1778,7 @@ export function App() {
     (sessionId: string, itemId: string, resolved: QuestionResolvedState) => {
       const key = sessionId.trim();
       if (!key) return;
+      dismissHostNotification(`question_${key}_${itemId.replace(/^qp_/, "")}`);
       setQuestionPendingSids((prev) => {
         const next = new Set(prev);
         next.delete(key);
@@ -1758,6 +1813,7 @@ export function App() {
     (sessionId: string, itemId: string, resolved: PermissionResolvedState) => {
       const key = sessionId.trim();
       if (!key) return;
+      dismissHostNotification(`perm_${key}_${itemId.replace(/^pp_/, "")}`);
       setPermissionPendingSids((prev) => {
         const next = new Set(prev);
         next.delete(key);
@@ -3144,6 +3200,7 @@ export function App() {
         const { setStatusLineEnabled, readStatusLineFromConfigDoc } =
           await import("./chat/statusLineConfig");
         setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
+        applyNotificationConfig(res.data);
         const { applyUiEffectsFromConfigDoc } = await import("./theme/uiEffects");
         applyUiEffectsFromConfigDoc(res.data);
       }
@@ -6541,8 +6598,22 @@ export function App() {
     }
   }, [sessionId, clearSessionRoute]);
 
-  // After the onboarding form is dismissed (saved or skipped), play the guided
-  // tour once — desktop shell only, and only if it has not been seen before.
+  // A Run-plan click on a notification lands here: the plan starts once the
+  // messages are loaded and no other turn is generating.
+  useEffect(() => {
+    const pending = pendingNotificationPlan;
+    if (!pending || sessionId !== pending.sessionId) return;
+    const plan = items.some((it) => it.type === "plan_document" && it.slug === pending.slug && !it.discarded);
+    // While another turn runs, the request stays queued instead of being
+    // dropped: the effect re-runs when generation ends.
+    if (generating || !plan) {
+      if (!generating && !plan) setPendingNotificationPlan(null);
+      return;
+    }
+    setPendingNotificationPlan(null);
+    void streamResponses(t("chat.runPlanMessage"), { modeOverride: "agent", runPlanSlug: pending.slug });
+  }, [pendingNotificationPlan, sessionId, generating, items]);
+
   const maybeStartTour = useCallback(() => {
     if (isDesktopShell() && !isTourSeen()) {
       setShowTour(true);
@@ -7413,23 +7484,6 @@ export function App() {
                 summaryLine: label,
               });
             })();
-          }}
-          onRunPlan={(n) => {
-            setDesktopNotifications((prev) =>
-              prev.filter((x) => x.id !== n.id),
-            );
-            const sid = n.sessionId.trim();
-            if (
-              !sid ||
-              sid !== sessionId.trim() ||
-              activeComposerSidRef.current.has(sid)
-            ) {
-              return;
-            }
-            void streamResponses(t("chat.runPlanMessage"), {
-              modeOverride: "agent",
-              runPlanSlug: n.slug,
-            });
           }}
         />
       </div>

@@ -595,6 +595,18 @@ export const schemaTextRu: Record<string, string> = {
   'How the main chat composer submits a message. "enter": Enter sends (Shift/Ctrl+Enter insert a newline). "ctrl_enter": Ctrl/Cmd+Enter sends (Enter inserts a newline). "off": disable keyboard send (Send button only).':
     "Как основное окно чата отправляет сообщение. «enter»: отправка по Enter (Shift/Ctrl+Enter — перенос строки). «ctrl_enter»: отправка по Ctrl/Cmd+Enter (Enter — перенос строки). «off»: отправка с клавиатуры отключена (только кнопкой «Отправить»).",
   "Status line": "Строка статуса",
+  "Notifications": "Уведомления",
+  "Notification sound": "Звук уведомлений",
+  "Custom notification sound": "Свой звук уведомлений",
+  "MP3 or WAV file for notifications (up to 5 MiB). Empty uses the standard sound. Relative paths are resolved against the agent home; the file picker saves a copy there.":
+    "Файл MP3 или WAV для уведомлений (до 5 МиБ). Пустое значение — стандартный звук. Относительные пути отсчитываются от домашней папки агента; выбор файла сохраняет копию там.",
+  "Notifications in the active window": "Уведомления в активном окне",
+  "Also show notifications while the FoxxyCode window or editor chat panel is active. Off by default; alerts normally appear only in the background.":
+    "Показывать уведомления и когда окно FoxxyCode или панель чата редактора активны. По умолчанию выключено: уведомления появляются только в фоне.",
+  "Show permission, question, plan-ready and turn-finished notifications in the desktop app and editor plugins.":
+    "Показывать уведомления о разрешениях, вопросах, готовых планах и завершённых задачах в десктопе и плагинах редакторов.",
+  "Play notification sounds. Turn off for silent notifications.":
+    "Звук уведомлений. Выключите для беззвучных уведомлений.",
   "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.":
     "Показывать рядом с анимированными точками строку статуса: текущий инструмент и над чем он работает, ожидание ответа модели и прошедшее время. Выключите, чтобы остались только точки.",
   "Animations and translucency": "Анимации и прозрачность",

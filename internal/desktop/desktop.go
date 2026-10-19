@@ -135,6 +135,17 @@ func Run(opts Options) error {
 		return fmt.Errorf("desktop: webview2 unavailable")
 	}
 	defer w.Destroy()
+	hwnd := uintptr(w.Window())
+	if err := w.Bind("foxxycodeHostIsActive", func() bool {
+		return nativeNotificationWindowActive(hwnd)
+	}); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "desktop window activity: %v\n", err)
+	}
+	if closeNotifications, err := installNotifications(w); err == nil {
+		defer closeNotifications()
+	} else {
+		_, _ = fmt.Fprintf(os.Stderr, "desktop notifications: %v\n", err)
+	}
 	picker.hwnd.Store(uintptr(w.Window()))
 	w.Navigate(startURL)
 	w.Run()
