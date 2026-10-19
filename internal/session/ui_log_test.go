@@ -128,6 +128,18 @@ func TestPageMessages(t *testing.T) {
 			want:  MessagePage{Offset: 4, End: 4, Total: 4, TurnsBefore: 2, UserRowsBefore: 2},
 		},
 		{
+			name:  "a from window inside one tool step collapses onto its call",
+			spec:  "U A U S T A",
+			query: MessagePageQuery{From: 3, Before: 4},
+			want:  MessagePage{Offset: 3, End: 3, Total: 6, TurnsBefore: 2, UserRowsBefore: 2},
+		},
+		{
+			name:  "a from window over two results of one step collapses too",
+			spec:  "U S T T A",
+			query: MessagePageQuery{From: 2, Before: 3},
+			want:  MessagePage{Offset: 1, End: 1, Total: 5, TurnsBefore: 1, UserRowsBefore: 1},
+		},
+		{
 			name:  "a limit larger than the history reads all of it",
 			spec:  "U A U A",
 			query: MessagePageQuery{From: -1, Before: -1, Limit: 100},
@@ -151,6 +163,30 @@ func TestPageMessages(t *testing.T) {
 			got := PageMessages(pageHistory(t, tc.spec), tc.query)
 			if got != tc.want {
 				t.Fatalf("PageMessages(%q, %+v) = %+v, want %+v", tc.spec, tc.query, got, tc.want)
+			}
+		})
+	}
+}
+
+// Unsatisfiable is the collapse, not a From that has run out of history: the
+// caught-up answer sits at Total and is served empty on purpose.
+func TestMessagePageUnsatisfiable(t *testing.T) {
+	msgs := pageHistory(t, "U A U S T A")
+	cases := []struct {
+		name  string
+		query MessagePageQuery
+		want  bool
+	}{
+		{"a window inside one tool step", MessagePageQuery{From: 3, Before: 4}, true},
+		{"a zero-width window", MessagePageQuery{From: 3, Before: 3}, true},
+		{"a from that has run out of history", MessagePageQuery{From: 9, Before: -1}, false},
+		{"a whole tool step", MessagePageQuery{From: 3, Before: 5}, false},
+		{"the whole history", unsetPage(), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PageMessages(msgs, tc.query).Unsatisfiable(); got != tc.want {
+				t.Fatalf("Unsatisfiable(%+v) = %v, want %v", tc.query, got, tc.want)
 			}
 		})
 	}

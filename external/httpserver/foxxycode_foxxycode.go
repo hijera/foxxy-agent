@@ -1373,7 +1373,11 @@ const maxMessagePage = 1000
 // for a window running from a message to before or the end. Without any of
 // them it is the whole history. Positions past the history are clamped by
 // session.PageMessages; a value that is not a non-negative integer, and a
-// window whose from lies past its before, are refused.
+// window whose from is not earlier than its before, are refused. A window
+// that falls inside one tool step is refused too, but only once the history
+// is read: both ends move back to the assistant that issued the call, so the
+// query has to meet the messages before it can be judged (see
+// session.MessagePage.Unsatisfiable).
 func messagePageQuery(r *http.Request) (session.MessagePageQuery, error) {
 	q := session.MessagePageQuery{From: -1, Before: -1}
 	from, hasFrom, err := queryIndex(r, "from")
@@ -1399,10 +1403,11 @@ func messagePageQuery(r *http.Request) (session.MessagePageQuery, error) {
 	if hasBefore && !hasFrom && !hasLimit {
 		return q, errors.New("before needs limit or from")
 	}
-	// The same mistake the tool-calls list refuses: an empty window read
-	// backwards, silently, would hide the client bug from its author.
-	if hasFrom && hasBefore && from > before {
-		return q, errors.New("from must not be after before")
+	// The same mistake the tool-calls list refuses: a window read backwards,
+	// silently, would hide the client bug from its author. A from at its
+	// before names no messages at all and is the same bug read forwards.
+	if hasFrom && hasBefore && from >= before {
+		return q, errors.New("from must be earlier than before")
 	}
 	if hasFrom {
 		q.From = from
@@ -1449,6 +1454,14 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	}
 	msgs, rev := st.MessagesWithRev()
 	page := session.PageMessages(msgs, query)
+	// Both ends of a page move back to the assistant that issued a tool call,
+	// so a from and a before inside one tool step leave nothing whole to
+	// answer with. Refuse the window rather than serve an empty page over a
+	// history that is not empty (see session.MessagePage.Unsatisfiable).
+	if page.Unsatisfiable() {
+		writePageQueryError(w, errors.New("from and before fall inside one tool step"))
+		return
+	}
 	out := map[string]interface{}{
 		"object":    "foxxycode.messages",
 		"sessionId": id,

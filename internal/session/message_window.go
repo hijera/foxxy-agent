@@ -38,8 +38,7 @@ type MessagePage struct {
 }
 
 // PageMessages returns the window of msgs a paged read names. Without From,
-// Before or Limit it is the whole history. Positions past the history are
-// clamped to its end.
+// Before or Limit it is the whole history.
 //
 // A page never splits a tool step: a start or an end that falls on a tool
 // result moves back to the assistant message that issued the call, so a
@@ -47,8 +46,15 @@ type MessagePage struct {
 // without a gap or an overlap. With Limit, the start moves back to the
 // nearest prompt when one lies within half a page, so a page usually opens
 // with the message that started its turn; a very long turn is still cut, at
-// the step the cut falls in. A page is never empty while messages remain
-// before its end.
+// the step the cut falls in, and the page is never empty while messages
+// remain before its end. Positions past the history are clamped to its end,
+// which is how a From that has run out of history answers empty: the client
+// is up to date. A From window that falls inside one tool step collapses too,
+// and nothing serves it - both ends land on the call that issued the step,
+// and taking the step whole would run past Before. MessagePage.Unsatisfiable
+// tells that case from the caught-up one, and a caller serving the read
+// refuses the query rather than answer with nothing over a history that is
+// not empty.
 func PageMessages(msgs []llm.Message, q MessagePageQuery) MessagePage {
 	total := len(msgs)
 	end := total
@@ -73,6 +79,15 @@ func PageMessages(msgs []llm.Message, q MessagePageQuery) MessagePage {
 		}
 	}
 	return page
+}
+
+// Unsatisfiable reports a page that holds no messages while the history is
+// not at its end: a From window whose ends fell inside one tool step, where
+// moving both back to the call that issued it emptied the page. A From that
+// has run out of history also answers empty, but sits at Total and is the
+// caught-up answer, so it is not this.
+func (p MessagePage) Unsatisfiable() bool {
+	return p.Offset == p.End && p.Offset < p.Total
 }
 
 // pageStart picks where a page of about limit messages ending at end starts.

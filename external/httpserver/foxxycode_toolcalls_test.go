@@ -248,6 +248,37 @@ func TestSessionMessagesReadsAPage(t *testing.T) {
 	}
 }
 
+// A page is never empty while messages remain before its end. A from and a
+// before that fall inside one tool step cannot be served: both ends move back
+// to the assistant message that issued the call, and taking the step whole
+// would run past before. The read refuses the window the way a from at its
+// before is refused, rather than answer with nothing over a history that is
+// not empty. A from past the end of the history is not that mistake - it is
+// the caught-up answer - and still comes back empty.
+func TestSessionMessagesRefusesAWindowThatHoldsNoWholeStep(t *testing.T) {
+	srv, sid := pagedSession(t, 5)
+	base := "/foxxycode/sessions/" + sid + "/messages"
+
+	// Turn 1 is prompt 1 at 0, its call at 1, the result at 2, the answer at 3.
+	for _, tc := range []struct{ query, want string }{
+		{"?from=1&before=2", "tool step"},
+		{"?from=12&before=12", "earlier than before"},
+	} {
+		rec, _ := getPaged(t, srv, base+tc.query)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Fatalf("GET messages%s: %d %s, want 400 with %q", tc.query, rec.Code, rec.Body.String(), tc.want)
+		}
+	}
+
+	rec, body := getPaged(t, srv, base+"?from=25")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET messages?from=25: status %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(body.Messages) != 0 || body.Window.Offset != body.Window.Total {
+		t.Fatalf("caught-up read: %d messages, window %+v", len(body.Messages), body.Window)
+	}
+}
+
 func TestSessionMessagesRejectsABadWindow(t *testing.T) {
 	srv, sid := pagedSession(t, 2)
 	base := "/foxxycode/sessions/" + sid + "/messages"
