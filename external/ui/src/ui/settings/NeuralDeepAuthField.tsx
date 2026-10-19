@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { FieldLabel } from "./FieldHint";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
+import { providerAPIKeyEnvVarName } from "./providerApiKeyPlaceholder";
 
 type AuthStatus = {
   connected: boolean;
@@ -143,7 +145,9 @@ export function NeuralDeepAuthField(props: {
           return;
         }
         if (next.status === "failed") {
-          setError(next.error || translate("settings.neuralDeepAuth.error.signInFailed"));
+          setError(
+            next.error || translate("settings.neuralDeepAuth.error.signInFailed"),
+          );
           setLoading(false);
           return;
         }
@@ -168,16 +172,13 @@ export function NeuralDeepAuthField(props: {
     setError("");
     setLogin(null);
     try {
-      const response = await fetch(
-        `${endpoint}/device`,
-        apiBase
-          ? {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ api_base: apiBase }),
-            }
-          : { method: "POST" },
-      );
+      // Always JSON: the server refuses any other content type, the ones a
+      // cross-site page could send without a preflight.
+      const response = await fetch(`${endpoint}/device`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiBase ? { api_base: apiBase } : {}),
+      });
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
@@ -212,7 +213,16 @@ export function NeuralDeepAuthField(props: {
 
   const { t } = useT();
   const shadowed =
-    status.connected && (props.hasExplicitKey || (status.source && status.source !== "oauth" && status.source !== "none"));
+    status.connected &&
+    (props.hasExplicitKey ||
+      (status.source && status.source !== "oauth" && status.source !== "none"));
+  // The NAME_API_KEY variable of the server wins over the login too, and it
+  // follows the row's name: a row called "openai" reads OPENAI_API_KEY. The
+  // api_key field is empty then, so the note names the variable instead.
+  const shadowEnv =
+    !props.hasExplicitKey && status.source === "env"
+      ? providerAPIKeyEnvVarName(providerName)
+      : "";
   // A key minted by one deployment is not honored by the other; say so while
   // the login is the credential in use, instead of letting requests fail.
   const hubMismatch =
@@ -225,16 +235,23 @@ export function NeuralDeepAuthField(props: {
 
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">
-      <span className="settings-label">{t("settings.neuralDeepAuth.fieldLabel")}</span>
-      <p className="settings-field-desc">{t("settings.neuralDeepAuth.description")}</p>
+      <FieldLabel
+        label={t("settings.neuralDeepAuth.fieldLabel")}
+        description={t("settings.neuralDeepAuth.description")}
+      />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">
           {t("settings.neuralDeepAuth.connected", { masked: status.masked || "" })}
         </p>
       ) : null}
       {shadowed ? (
-        <p className="settings-field-desc" data-testid="neuraldeep-auth-shadowed">
-          {t("settings.neuralDeepAuth.shadowedByKey")}
+        <p
+          className="settings-field-desc"
+          data-testid="neuraldeep-auth-shadowed"
+        >
+          {shadowEnv
+            ? t("settings.neuralDeepAuth.shadowedByEnv", { env: shadowEnv })
+            : t("settings.neuralDeepAuth.shadowedByKey")}
         </p>
       ) : null}
       {hubMismatch ? (
@@ -270,7 +287,9 @@ export function NeuralDeepAuthField(props: {
             </p>
           ) : null}
           {login.status !== "failed" && login.status !== "completed" ? (
-            <span className="settings-muted">{t("settings.neuralDeepAuth.waiting")}</span>
+            <span className="settings-muted">
+              {t("settings.neuralDeepAuth.waiting")}
+            </span>
           ) : null}
         </div>
       ) : null}

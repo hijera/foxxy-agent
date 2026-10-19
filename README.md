@@ -636,7 +636,7 @@ LLM  Инструменты Навыки  MCP
 - [Встраивание в IntelliJ](docs/contributing/intellij-embedding.md) — как плагин размещает у себя SPA и бинарник
 - [Удалённое управление](docs/plans/remote-control.md) — работа против удалённого `foxxycode http`
 - [Диагностика](docs/operate/debugging.md) — включаемый слой `debug:`: захват сырых LLM-запросов, трассировка хода, `GET /foxxycode/sessions/{id}/debug`, переключение без перезапуска
-- [Демон `serve`](docs/operate/serve.md) — один процесс на все включённые подсистемы: передний план, фоновый диспетчер (`--daemon`), `serve status|stop|restart`
+- [Демон `serve`](docs/operate/serve.md) — один процесс на все включённые подсистемы: передний план, фоновый диспетчер (`--daemon`), `serve status|stop|restart`; Linux systemd user service: `serve install|uninstall`
 - [Рой (swarm)](docs/operate/swarm.md) — реле, в которое регистрируются узлы: `foxxycode serve`, сцепление реле, обратный туннель для узла за файрволом и экран топологии в интерфейсе
 - [Шлюз мессенджеров](docs/surfaces/gateway.md) — адаптер Telegram-бота, изоляция сессий, ACL и создание новых адаптеров
 

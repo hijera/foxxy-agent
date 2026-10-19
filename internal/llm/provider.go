@@ -169,7 +169,12 @@ type ProviderInput struct {
 	ProxyURL string
 	// AuthPath is the FoxxyCode-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.
-	AuthPath    string
+	AuthPath string
+	// NoCLILogin keeps a codex or devin row with no credential at AuthPath off
+	// the machine-wide CLI login of its type (the Codex CLI's auth.json, the
+	// Devin CLI's credentials): that login is one account and serves one row,
+	// config.Config.CLILoginRow. The zero value lets the row use it.
+	NoCLILogin  bool
 	MaxTokens   int
 	Temperature float64
 	// TemperatureSet marks Temperature as asked for on the request rather than
@@ -295,7 +300,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through FOXXYCODE_CODEX_BASE_URL.
-		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+		inner = newCodexProvider(p.Model, p.AuthPath, !p.NoCLILogin, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
 	case "devin":
 		// A Devin session token reaches the Devin API server only: api_base is
 		// ignored, and FOXXYCODE_DEVIN_API_SERVER_URL moves the process as a whole.

@@ -251,9 +251,13 @@ func (s *wakeStreamState) aFinishedTaskWakesTheSession() error {
 		return err
 	})
 	waker.Attach(s.wakePool)
-	waker.OnSnapshot(bgtask.Snapshot{ID: "bg_stream", SessionID: s.sessionID,
-		Status: bgtask.StatusSucceeded, NotifyOnFinish: true})
-	return nil
+	// The waker rechecks the pool before delivery so already-collected results
+	// cannot start a redundant turn. Register real work instead of inventing a
+	// snapshot for an unknown task.
+	_, err := s.wakePool.Start(bgtask.Spec{
+		SessionID: s.sessionID, Command: "echo wake", NotifyOnFinish: true,
+	})
+	return err
 }
 
 // iSubscribeToTheComposerStream reads the SSE body to its end, which is what the SPA does

@@ -31,21 +31,22 @@ export type SectionDescriptor = {
 
 /**
  * Config keys never shown as their own schema tab. `ui` (ui.locale) is edited
- * by the curated language picker in the synthetic General tab; a raw schema
+ * by the language picker in the Appearance tab; a raw schema
  * form for it would be a duplicate control. The key still round-trips through
  * the footer Save because the whole config doc is PUT back unchanged.
  */
 const HIDDEN_KEYS = ["ui"];
 
-/** Config keys folded into the single "System" tab (rarely edited). */
-export const SYSTEM_KEYS = [
-  "scheduler",
-  "prompts",
-  "instructions",
-  "logger",
-  "sessions",
-  "gateways",
-];
+/**
+ * Config keys folded into the single "Prompts" tab (rarely edited), which
+ * closes the list of schema tabs. The scheduler, the logger and the gateways
+ * are features of their own and have tabs; the `sessions` section belongs to
+ * the Sessions tab.
+ */
+export const SYSTEM_KEYS = ["prompts", "instructions"];
+
+/** The config section the Sessions tab edits above its table. */
+export const SESSIONS_CONFIG_KEY = "sessions";
 
 /** Array sections shown as master–detail lists, with the field used as the row label. */
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
@@ -78,6 +79,9 @@ const SECTION_DESC_IDS = new Set([
   "browser",
   "vcs",
   "debug",
+  "scheduler",
+  "logger",
+  "gateways",
   "system",
 ]);
 
@@ -106,6 +110,9 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   browser: "settings.section.browser.label",
   vcs: "settings.section.vcs.label",
   debug: "settings.section.debug.label",
+  scheduler: "settings.section.scheduler.label",
+  logger: "settings.section.logger.label",
+  gateways: "settings.section.gateways.label",
   system: "settings.section.system.label",
 };
 
@@ -127,9 +134,9 @@ function labelFor(id: string, sub?: JsonSchema): string {
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
  * `x-foxxycode-property-order` and each property's `title`), except that the rarely
- * edited tail keys are folded into a single "System" tab and three synthetic
- * tabs lead the list: "General" (the UI language picker, the default tab),
- * "Appearance" (the client-side theme picker) and "Sessions" (the stored
+ * edited tail keys are folded into a single "Prompts" tab and three synthetic
+ * tabs lead the list: "General" (the default tab),
+ * "Appearance" (theme and language) and "Sessions" (the stored
  * history as a table). All three are present even when no schema is available.
  */
 export function deriveSettingsSections(
@@ -148,15 +155,16 @@ export function deriveSettingsSections(
     kind: "appearance",
   };
 
-  // The stored history is managed, not configured: this tab reads and prunes
-  // session bundles over /foxxycode/sessions and edits no config key. Its id is
-  // sessions_manager because `sessions` is already a config key (the storage
-  // directory), folded into the System tab.
+  // The stored history: this tab reads and prunes session bundles over
+  // /foxxycode/sessions, and once the schema is in it also edits the `sessions`
+  // config section (where the bundles are stored) above the table. Its id is
+  // sessions_manager because `sessions` is that config key.
   const sessionsManager: SectionDescriptor = {
     id: "sessions_manager",
     label: labelFor("sessions_manager"),
     description: descFor("sessions_manager"),
     kind: "sessions",
+    schemaKey: SESSIONS_CONFIG_KEY,
   };
 
   if (!schema || schema.type !== "object" || !schema.properties) {
@@ -171,7 +179,7 @@ export function deriveSettingsSections(
 
   const out: SectionDescriptor[] = [];
   const seen = new Set<string>();
-  let systemEmitted = false;
+  let system: SectionDescriptor | null = null;
 
   const emit = (key: string) => {
     const sub = props[key];
@@ -179,17 +187,17 @@ export function deriveSettingsSections(
       return;
     }
     seen.add(key);
+    if (key === SESSIONS_CONFIG_KEY) {
+      return;
+    }
     if (SYSTEM_KEYS.includes(key)) {
-      if (!systemEmitted) {
-        out.push({
-          id: "system",
-          label: labelFor("system"),
-          description: descFor("system"),
-          kind: "group",
-          childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
-        });
-        systemEmitted = true;
-      }
+      system ??= {
+        id: "system",
+        label: labelFor("system"),
+        description: descFor("system"),
+        kind: "group",
+        childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
+      };
       return;
     }
     if (key === "skills") {
@@ -253,5 +261,8 @@ export function deriveSettingsSections(
     emit(key);
   }
 
+  if (system) {
+    out.push(system);
+  }
   return [general, appearance, sessionsManager, ...out];
 }

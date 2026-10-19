@@ -19,6 +19,25 @@ import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import {
+  applyToolCallRows,
+  readMessageCreatedAtUTC,
+  reasoningDurationCacheKey,
+  transcriptItemsFromMessages,
+  type ToolCallListRow,
+} from "./chat/transcriptFromMessages";
+import type { RawUiLogRow } from "./chat/uiLogNotices";
+import {
+  alignedTranscriptSuffix,
+  LIVE_WINDOW_REBASE_MESSAGES,
+  parseTranscriptWindow,
+  prependOlderPage,
+  transcriptPageQuery,
+  transcriptToolCallsQuery,
+  type OlderTranscript,
+  type TranscriptPageRequest,
+  type TranscriptWindow,
+} from "./chat/transcriptWindow";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { isAbortError, remoteHttpErrorMessage, remoteSendErrorMessage, errorDetail } from "./env/remoteErrors";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
@@ -53,13 +72,7 @@ import { fetchJSON } from "./env/fetchJSON";
 import {
   preserveTranscriptItemIds,
   stablePermissionPromptItemId,
-  stableThinkingItemId,
-  stableToolCallItemId,
-  stableUserItemId,
-  stableWakeItemId,
 } from "./chat/transcriptItemIds";
-import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
-import { uiLogNoticeFeed } from "./chat/uiLogNotices";
 import {
   appendDeferredAssistant,
   deferredAssistantItem,
@@ -107,14 +120,12 @@ import {
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
-import { pickRicherToolArgs } from "./chat/toolCallArgs";
 import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   loadQuestionPromptRecords,
   mergeStoredQuestionPromptsIntoTranscript,
   patchQuestionToolArgsFromPromptRecords,
-  pickRicherQuestionToolArgs,
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
@@ -181,7 +192,17 @@ import {
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
+import { composerAutoFocusAllowed } from "./chat/composerFocus";
 import type { SessionRow } from "./sessions/types";
+import {
+  type ArchiveMove,
+  cursorAfterRemovals,
+  overlayArchiveMoves,
+  pruneArchiveBookkeeping,
+  restoreRow,
+  rowPlace,
+  rowVisibleUnder,
+} from "./sessions/archiveMoves";
 import {
   DEFAULT_SESSION_GROUP_MODE,
   readSessionGroupCookie,
@@ -287,6 +308,7 @@ import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
+import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-FoxxyCode-Session-ID";
 
@@ -345,30 +367,6 @@ type ToolCallStatusUpdate = {
   };
 };
 
-type ToolCallListRow = {
-  toolCallId: string;
-  name?: string;
-  kind?: string;
-  status?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  argsPreview?: string;
-  resultPreview?: string;
-  resultPreviewTruncated?: boolean;
-  planSnapshot?: unknown;
-};
-
-function readMessageCreatedAtUTC(
-  m: Record<string, unknown>,
-): string | undefined {
-  const raw = m.created_at ?? m.createdAt;
-  if (typeof raw !== "string") {
-    return undefined;
-  }
-  const s = raw.trim();
-  return s === "" ? undefined : s;
-}
-
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   const p = u._meta?.foxxycode?.toolResultPreview;
   return !!(p && p.truncated === true);
@@ -419,19 +417,15 @@ function randomSessionId(): string {
   return `sess_${hex}`;
 }
 
+/** One page of GET /foxxycode/sessions. */
+type SessionsPage = {
+  sessions: SessionRow[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
+};
+
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
-}
-
-function parseRFC3339ms(s: string | undefined): number | null {
-  const t = (s || "").trim();
-  if (!t) return null;
-  const ms = Date.parse(t);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function reasoningDurationCacheKey(text: string): string {
-  return text.trim().replace(/\s+/g, " ");
 }
 
 /**
@@ -677,6 +671,38 @@ export function App() {
   const streamShadowBySidRef = useRef(
     new ShadowTranscriptCache<TranscriptItem[]>(),
   );
+  /**
+   * The live window of each session this client holds a transcript for: the
+   * page of the history its items start at (issue #338), and `seq`, the read
+   * that established it. Every reload of a session re-reads from that page,
+   * so a long history is never read whole again after the first screen.
+   */
+  const liveWindowBySidRef = useRef(
+    new Map<string, TranscriptWindow & { seq: number }>(),
+  );
+  /** Counter of reads that start a live window over (the newest page). */
+  const windowRebaseSeqRef = useRef(0);
+  /** The latest window-starting read in flight per session. */
+  const windowRebaseInFlightRef = useRef(new Map<string, number>());
+  /** The live window of the session on screen, for rendering. */
+  const [viewedLiveWindow, setViewedLiveWindow] = useState<
+    (TranscriptWindow & { sessionId: string; seq: number }) | null
+  >(null);
+  /**
+   * Older pages of the session on screen, read while the reader scrolled up
+   * past the live window. History that no longer changes: it takes no part
+   * in the reloads and merges of the live window and is shown above it.
+   */
+  const [olderTranscript, setOlderTranscript] =
+    useState<OlderTranscript | null>(null);
+  const olderTranscriptRef = useRef<OlderTranscript | null>(null);
+  olderTranscriptRef.current = olderTranscript;
+  const [olderTranscriptLoad, setOlderTranscriptLoad] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
+  const olderLoadInFlightRef = useRef<string>("");
+  /** Whether the reader sits at the newest message (ChatScreen reports it). */
+  const readerAtTailRef = useRef(true);
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
@@ -843,6 +869,51 @@ export function App() {
     });
     for (const sid of victims) {
       relayLastEventIdBySidRef.current.delete(sid);
+      if (sid !== nextViewedSid.trim()) {
+        liveWindowBySidRef.current.delete(sid);
+        windowRebaseInFlightRef.current.delete(sid);
+      }
+    }
+  }
+
+  /**
+   * The live window this tab holds for `sid`. A session it has rows of
+   * without having read a page - one it started and streamed from its first
+   * message - is held from message 0.
+   */
+  function heldLiveWindow(
+    sid: string,
+  ): { offset: number; seq: number } | undefined {
+    const held = liveWindowBySidRef.current.get(sid);
+    if (held) return held;
+    const hasLocalRows =
+      (streamShadowBySidRef.current.get(sid)?.length ?? 0) > 0 ||
+      (viewedSessionIdRef.current.trim() === sid &&
+        itemsRef.current.length > 0);
+    return hasLocalRows ? { offset: 0, seq: 0 } : undefined;
+  }
+
+  /** The query that re-reads the live window held for `sid`. */
+  function liveWindowQuery(sid: string): string {
+    const held = heldLiveWindow(sid.trim());
+    return transcriptPageQuery(
+      held ? { kind: "from", offset: held.offset } : { kind: "tail" },
+    );
+  }
+
+  /** Records the live window a read of `sid` established. */
+  function noteLiveWindow(sid: string, win: TranscriptWindow, seq: number) {
+    const prev = liveWindowBySidRef.current.get(sid);
+    liveWindowBySidRef.current.set(sid, { ...win, seq });
+    if (prev && prev.seq !== seq) {
+      // A window started over: the older pages read against the old one are
+      // released rather than joined to a window they no longer border.
+      setOlderTranscript((cur) =>
+        cur && cur.sessionId === sid && cur.generation !== seq ? null : cur,
+      );
+    }
+    if (viewedSessionIdRef.current.trim() === sid) {
+      setViewedLiveWindow({ ...win, sessionId: sid, seq });
     }
   }
 
@@ -940,9 +1011,22 @@ export function App() {
     )
       return;
     noteUsageTurnEnded(sid);
+    // A window that grew through many turns starts over from its end here,
+    // where the turn is over, unless the reader is up in its history: a
+    // session that runs turn after turn is never idle long enough for the
+    // slide below, and every reload would read everything since it opened.
+    const viewing = viewedSessionIdRef.current.trim() === sid;
+    const live = liveWindowBySidRef.current.get(sid);
+    const rebase =
+      !!live &&
+      live.total - live.offset > LIVE_WINDOW_REBASE_MESSAGES &&
+      (!viewing || readerAtTailRef.current);
     void loadMessages(sid, {
       preserveOnError: true,
-      skipSetItems: viewedSessionIdRef.current.trim() !== sid,
+      skipSetItems: !viewing,
+      ...(rebase ? { rebase: true } : {}),
+    }).then(() => {
+      if (viewedSessionIdRef.current.trim() === sid) slideTranscriptToTail();
     });
     void refreshSessionStats(sid);
   }
@@ -1200,6 +1284,10 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<string | null>(() =>
     initialRoute.branch === "settings" ? initialRoute.section : null,
   );
+  // The row a list section has open, from `?id=` (a provider or model name).
+  const [settingsItem, setSettingsItem] = useState<string | null>(() =>
+    initialRoute.branch === "settings" ? initialRoute.item : null,
+  );
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -1297,6 +1385,10 @@ export function App() {
         readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
         DEFAULT_ARCHIVE_FILTER,
     );
+  // The filter on screen now, for an archive request that settles after the
+  // operator changed it (see runArchiveSession).
+  const sessionsArchiveFilterRef = useRef(sessionsArchiveFilter);
+  sessionsArchiveFilterRef.current = sessionsArchiveFilter;
   const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
     () =>
       readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
@@ -1322,6 +1414,23 @@ export function App() {
   const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
   // Sessions with an archive change in flight; see archiveSession.
   const archivingRef = useRef<Set<string>>(new Set());
+  // History moves a row the moment it is archived, so a listing issued before
+  // the server had the new flag must not put it back (archiveMoves.ts): the
+  // moves this tab made, the listings issued so far and the ones still out,
+  // and the points at which an archive took a loaded row out of the server's
+  // listing, which the offset of the next page has to account for.
+  const archiveMovesRef = useRef<Map<string, ArchiveMove>>(new Map());
+  const sessionsListSeqRef = useRef(0);
+  const sessionsListOpenRef = useRef<Set<number>>(new Set());
+  // The number of the latest listing read from the first page: a page issued
+  // before it belongs to the list that read replaced.
+  const sessionsListResetSeqRef = useRef(0);
+  const archiveRemovalsRef = useRef<number[]>([]);
+  // A refused archive, said on the row it put back: History is usually
+  // scrolled away from the top of the list, where a list error is shown.
+  const [sessionRowErrors, setSessionRowErrors] = useState<
+    Record<string, string>
+  >({});
   // The archive flag's last write this client made, so a transcript read that
   // was issued before the PATCH settled cannot put the older flag back (see
   // loadMessages, which compares the read's issue time against this).
@@ -1700,6 +1809,26 @@ export function App() {
   const [unarchiving, setUnarchiving] = useState(false);
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
+
+  // What the transcript shows: the older pages read while scrolling up, then
+  // the live window. The base numbers the prompts the way the server does
+  // (an edit rewinds by that index) and says whether history lies above.
+  const olderOnScreen =
+    olderTranscript &&
+    olderTranscript.sessionId === sessionId &&
+    viewedLiveWindow?.sessionId === sessionId &&
+    olderTranscript.generation === viewedLiveWindow.seq
+      ? olderTranscript
+      : null;
+  const transcriptItems = useMemo(
+    () => (olderOnScreen ? [...olderOnScreen.items, ...items] : items),
+    [olderOnScreen, items],
+  );
+  const transcriptTopWindow: TranscriptWindow | null = olderOnScreen
+    ? olderOnScreen.window
+    : viewedLiveWindow?.sessionId === sessionId
+      ? viewedLiveWindow
+      : null;
 
   const currentTitle = useMemo(() => {
     if (!sessionId) {
@@ -2266,6 +2395,7 @@ export function App() {
     if (p.branch === "settings") {
       setSettingsRoute(true);
       setSettingsSection(p.section);
+      setSettingsItem(p.item);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
@@ -2381,7 +2511,9 @@ export function App() {
 
   const prevSessionsOpenRef = useRef(false);
   useEffect(() => {
-    if (prevSessionsOpenRef.current && !sessionsOpen) {
+    // Back to the chat from History: the caret returns to the composer, except
+    // on a phone or a tablet, where it would open the keyboard (composerFocus.ts).
+    if (prevSessionsOpenRef.current && !sessionsOpen && composerAutoFocusAllowed()) {
       requestAnimationFrame(() => {
         document.getElementById("composer")?.focus();
       });
@@ -2641,7 +2773,6 @@ export function App() {
   useEffect(() => {
     void (async () => {
       const res = await fetchJSON<{
-        default_agent_model?: string;
         data?: Array<{
           id?: string;
           owned_by?: string;
@@ -2766,7 +2897,7 @@ export function App() {
   }, [sessionId]);
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1920px)");
+    const mq = window.matchMedia(wideRailMinWidthMediaQuery);
     const apply = () => setViewportXL(mq.matches);
     apply();
     mq.addEventListener("change", apply);
@@ -2852,6 +2983,19 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
 
+  // Forgets the archive moves and removals that no listing still out, or yet
+  // to be issued, can be affected by (archiveMoves.ts).
+  const pruneArchiveLists = useCallback(() => {
+    const open = sessionsListOpenRef.current;
+    const oldest =
+      open.size > 0 ? Math.min(...open) : sessionsListSeqRef.current + 1;
+    archiveRemovalsRef.current = pruneArchiveBookkeeping(
+      archiveMovesRef.current,
+      archiveRemovalsRef.current,
+      oldest,
+    );
+  }, []);
+
   const loadSessionsList = useCallback(
     async (reset: boolean): Promise<SessionRow[] | null> => {
       if (reset) {
@@ -2870,7 +3014,15 @@ export function App() {
       const ps = new URLSearchParams();
       ps.set("limit", "30");
       if (!reset) {
-        const cur = sessionsCursorRef.current;
+        // An archive still in flight may reach the server before this page
+        // does and move every row after it up by one; starting a row earlier
+        // per such archive costs at worst a row fetched twice, which the merge
+        // below drops by id, where the plain offset would skip one.
+        let inFlight = 0;
+        for (const move of archiveMovesRef.current.values()) {
+          if (move.settledAtSeq === null && move.removesLoaded) inFlight++;
+        }
+        const cur = cursorAfterRemovals(sessionsCursorRef.current, inFlight);
         if (cur) {
           ps.set("cursor", cur);
         }
@@ -2892,16 +3044,31 @@ export function App() {
       ps.set("sort", sessionsSortKey);
       ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
-      const res = await fetchJSON<{
-        sessions: SessionRow[];
-        nextCursor?: string | null;
-        hasMore?: boolean;
-      }>(`/foxxycode/sessions?${ps.toString()}`, {
-        headers,
-      });
+      const seq = ++sessionsListSeqRef.current;
+      if (reset) sessionsListResetSeqRef.current = seq;
+      sessionsListOpenRef.current.add(seq);
+      let res: { ok: boolean; status: number; data?: SessionsPage };
+      try {
+        res = await fetchJSON<SessionsPage>(`/foxxycode/sessions?${ps.toString()}`, {
+          headers,
+        });
+      } catch {
+        // A request that never got an answer; without this the loading flag
+        // below stayed up and History never asked for the page again.
+        res = { ok: false, status: 0 };
+      } finally {
+        sessionsListOpenRef.current.delete(seq);
+      }
       if (!reset) {
         sessionsLoadingMoreRef.current = false;
         setSessionsLoadingMore(false);
+      }
+      // The list was read again from the top after this request left: its
+      // rows and its offset belong to the listing that read replaced (another
+      // filter, another order, or the same one before an archive).
+      if (seq < sessionsListResetSeqRef.current) {
+        pruneArchiveLists();
+        return null;
       }
       if (!res.ok || !res.data) {
         // status 0 is fetchJSON's "no answer from the server" (dropped connection),
@@ -2914,7 +3081,18 @@ export function App() {
         return null;
       }
       setSessionsError(null);
-      const next = res.data.sessions || [];
+      // A listing issued before an archive this tab made had settled still
+      // lists the row as it was, and counts it in the offset it hands back.
+      const next = overlayArchiveMoves(
+        res.data.sessions || [],
+        archiveMovesRef.current,
+        seq,
+        sessionsArchiveFilter,
+      );
+      const removedSince = archiveRemovalsRef.current.filter(
+        (at) => at >= seq,
+      ).length;
+      pruneArchiveLists();
       setSessions((prev) => {
         if (reset) {
           return next;
@@ -2922,7 +3100,10 @@ export function App() {
         const seen = new Set(prev.map((s) => s.id));
         return [...prev, ...next.filter((s) => !seen.has(s.id))];
       });
-      const nextCur = res.data.nextCursor ?? null;
+      const nextCur = cursorAfterRemovals(
+        res.data.nextCursor ?? null,
+        removedSince,
+      );
       setSessionsCursor(nextCur);
       sessionsCursorRef.current = nextCur;
       const hm = !!res.data.hasMore;
@@ -2938,6 +3119,7 @@ export function App() {
       headers,
       sessionsProjectOnly,
       hostProjectRoot,
+      pruneArchiveLists,
     ],
   );
 
@@ -3056,25 +3238,84 @@ export function App() {
     new WeakMap<readonly TranscriptItem[], number>(),
   );
 
+  type LoadMessagesOpts = {
+    expectedEpoch?: number;
+    allowApplyWhileActive?: boolean;
+    adoptServerMode?: boolean;
+    modeEditSeqAtTurnStart?: number;
+    skipSetItems?: boolean;
+    preserveOnError?: boolean;
+    freshLoad?: boolean;
+    /** Start the live window over from the newest page while keeping the
+     *  merges of an ordinary reload (a turn has just ended). */
+    rebase?: boolean;
+  };
+
+  /**
+   * Reads a session's transcript into its live window. A session opens on
+   * its newest page (and so does a fresh load: a rewind, a switch); every
+   * later read re-reads the live window it holds, from the same message, so
+   * the server list and the local one start together and the positional
+   * merges line up. Older pages never take part: they sit above the live
+   * window in `olderTranscript` (issue #338).
+   */
   async function loadMessages(
     idOverride?: string,
-    opts?: {
-      skipSetItems?: boolean;
-      preserveOnError?: boolean;
-      freshLoad?: boolean;
-      expectedEpoch?: number;
-      allowApplyWhileActive?: boolean;
-      /** Post-turn reconcile: line the composer up with the session's mode. */
-      adoptServerMode?: boolean;
-      /** modeEditSeqRef as it stood when that turn started. */
-      modeEditSeqAtTurnStart?: number;
-    },
+    opts?: LoadMessagesOpts,
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
       setItems([]);
       return null;
     }
+    const held = opts?.freshLoad ? undefined : heldLiveWindow(sid);
+    const request: TranscriptPageRequest =
+      opts?.freshLoad ||
+      opts?.rebase ||
+      !held ||
+      windowRebaseInFlightRef.current.has(sid)
+        ? { kind: "tail" }
+        : { kind: "from", offset: held.offset };
+    // A read that starts the window over supersedes every read issued before
+    // it: what they bring back was asked against a window that is gone.
+    let seq: number;
+    if (request.kind === "tail") {
+      windowRebaseSeqRef.current += 1;
+      seq = windowRebaseSeqRef.current;
+      windowRebaseInFlightRef.current.set(sid, seq);
+    } else {
+      seq = held!.seq;
+    }
+    const isCurrentWindowRead = () =>
+      request.kind === "tail"
+        ? windowRebaseInFlightRef.current.get(sid) === seq
+        : !windowRebaseInFlightRef.current.has(sid) &&
+          (liveWindowBySidRef.current.get(sid)?.seq ?? 0) === seq;
+    try {
+      return await readTranscriptWindow(
+        sid,
+        opts,
+        request,
+        seq,
+        isCurrentWindowRead,
+      );
+    } finally {
+      if (
+        request.kind === "tail" &&
+        windowRebaseInFlightRef.current.get(sid) === seq
+      ) {
+        windowRebaseInFlightRef.current.delete(sid);
+      }
+    }
+  }
+
+  async function readTranscriptWindow(
+    sid: string,
+    opts: LoadMessagesOpts | undefined,
+    request: TranscriptPageRequest,
+    seq: number,
+    isCurrentWindowRead: () => boolean,
+  ): Promise<TranscriptItem[] | null> {
     // Two guards, two questions. The stream generation (upstream) asks whether a
     // new POST or relay took the session over while this read was in flight; the
     // transcript epoch below (fork) asks whether the snapshot may be painted.
@@ -3095,6 +3336,7 @@ export function App() {
       });
     const issuedAt = Date.now();
     const res = await fetchJSON<{
+      window?: unknown;
       messages: Array<any>;
       model?: string;
       selectedModelId?: string;
@@ -3116,9 +3358,13 @@ export function App() {
         userTurnIndex?: number;
         createdAt?: string;
       }>;
-    }>(`/foxxycode/sessions/${encodeURIComponent(sid)}/messages`, {
-      headers: sid === sessionId ? headers : { [HDR]: sid },
-    });
+    }>(
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery(request)}`,
+      {
+        headers: sid === sessionId ? headers : { [HDR]: sid },
+      },
+    );
+    if (!isCurrentWindowRead()) return null;
     // Re-read the viewed session after the await: the viewer may have moved
     // on while the request was in flight, and a stale response must neither
     // clear the new session's rows nor merge them into this session's shadow.
@@ -3183,262 +3429,65 @@ export function App() {
           : !!res.data.archived,
       );
     }
-    const next: TranscriptItem[] = [];
-    const notices = uiLogNoticeFeed(res.data.uiLog, newId);
-    const toolIdx = new Map<string, number>();
-    let userTurnIdx = 0;
-    let thinkingInTurn = 0;
-    let pendingAssistant = emptyDeferredAssistant();
-    let assistantInTurn = 0;
-    /**
-     * Emits whatever assistant text has accumulated so far.
-     *
-     * Assistant text is buffered rather than pushed on sight so that a reply split across
-     * several messages reads as one bubble. It therefore has to be flushed before anything
-     * that comes *after* it chronologically — the tool calls of the same step, and the
-     * reasoning of the next one. Without that, a turn that spoke before calling a tool
-     * renders as "user, every tool call, then all the text at the bottom": invisible while a
-     * model only talks at the end, glaring the moment a turn is stopped mid-flight and its
-     * partial answer is persisted ahead of the tools.
-     */
-    const flushAssistantForTurn = () => {
-      const row = deferredAssistantItem(
-        pendingAssistant,
-        userTurnIdx,
-        assistantInTurn,
-      );
-      if (row) {
-        next.push(row);
-        assistantInTurn++;
-      }
-      pendingAssistant = emptyDeferredAssistant();
-    };
-    for (const m of res.data.messages || []) {
-      const role = (m.role || "").trim();
-      if (role === "user") {
-        flushAssistantForTurn();
-        next.push(...notices.beforeUserRow());
-        if ((m as Record<string, unknown>).compaction_summary === true) {
-          const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
-          next.push({
-            id: newId("compaction"),
-            type: "compaction",
-            summary: stripCompactionPreamble(m.content || ""),
-            ...(cat ? { createdAtUtc: cat } : {}),
-          });
-          continue;
-        }
-        userTurnIdx++;
-        thinkingInTurn = 0;
-        assistantInTurn = 0;
-        const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
-        // Nobody typed the first message of a turn a finished background
-        // task started, and nothing shows in its place: the turn reads as the
-        // agent carrying on. It still opens a turn, so the ids of the turn
-        // line up with the server's count of user messages for a rewind.
-        const wakeTasks = parseBackgroundWakeTasks(
-          (m as Record<string, unknown>).background_wake,
-        );
-        if (wakeTasks.length > 0) {
-          next.push({
-            id: stableWakeItemId(userTurnIdx),
-            type: "background_wake",
-            tasks: wakeTasks,
-            ...(cat ? { createdAtUtc: cat } : {}),
-          });
-          continue;
-        }
-        const rawContent = m.content || "";
-        const parsedAssets = sessionMessageFiles(
-          (m as Record<string, unknown>).files,
-          rawContent,
-        );
-        next.push({
-          id: stableUserItemId(userTurnIdx),
-          type: "user_message",
-          content: rawContent,
-          ...(cat ? { createdAtUtc: cat } : {}),
-          ...((m as Record<string, unknown>).queued === true
-            ? { queued: true }
-            : {}),
-          ...(parsedAssets.length > 0 ? { files: parsedAssets } : {}),
-        });
-        continue;
-      }
-      if (role === "assistant") {
-        const pdRaw = (m as Record<string, unknown>).plan_document;
-        if (pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)) {
-          const pd = pdRaw as Record<string, unknown>;
-          const slug = String(pd.slug ?? "").trim();
-          if (slug) {
-            next.push({
-              id: newId("pd"),
-              type: "plan_document",
-              slug,
-              name: String(pd.name ?? ""),
-              overview: String(pd.overview ?? ""),
-              content: String(pd.content ?? ""),
-              body: String(pd.body ?? ""),
-              expanded: false,
-              ...(pd.path ? { path: String(pd.path) } : {}),
-              ...(pd.discarded === true ? { discarded: true } : {}),
-              ...(pd.updatedAt ? { updatedAtUtc: String(pd.updatedAt) } : {}),
-            });
-          }
-        }
-        const reasoning = (m.reasoning || "").trim();
-        if (reasoning) {
-          // Reasoning opens a new step, so anything said in the previous one closes here.
-          flushAssistantForTurn();
-          const dk = reasoningDurationCacheKey(reasoning);
-          const cachedMs = dk
-            ? reasoningDurationMsByContentRef.current.get(dk)
-            : undefined;
-          const durRaw = (m as { reasoning_duration_ms?: unknown })
-            .reasoning_duration_ms;
-          let fromApi: number | undefined;
-          if (
-            typeof durRaw === "number" &&
-            Number.isFinite(durRaw) &&
-            durRaw >= 0
-          ) {
-            fromApi = Math.round(durRaw);
-          } else if (typeof durRaw === "string" && durRaw.trim() !== "") {
-            const n = Number(durRaw);
-            if (Number.isFinite(n) && n >= 0) {
-              fromApi = Math.round(n);
-            }
-          }
-          const durationMs = fromApi !== undefined ? fromApi : cachedMs;
-          if (fromApi !== undefined && dk.length > 0) {
-            reasoningDurationMsByContentRef.current.set(dk, fromApi);
-          }
-          next.push({
-            id: stableThinkingItemId(userTurnIdx, thinkingInTurn++),
-            type: "thinking",
-            status: "completed",
-            content: reasoning,
-            ...(durationMs !== undefined ? { durationMs } : {}),
-          });
-        }
-        const content = m.content || "";
-        if (content.trim()) {
-          const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
-          pendingAssistant = appendDeferredAssistant(
-            pendingAssistant,
-            content,
-            acat,
-          );
-        }
-        const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
-        // Whatever the model said before reaching for a tool belongs above that tool.
-        if (tcs.length > 0) {
-          flushAssistantForTurn();
-        }
-        for (const tc of tcs) {
-          const id = tc?.id || "";
-          const fn = tc?.function || {};
-          const name = (fn?.name || "").trim();
-          const args = fn?.arguments || "";
-          if (!id) continue;
-          if (toolIdx.has(id)) continue;
-          const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-            id: stableToolCallItemId(id),
-            type: "tool_call",
-            toolCallId: id,
-            status: "pending",
-          };
-          if (name) it.title = name;
-          if (args) it.argsText = args;
-          toolIdx.set(id, next.length);
-          next.push(it);
-        }
-        continue;
-      }
-      if (role === "tool") {
-        const id = (m.tool_call_id || "").trim();
-        if (!id) continue;
-        const idx = toolIdx.get(id);
-        if (idx === undefined) {
-          const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-            id: stableToolCallItemId(id),
-            type: "tool_call",
-            toolCallId: id,
-            status: "completed",
-            resultText: m.content || "",
-          };
-          toolIdx.set(id, next.length);
-          next.push(it);
-          continue;
-        }
-        const cur = next[idx] as Extract<TranscriptItem, { type: "tool_call" }>;
-        next[idx] = {
-          ...cur,
-          status: "completed",
-          resultText: m.content || "",
-        };
-      }
+    const pageMessages = res.data.messages || [];
+    const pageWindow = parseTranscriptWindow(
+      res.data.window,
+      pageMessages.length,
+    );
+    // A window re-read that finds nothing where the held one starts: the
+    // history was cut there (a rewind from another surface) or shortened
+    // under it. What the client holds no longer lines up with the server, so
+    // it starts over from the newest page.
+    if (
+      request.kind === "from" &&
+      (pageWindow.total < request.offset ||
+        (pageMessages.length === 0 &&
+          ((viewingNow === sid && itemsRef.current.length > 0) ||
+            (streamShadowBySidRef.current.get(sid)?.length ?? 0) > 0)))
+    ) {
+      return loadMessages(sid, { ...opts, freshLoad: true });
     }
-    // Flush the final assistant row and notices (no later user message triggers it).
-    flushAssistantForTurn();
-    next.push(...notices.end());
+    const mapped = transcriptItemsFromMessages({
+      messages: pageMessages,
+      window: pageWindow,
+      uiLog: res.data.uiLog,
+      newId,
+      reasoningDurations: reasoningDurationMsByContentRef.current,
+    });
+    const next = mapped.items;
 
     // Enrich tool calls with persisted previews when available.
     const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
-      `/foxxycode/sessions/${encodeURIComponent(sid)}/tool-calls`,
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/tool-calls${transcriptToolCallsQuery(pageWindow, pageMessages.length)}`,
       {
         headers: sid === sessionId ? headers : { [HDR]: sid },
       },
     );
     if (tcRes.ok && tcRes.data?.toolCalls) {
-      for (const row of tcRes.data.toolCalls) {
-        const id = (row.toolCallId || "").trim();
-        if (!id) continue;
-        const idx = toolIdx.get(id);
-        if (idx === undefined) continue;
-        const cur = next[idx] as Extract<TranscriptItem, { type: "tool_call" }>;
-        const title = (row.name || cur.title || "").trim() || undefined;
-        const kind = (row.kind || cur.kind || "").trim() || undefined;
-        const status = (row.status as any) || cur.status;
-        const merged: Extract<TranscriptItem, { type: "tool_call" }> = {
-          ...cur,
-          status,
-        };
-        if (title) merged.title = title;
-        if (kind) merged.kind = kind;
-        if (row.argsPreview) {
-          const titleLower = (title || "").trim().toLowerCase();
-          const pickedArgs =
-            titleLower === "question"
-              ? pickRicherQuestionToolArgs(cur.argsText, row.argsPreview)
-              : pickRicherToolArgs(cur.argsText, row.argsPreview);
-          if (pickedArgs) merged.argsText = pickedArgs;
-        }
-        if (row.resultPreview) merged.resultText = row.resultPreview;
-        if (row.resultPreviewTruncated === true)
-          merged.resultWasTruncated = true;
-        const todoPlan = normalizeTodoPlanSnapshot(row.planSnapshot);
-        if (todoPlan !== undefined) merged.todoPlan = todoPlan;
-        const st = parseRFC3339ms(row.startedAt);
-        const fin = parseRFC3339ms(row.finishedAt);
-        if (st != null && fin != null && fin >= st) {
-          merged.durationMs = fin - st;
-        }
-        next[idx] = merged;
-      }
+      applyToolCallRows(next, mapped.toolIndex, tcRes.data.toolCalls);
     }
+    if (!isCurrentWindowRead()) return null;
     if (!sameStream()) return null;
-    const prevShadow = streamShadowBySidRef.current.get(sid);
+    // The local lists start where the live window held so far starts. When
+    // this read starts it somewhere else (the newest page after a slide back
+    // or a rewind), they are not merged position by position with it.
+    const heldOffset = liveWindowBySidRef.current.get(sid)?.offset ?? 0;
+    const localAligned = heldOffset === pageWindow.offset;
+    const prevShadow = localAligned
+      ? streamShadowBySidRef.current.get(sid)
+      : undefined;
     // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a session).
-    const localForMerge = opts?.freshLoad
-      ? prevShadow && prevShadow.length > 0
-        ? prevShadow
-        : undefined
-      : prevShadow && prevShadow.length > 0
-        ? prevShadow
-        : viewedSessionIdRef.current.trim() === sid
-          ? itemsRef.current
-          : undefined;
+    const localForMerge = !localAligned
+      ? undefined
+      : opts?.freshLoad
+        ? prevShadow && prevShadow.length > 0
+          ? prevShadow
+          : undefined
+        : prevShadow && prevShadow.length > 0
+          ? prevShadow
+          : viewedSessionIdRef.current.trim() === sid
+            ? itemsRef.current
+            : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
       next,
       localForMerge,
@@ -3456,19 +3505,27 @@ export function App() {
     );
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
-    // Final row order before preserveTranscriptItemIds does its positional match.
     merged = pinPlanDocumentsToTurnEnd(merged);
-    const appliedRaw = opts?.freshLoad ? merged :
-      keepLocalTranscriptIfServerEmpty({
-        serverNext: merged,
-        sid,
-        viewingSid: viewingNow,
-        prevShadow,
-        prevItems: itemsRef.current,
-      }) ?? merged;
+    const appliedRaw = localAligned && !opts?.freshLoad
+      ? (keepLocalTranscriptIfServerEmpty({
+          serverNext: merged,
+          sid,
+          viewingSid: viewingNow,
+          prevShadow,
+          prevItems: itemsRef.current,
+        }) ?? merged)
+      : merged;
     const withStableIds = preserveTranscriptItemIds(
       appliedRaw,
-      localForMerge ?? prevShadow ?? itemsRef.current,
+      localAligned
+        ? (localForMerge ?? prevShadow ?? itemsRef.current)
+        : alignedTranscriptSuffix(
+            appliedRaw,
+            streamShadowBySidRef.current.get(sid) ??
+              (viewedSessionIdRef.current.trim() === sid
+                ? itemsRef.current
+                : undefined),
+          ),
     );
     const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
     const snapshotRev = res.data.messagesRev;
@@ -3495,6 +3552,7 @@ export function App() {
     if (opts?.skipSetItems) {
       if (canApplySnapshot()) {
         streamShadowBySidRef.current.set(sid, applied);
+        noteLiveWindow(sid, pageWindow, seq);
         evictStaleSessionCaches(viewedSessionIdRef.current);
         noteSnapshotRev(applied);
       }
@@ -3507,12 +3565,15 @@ export function App() {
       return finalItems;
     }
     // Frames may have arrived while the messages request was in flight.
-    finalItems = mergeTranscriptPreferLocalSuffix(
-      finalItems,
-      streamShadowBySidRef.current.get(sid),
-    );
+    finalItems = localAligned
+      ? mergeTranscriptPreferLocalSuffix(
+          applied,
+          streamShadowBySidRef.current.get(sid),
+        )
+      : applied;
     if (finalItems === applied) noteSnapshotRev(finalItems);
     streamShadowBySidRef.current.set(sid, finalItems);
+    noteLiveWindow(sid, pageWindow, seq);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
     // another session or went home): keep the shadow for the next visit, but
@@ -3529,6 +3590,157 @@ export function App() {
     setItems(finalItems);
     setSessionLoading(false);
     return finalItems;
+  }
+
+  /**
+   * Reads the page of history just above what the session on screen holds
+   * and puts it on top, when the reader has scrolled up to the oldest row.
+   * The page is history that no longer changes: it is mapped with the same
+   * function as the live window, gets its tool previews and stored prompts,
+   * and then stays out of every reload. It is kept only if nothing moved while
+   * it was read - the session on screen, the live window it borders, the
+   * older pages it joins.
+   */
+  async function loadOlderTranscript(): Promise<void> {
+    const sid = viewedSessionIdRef.current.trim();
+    const live = sid ? liveWindowBySidRef.current.get(sid) : undefined;
+    if (!sid || !live || olderLoadInFlightRef.current) return;
+    const heldOlder = olderTranscriptRef.current;
+    const older =
+      heldOlder &&
+      heldOlder.sessionId === sid &&
+      heldOlder.generation === live.seq
+        ? heldOlder
+        : null;
+    const before = older ? older.window.offset : live.offset;
+    if (before <= 0) return;
+    olderLoadInFlightRef.current = sid;
+    setOlderTranscriptLoad("loading");
+    // Every way out settles the control: a page that arrived, a read that
+    // failed, or a read made moot by a window that moved meanwhile, which
+    // leaves the control ready to ask again rather than loading forever.
+    let settled = false;
+    const stillCurrent = () => {
+      const nowLive = liveWindowBySidRef.current.get(sid);
+      const cur = olderTranscriptRef.current;
+      const curOlder =
+        cur && cur.sessionId === sid && cur.generation === live.seq
+          ? cur
+          : null;
+      return (
+        viewedSessionIdRef.current.trim() === sid &&
+        nowLive?.seq === live.seq &&
+        (curOlder ? curOlder.window.offset : nowLive.offset) === before
+      );
+    };
+    try {
+      const reqHeaders = { [HDR]: sid };
+      const res = await fetchJSON<{
+        window?: unknown;
+        messages?: Array<any>;
+        uiLog?: RawUiLogRow[];
+      }>(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery({ kind: "older", before })}`,
+        { headers: reqHeaders },
+      );
+      if (!stillCurrent()) return;
+      const pageMessages = res.data?.messages ?? [];
+      const pageWindow = parseTranscriptWindow(
+        res.data?.window,
+        pageMessages.length,
+      );
+      // A server that ignores the window hands back the whole history; a page
+      // that does not end where the held rows start cannot be joined to them.
+      if (
+        !res.ok ||
+        pageMessages.length === 0 ||
+        pageWindow.offset + pageMessages.length !== before
+      ) {
+        setOlderTranscriptLoad("error");
+        settled = true;
+        return;
+      }
+      const mapped = transcriptItemsFromMessages({
+        messages: pageMessages,
+        window: pageWindow,
+        uiLog: res.data?.uiLog,
+        newId,
+        reasoningDurations: reasoningDurationMsByContentRef.current,
+      });
+      const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/tool-calls${transcriptToolCallsQuery(pageWindow, pageMessages.length)}`,
+        { headers: reqHeaders },
+      );
+      if (!stillCurrent()) return;
+      if (tcRes.ok && tcRes.data?.toolCalls) {
+        applyToolCallRows(mapped.items, mapped.toolIndex, tcRes.data.toolCalls);
+      }
+      let page = mergePermissionPromptsIntoTranscript(
+        mapped.items,
+        sid,
+        toolsPermissionPolicyRef.current,
+      );
+      page = mergeStoredQuestionPromptsIntoTranscript(page, sid);
+      page = patchQuestionToolArgsFromPromptRecords(page, sid);
+      page = dedupeAdjacentDuplicateThinkingCompleted(page);
+      const joined = prependOlderPage(
+        page,
+        older?.items ?? [],
+        itemsRef.current,
+        newId,
+      );
+      setOlderTranscript({
+        sessionId: sid,
+        generation: live.seq,
+        items: joined,
+        window: pageWindow,
+      });
+      setOlderTranscriptLoad("idle");
+      settled = true;
+    } catch {
+      if (stillCurrent()) {
+        setOlderTranscriptLoad("error");
+        settled = true;
+      }
+    } finally {
+      if (olderLoadInFlightRef.current === sid) olderLoadInFlightRef.current = "";
+      if (!settled) {
+        setOlderTranscriptLoad((cur) => (cur === "loading" ? "idle" : cur));
+      }
+    }
+  }
+
+  /**
+   * The reader is back at the newest message: what was read of the history
+   * on the way up is released, and a live window that grew through many turns
+   * starts over from the newest page. Only while nothing runs in the session,
+   * so no stream, prompt or answer in flight is touched; the rows it drops
+   * are far above the screen, which stays pinned to the newest message.
+   */
+  function slideTranscriptToTail(): void {
+    const sid = viewedSessionIdRef.current.trim();
+    if (!sid || !readerAtTailRef.current) return;
+    if (
+      turnActivity.get(sid) === true ||
+      activeComposerSidRef.current.has(sid) ||
+      postAbortBySidRef.current.has(sid) ||
+      relayAbortBySidRef.current.has(sid) ||
+      itemsRef.current.some(
+        (x) =>
+          (x.type === "permission_prompt" || x.type === "question_prompt") &&
+          !x.resolved,
+      )
+    ) {
+      return;
+    }
+    if (olderTranscriptRef.current) {
+      setOlderTranscript(null);
+      setOlderTranscriptLoad("idle");
+    }
+    const live = liveWindowBySidRef.current.get(sid);
+    if (live && live.total - live.offset > LIVE_WINDOW_REBASE_MESSAGES) {
+      void loadMessages(sid, { freshLoad: true, preserveOnError: true });
+    }
   }
 
   function persistComposerDraftBeforeLeave() {
@@ -3702,11 +3914,13 @@ export function App() {
   /**
    * Puts a conversation in the archive, or takes it back out.
    *
-   * The row moves only once the server has agreed. Moving it first reads better
-   * for the half second it saves, but it is a lie the UI then has to take back:
-   * a refused PATCH would leave the drawer showing a state that is not on disk,
-   * and a listing already in flight could put the row back anyway. The request
-   * is quick, and what the drawer shows stays what the server said.
+   * The row moves at once and the PATCH goes behind it, and the list is not
+   * read again: a re-read from the first page dropped the rows scrolling had
+   * loaded, and with them the place the next conversation to archive sat at.
+   * A refused PATCH puts the row back where it stood, with the reason said on
+   * the row. Until the server has the new flag, and until every listing issued
+   * before that has come back, a listing is shown with the move applied, so a
+   * read already in flight cannot put the row back either (archiveMoves.ts).
    */
   async function archiveSession(id: string, archived: boolean) {
     // One conversation, one request at a time. Two PATCHes for the same session
@@ -3725,21 +3939,69 @@ export function App() {
   }
 
   async function runArchiveSession(id: string, archived: boolean) {
-    let res: Response;
+    const rowStays = rowVisibleUnder(sessionsArchiveFilter, archived);
+    const place = rowPlace(sessions, id);
+    const removesLoaded = !!place && !rowStays;
+    archiveMovesRef.current.set(id, {
+      archived,
+      removesLoaded,
+      settledAtSeq: null,
+    });
+    setSessionRowErrors((prev) => {
+      if (!(id in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[id];
+      return rest;
+    });
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    let ok = false;
     try {
-      res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
+      const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ archived }),
       });
+      ok = res.ok;
     } catch {
-      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      ok = false;
+    }
+    if (!ok) {
+      archiveMovesRef.current.delete(id);
+      pruneArchiveLists();
+      const message = t(
+        archived ? "sessions.archiveFailed" : "sessions.unarchiveFailed",
+      );
+      // Only back into the listing it came from: the operator may have
+      // switched to the archive (or out of it) while the request was out.
+      if (
+        place &&
+        rowVisibleUnder(sessionsArchiveFilterRef.current, !!place.row.archived)
+      ) {
+        setSessions((prev) => restoreRow(prev, place));
+        setSessionRowErrors((prev) => ({ ...prev, [id]: message }));
+      } else {
+        setSessionsError(message);
+      }
       return;
     }
-    if (!res.ok) {
-      setSessionsError(t("app.backendUnavailable", { status: res.status }));
-      return;
+    archiveMovesRef.current.set(id, {
+      archived,
+      removesLoaded,
+      settledAtSeq: sessionsListSeqRef.current,
+    });
+    if (removesLoaded) {
+      // The row was part of what History had loaded and has now left the
+      // server's listing, so the next page starts one row earlier.
+      archiveRemovalsRef.current.push(sessionsListSeqRef.current);
+      const cursor = cursorAfterRemovals(sessionsCursorRef.current, 1);
+      sessionsCursorRef.current = cursor;
+      setSessionsCursor(cursor);
     }
+    pruneArchiveLists();
     // The conversation on screen learns its new state with the row: the
     // composer swaps for the archived notice (or comes back) without waiting
     // for the next transcript load. The ref is re-read here, not captured
@@ -3752,15 +4014,6 @@ export function App() {
     if (viewedSessionIdRef.current.trim() === id) {
       setViewedArchived(archived);
     }
-    const rowStays =
-      sessionsArchiveFilter === "all" ||
-      (sessionsArchiveFilter === "only") === archived;
-    setSessions((prev) =>
-      rowStays
-        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
-        : prev.filter((s) => s.id !== id),
-    );
-    await loadSessionsList(true);
   }
 
   /**
@@ -3780,14 +4033,14 @@ export function App() {
         body: JSON.stringify({ pinned }),
       });
       if (!res.ok) {
-        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        setSessionsError(t("sessions.backendUnavailable", { status: res.status }));
         return;
       }
       // The row does not move here: a pin changes the order, and the order is
       // the server's answer, not something to guess at from one row.
       await loadSessionsList(true);
     } catch {
-      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      setSessionsError(t("sessions.backendUnavailable", { status: 0 }));
     } finally {
       pinningRef.current.delete(id);
     }
@@ -3811,10 +4064,10 @@ export function App() {
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) {
-        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        setSessionsError(t("sessions.backendUnavailable", { status: res.status }));
       }
     } catch {
-      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      setSessionsError(t("sessions.backendUnavailable", { status: 0 }));
     }
     await loadSessionsList(true);
   }
@@ -3838,7 +4091,7 @@ export function App() {
         body: JSON.stringify({ archived: false }),
       });
       if (!res.ok) {
-        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        setSessionsError(t("sessions.backendUnavailable", { status: res.status }));
         return;
       }
       // Same ordering as archiveSession: the write is recorded before the
@@ -3858,7 +4111,7 @@ export function App() {
       );
       await loadSessionsList(true);
     } catch {
-      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      setSessionsError(t("sessions.backendUnavailable", { status: 0 }));
     } finally {
       archivingRef.current.delete(sid);
       setUnarchiving(false);
@@ -3967,6 +4220,16 @@ export function App() {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    // Another conversation: the older pages read for the last one go, and the
+    // reader starts at the newest message of this one.
+    setOlderTranscript(null);
+    setOlderTranscriptLoad("idle");
+    readerAtTailRef.current = true;
+    {
+      const sid = sessionId.trim();
+      const held = sid ? liveWindowBySidRef.current.get(sid) : undefined;
+      setViewedLiveWindow(held ? { ...held, sessionId: sid } : null);
+    }
     setSubagentTranscript(null);
     setViewedArchived(false);
     if (!sessionId) {
@@ -4740,7 +5003,7 @@ export function App() {
       const syncAssistantFromServer = async () => {
         try {
           const res2 = await fetchJSON<{ messages: Array<any> }>(
-            `/foxxycode/sessions/${encodeURIComponent(key)}/messages`,
+            `/foxxycode/sessions/${encodeURIComponent(key)}/messages${liveWindowQuery(key)}`,
             { headers: { [HDR]: key } },
           );
           if (
@@ -5446,7 +5709,7 @@ export function App() {
       const syncAssistantFromServer = async () => {
         try {
           const res2 = await fetchJSON<{ messages: Array<any> }>(
-            `/foxxycode/sessions/${encodeURIComponent(sidEffective)}/messages`,
+            `/foxxycode/sessions/${encodeURIComponent(sidEffective)}/messages${liveWindowQuery(sidEffective)}`,
             { headers: { [HDR]: sidEffective } },
           );
           if (
@@ -6441,9 +6704,11 @@ export function App() {
     questionPendingSessionIds: questionPendingSids,
     sessions: sessionsForSidebar,
     ...(sessionsError ? { error: sessionsError } : {}),
+    rowErrors: sessionRowErrors,
     open: sessionsOpen,
     onClose: () => {
       setSessionsOpen(false);
+      setSessionRowErrors({});
       const p = parseAppHash();
       if (p.branch === "history") {
         const sid = sessionId.trim();
@@ -6866,6 +7131,7 @@ export function App() {
               // project root, which is the cwd an editor plugin launched the
               // server for.
               workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
+              initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               sessionsScope={sessionsScopeForSettings}
@@ -6944,7 +7210,15 @@ export function App() {
             onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
             onExportSession={(f: ExportFormat) => void exportSession(f)}
             exportBusy={exportBusy}
-            items={items}
+            items={transcriptItems}
+            userMsgIndexBase={transcriptTopWindow?.turnsBefore ?? 0}
+            transcriptHasOlder={(transcriptTopWindow?.offset ?? 0) > 0}
+            olderTranscriptLoad={olderTranscriptLoad}
+            onLoadOlderTranscript={() => void loadOlderTranscript()}
+            onReaderAtTailChange={(atTail: boolean) => {
+              readerAtTailRef.current = atTail;
+              if (atTail) slideTranscriptToTail();
+            }}
             draft={draft}
             tokenUsage={tokenUsage}
             providerUsage={providerUsageState.usage}

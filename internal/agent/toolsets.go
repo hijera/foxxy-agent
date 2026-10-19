@@ -77,8 +77,8 @@ var docsToolNames = []string{
 	// A documentation session is filed like any other: the tool touches the
 	// session's own title and tags and nothing in the workspace.
 	"session_describe",
-	// Choosing the model and the reasoning level changes nothing outside the
-	// session, and a hard planning step is where a stronger model pays.
+	// Changing the model or reasoning level at the user's request affects
+	// only this session.
 	"switch_model",
 	// FoxxyCode's own documentation, read out of the binary.
 	"foxxycode_docs_search",

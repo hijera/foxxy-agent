@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import type { TranslateParams } from "../i18n/i18n";
 import { Chevron } from "../components/Chevron";
+import { LegendWithHint } from "./FieldHint";
+import { IconSync } from "./icons";
 import { IconTrash } from "./SchemaForm";
 import { Switch } from "./Switch";
 import {
@@ -84,27 +86,6 @@ function IconServer() {
       <rect x="2" y="14" width="20" height="7" rx="2" />
       <line x1="6" y1="6.5" x2="6.01" y2="6.5" />
       <line x1="6" y1="17.5" x2="6.01" y2="17.5" />
-    </svg>
-  );
-}
-
-function IconSync() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M21 2v6h-6" />
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
     </svg>
   );
 }
@@ -393,15 +374,15 @@ export function MCPSection() {
   return (
     <div className="settings-mcp-section">
       <fieldset className="settings-fieldset mcp-discovery-box">
-        <legend>{t("settings.mcp.discovery.legend")}</legend>
-        <p className="settings-field-desc">
+        <LegendWithHint label={t("settings.mcp.discovery.legend")} description={<>
+
           {t("settings.mcp.discovery.desc.start")} <code>./.foxxycode/mcp.json</code>{" "}
           {t("settings.mcp.discovery.desc.mid")}{" "}
           <code>{t("settings.mcp.discovery.desc.ask")}</code>{" "}
           {t("settings.mcp.discovery.desc.afterAsk")} <code>config.yaml</code>{" "}
           {t("settings.mcp.discovery.desc.and")} <code>~/.foxxycode/mcp.json</code>{" "}
           {t("settings.mcp.discovery.desc.end")}
-        </p>
+        </>} />
         <label className="settings-label" htmlFor="mcp-project-trust">
           {t("settings.mcp.discovery.label")}
         </label>
@@ -422,14 +403,14 @@ export function MCPSection() {
       </fieldset>
 
       <fieldset className="settings-fieldset mcp-servers-box">
-        <legend>{t("settings.mcp.legend")}</legend>
-        <p className="settings-field-desc">
+        <LegendWithHint label={t("settings.mcp.legend")} description={<>
+
           {t("settings.mcp.description.start")} <code>config.yaml</code> (
           <code>mcp_servers</code>), {t("settings.mcp.description.global")}{" "}
           <code>~/.foxxycode/mcp.json</code>,{" "}
           {t("settings.mcp.description.local")}{" "}
           <code>./.foxxycode/mcp.json</code> {t("settings.mcp.description.end")}
-        </p>
+        </>} />
 
         <div className="mcp-toolbar">
           <button

@@ -302,6 +302,7 @@ func (s *runner) autocompleteProvider(cfg *config.Config, ac *config.Autocomplet
 		BaseURL:       rm.BaseURL,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
+		NoCLILogin:    rm.NoCLILogin,
 		MaxTokens:     rm.MaxTokens,
 		Temperature:   ac.Temperature,
 		Deterministic: ac.Temperature <= 0,

@@ -171,3 +171,20 @@ test("a failed catalog load says so instead of rendering an empty list", async (
   );
   expect(screen.getByTestId("subagents-empty")).toBeInTheDocument();
 });
+
+// The bounds disclosure is independent of the fork's workspace approval control.
+test("the chevron folds bounds while keeping approval available", async () => {
+  stubFetch();
+  renderSection("/work/repo");
+  const declared = await screen.findByTestId("subagent-declared-reviewer");
+  const toggle = screen.getByTestId("subagent-toggle-reviewer");
+  expect(toggle.querySelector(".foxxycode-chevron")).not.toBeNull();
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(declared).not.toBeVisible();
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(declared).toBeVisible();
+  expect(declared).toHaveTextContent("read, grep");
+  expect(screen.getByTestId("subagent-trust-reviewer")).toBeVisible();
+  expect(screen.getByTestId("subagent-row-reviewer")).not.toHaveTextContent("Reviews a diff for correctness.");
+});

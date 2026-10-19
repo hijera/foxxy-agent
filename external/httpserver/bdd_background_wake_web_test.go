@@ -117,11 +117,11 @@ func (s *wakeWebState) startServer(fixes bool) error {
 	start, _ := json.Marshal(map[string]any{
 		"command": wakeWebFailCommand, "background": true, "notify_on_finish": true, "expected_seconds": 1,
 	})
-	woken := llmstub.Rule{Match: "background task you asked to be notified about", Answer: "The tests failed with exit 2."}
+	woken := llmstub.Rule{Match: "background task you started has finished", Answer: "The tests failed with exit 2."}
 	if fixes {
 		fix, _ := json.Marshal(map[string]string{"command": wakeWebFixCommand()})
 		woken = llmstub.Rule{
-			Match:  "background task you asked to be notified about",
+			Match:  "background task you started has finished",
 			Tool:   &llmstub.ToolCall{Name: "run_command", Arguments: fix},
 			Answer: "Fixed it.",
 		}

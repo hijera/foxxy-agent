@@ -61,8 +61,19 @@ function turnLineProps(
     : {};
 }
 
+export type MessageListProps = Parameters<typeof MessageList>[0];
+
 export function MessageList(props: {
   items: TranscriptItem[];
+  /** The slice of `items` on screen, `[renderStart, renderEnd)`; the whole
+   *  list when absent. Every derivation below still reads the whole list, so a
+   *  row's index, its turn and its answer's action row do not depend on how
+   *  much of the transcript is rendered (issue #338). */
+  renderStart?: number;
+  renderEnd?: number;
+  /** Prompts before `items[0]` in the history, compaction summaries excluded:
+   *  the server's index of the first prompt here, which an edit rewinds by. */
+  userMsgIndexBase?: number;
   generating?: boolean;
   turnActive?: boolean | undefined;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
@@ -176,8 +187,8 @@ export function MessageList(props: {
   // turn's first message included, so the wake counts here too: an edit of a
   // later message must name the message the server knows by that index.
   const userMsgIndexById = useMemo(
-    () => userMsgIndices(props.items),
-    [props.items],
+    () => userMsgIndices(props.items, props.userMsgIndexBase ?? 0),
+    [props.items, props.userMsgIndexBase],
   );
 
   // The answer that closes each turn is the only one with an action row: the answers a
@@ -207,9 +218,20 @@ export function MessageList(props: {
     return ids;
   }, [props.generating, props.items]);
 
+  const renderStart = Math.max(0, props.renderStart ?? 0);
+  const renderEnd = Math.min(
+    props.items.length,
+    props.renderEnd ?? props.items.length,
+  );
+  const rendered =
+    renderStart === 0 && renderEnd === props.items.length
+      ? props.items
+      : props.items.slice(renderStart, renderEnd);
+
   return (
     <>
-      {props.items.map((it, idx) => {
+      {rendered.map((it, sliceIdx) => {
+        const idx = renderStart + sliceIdx;
         if (it.type === "user_message") {
           const myIdx = userMsgIndexById.get(it.id);
           // A missing index must not fall back to 0: a rewind names the first
@@ -217,6 +239,7 @@ export function MessageList(props: {
           return (
             <UserMessage
               key={it.id}
+              rowId={it.id}
               content={it.content}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
               {...(props.knownSkillNames
@@ -233,6 +256,7 @@ export function MessageList(props: {
           return (
             <ThinkingMessage
               key={it.id}
+              rowId={it.id}
               status={it.status}
               content={it.content}
               {...(typeof it.durationMs === "number"
@@ -245,7 +269,9 @@ export function MessageList(props: {
           );
         }
         if (it.type === "compaction") {
-          return <CompactionMessage key={it.id} summary={it.summary} />;
+          return (
+            <CompactionMessage key={it.id} rowId={it.id} summary={it.summary} />
+          );
         }
         if (it.type === "background_wake") {
           // Nobody typed the first message of a turn a finished background
@@ -268,6 +294,7 @@ export function MessageList(props: {
           return (
             <AssistantMessage
               key={it.id}
+              rowId={it.id}
               content={it.content}
               showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
@@ -281,6 +308,7 @@ export function MessageList(props: {
           return (
             <SystemNoticeMessage
               key={it.id}
+              rowId={it.id}
               level={it.level}
               message={it.message}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
@@ -295,7 +323,7 @@ export function MessageList(props: {
           const onPlanRun = props.onPlanDocumentRun;
           const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
-            <div key={it.id} className="message-row-plan">
+            <div key={it.id} className="message-row-plan" data-row-id={it.id}>
               <PlanDocumentSection
                 sessionId={sid}
                 slug={it.slug}
@@ -319,7 +347,11 @@ export function MessageList(props: {
         }
         if (it.type === "permission_prompt") {
           return (
-            <div key={it.id} className="message-row message-row-permission">
+            <div
+              key={it.id}
+              className="message-row message-row-permission"
+              data-row-id={it.id}
+            >
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
@@ -338,7 +370,11 @@ export function MessageList(props: {
         }
         if (it.type === "question_prompt") {
           return (
-            <div key={it.id} className="message-row message-row-question">
+            <div
+              key={it.id}
+              className="message-row message-row-question"
+              data-row-id={it.id}
+            >
               <QuestionPromptSection
                 itemId={it.id}
                 payload={it.payload}
@@ -361,6 +397,7 @@ export function MessageList(props: {
         return (
           <ToolCallMessage
             key={it.id}
+            rowId={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
             questionInactive={props.turnActive === false && props.generating !== true}
@@ -412,11 +449,13 @@ export function MessageList(props: {
           />
         );
       })}
+      {/* The tail rows below belong under the newest message: a window cut short
+          of it (the reader deep in history) leaves them out. */}
       {/* The live line stands under the transcript for the whole turn and always
           says what is happening, in general words at least. It used to vanish once
           the turn had written any text and to fall silent under a reasoning row,
           which read as a turn that had stopped. */}
-      {props.generating === true ? (
+      {props.generating === true && renderEnd === props.items.length ? (
         <TypingDotsMessage
           {...(liveStatus
             ? {
@@ -439,7 +478,7 @@ export function MessageList(props: {
       {/* The turn is over, the work it started is not. The same dots stay at the tail
           with the count beside them, so a chat with tasks in flight does not read as
           finished; the running turn's line above already carries that count. */}
-      {tailTasks > 0 ? (
+      {tailTasks > 0 && renderEnd === props.items.length ? (
         <TypingDotsMessage
           tasksOnly={true}
           runningTasks={tailTasks}
