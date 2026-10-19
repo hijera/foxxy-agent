@@ -20,9 +20,9 @@ This repository keeps its detailed rules in `.cursor/rules/*.mdc`. The previous 
 | `SessionStart` | `startup\|resume\|clear\|compact` | every rule whose frontmatter has `alwaysApply: true` |
 | `PreToolUse` | `^(apply_patch\|Edit\|Write)$` | rules whose `globs` cover a file in the pending patch |
 
-Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload.
+Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload. The default command uses `python3`; `commandWindows` uses `python`, because Windows may resolve `python3` to the Microsoft Store stub instead of the installed interpreter. Both commands require Python 3 on `PATH`.
 
-For this repository that currently means `architecture`, `code-style`, `testing` and `workflow` arrive at session start (about 9.5 KB total), and the remaining six attach on demand. A patch touching `external/httpserver/server.go` pulls in `api-layer` and `implementation-order`; one touching `external/ui/src/` pulls in `ui-spa` and `ui-verification`.
+For this repository that currently means `architecture`, `code-style`, `testing` and `russian-wording` arrive at session start. Scoped rules attach on demand, including `workflow` for Go, documentation and UI edits. A patch touching `external/httpserver/server.go` pulls in `api-layer`, `implementation-order`, `workflow` and `upstream-divergences`; one touching `external/ui/src/` pulls in `ui-spa`, `ui-verification`, `workflow` and `implementation-order`.
 
 ## How it works
 
@@ -51,7 +51,7 @@ This mirrors the workspace trust gate FoxxyCode applies to project-local `.foxxy
 
 ## Verifying and debugging
 
-Drive the script by hand with a synthetic payload. It reads JSON on stdin and writes JSON on stdout, so no Codex session is needed:
+Drive the script by hand with a synthetic payload. It reads JSON on stdin and writes JSON on stdout, so no Codex session is needed. In Git Bash on Windows, replace `python3` with `python` in these probes:
 
 ```bash
 echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"command":"*** Begin Patch\n*** Update File: external/httpserver/server.go\n*** End Patch"}}' | python3 .codex/hooks/attach_rules.py

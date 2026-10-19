@@ -1,3 +1,4 @@
+import { composerAutoFocusAllowed } from "./composerFocus";
 import {
   useCallback,
   useEffect,
@@ -650,7 +651,7 @@ export function Composer(props: {
       return;
     }
     const el = taRef.current;
-    if (!el) {
+    if (!el || !composerAutoFocusAllowed()) {
       return;
     }
     el.focus();
@@ -671,7 +672,7 @@ export function Composer(props: {
     }
     sessionFocusRef.current = sid;
     const el = taRef.current;
-    if (!el) {
+    if (!el || !composerAutoFocusAllowed()) {
       return;
     }
     el.focus();

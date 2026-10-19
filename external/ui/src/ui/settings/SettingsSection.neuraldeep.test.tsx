@@ -229,8 +229,8 @@ test("renaming the sole model id follows through to agent.model", async () => {
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
 
   const model = screen.getByTestId("model-field-model") as HTMLInputElement;
-  expect(model.value).toBe("neuraldeep/gpt-120b-oss");
-  fireEvent.change(model, { target: { value: "neuraldeep/qwen-3.6" } });
+  expect(model.value).toBe("gpt-120b-oss");
+  fireEvent.change(model, { target: { value: "qwen-3.6" } });
 
   // The ReAct default-model reference tracked the rename automatically.
   await waitFor(() => {

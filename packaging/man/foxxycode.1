@@ -127,6 +127,47 @@ once a worker has stayed up. The dispatcher records itself in
 and writes to
 .IR ~/.foxxycode/logs/serve.log .
 .TP
+.B "serve install"
+Linux with systemd: run
+.B foxxycode serve
+as the systemd user service
+.I foxxycode.service
+of the current account. Check
+.IR ~/.foxxycode/config.yaml ,
+then use the unit the package installed at
+.I /usr/lib/systemd/user/foxxycode.service
+when this is the packaged
+.IR /usr/bin/foxxycode ,
+or write
+.I ~/.config/systemd/user/foxxycode.service
+for this binary otherwise (the install script and release archives ship no
+unit). Create the workspace
+.IR ~/FoxxyCode ,
+where the service runs and where sessions opened without a workspace work,
+then
+.BR "systemctl --user daemon-reload" ,
+.B enable
+and
+.BR restart ,
+and report whether the service stayed up. Running it again after an update or
+a move of the binary points the unit at the new binary. Run it as the user the
+service is for, without
+.BR sudo .
+The service stops at logout unless an administrator runs
+.BR "loginctl enable-linger" .
+.TP
+.B "serve uninstall"
+Stop and disable
+.I foxxycode.service
+and remove the unit
+.B serve install
+wrote. The packaged unit stays installed and disabled, a unit the user wrote by
+hand is disabled and kept, and
+.I ~/.foxxycode
+and
+.I ~/FoxxyCode
+are not touched.
+.TP
 .B "serve status"
 Report the background dispatcher for this agent home: its process, when it
 started, the configuration and log it is using, whether a worker is up right
@@ -205,6 +246,18 @@ models the account can use and an
 to the configuration unless
 .B \-\-no\-config
 is given.
+.B \-\-type
+names the type
+.RB ( neuraldeep ", " codex " or " devin )
+of a provider the configuration does not list yet, so another profile of a type
+is created by signing it in, as in
+.BR "foxxycode providers login codex\-work \-\-type codex" .
+Each row of a type keeps a login of its own; the Codex CLI and Devin CLI
+logins serve one row only: the single row of the type, or the row named
+.B codex
+or
+.B devin
+when there are several.
 .TP
 .B "codex login | status | logout"
 Deprecated alias of
@@ -428,6 +481,22 @@ Persisted sessions, one directory per session.
 .I ~/.foxxycode/skills/
 Installed skills.
 .TP
+.I /usr/lib/systemd/user/foxxycode.service
+The systemd user unit the Linux packages install and do not enable;
+.B foxxycode serve install
+enables it for one account.
+.TP
+.I ~/.config/systemd/user/foxxycode.service
+The unit
+.B foxxycode serve install
+writes for a binary that came without one;
+.B foxxycode serve uninstall
+removes it.
+.TP
+.I ~/FoxxyCode/
+Working directory of the systemd user service, and so the workspace of every
+session opened through it without one.
+.TP
 .I .foxxycode/rules/, .cursor/rules/, .claude/rules/, .codex/rules/, AGENTS.md
 Project rules, discovered under the session working directory.
 .TP
@@ -468,6 +537,16 @@ it is:
 .B foxxycode serve set\-password \-\-user pasha
 .RE
 .PP
+Keep
+.B foxxycode serve
+running for this account on Linux, across logins and crashes, and read its log:
+.PP
+.RS 4
+.B foxxycode serve install
+.br
+.B journalctl \-\-user \-u foxxycode.service \-f
+.RE
+.PP
 Wire an editor to FoxxyCode over ACP:
 .PP
 .RS 4
@@ -483,6 +562,9 @@ A command failed, or
 .B foxxycode update \-\-check
 found a newer release.
 .SH SEE ALSO
+.BR systemctl (1),
+.BR journalctl (1),
+.BR loginctl (1).
 Project documentation:
 .UR https://github.com/hijera/foxxy-agent
 .UE .

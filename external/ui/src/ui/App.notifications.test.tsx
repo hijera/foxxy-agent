@@ -20,11 +20,12 @@ afterEach(() => {
 });
 
 test.each([
-  { name: "background", focused: false, whenFocused: false, delivered: true },
-  { name: "foreground by default", focused: true, whenFocused: false, delivered: false },
-  { name: "foreground enabled", focused: true, whenFocused: true, delivered: true },
-])("a completed task notifies once: $name", async ({ focused, whenFocused, delivered }) => {
-  const sid = `sess_notification_${focused}_${whenFocused}`;
+  { name: "background", focused: false, whenFocused: false, delivered: true, longHistory: false },
+  { name: "foreground by default", focused: true, whenFocused: false, delivered: false, longHistory: false },
+  { name: "foreground enabled", focused: true, whenFocused: true, delivered: true, longHistory: false },
+  { name: "background with a large live window", focused: false, whenFocused: false, delivered: true, longHistory: true },
+])("a completed task notifies once: $name", async ({ focused, whenFocused, delivered, longHistory }) => {
+  const sid = `sess_notification_${focused}_${whenFocused}_${longHistory}`;
   let active = false;
   let finished = false;
   let events: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -47,9 +48,12 @@ test.each([
     if (path === "/foxxycode/config") return json({ ui: { notifications_when_focused: whenFocused } });
     if (path === "/foxxycode/workspace/context") return json({ cwd: "/workspace", is_git_repo: false });
     if (path.startsWith("/foxxycode/slash-commands")) return json({ items: [] });
-    if (path === `/foxxycode/sessions/${sid}/messages`) return json({
+    // An older server returns the full history, growing the live window past
+    // the rebase threshold. Completion and the rebase read must not compete.
+    if (path.split("?")[0] === `/foxxycode/sessions/${sid}/messages`) return json({
       model: "test/model", selectedModelId: "test/model",
-      messages: [{ role: "user", content: "Please finish this task." },
+      messages: [...(longHistory ? Array.from({ length: 181 }, () => ({ role: "assistant", content: "Previous reply." })) : []),
+        { role: "user", content: "Please finish this task." },
         ...(finished ? [{ role: "assistant", content: "The change is ready." }] : [])],
     });
     if (path === `/foxxycode/sessions/${sid}/activity`) return json({ sessionId: sid, turnActive: active });

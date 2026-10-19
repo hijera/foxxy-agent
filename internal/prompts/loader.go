@@ -94,6 +94,19 @@ type TemplateData struct {
 	// SubagentRole is the role block of a child agent run (may be empty).
 	SubagentRole string
 
+	// ModelSwitch reports that the turn is offered switch_model: more than
+	// one configured model, or one with reasoning levels, and never a child.
+	// The built-in templates describe the tool only then, so a model is not
+	// told about a tool it cannot call.
+	ModelSwitch bool
+
+	// BackgroundWake reports that a background task this turn starts can wake
+	// the session when it finishes: a process with a waker, and a session
+	// that is not a subagent or a scheduled run, whose transcript is sealed
+	// when the turn returns. The built-in templates promise the wake only
+	// then and otherwise tell the model to collect results itself.
+	BackgroundWake bool
+
 	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model
 	// grounding. The built-in templates do not render it: a clock in the system
 	// prompt is a cache miss on every request, and the turn context block carries

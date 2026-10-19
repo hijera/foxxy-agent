@@ -10,7 +10,8 @@
             "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/attach_rules.py\"",
             "statusMessage": "Loading always-on project rules",
             "timeout": 10,
-            "additionalContextLimit": 8000
+            "additionalContextLimit": 8000,
+            "commandWindows": "python \"$(git rev-parse --show-toplevel)/.codex/hooks/attach_rules.py\""
           }
         ]
       }
@@ -24,7 +25,8 @@
             "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/attach_rules.py\"",
             "statusMessage": "Attaching rules for edited files",
             "timeout": 10,
-            "additionalContextLimit": 6000
+            "additionalContextLimit": 6000,
+            "commandWindows": "python \"$(git rev-parse --show-toplevel)/.codex/hooks/attach_rules.py\""
           }
         ]
       }

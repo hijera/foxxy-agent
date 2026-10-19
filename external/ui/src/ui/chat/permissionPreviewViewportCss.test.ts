@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
+import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
+
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../styles.css",
@@ -46,14 +48,14 @@ test("preview viewport modifiers win over the base overflow shorthand", () => {
   expect(staticRule![0]).toMatch(/overflow:\s*visible/);
 });
 
-// DESIGN.md pins the phone cap at 170px inside @media (max-width: 520px). The
+// DESIGN.md pins the phone cap at 170px inside the phone tier's @media. The
 // media rule must only tighten max-height: re-declaring the overflow shorthand
 // there would beat the `--scroll` modifier on phones and kill internal scrolling.
 test("phone media cap keeps 170px and never re-declares overflow", () => {
   const css = cssText();
 
   const mediaBlocks: string[] = [];
-  const marker = "@media (max-width: 520px)";
+  const marker = `@media ${phoneMaxWidthMediaQuery}`;
   for (
     let at = css.indexOf(marker);
     at !== -1;
@@ -80,5 +82,41 @@ test("phone media cap keeps 170px and never re-declares overflow", () => {
   ).toBe(true);
   for (const rule of viewportRules) {
     expect(rule).not.toMatch(/overflow/);
+  }
+});
+
+// A static viewport (a command, a short argument card) has no More / Less, so a
+// cap on it only clips: on a phone the 170px rule came after the `--static`
+// modifier at the same specificity, capped a long command block, and with the
+// overflow left visible the block spilled over the output under it. The phone cap
+// has to leave the static viewport alone.
+test("the phone cap never reaches a static viewport", () => {
+  const css = cssText();
+  const marker = `@media ${phoneMaxWidthMediaQuery}`;
+  const capped: string[] = [];
+  for (
+    let at = css.indexOf(marker);
+    at !== -1;
+    at = css.indexOf(marker, at + marker.length)
+  ) {
+    const open = css.indexOf("{", at);
+    let depth = 1;
+    let end = open + 1;
+    while (end < css.length && depth > 0) {
+      if (css[end] === "{") depth++;
+      else if (css[end] === "}") depth--;
+      end++;
+    }
+    const block = css.slice(open + 1, end - 1);
+    for (const rule of block.match(/[^{}]+\{[^}]*\}/gms) || []) {
+      const selector = rule.slice(0, rule.indexOf("{")).trim();
+      if (/max-height:\s*170px/.test(rule) && /\.permission-preview-viewport\b/.test(selector)) {
+        capped.push(selector);
+      }
+    }
+  }
+  expect(capped.length).toBeGreaterThan(0);
+  for (const selector of capped) {
+    expect(selector).toContain(":not(.permission-preview-viewport--static)");
   }
 });

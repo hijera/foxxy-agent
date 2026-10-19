@@ -171,6 +171,38 @@ jobs:
         run: |
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+      # A long conversation in the web UI (issue #338): the real binary with a
+      # 3306-message session and a swarm relay in front of it, driven in
+      # Chromium. It opens on the newest page, scrolls through the history
+      # without a jump, keeps a bounded DOM, follows a turn run in a second
+      # browser and reads through the relay. At full speed here, where the
+      # runner's own pace varies; locally it runs at CPU x4.
+      - name: Build the web UI and the swarm relay
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: make build TAGS="http ui swarm"
+
+      # The browser below is a download of a few hundred MB, so it is cached
+      # per resolved Playwright version (the package is not in the lockfile):
+      # `playwright install` is a no-op while the cache holds.
+      - name: Resolve the Playwright version
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        id: playwright
+        run: echo "version=$(npm view playwright version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browsers
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Drive a long transcript in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: |
+          npm --prefix external/ui i --no-save playwright@${{ steps.playwright.outputs.version }}
+          (cd external/ui && npx playwright install --with-deps chromium)
+          FOXXYCODE_BIN="$PWD/build/foxxycode" FOXXYCODE_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
+
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
       # against cmd/tgfake on a port and has to answer a message, so the
@@ -393,6 +425,39 @@ jobs:
 
       - name: Build deb and rpm
         run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
+
+      # The unit is rendered by internal/serve and held to the source file by a
+      # Go test; this checks that both package formats carry that file byte for
+      # byte, and the maintainer scripts that tell the user it is not enabled.
+      - name: Check the packaged systemd user unit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm cpio
+          for package in dist/*.deb; do
+            dpkg-deb --fsys-tarfile "$package" | tar -xOf - ./usr/lib/systemd/user/foxxycode.service | cmp - packaging/systemd/foxxycode.service
+            dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./postinst > scripts.txt
+            grep -F 'NOT enabled' scripts.txt
+            dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./prerm >> scripts.txt
+            grep -F 'foxxycode-install.conf' scripts.txt
+            # The package tells the user about the unit and never turns it on.
+            # An if, not "! grep": bash's errexit ignores an inverted status.
+            if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
+              echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
+          done
+          for package in dist/*.rpm; do
+            # rpm 4.18's rpm2cpio exits 1 after writing the whole payload, and
+            # names members /usr/... where newer ones write ./usr/...; a short
+            # payload still fails the cmp.
+            rpm2cpio "$package" > payload.cpio || true
+            cpio -i --quiet --to-stdout '*usr/lib/systemd/user/foxxycode.service' < payload.cpio | cmp - packaging/systemd/foxxycode.service
+            rpm -qp --scripts "$package" > scripts.txt
+            grep -F 'NOT enabled' scripts.txt        # postinstall
+            grep -F 'foxxycode-install.conf' scripts.txt   # preremove
+            if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
+              echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
+          done
 
       # Same reasoning one step further: the Homebrew cask is rendered only by
       # the release job and the formula only by hand, so a template that stopped

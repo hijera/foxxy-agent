@@ -220,13 +220,13 @@ func ensureObjectMatchesSchema(obj map[string]interface{}, schemaProps map[strin
 
 // UISchemaMap builds the JSON Schema as a generic map (for tests and handlers).
 func UISchemaMap() map[string]interface{} {
-	providerName := strProp("Provider name",
-		"Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).")
+	providerName := strProp("Provider id",
+		"Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.")
 	// HTML pattern attributes are compiled with the JavaScript RegExp v flag.
 	// Escape the hyphen so the schema can be rendered by modern browsers.
 	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_\-]*$`
 	providerAPIKey := strProp("API key",
-		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
+		"A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.")
 	providerAPIKey["x-foxxycode-provider-api-key-env-placeholder"] = true
 	providerAPIKey["x-foxxycode-secret"] = true
 	providerProxy := proxyProp("Proxy URL",
@@ -239,7 +239,7 @@ func UISchemaMap() map[string]interface{} {
 			"description": "Wire protocol for this provider entry.",
 			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex", "devin"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex and devin, which use their official endpoints."),
+		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
@@ -250,7 +250,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
+			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
 			true),
 	}
 	modelProps := map[string]interface{}{
@@ -392,7 +392,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -403,7 +403,7 @@ func UISchemaMap() map[string]interface{} {
 				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default"},
 				[]string{"model"}),
 		},
-		"agent": objectSchema("ReAct agent", "Defaults for the main agent loop (model id and safety caps).",
+		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",
 			map[string]interface{}{
 				"model": strProp("Default model", "Logical model id from the models list used when the client omits a model."),
 				"max_turns": intProp("Max turns",
@@ -704,7 +704,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dirs", "sources", "auto_discovery"},
 			nil),
-		"memory": objectSchema("Long-term memory", "Optional memory subagent (requires the memory build tag and a provider).",
+		"memory": objectSchema("Memory copilot", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
 				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
@@ -900,12 +900,20 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 	}
 
-	// Context compaction follows the ReAct agent: it is the same loop deciding
-	// what to send the model, and an operator who has just set max_turns is the
-	// one who reads the threshold next.
+	// The order of the Settings tabs, grouped by meaning: where the models come
+	// from, then the loop that runs them (context compaction and the memory
+	// copilot follow the ReAct loop: the same loop deciding what to send the
+	// model), then what the agent can do (tools, MCP servers, skills,
+	// subagents, hooks), then what runs it without a person at the composer
+	// (the scheduler, the messenger gateways), and last the operation of the
+	// process (the logger, then prompts and instructions, which the web UI
+	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
-		"providers", "models", "agent", "compaction", "autocomplete", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory", "title", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
+		"providers", "models",
+		"agent", "compaction", "memory", "autocomplete", "title",
+		"tools", "mcp_servers", "skills", "subagents", "hooks", "browser", "vcs",
+		"scheduler", "gateways",
+		"logger", "sessions", "prompts", "instructions", "ui", "debug",
 	}
 
 	doc := map[string]interface{}{

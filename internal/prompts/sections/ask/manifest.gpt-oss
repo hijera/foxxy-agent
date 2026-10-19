@@ -2,6 +2,7 @@
 # collapses tool policy into an allowed-research section and folds facts into an
 # evidence-and-answer section. Section IDs render in this order.
 header
+capabilities
 notes
 model_notes
 allowed

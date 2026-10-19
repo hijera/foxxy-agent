@@ -220,7 +220,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
-  %[1]s providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
@@ -231,6 +231,8 @@ func printUsage(w io.Writer) {
   %[1]s hooks untrust <file> [--cwd DIR]
   %[1]s serve [flags]                  # every enabled subsystem in one process
   %[1]s serve -d | --daemon [flags]    # the same, in the background under a dispatcher
+  %[1]s serve install (Linux: install, enable and start the systemd user service in ~/FoxxyCode)
+  %[1]s serve uninstall (stop, disable and remove the unit install wrote; keep user data)
   %[1]s serve status | stop | restart [--home DIR]
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   %[1]s mcp list [--cwd DIR]

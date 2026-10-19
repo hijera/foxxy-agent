@@ -47,7 +47,7 @@ Usage:
   foxxycode plugin install <owner/repo | git-url | marketplace-url>
   foxxycode plugin remove <name>
   foxxycode plugin enable <name> | disable <name>
-  foxxycode providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  foxxycode providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   foxxycode codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   foxxycode rules list [--cwd DIR]
   foxxycode agents list [--cwd DIR]
@@ -58,6 +58,8 @@ Usage:
   foxxycode hooks untrust <file> [--cwd DIR]
   foxxycode serve [flags]                  # every enabled subsystem in one process
   foxxycode serve -d | --daemon [flags]    # the same, in the background under a dispatcher
+  foxxycode serve install (Linux: install, enable and start the systemd user service in ~/FoxxyCode)
+  foxxycode serve uninstall (stop, disable and remove the unit install wrote; keep user data)
   foxxycode serve status | stop | restart [--home DIR]
   foxxycode serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   foxxycode mcp list [--cwd DIR]
@@ -283,6 +285,18 @@ Usage of serve (runs every subsystem enabled in config.yaml):
         check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
 ```
 
+### foxxycode serve install
+
+```text
+Usage: foxxycode serve install (check ~/.foxxycode/config.yaml, install the systemd user unit for this binary when the package did not, enable foxxycode.service and start it working in ~/FoxxyCode)
+```
+
+### foxxycode serve uninstall
+
+```text
+Usage: foxxycode serve uninstall (stop and disable foxxycode.service and remove the unit that install wrote; ~/.foxxycode and ~/FoxxyCode are kept)
+```
+
 ### foxxycode serve status | stop | restart
 
 ```text
@@ -333,6 +347,8 @@ Usage of providers:
         override FOXXYCODE_HOME
   -no-config
         login: do not add the provider and its models to config.yaml after login
+  -type string
+        login: type of a provider config.yaml does not list yet (neuraldeep, codex or devin), so another profile of a type is created by signing it in
 flag: help requested
 ```
 

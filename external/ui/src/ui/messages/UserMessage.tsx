@@ -38,6 +38,9 @@ function fmtBytes(n: number, t: (key: string, params?: Record<string, string | n
 
 export const UserMessage = memo(function UserMessage(props: {
   content: string;
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
   createdAtUtc?: string;
   /** Known skill names — renders `/name` tokens as chip spans when the name is in the set. */
   knownSkillNames?: Set<string>;
@@ -78,7 +81,7 @@ export const UserMessage = memo(function UserMessage(props: {
       : null;
 
   return (
-    <div className="msg-user-stack">
+    <div className="msg-user-stack" data-row-id={props.rowId}>
       {props.files && props.files.length > 0 ? (
         <div className="msg-user-files" aria-label={t("messages.attachedFiles")}>
           {props.files.map((f, idx) => {
