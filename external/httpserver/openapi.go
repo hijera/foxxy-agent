@@ -1973,7 +1973,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/rewind": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
-					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
+					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over the **`user`** rows that are **not** compaction summaries - the numbering **`turnsBefore`** reports - a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**, because truncating history is work a page on another site must not be able to start. " +
 						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
 						"A **`session_rewound`** event is published on **`GET /foxxycode/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "foxxycodeRewind",
@@ -1994,7 +1994,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"userMessageIndex": map[string]interface{}{
 											"type": "integer", "minimum": 0,
-											"description": "0-based index of the user message the history rewinds to (the message itself is dropped).",
+											"description": "0-based index of the user message the history rewinds to (the message itself is dropped). Counts the `user` rows that are not compaction summaries, so a client adds `turnsBefore` to the position of the prompt inside its page; a background wake counts as one.",
 										},
 									},
 								},
@@ -2027,6 +2027,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -3400,7 +3401,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/models-probe": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "List models for an unsaved provider (onboarding probe)",
-					"description": "Fetches the model list for a provider that is not saved in the config yet: API credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). For `type: codex`, `provider_name` is required and the server reads that name's managed OAuth credential. Shared CLI-login fallback follows the configured-provider catalog's row assignment, counting the unsaved row too; no token enters the request body. Returns **`{ok:true, models:[{id,name,vision,context_window}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** carries the same advisory image-input flag as **`GET /foxxycode/providers/{name}/models`**. Malformed body, invalid Codex provider name, or unsupported `type` returns 400.",
+					"description": "Fetches the model list for a provider that is not saved in the config yet: API credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). For `type: codex`, `provider_name` is required and the server reads that name's managed OAuth credential. Shared CLI-login fallback follows the configured-provider catalog's row assignment, counting the unsaved row too; no token enters the request body. Returns **`{ok:true, models:[{id,name,vision,context_window}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** carries the same advisory image-input flag as **`GET /foxxycode/providers/{name}/models`**. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**, so a page on another site cannot make the server fetch an **`api_base`** it chose. Malformed body, invalid Codex provider name, or unsupported `type` returns 400.",
 					"operationId": "probeProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3423,6 +3424,7 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"400": errorResponseRef(),
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},

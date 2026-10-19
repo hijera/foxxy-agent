@@ -782,6 +782,65 @@ func TestProviderModelsPostRequiresJSONContentType(t *testing.T) {
 	}
 }
 
+// The probe variant takes an api_base from its body and fetches it, so it runs
+// work on the server for a URL the sender chose and has to sit behind the same
+// content-type gate as the sibling POST above: without it a page on another
+// site can make the unauthenticated loopback server request any address,
+// including RFC1918 and link-local metadata, as type openai or anthropic.
+func TestProviderModelsProbeRequiresJSONContentType(t *testing.T) {
+	var hits int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+	ts := newProviderModelsServer(t, &config.Config{})
+	body := `{"type":"openai","api_base":"` + upstream.URL + `","api_key":"sk"}`
+
+	for _, contentType := range []string{"text/plain", "text/plain;charset=UTF-8", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", ""} {
+		t.Run(contentType, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/providers/models-probe", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contentType != "" {
+				req.Header.Set("Content-Type", contentType)
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = res.Body.Close()
+			if res.StatusCode != http.StatusUnsupportedMediaType {
+				t.Fatalf("status = %d, want 415", res.StatusCode)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("the posted api_base was contacted %d times, want 0", hits)
+	}
+
+	// The same body as JSON is served, so the gate does not cost onboarding its
+	// probe.
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/providers/models-probe", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for application/json", res.StatusCode)
+	}
+	if hits != 1 {
+		t.Fatalf("the posted api_base was contacted %d times after a JSON request, want 1", hits)
+	}
+}
+
 // A body that overrides proxy must not receive the saved row's credentials:
 // like a changed api_base, a changed route would hand the stored key to
 // whoever runs the proxy the body names.

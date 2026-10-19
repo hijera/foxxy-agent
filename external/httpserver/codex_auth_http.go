@@ -307,14 +307,25 @@ func (s *Server) resolveSignInProvider(w http.ResponseWriter, rawName, providerT
 	return name, probe, true
 }
 
+// isJSONRequest reports whether the request body is declared as
+// application/json. See requireJSONRequest for why a loopback route that
+// starts work on the server must refuse every other content type; routes that
+// answer with an error envelope of their own run this predicate and write
+// their own 415.
+func isJSONRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
+}
+
 // requireJSONRequest refuses a request body that is not application/json
 // with 415. A page on another site can make a browser send a POST to a
 // loopback server without a preflight only as a "simple" request (text/plain
 // or a form encoding); a route that starts work on the server, such as a
-// sign-in that supersedes the pending one or runs a credential helper, must
-// not be reachable that way.
+// sign-in that supersedes the pending one, runs a credential helper, fetches
+// an upstream the body addresses, or truncates a session history, must not be
+// reachable that way.
 func requireJSONRequest(w http.ResponseWriter, r *http.Request) bool {
-	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+	if !isJSONRequest(r) {
 		writeFoxxyCodeConfigErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		return false
 	}

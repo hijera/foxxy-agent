@@ -163,6 +163,11 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 // {"ok":true,"models":[...]} or {"ok":false,"error":...,"models":[]} with HTTP
 // 200 on upstream failure so the UI can fall back to manual entry.
 func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Request) {
+	// The body names an api_base the server then contacts, so this route starts
+	// work on the server exactly as the sign-in ones do (see requireJSONRequest).
+	if !requireJSONRequest(w, r) {
+		return
+	}
 	var in struct {
 		Type         string `json:"type"`
 		ProviderName string `json:"provider_name"`
