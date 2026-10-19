@@ -18,10 +18,10 @@ var completionFenceRe = regexp.MustCompile("(?s)^```[a-zA-Z0-9]*\\n?|```$")
 // below the caret.
 const autocompleteMaxLines = 12
 
-// autocompleteMaxStops is the most stop sequences sent with one request. OpenAI's own API
+// MaxStops is the most stop sequences sent with one request. OpenAI's own API
 // accepts four; open-model servers accept more, but four is enough for the line stops plus the
 // FIM family's end tokens that matter.
-const autocompleteMaxStops = 4
+const MaxStops = 4
 
 // caretLineRaw returns the (possibly partial) line the caret sits on, indentation included.
 func caretLineRaw(prefix string) string {

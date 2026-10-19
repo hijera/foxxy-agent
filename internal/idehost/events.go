@@ -52,7 +52,7 @@ func (h *Hub) Broadcast(ev Event) {
 	}
 }
 
-// hasSubscribers reports whether any IDE client is connected. Used to avoid computing
+// HasSubscribers reports whether any IDE client is connected. Used to avoid computing
 // diff previews when nobody is listening.
 func (h *Hub) HasSubscribers() bool {
 	h.mu.Lock()

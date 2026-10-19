@@ -248,7 +248,7 @@ func TestCompletionChatWireRequest(t *testing.T) {
 		t.Fatalf("stop = %v, want the single-line stop", body["stop"])
 	}
 	content := userMessage(body)
-	for _, want := range []string{"<CURSOR>", "Language: go", "<CURSOR>" + "\n}"} {
+	for _, want := range []string{autocomplete.Cursor, "Language: go", autocomplete.Cursor + "\n}"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("user message lacks %q: %q", want, content)
 		}
@@ -294,8 +294,8 @@ func TestCompletionThinkingModelGetsNoStopSequences(t *testing.T) {
 	if _, retriedWithStops := calls[1]["stop"]; retriedWithStops {
 		t.Fatal("the retry must not carry stop sequences")
 	}
-	if mt, _ := calls[1]["max_tokens"].(float64); int(mt) != 1024 {
-		t.Fatalf("retry max_tokens = %v, want the thinking floor %d", calls[1]["max_tokens"], 1024)
+	if mt, _ := calls[1]["max_tokens"].(float64); int(mt) != autocomplete.ThinkingBudget {
+		t.Fatalf("retry max_tokens = %v, want the thinking floor %d", calls[1]["max_tokens"], autocomplete.ThinkingBudget)
 	}
 
 	res, out = postCompletion(t, ts.URL, addFuncRequest)
@@ -407,8 +407,8 @@ func TestCompletionFIMUsesRawCompletionForCodeModels(t *testing.T) {
 		t.Fatalf("raw prompt = %q", prompt)
 	}
 	stops, _ := raw[0]["stop"].([]interface{})
-	if len(stops) == 0 || stops[0] != "\n" || len(stops) > 4 {
-		t.Fatalf("stop = %v, want the line stop first and at most %d entries", stops, 4)
+	if len(stops) == 0 || stops[0] != "\n" || len(stops) > autocomplete.MaxStops {
+		t.Fatalf("stop = %v, want the line stop first and at most %d entries", stops, autocomplete.MaxStops)
 	}
 	if temp, ok := raw[0]["temperature"].(float64); !ok || temp != 0 {
 		t.Fatalf("temperature = %v", raw[0]["temperature"])

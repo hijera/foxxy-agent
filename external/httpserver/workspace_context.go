@@ -19,7 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	svn "github.com/hijera/foxxycode-agent/internal/svn"
+	"github.com/hijera/foxxycode-agent/internal/svn"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
 )
 

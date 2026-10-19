@@ -36,24 +36,24 @@ const autocompleteInstruction = "You complete code inline in an editor, like a c
 	"Example 2\nInput:\nfor (const item of items) {<CURSOR>\n}\nOutput:\n\n  if (!item) continue;\n  console.log(item);\n\n" +
 	"Example 3\nInput:\nfunc abs(x int) int {<CURSOR>\n}\nOutput:\n\n\tif x < 0 {\n\t\treturn -x\n\t}\n\treturn x"
 
-// autocompleteCursor marks the caret position in the chat prompt.
-const autocompleteCursor = "<CURSOR>"
+// Cursor marks the caret position in the chat prompt.
+const Cursor = "<CURSOR>"
 
-// autocompleteRateLimitPause is the Retry-After sent to clients when the provider rate-limits a
+// RateLimitPause is the Retry-After sent to clients when the provider rate-limits a
 // suggestion but names no pause of its own.
 const RateLimitPause = 10 * time.Second
 
-// autocompleteThinkingBudget is the token floor for a model known to reason before answering.
+// ThinkingBudget is the token floor for a model known to reason before answering.
 // Its reasoning alone runs past a normal suggestion budget, so keeping autocomplete.max_tokens
 // would pay for the thinking and get nothing back; the floor buys the answer. The model entry's
 // own max_tokens still caps it.
-const autocompleteThinkingBudget = 1024
+const ThinkingBudget = 1024
 
-// thinkingBudget returns a copy of ac with max_tokens raised to autocompleteThinkingBudget.
+// thinkingBudget returns a copy of ac with max_tokens raised to ThinkingBudget.
 func thinkingBudget(ac *config.AutocompleteConfig) *config.AutocompleteConfig {
 	c := *ac
-	if c.MaxTokens < autocompleteThinkingBudget {
-		c.MaxTokens = autocompleteThinkingBudget
+	if c.MaxTokens < ThinkingBudget {
+		c.MaxTokens = ThinkingBudget
 	}
 	return &c
 }
@@ -97,7 +97,7 @@ func (s *runner) completeHole(ctx context.Context, cfg *config.Config, ac *confi
 		if !hasTmpl {
 			return "", "fim", nil, fmt.Errorf("model %q has no known fill-in-the-middle token convention", modelID)
 		}
-		provider, err := s.autocompleteProvider(cfg, ac, capStops(append(append([]string{}, req.stops...), tmpl.Stop...), autocompleteMaxStops))
+		provider, err := s.autocompleteProvider(cfg, ac, capStops(append(append([]string{}, req.stops...), tmpl.Stop...), MaxStops))
 		if err != nil {
 			return "", "fim", nil, err
 		}
@@ -133,7 +133,7 @@ func (s *runner) completeHole(ctx context.Context, cfg *config.Config, ac *confi
 	// that thinks before answering, a "\n" stop fires on the first line of its thoughts and the
 	// answer never comes. Such models are remembered and get no stops; the streamed cutoff, which
 	// only watches answer text, ends their suggestions instead.
-	stops := capStops(req.stops, autocompleteMaxStops)
+	stops := capStops(req.stops, MaxStops)
 	budget := ac
 	if s.autocomplete.isThinking(modelID) {
 		stops = nil
@@ -157,7 +157,7 @@ func (s *runner) completeHole(ctx context.Context, cfg *config.Config, ac *confi
 			// The first request paid for the lesson; re-issue it once without stops rather than
 			// hand the editor an empty suggestion.
 			s.autocomplete.reasoningRetries.Add(1)
-			s.log.Warn("autocomplete: model reasons before answering and the stop sequences cut that short; retrying without them, with a larger budget, and keeping both for this model (a -noreason variant, if the hub has one, is much faster)", "model", modelID, "budget", autocompleteThinkingBudget)
+			s.log.Warn("autocomplete: model reasons before answering and the stop sequences cut that short; retrying without them, with a larger budget, and keeping both for this model (a -noreason variant, if the hub has one, is much faster)", "model", modelID, "budget", ThinkingBudget)
 			if provider, err = s.autocompleteProvider(cfg, thinkingBudget(ac), nil); err != nil {
 				return "", "chat", nil, err
 			}
@@ -250,7 +250,7 @@ func chatPrompt(req holeRequest) string {
 	}
 	b.WriteString("\n")
 	b.WriteString(req.prefix)
-	b.WriteString(autocompleteCursor)
+	b.WriteString(Cursor)
 	b.WriteString(req.suffix)
 	return b.String()
 }

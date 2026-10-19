@@ -41,7 +41,7 @@ func (s *Server) foxxycodeCompletionConfigGet(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// foxxycodeCompletionStatsGet reports the counters behind autocompleteState, the numbers that say
+// foxxycodeCompletionStatsGet reports the counters behind autocomplete.Service, the numbers that say
 // whether inline completion is fast enough and accepted often enough to keep.
 func (s *Server) foxxycodeCompletionStatsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

@@ -22,6 +22,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/autocomplete"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -153,10 +154,10 @@ func (s *autocompleteFeatureState) suggestionIsInsertable() error {
 }
 
 func (s *autocompleteFeatureState) modelSawBothSidesOfCaret() error {
-	if !strings.Contains(s.promptSeen, "<CURSOR>") {
+	if !strings.Contains(s.promptSeen, autocomplete.Cursor) {
 		return fmt.Errorf("prompt has no caret marker: %q", s.promptSeen)
 	}
-	before, after, ok := strings.Cut(s.promptSeen, "<CURSOR>")
+	before, after, ok := strings.Cut(s.promptSeen, autocomplete.Cursor)
 	if !ok {
 		return fmt.Errorf("prompt has no caret marker: %q", s.promptSeen)
 	}
