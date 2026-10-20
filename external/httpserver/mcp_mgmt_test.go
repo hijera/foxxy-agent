@@ -16,6 +16,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -147,11 +148,17 @@ func TestMCPManagementUsesCurrentProjectWorkspace(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disable current-project tool status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	betaEntries, err := config.ReadMCPJSONFile(config.MCPJSONPath(beta))
+	betaEntries, err := mcp.ListManagedServers(cfg, beta)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := betaEntries["current-project"].DisabledTools; len(got) != 1 || got[0] != filepath.Base(beta) {
+	var disabledTools []string
+	for _, entry := range betaEntries {
+		if entry.Config.Name == "current-project" {
+			disabledTools = entry.Config.DisabledTools
+		}
+	}
+	if got := disabledTools; len(got) != 1 || got[0] != filepath.Base(beta) {
 		t.Fatalf("disabled tools = %v, want %q", got, filepath.Base(beta))
 	}
 

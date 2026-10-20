@@ -9,6 +9,7 @@ package cli
 // observations, and on persisted session state.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -460,7 +461,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 			{Model: "stub/model-one", MaxTokens: 1000, MaxContextTokens: 100000},
 			{Model: "stub/model-two", MaxTokens: 1000, MaxContextTokens: 100000},
 		},
-		Agent: config.Agent{Model: "stub/model-one"},
+		Agent: config.Agent{Model: "stub/model-one", QueueMode: "steer"},
 	}
 	if neuraldeep {
 		if err := s.startUsageStand(); err != nil {
@@ -908,17 +909,60 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 // screenShowsQueuedMessage asserts the queue widget above the input is showing
 // that follow-up, under the header naming how many are waiting.
 func (s *cliTUIState) screenShowsQueuedMessage(text string) error {
-	if err := s.waitScreen("queued for the next step", 2*time.Second); err != nil {
+	if err := s.waitScreen("queued messages", 2*time.Second); err != nil {
 		return err
 	}
 	return s.waitScreen(text, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorTabsPrompt(text string) error {
+	s.typeText(text)
+	s.press("\t")
+	return nil
+}
+
+func (s *cliTUIState) screenShowsQueueMode(mode, text string) error {
+	return s.waitScreen("["+mode+"] "+text, 2*time.Second)
+}
+
+// appStartsWithNoQueueMode starts a console whose config names no Enter
+// preference, with a config file the answer can be saved into.
+func (s *cliTUIState) appStartsWithNoQueueMode() error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	s.cfg.Paths.ConfigPath = filepath.Join(s.home, "config.yaml")
+	if err := os.WriteFile(s.cfg.Paths.ConfigPath, []byte("agent:\n  model: stub/model-one\n"), 0o600); err != nil {
+		return err
+	}
+	s.cfg.Agent.QueueMode = ""
+	s.app.queuePreference = ""
+	return s.startApp("")
+}
+
+func (s *cliTUIState) screenAsksForQueueMode() error {
+	return s.waitScreen("Choose the default queue mode once", 2*time.Second)
+}
+
+// savedQueueModeIs reads the answer back from the config file on disk.
+func (s *cliTUIState) savedQueueModeIs(mode string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	var raw []byte
+	for time.Now().Before(deadline) {
+		raw, _ = os.ReadFile(s.cfg.Paths.ConfigPath)
+		if strings.Contains(string(raw), "queue_mode: "+mode) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("config.yaml does not save queue_mode %q:\n%s", mode, raw)
 }
 
 // screenShowsNothingQueued asserts the widget is gone once the turn is over.
 func (s *cliTUIState) screenShowsNothingQueued() error {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if !strings.Contains(s.screenText(), "queued for the next step") {
+		if !strings.Contains(s.screenText(), "queued messages") {
 			return nil
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -1818,6 +1862,12 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the background subagent "([^"]*)" is answered "([^"]*)"$`, s.backgroundSubagentAnswered)
 	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
 	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
+	sc.Step(`^the operator queues "([^"]*)" with Tab$`, s.operatorTabsPrompt)
+	sc.Step(`^the screen shows "([^"]*)" queued as "([^"]*)"$`, func(text, mode string) error { return s.screenShowsQueueMode(mode, text) })
+	sc.Step(`^the console app starts with no queue mode chosen$`, s.appStartsWithNoQueueMode)
+	sc.Step(`^the screen asks which mode Enter uses$`, s.screenAsksForQueueMode)
+	sc.Step(`^the operator presses "([^"]*)"$`, func(key string) error { s.press(key); return nil })
+	sc.Step(`^the saved queue mode is "([^"]*)"$`, s.savedQueueModeIs)
 	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
 	sc.Step(`^the operator presses F1$`, s.operatorPressesF1)
@@ -1883,6 +1933,15 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows a usage notice containing "([^"]*)"$`, s.transcriptShowsUsageNotice)
 	sc.Step(`^the usage clock moves (\d+) seconds forward$`, s.usageClockMoves)
 	sc.Step(`^the operator submits the command "([^"]*)"$`, s.operatorSubmitsCommand)
+	sc.Step(`^a foxxycode console app over a stub agent runner with the global MCP server "([^"]*)"$`, s.consoleWithGlobalMCPServer)
+	sc.Step(`^a foxxycode console app over a stub agent runner with the project MCP server "([^"]*)"$`, s.consoleWithProjectMCPServer)
+	sc.Step(`^the MCP list shows "([^"]*)" as "([^"]*)"$`, s.mcpListShows)
+	sc.Step(`^the session is connected to the MCP server "([^"]*)"$`, func(name string) error { return s.sessionMCPConnection(name, true) })
+	sc.Step(`^the session is not connected to the MCP server "([^"]*)"$`, func(name string) error { return s.sessionMCPConnection(name, false) })
+	sc.Step(`^the operator opens the highlighted MCP server$`, s.operatorOpensHighlightedMCPServer)
+	sc.Step(`^the operator highlights "([^"]*)"$`, s.operatorHighlights)
+	sc.Step(`^the operator chooses "([^"]*)"$`, s.operatorChooses)
+	sc.Step(`^the confirmation shows what "([^"]*)" would run$`, s.confirmationShowsDeclaration)
 	sc.Step(`^the session runs the background command "([^"]*)"$`, s.sessionRunsBackgroundCommand)
 	sc.Step(`^the tasks overlay lists "([^"]*)" as running$`, s.tasksOverlayListsRunning)
 	sc.Step(`^the footer names (\d+) running task$`, s.footerNamesRunningTasks)
@@ -1907,7 +1966,7 @@ func TestCLITUIFeature(t *testing.T) {
 		ScenarioInitializer: initializeCLITUIScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/cli_tui.feature"},
+			Paths:    []string{"../../features/cli_tui.feature", "../../features/cli_mcp.feature"},
 			TestingT: t,
 			Strict:   true,
 		},
@@ -2004,4 +2063,178 @@ func (s *cliTUIState) oneShotEndsCleanly() error {
 	case <-time.After(3 * time.Second):
 		return fmt.Errorf("one-shot run did not finish")
 	}
+}
+
+// --- /mcp steps (features/cli_mcp.feature) ---
+
+// cliMCPHelperEntry declares the stdio MCP server TestCLIMCPHelperProcess
+// plays: this test binary run again, serving one tool, ping.
+func cliMCPHelperEntry() config.MCPJSONServer {
+	return config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestCLIMCPHelperProcess$"},
+		Env:     map[string]string{"GO_WANT_CLI_MCP_HELPER": "1"},
+	}
+}
+
+func (s *cliTUIState) consoleWithGlobalMCPServer(name string) error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, cliMCPHelperEntry())
+}
+
+func (s *cliTUIState) consoleWithProjectMCPServer(name string) error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), name, cliMCPHelperEntry())
+}
+
+// mcpListShows waits for the server list to name the server with that
+// summary; the list opens once the probes of its servers are in.
+func (s *cliTUIState) mcpListShows(name, summary string) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, title, err := s.selectedLabel(); err == nil && title == "MCP servers" {
+			text := s.screenText()
+			if strings.Contains(text, name) && strings.Contains(text, summary) {
+				return nil
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the MCP list never showed %s as %q; last frame:\n%s", name, summary, s.screenText())
+}
+
+// sessionMCPConnection waits for the console's session to hold, or not to
+// hold, a live client of the server: the tools of the next turn come from it.
+func (s *cliTUIState) sessionMCPConnection(name string, want bool) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		connected := false
+		if st := s.app.mgr.SessionByID(s.app.sessionID); st != nil {
+			for _, client := range st.GetMCPClients() {
+				if client.Name() == name {
+					connected = true
+				}
+			}
+		}
+		if connected == want {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("session connected to %s = %v, want %v", name, connected, want)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// selectedLabel reads the open selector on the console loop: its title and
+// the label under the cursor, both empty when no selector is open.
+func (s *cliTUIState) selectedLabel() (label, title string, err error) {
+	err = s.onLoop(2*time.Second, func() {
+		if m, ok := s.app.modal.(*selectorModal); ok && m != nil {
+			title = m.title
+			if item := m.list.SelectedItem(); item != nil {
+				label = item.Label
+			}
+		}
+	})
+	return label, title, err
+}
+
+// operatorOpensHighlightedMCPServer presses enter on the list and waits for
+// the server's controls, titled after the server.
+func (s *cliTUIState) operatorOpensHighlightedMCPServer() error {
+	name, _, err := s.selectedLabel()
+	if err != nil {
+		return err
+	}
+	s.press("\r")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, title, err := s.selectedLabel(); err == nil && strings.HasPrefix(title, name+" · ") {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the controls of %s never opened; last frame:\n%s", name, s.screenText())
+}
+
+// operatorHighlights narrows the open selector to the item by typing its
+// label, the selector filtering as it is typed, and waits for the cursor.
+func (s *cliTUIState) operatorHighlights(label string) error {
+	s.typeText(label)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if current, _, err := s.selectedLabel(); err == nil && current == label {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the cursor never reached %q; last frame:\n%s", label, s.screenText())
+}
+
+// operatorChooses presses enter on the item, highlighting it first unless the
+// cursor is already there.
+func (s *cliTUIState) operatorChooses(label string) error {
+	current, _, err := s.selectedLabel()
+	if err != nil {
+		return err
+	}
+	if current != label {
+		if err := s.operatorHighlights(label); err != nil {
+			return err
+		}
+	}
+	s.press("\r")
+	return nil
+}
+
+// confirmationShowsDeclaration checks that the approval asks about the
+// declaration in full: the command it runs and the names of its variables.
+func (s *cliTUIState) confirmationShowsDeclaration(name string) error {
+	for _, needle := range []string{"Trust " + name + "?", "TestCLIMCPHelperProcess", "GO_WANT_CLI_MCP_HELPER", "workspace:", "source:"} {
+		if err := s.waitScreen(needle, 3*time.Second); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TestCLIMCPHelperProcess is not a test: run with GO_WANT_CLI_MCP_HELPER=1 it
+// is the stdio MCP server of features/cli_mcp.feature, with one tool, ping.
+func TestCLIMCPHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_CLI_MCP_HELPER") != "1" {
+		t.Skip("helper process")
+	}
+	enc := json.NewEncoder(os.Stdout)
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		var req struct {
+			ID     interface{} `json:"id"`
+			Method string      `json:"method"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &req) != nil || req.ID == nil {
+			continue
+		}
+		var result interface{}
+		switch req.Method {
+		case "initialize":
+			result = map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]interface{}{},
+				"serverInfo":      map[string]string{"name": "cli-mcp", "version": "1"},
+			}
+		case "tools/list":
+			result = map[string]interface{}{"tools": []interface{}{map[string]interface{}{
+				"name": "ping", "description": "Answers pong", "inputSchema": map[string]string{"type": "object"},
+			}}}
+		default:
+			result = map[string]interface{}{}
+		}
+		_ = enc.Encode(map[string]interface{}{"jsonrpc": "2.0", "id": req.ID, "result": result})
+	}
+	os.Exit(0)
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // readQueuedMessages folds the follow-ups written during this turn into the
@@ -27,13 +28,27 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	}
 	sessionID := a.state.GetID()
 	for _, q := range queued {
+		images := make([]llm.ImagePart, 0, len(q.ImageParts))
+		for _, p := range q.ImageParts {
+			images = append(images, llm.ImagePart{DataURL: p.DataURL, Name: p.Name})
+		}
+		if len(images) > 0 {
+			if err := session.SavePartsToAssets(images, a.state.GetPersistedSessionDir()); err != nil {
+				a.log.Warn("save queued files to assets", "error", err)
+			}
+		}
+		content := a.resolveQueuedMessage(q.Text)
+		if note := filePathsNote(images); note != "" {
+			content += "\n\n" + note
+		}
 		// The follow-up's own mentions resolve now, as it enters the
 		// conversation, and ride in its message (mentions.go).
 		msg := llm.Message{
-			Role:      llm.RoleUser,
-			Content:   a.resolveQueuedMessage(q.Text),
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Queued:    true,
+			Role:       llm.RoleUser,
+			Content:    content,
+			ImageParts: images,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			Queued:     true,
 		}
 		*messages = append(*messages, msg)
 		// The frame goes out before the message is persisted, like every other
@@ -41,7 +56,7 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 		// the message in the transcript and is not replayed the frame on top of it.
 		_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeUserMessageChunk,
-			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: q.Text},
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
 		})
 		a.state.AddMessage(msg)
 	}

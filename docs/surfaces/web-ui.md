@@ -230,6 +230,21 @@ Clear the field to use the session model for summarization.
 - Empty path fields show where the default leads (`${FOXXYCODE_HOME}/sessions`, `${FOXXYCODE_HOME}/memory`) or an example of what to write.
 - Automated checks: **`SchemaForm.groups.test.tsx`** (the switch first, the catch-all group, a group placed at its first field, a later key kept, the lists), **`settingsSections.test.ts`** (the order, Prompts last, the Logger, Gateways and Scheduler tabs, the Sessions tab owning `sessions`), **`TestUISchemaRootPropertyOrder`** (`internal/config/jsondto_schema_test.go`), **`settingsDrawerRhythmCss.test.ts`** (a list row as tall as its input).
 
+## Settings: opening and saving
+
+![Save all green after a save, with no line of text above the tabs](../assets/settings-save-done-dark-1280.png)
+
+*A save that went through: the Save button is green for two seconds, and nothing else on screen changes.*
+
+- The drawer opens on the tab its address names at once. The app keeps the schema and the config it read the first time Settings opened in this page, so a later open draws the tab from that copy in its first frame instead of drawing the drawer empty and rebuilding it. The copy follows the server: every **`config_reloaded`** and every reconnect of the events stream read it again in the background.
+- The very first open of the page has nothing to draw from yet. It shows the requested tab as a skeleton - grey fields, grey rows in the section rail or grey tiles on a narrow screen - and never the Appearance tab in its place.
+- A form with no unsaved edits takes a newer copy as it arrives, so a change the agent or another browser made shows up in it. A form that holds unsaved edits keeps them; **Reload** takes what the server has and drops them (a field typed into while Reload is on its way keeps what was typed).
+- A save puts what it wrote into the kept copy at once, so closing and reopening the drawer right after a save shows the saved values even before the server has been read again.
+- **Save all** reports success on the button itself: it turns green for two seconds, without a line of text. A save the server refuses says why in words above the tabs, and the button stays as it was.
+- A save writes into `config.yaml` what changed. A value you did not touch keeps its spelling - `${FOXXYCODE_HOME}/memory`, `~/.agents/skills`, `${OPENAI_API_KEY}`, quotes, a list written on one line - a provider or a model entry keeps only the fields it named (a renamed one too), and what the process runs differently from the file (a command-line flag, the relay address `foxxycode serve` fills in) stays out of it. Indentation and blank lines are not kept: the file comes back indented by two spaces, without blank lines between sections. See [Configuration](../getting-started/configuration.md#environment-variable-references).
+- What you did not touch is measured against what this browser read: the document names the configuration it came from, so when another browser, the agent or a hand edit saved something after you opened the form, your save leaves those values alone and writes only yours. A list you edited is written as you left it.
+- Automated checks: **`Settings.test.tsx`** (a second open drawn from the copy with no request, the skeleton on a wide and on a narrow screen and after a failed first read, a reload reaching an untouched form and never unsaved edits, the green Save button and the error line, a failed save after a green one, edits and a newer copy arriving while a save runs, Logical models opened as a list after a provider, a deep link to a row on the first open, the saved values on a reopen right after a save, edits typed during Reload), **`settingsConfigStore.test.ts`** (one read for every open, the reload notice, answers applied in order, a failed read keeping the copy, a copy older than a failed read read again, the saved document as the copy), **`settingsSaveStateCss.test.ts`** (the green as a state that reduced motion keeps, no success line, the skeleton tinted from the theme's text colour), **`features/config_save_round_trip.feature`** with **`external/httpserver/bdd_config_round_trip_test.go`** (a save without edits leaves the file byte for byte as it was, one edit changes one line, a save from a browser that read the config earlier does not undo another save) and the save tests in **`internal/config/yaml_comments_test.go`**.
+
 ## Settings: field descriptions
 
 ![The description of Max tokens in the tip above its (i)](../assets/settings-field-hint-dark-1280.png)
@@ -253,7 +268,7 @@ Clear the field to use the session model for summarization.
 - **`GET /foxxycode/events`** carries **`event: config_reloaded`** after every swap of the live configuration. **`chat/serverEvents.ts`** turns it into the optional **`onConfigReloaded`** callback, delivered over the stream the tab shares with the other tabs (see [Server events shared across tabs](#server-events-shared-across-tabs)), and **`App.tsx`** bumps **`configEpoch`**. Both config-derived fetches - **`GET /v1/models`** and **`GET /foxxycode/slash-commands`** - depend on that counter, so they re-read together. The Settings **Save** button bumps the same counter through **`onConfigSaved`**, which is why a local save and a remote swap behave identically.
 - The event carries no model list: what changed is already behind those two endpoints, and the server publishes it only after the new configuration is live, so the re-read cannot catch the outgoing one.
 - When the events stream itself is unavailable (an older server, a proxy that eats SSE), nothing else re-reads the model list: the page falls back to exactly the behaviour it had before, stale until a reload. The stream is an optimisation here, not a guarantee, and no extra poll was added for it.
-- The **Settings form itself is not reloaded** by the event. It holds the operator's unsaved edits, and refetching under them would discard work; the **Reload** control in the form is the deliberate way to pick up an outside change.
+- The event also reads again the copy of the configuration the **Settings** drawer keeps (see [Settings: opening and saving](#settings-opening-and-saving)). An open form takes it only while it holds no edits of its own: refetching under unsaved edits would discard work, so those stay, and the **Reload** control in the form is the deliberate way to drop them.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
 ## Sign-in (`httpserver.login`)
@@ -284,6 +299,7 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 - **Purpose:** point the UI at a remote, already-running **`foxxycode serve`** server, or use the local one. Offered remotes come from the local server's **`httpserver.remotes`** (**`[{name, url}]`**); **`+ Add remote…`** takes an ad-hoc name/URL/token.
 - **Client-side state:** the active env lives in **`localStorage`** key **`foxxycode_env`**; per-remote tokens in **`foxxycode_env_tokens`**. Never persisted to server config; leave empty for a remote without auth. Workspace **folder recents** are namespaced per environment (**`envStorageSuffix()`**) so each remote remembers its own last paths; **models** and defaults come from the remote's **`GET /v1/models`** after the reload.
 - **Mechanism:** a global **`fetch`** shim (**`external/ui/src/ui/env/remoteEnv.ts`**, installed in **`main.tsx`**) rewrites same-origin API requests (**`/v1/*`**, **`/foxxycode/*`**, **`/openapi*`**) to the selected remote base URL and adds **`Authorization: Bearer <token>`**. Local mode is a transparent pass-through. Selecting an entry persists the choice and reloads so all state re-fetches from the chosen backend; the SPA shell always loads from the local origin, so you can always switch back to **Local** from the chip even if the remote is down.
+- **Images the browser loads by itself:** an **`<img>`** never goes through the shim, so a picture the server names by an API path - the thumbnail of an image a user message carries (**`preview_url`**) and its original (**`url`**) - would be asked of the page's own origin, without the token: through a swarm relay that origin serves no **`/foxxycode/`** route and the picture broke. In a remote environment those pictures are fetched through it instead (**`useApiImageSrc`** in **`external/ui/src/ui/env/apiImage.ts`**, the same **`remoteApiRequest`** mapping the shim uses: the base URL in front, the token in the **`Authorization`** header, never in a URL) and shown from an object URL that is released when the picture leaves the screen; until the bytes arrive the image has no **`src`** rather than a broken one. On the local origin, and for **`blob:`** / **`data:`** / other addresses, the URL is used as it is. The lightbox reads the original the same way when it opens.
 - **CORS:** the remote must allow the UI's origin via **`httpserver.cors`** (see [http-api.md](../reference/http-api.md)). SSE re-attach (**`GET /foxxycode/sessions/{id}/composer-stream`**) is fetched (not `EventSource`), so the bearer header applies; that route also accepts **`?access_token=`** for external `EventSource` clients.
 - **Failure surfacing (issue #60):** a `fetch()` to a remote that is unreachable / refused / TLS-or-DNS-failed / CORS-blocked rejects with a `TypeError` (no `Response`); the send flow's final `catch` now distinguishes that from the user's own `AbortError` and emits an error `system_notice` (**`remoteSendErrorMessage`**), and a readable `401/403` gets an auth-specific message (**`remoteHttpErrorMessage`**) instead of a bare status. Pure helpers live in **`external/ui/src/ui/env/remoteErrors.ts`**.
 - **Active-env health (issue #60):** a shared monitor (**`external/ui/src/ui/env/activeHealth.ts`**, started in **`main.tsx`**) probes the *selected* environment's **`GET /v1/models`** on load, on a 30 s interval, and on window focus. The composer chip dot is driven by that health (green up / red down / amber checking, **`.env-status`**), and **`EnvHealthBanner`** shows a persistent alert with a **Switch to Local** action when the active remote is down or unauthorized, so the app never silently renders empty against a dead backend.
@@ -335,6 +351,13 @@ Narrow-rail tooltips (desktop)
 - When the rail has **no** wide labels, **hover tooltips** reinforce icon meaning (example **New Chat** on the brand, **History** on history). **Wide labeled rail** hides those tooltips; labels are the affordance.
 - After opening **History**, the history trigger's tooltip must **not** stay visible if the pointer still hovers the rail (see **DESIGN.md**).
 
+Closing a screen with Escape
+
+- Every item of the rail but **Sign out** opens a screen over the chat: **History**, **Scheduler**, **Swarm**, **Docs** and **Settings**. **Escape** closes the one on screen the way its **×** does, and the address goes back to what was under it (the chat, the start screen, or where the reader was opened from), so a reload does not bring the screen back. The swarm screen over a chat closes as its backdrop does; on a relay the swarm map is the home screen and stays.
+- It undoes one step at a time. What is nearer the key takes it first: an open menu (the ⋮ of a History row, the filter menu, **More** on a phone, the composer's **Mode**, **Model**, **Reasoning** and **Permission** menus, the environment, folder and branch menus), a picker or the context popover of the composer, the folder browser, the chat title being renamed, the (i) tip of a settings field, the open list of a settings combobox, the marketplace results under the Skills install search (Escape clears the search), the documentation search while it has text (the first Escape clears it, the next closes the reader), a confirmation dialog, the image viewer. A screen with a step of its own takes that step before it closes, the step the arrow of its head takes: an open job of the scheduler, or its runs, goes back to the job list; an open row of Settings (a provider, a model) goes back to its list; a section of Settings on a phone or a tablet goes back to the tiles.
+- An Escape that closed a screen goes no further: the question card of the chat under it keeps its questions (with no screen open, Escape skips them as before, and an Escape that closed a picker of the composer does not). A held key, Escape with a modifier and the Escape that ends an input method's composition close nothing.
+- The rule is written once for every screen (**`nav/railEscape.ts`**, called by **`App.tsx`** with a table of every screen of the rail, typed by the rail's items), so a screen added to the rail later closes on Escape without a handler of its own and does not pass the type check without an entry in the table. A menu, a popover or a dialog closes on Escape through **`useEscapeCloses`** (**`components/useEscapeCloses.ts`**), which claims the key before the screen under it hears it. Contract: **`DESIGN.md`** (**Escape and the screens of the rail**); tests **`nav/railEscape.test.tsx`**, **`App.railEscape.test.tsx`**; scenarios **`features/web_ui_rail_escape.feature`**.
+
 ## Sessions
 
 - Session id is generated client side only after the first message is sent from a new chat.
@@ -369,9 +392,9 @@ Session title
 *The stream switch of a model row in Settings*
 
 - **New chat** defaults **Model** from cookie **`foxxycode_llm_model`** when it names a configured backend, else the alphabetically first YAML row. A typed **`/model <id>`** in a sent message is a pick on this surface too and writes the same cookie (turn-scoped **`--once`** / **`--count`** forms do not).
-- **Opening a session** restores **Model** from **`GET /foxxycode/sessions/{id}/messages`** field **`model`** (session override on disk) and its **`settings`** snapshot, not from the cookie.
+- **Opening a session** restores **Model** from the **`settings`** snapshot of **`GET /foxxycode/sessions/{id}/messages`** (the session's own model; the top-level **`model`** names what a running turn holds), never from the cookie: the cookie and the start page's pick are the default of a new chat only.
 - Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
-- **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
+- **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Every menu of the composer (**Mode**, **Model**, **Reasoning**, **Permission**) closes on **Escape**, with the filter or without it, wherever the focus is. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
 - **Mobile sheet** — on narrow/mobile shells (the **`max-width: 1199px`** shell-stack breakpoint) the **Mode** / **Model** / **Reasoning** menus open as a **full-width bottom sheet** over a dimmed scrim — the same pattern as the slash (**`/`**) and **`@`** pickers — instead of a cramped anchored dropdown. The filter and grouping still apply inside the sheet. Desktop keeps the anchored dropdown.
 
 ### Per-session reasoning level
@@ -381,7 +404,7 @@ Session title
 *The reasoning level dropdown in the composer, levels fetched from the provider*
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
-- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /foxxycode/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
+- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** (the snapshot's **`reasoningChoices`** name **`off`** where the provider has the switch), and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
 ### Session settings: permission chip, turn overrides, live mirror
@@ -428,7 +451,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses.
-- **New folder** (footer, left of **Cancel** / **Open**) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
+- **New folder** (footer, left of **Cancel** / **Open**) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
 - **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /foxxycode/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, slash commands, configured MCP servers (re-dialed for the new workspace through its trust gate, the old workspace's closed) and the SessionStart hook context re-derive from the new cwd.
 - **Branch chip** opens the branch list (current first, marked selected). Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, a dedicated worktree under **`<repo>/.foxxycode/worktrees/<branch>/`** when the checkbox is on, or a jump to the worktree that already has the branch checked out (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
@@ -627,7 +650,7 @@ Shape and glyphs
 - The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
 - **Stop** (**while the session has an active turn, draft empty**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring, even when this tab has no stream reader.
-- **Queue** (**while the session has an active turn, draft non-empty**): the **play** glyph returns on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**), because a draft written during a turn is a follow-up rather than a Stop. Emptying the field brings **Stop** back, which is how a turn is still cancelled. See **Composer message queue** below.
+- **Queue** (**while the session has an active turn, draft or attachment present**): the **play** glyph returns on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**). Emptying the field and attachments brings **Stop** back. See **Composer message queue** below.
 - **Disabled** idle state when textarea is whitespace-only (**`:disabled`** on **`composer-send-play`**).
 
 Behavior (unchanged summary)
@@ -647,17 +670,33 @@ Regression
 
 ## Composer message queue
 
-The composer stays live while the agent works: what is typed during a turn is queued for that turn to read at its next step, rather than refused by the turn lock. Full behaviour: [Message queue](../features/message-queue.md).
+The composer stays live while the agent works: a follow-up can steer the next ReAct step or wait for a separate prompt after the current answer. Full behaviour: [Message queue](../features/message-queue.md).
 
-- **Queueing** — the send key of **`ui.send_mode`** (through **`handleSend`**) or the primary control (see above) calls **`POST /foxxycode/sessions/{id}/queue`** with **`{"text": ...}`** and clears the field. A **409** with code **`no_active_turn`** means the turn ended between the keystroke and the request: the SPA sends the same text through **`POST /v1/responses`** instead, so nothing typed is lost. Any other refusal puts the text back in the field and adds a system notice (**`composer.queueFull`**, **`composer.queueBusyElsewhere`** for a **409** **`session_busy`** when the turn runs in another FoxxyCode window, **`composer.queueFailed`**).
-- **The list** — queued rows render as **`.composer-queue-item`** (**`data-testid="composer-queue-item"`**) stacked **above** the composer card in reading order, text clamped to 3 lines, on the frosted glass of the composer card, each with the app's framed **×** in its top-right corner (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) that calls **`DELETE /foxxycode/sessions/{id}/queue/{message_id}`**. When the call succeeds the message was still waiting, and its text goes back into the field, ahead of anything typed since; a **404** means the agent read it first and nothing returns. Nothing waiting renders no list.
+- **Queueing** - the first follow-up asks which mode the configured send key (`ui.send_mode`) should use and saves it to `agent.queue_mode`. **Tab** uses the other mode. The primary control uses the Enter mode. The POST body carries **`text`**, **`mode`**, and optional **`inline_files`**; the composer clears both text and attachments. A message sent with **Tab** before the first answer still goes in the other mode once the mode is chosen. **Tab** belongs to an open slash or mention picker, even an empty one. A **409 no_active_turn** falls back to an ordinary prompt; other refusals restore the draft and files.
+- **The list** — queued rows render as **`.composer-queue-item`** above the composer, with the mode and, for a message with images, a paperclip and their count (the queue names images and never carries their bytes). Click the mode to switch it through **PATCH**. The framed **×** removes the row through **DELETE** and returns its text to the composer, and its images from the **`inline_files`** of the answer; **404** means the agent read it first. After-turn rows remain visible after Stop.
 - **Open and reconnect** - the UI reads **`GET /foxxycode/sessions/{id}/queue`** for the selected session alongside its activity snapshot. Existing waiting messages appear without another queue mutation, a live turn reader, or a matching row in **History**.
-- **Staying in step** — the list is server-owned and a session is shared. Every change arrives as **`event: message_queue`** carrying the whole queue and a **`version`**, down **two** paths: the turn's own stream (**`consumeComposerSse`**) and the server-wide **`GET /foxxycode/events`** (**`serverEvents.ts`**, **`onMessageQueue`**), so a tab that is not reading any turn stream still sees what someone else queued. They are separate connections: **`App.tsx`** keeps the highest version per session (**`queueVersionBySidRef`**) and drops older frames. A message the agent reads leaves the list as **`event: user_message`** puts it into the transcript where it was read, as a **`user_message`** row with **`queued: true`** (**`appendQueuedUserMessage`**: pending tool rows and an open thinking row land first, and the answer starts a bubble of its own). The queue is emptied when generation ends.
+- **Staying in step** - clients of the same **`foxxycode serve`** receive **`event: message_queue`** with the whole queue and a **`version`** through the turn's stream and **`GET /foxxycode/events`**. HTTP responses carry the same snapshot. **`QueueDeliveryOrder`** keeps the newest version and fences restart recovery. A consumed steer message arrives as **`event: user_message`** where the agent read it, and an after-turn message the same way where its own prompt starts, so the second answer never runs on from the first.
 - **Re-attaching** — a tab that attaches to a running turn (**`rejoinComposerLiveStream`**) reads **`GET /foxxycode/sessions/{id}/queue`**, since no stream it attaches to brings the list back, and trims the transcript to the last user message **without** **`queued`** (**`trimTranscriptForTurnReplay`**): the relay replays the follow-ups where the turn read them. Rows from **`GET .../messages`** carry the same **`queued`** flag.
 - **Scope** - these are Stop and queue controls, not a shared session bus. Existing transcript relay and permission/question ownership stay unchanged. Separate local console or ACP processes sharing a sessions directory share the cancel marker, not their in-memory queues or answer channels.
 - **Placeholder** — while generating, the field reads **`composer.placeholderQueue`** instead of the idle placeholder.
-- **Attachments are not queued.** A queued follow-up is text; files attached to the composer stay there for the next prompt.
-- Vitest: **`composerQueue.test.tsx`**, **`messageQueueFork.test.tsx`** (send mode, the re-attach trim, where a read follow-up lands).
+- **Attachments travel with the queued message.** An image reaches a multimodal model; the live bubble names it as a file chip (**`chat/queuedUserMessage.ts`**), and the transcript read after the turn brings its thumbnail.
+- Vitest: **`composerQueue.test.tsx`**, **`queuedUserMessage.test.ts`**, **`App.stopQueue.test.tsx`** (taking a message back, text and image).
+
+Functional regression checklist:
+
+| Scenario | Expected |
+| --- | --- |
+| Open a running session absent from the current History search or page | The activity and queue reads restore Stop/queue controls and waiting messages. |
+| Reconnect with messages already waiting, or lose the local turn reader | The queue hydrates without a new mutation; controls follow server activity rather than reader lifetime. |
+| Make `/cancel` fail, then retry | The error stays visible, the tab rejoins the running turn through the relay, and Stop remains usable. A successful retry acknowledges cancellation; server completion confirms idle. |
+| Open three tabs on one running session (six HTTP/1.1 connections to the host), press Stop in any of them | The cancel request reaches the server and the turn stops in every tab, with no "Could not stop generation" error. |
+| Open six idle tabs of one server over plain http, then send a prompt from any of them | The prompt is sent at once: the tabs share one events connection, and a turn started in one tab shows Stop in every tab viewing that session. |
+| Deliver a queue GET response after an SSE queue delivery crossed that read | The delivered list wins; a removed or consumed message does not reappear. Replayed `turn_started` events preserve the list and version. |
+| Restart the server, then recover the queue through a fresh GET | With no delivery during the read, a lower version (including `0`) replaces stale state; mutation responses and own/relay stream queue frames from earlier recovery epochs are ignored. |
+| Deliver an old `turn_ended` while this tab's next POST is pending or admitted | The UI confirms activity through fresh REST rather than marking the new turn idle; activity and queue hydration wait during admission. |
+| Switch sessions while an activity or queue read is pending | A late response does not change the new session's controls or queue. |
+
+The fork also checks configurable send shortcuts, live bubble rotation and reattachment trimming in `messageQueueFork.test.tsx`.
 
 ## Composer file attachments (multimodal)
 
@@ -690,6 +729,7 @@ Wire and draft
 Picker and segmentation
 
 - The **Commands** group lists the built-ins from the unified **`GET /foxxycode/slash-commands`** catalog with their argument hint (**`.slash-row-hint`**). Picking **`/model`**, **`/reasoning`** or **`/permissions`** opens that composer selector instead of inserting text, and picking **`/agent`**, **`/plan`**, **`/ask`** or **`/debug`** switches the mode. **`/docs`** opens the built-in documentation reader; use the Mode selector for docs mode. A settings command typed out with its value is sent as prompt text and applied by the server.
+- Typing **`/mcp`** in the composer opens **Settings → MCP servers** without sending a turn; words after the command are ignored, as in the console, while a word that only starts with it (`/mcpx`) is an ordinary prompt. The command appears beside `/docs` in the local Commands group; it works from the home composer and from a session.
 - Menu visibility and **`prefix`** derive from **`slashMenuDraftAtCaret`** in **`external/ui/src/ui/skills/draftSlash.ts`** (line-start or whitespace before **`/`**, optional suffix, not inside fences or blockquotes).
 - Mirror highlighting uses **`segmentComposerSlashSpans`** in **`external/ui/src/ui/skills/segmentComposerSlashSpans.ts`** (mid-line **`/`** supported; **`x/foo`** is not a command token).
 
@@ -1199,9 +1239,42 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
-  error), disabled (gray), unknown transport type (amber, `unsupported`).
-- Server switch toggles `POST /foxxycode/mcp/{name}/enable|disable`; the change
-  persists into the file that defines the server.
+  error), disabled (gray), unknown transport type (amber, `unsupported`),
+  awaiting workspace approval (amber, `needs_approval`), refused by
+  `mcp.project_trust: deny` (red, `denied`).
+- A row leads with its chevron and the status dot, with no glyph of its own, and
+  the expanded tools and the trust note start where the name does. On a phone
+  the controls wrap under the name and its command line, so a name is read whole
+  instead of a few letters beside four 40px buttons.
+- The tab holds **two fieldsets**: **MCP discovery** (`.mcp-discovery-box`) above
+  **MCP servers** (`.mcp-servers-box`). Discovery carries the `mcp.project_trust`
+  policy (`mcp-project-trust` select, `POST /foxxycode/mcp/project-trust`) and the
+  explanation of why project entries are gated; it is not a settings section of
+  its own, because it governs exactly the servers listed under it, and like the
+  rest of the tab it persists on change instead of joining Save all.
+- Workspace trust for project-local rows (`gated: true`): a shield button
+  (`mcp-trust-{name}`) posts `POST /foxxycode/mcp/{name}/trust|untrust`, an approval
+  carrying the row's `fingerprint` so a declaration the checkout rewrote since the
+  listing is refused (`409`, shown as the tab's error) instead of approved, and a
+  `needs_approval` row carries a note (`mcp-trust-note-{name}`) with the
+  `source_path` it was declared in plus the declaration the approval covers
+  (`.mcp-trust-facts`, from `declarationFacts` in `mcpServerJson.ts`):
+  transport, `runs` (command + args) or `contacts` (url), the **names** of the
+  env vars and headers, and the workspace. Values are never rendered. The shield
+  renders **only under `ask`** (`showsTrustControl` in `mcpServerJson.ts`):
+  `allow` starts every project server anyway and `deny` starts none, so there is
+  no per-server decision left to offer. Such a row is not probed, so it lists no
+  tools; the command line stays visible because it is what the operator
+  approves. The shield is absent for `global` rows and disabled under `denied`.
+- Server switch toggles `POST /foxxycode/mcp/{name}/enable|disable`; a global entry's
+  switch persists into the file that defines it, a project entry's into
+  `<home>/mcp-overrides.json`, leaving the checkout alone. Live sessions connect or
+  close that one server and keep the others running.
+- A listing the server cannot build (`GET /foxxycode/mcp` answers an error, or the
+  request never arrives) is reported above the list (`mcp-load-error`) with the
+  server's message, which names the file when `mcp-overrides.json` cannot be parsed,
+  instead of reading as "no servers configured"; a refresh that fails keeps the rows
+  the tab already showed.
 - Expanding a row lists tools with per-tool switches
   (`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
   locked while the server is disabled.
@@ -1281,8 +1354,8 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   same glass dock the swarm screen uses. The rail entry reopens the page the
   reader was left on; **`#/docs`** alone settles on the first page of the
   contents with **`replaceState`**, so Back does not return to an empty reader.
-  **F1** again or the **×** control closes it and returns to where it was opened
-  from (a chat, the swarm screen, the scheduler); a click on the backdrop closes it too.
+  **F1** again, **Escape** or the **×** control closes it and returns to where it was
+  opened from (a chat, the swarm screen, the scheduler); a click on the backdrop closes it too.
 - **`/docs [words or page]`** in the composer is the console's command, run in the
   browser (**`ui/docs/docsCommand.ts`**, **`Composer`** **`onDocsCommand`**): the
   draft is cleared and nothing is sent, while a turn runs as well. Alone it
@@ -1323,7 +1396,8 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   the last key, and drops the hits under itself while the contents stay: page ›
   section, and the snippet with the matched words marked. It is a combobox: Up and
   Down move the selection (**`aria-activedescendant`**), Enter opens the selected
-  hit and folds the list away, Escape clears.
+  hit and folds the list away, Escape clears the search; in an empty box Escape
+  closes the reader.
 - A click on an image of the page opens it over everything (**`ui/docs/ImageLightbox.tsx`**,
   rendered into the body): fitted first, **`+`** / **`-`** / the buttons zoom from
   100% to 300%, a click on the image toggles fitted and 200%, **`0`** fits again,
@@ -1408,6 +1482,26 @@ FOXXYCODE_BIN=build/foxxycode npm --prefix external/ui run check:transcript
 
 **`FOXXYCODE_CPU_THROTTLE`** sets the slowdown (**`1`** turns it off), **`FOXXYCODE_BUDGET_SCALE`** multiplies the time budgets for a slow machine, **`FOXXYCODE_SCENARIOS`** runs some of the scenarios (**`open`**, **`scroll`**, **`phone`**, **`edit`**, **`retry`**, **`prompt`**, **`short`**, **`two-browsers`**, **`swarm`**), **`FOXXYCODE_ENGINE=webkit`** runs them in WebKit (without the throttling, long task and heap readings, which are Chromium's), **`FOXXYCODE_BROWSER_PATH`** points at an installed Chromium and **`FOXXYCODE_E2E_KEEP=1`** leaves the stand running. CI runs it at full speed in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix. Run it when a change touches the transcript window, the messages or tool-calls routes, or what a transcript row renders.
 
+### Checking the message queue through a swarm relay
+
+Whether a queued message reaches the model in the right mode, and whether every browser sees it, is a question for the real binary with a turn genuinely running. **`external/ui/scripts/queue-modes-check.mjs`** answers it: it serves a scripted OpenAI-compatible model that keeps its opening answers open until the script releases them, starts a **`foxxycode serve`** node with no **`agent.queue_mode`** and a **`foxxycode serve --swarm`** relay that mounts it, and drives Chromium through the relay's mount while a second browser watches the same session on the node directly. It checks:
+
+- **the first-use question** appears for the first message written during a turn, and its answer is saved as **`agent.queue_mode`** in the node's **`config.yaml`** through the relay;
+- **Tab** queues the other mode with an image, the queue names the image and never carries its bytes, and the other browser sees both rows;
+- **a mode switch** (PATCH) and **taking a message back** (its text and image return to the draft) work through the relay;
+- **after the answer** the model reads the steer message, then the deferred one as a prompt of its own with its image, and the live transcript shows the deferred message above its answer;
+- **the image loads through the relay**: its thumbnail after the turn and after a reload, the original in the lightbox, with no asset asked of the relay's own origin and no URL carrying the token;
+- **Stop** keeps an after-turn message waiting without starting it, and it runs after the next answer;
+- **Settings → Agent** shows the saved mode.
+
+```bash
+make build TAGS="http ui swarm"
+npm --prefix external/ui i --no-save playwright && npx --prefix external/ui playwright install chromium
+FOXXYCODE_BIN=build/foxxycode npm --prefix external/ui run check:queue
+```
+
+**`FOXXYCODE_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`FOXXYCODE_BROWSER_PATH`** points at an installed Chromium, **`FOXXYCODE_PORT_BASE`** moves its four ports and **`FOXXYCODE_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
+
 ### Checking the transcript at every width of the grid
 
 A row wider than the transcript scrolls the whole page sideways on the stacked shell, and whether a row fits is a layout fact jsdom cannot answer. **`external/ui/scripts/phone-overflow-check.mjs`** measures it in a real engine at the verification widths of the grid (**360**, **375**, **393**, **430**, **599**, **600**, **834**, **1199**, **1280px**) in both shipped languages, after the fonts have loaded and the rows' animations have ended: the page must not scroll sideways, nothing may stick out of **`.messages-inner`** except inside a box the reader can scroll sideways (a table, a code block; a box that only clips excuses nothing), every tool row keeps its duration inside the row and its target, marker and duration on one line, no target is narrower than its first 24px, the line range of a **`read`** of part of a file is shown whole however long its path, and the rows with a short label keep one line at every width. It exits non-zero on any of them.
@@ -1442,6 +1536,15 @@ both processes with headroom under a 45-second outer timeout.
   - When the app loads
   - Then `data-testid="nav-menu"` is visible
   - And `data-testid="nav-toggle-width"` is not present
+
+- Escape closes the screen the rail opened
+  - Given a chat is open at `#/s/<sessionId>`
+  - When the user opens **Docs**, **Settings**, **History** or **Scheduler** from the rail and presses Escape
+  - Then the screen closes and the address is `#/s/<sessionId>` again
+  - When a row of **Settings** is open (`#/settings/models?id=<model>`) and the user presses Escape
+  - Then the row's form goes back to the list, and the next Escape closes Settings
+  - When the documentation search has text and the user presses Escape in it
+  - Then the search is cleared and the reader stays; the next Escape closes it
 
 - Sessions are drawer only
   - Given any desktop viewport

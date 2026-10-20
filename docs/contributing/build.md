@@ -480,6 +480,8 @@ offline integration suite with:
 python -m unittest discover -s scripts -p "test_upstream*.py"
 ```
 
+Prompt-cache regressions run separately with `make test-cache`; context and timing benchmarks run with `make test-perf`.
+
 ## Release binaries (CI)
 
 On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:

@@ -9,7 +9,7 @@ This page is the narrative guide. Two companion artifacts cover the full key lis
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
-**FoxxyCode writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /foxxycode/config`), `foxxycode mcp add`, a skill source, a provider login, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, and the order the keys are already in; only the values change. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
+**FoxxyCode writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /foxxycode/config`), `foxxycode mcp add`, a skill source, a provider login, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, the order the keys are already in and the way you wrote every value they do not change (see [Environment variable references](#environment-variable-references)). A save writes the keys the file already has plus whatever actually differs from the built-in defaults - optional fields that were never set are left out entirely rather than written as `null`, so a file that keeps whole sections commented out stays that way, and a provider or a model entry keeps only the fields it named. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
 
 ```json
 "yaml.schemas": { "https://hijera.github.io/foxxy-agent/config.schema.json": ["**/.foxxycode/config.yaml"] }
@@ -276,8 +276,8 @@ prompts:
   # Built-in templates order: Tools, Skills, Memory (session notes).
   # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
   # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
-  # FoxxyCode sends the clock, the checklist and the rules a tool call activated after the history instead,
-  # in a <turn_context> block. Your own template may still render them, at the cost of that cache.
+  # FoxxyCode sends the clock and the checklist after the history instead, in a <turn_context> block,
+  # and a rule a tool call activates rides in that call's result. Your own template may still render them, at the cost of that cache.
   # See docs/contributing/react-agent.md (The turn context block).
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
@@ -334,12 +334,16 @@ skills:
     - "${CWD}/.foxxycode/skills"
 
 # Rules (Go: config.Rules, internal/config/rules.go)
-# Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
-# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD, plus
-# your own ~/.foxxycode/rules, which applies in every workspace. Your own
+# One project folder is read under the session CWD: the first of .foxxycode/rules,
+# the shared .agents/rules, .cursor/rules, .claude/rules and .codex/rules that
+# holds a rule file, so another agent's mirror of the same rules is not loaded
+# twice. Your own ~/.foxxycode/rules joins it in every workspace, and nested
+# **/AGENTS.md are read for the folders a tool enters. Your own
 # ~/.foxxycode/AGENTS.md is read too, ahead of the project's, and has no key here.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
-# Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
+# The rules that always apply go into {{.Rules}} in the system prompt (separate
+# from skills); a rule scoped to paths arrives with the tool result or message
+# that touches a matching path. See docs/features/rules.md.
 rules:
   auto_discover: true
   systems: []   # optional: user, foxxycode, agents-dir, cursor, claude, codex, agents
@@ -498,7 +502,7 @@ httpserver:
     session_ttl_hours: 720                   # 0 = the browser drops the cookie on close (the server still expires its record after 30 days)
 ```
 
-A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `foxxycode -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here, which also means a save from the settings screen writes the expanded value back into the file - keep a credential out of the document entirely with `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD` instead.
+A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `foxxycode -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here and survives a save from the settings screen as a reference; to keep a credential out of the document entirely, use `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD` instead.
 
 The account can also come from the environment alone - `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD`, see the `.env` section below - which is the route for a container or a systemd unit. The form is for browsers; `foxxycode --remote`, `foxxycode acp --remote`, a swarm relay and every script still present the bearer token. On `foxxycode http` - the command the IntelliJ and VS Code plugins and `foxxycode desktop` start on `127.0.0.1` - a direct loopback client (the peer and the `Host` it addressed are both loopback, and no `Forwarded` / `X-Forwarded-*` / `X-Real-IP` header says a proxy relayed it) counts as signed in while no bearer token is configured, so the editor panels and the desktop window never meet the form; `GET /foxxycode/auth/me` answers it `login_required: false`. A client on the network still signs in, and `foxxycode serve` makes no such exception. Full behaviour: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](../operate/remote.md#the-sign-in-form).
 
@@ -640,10 +644,19 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 write `$$` by hand.
 
 **A save keeps the references.** The loaded configuration holds what a reference resolved to, so the
-Settings UI works with the secret itself. When it saves, a value written as `${VAR}` in the file is
-written back as `${VAR}` as long as it still resolves to the value being saved; only a value you
+Settings UI works with the secret itself and with absolute paths. When it saves, a value written as
+`${VAR}`, `${FOXXYCODE_HOME}/...` or `~/...` in the file is written back that way as long as it still
+loads as the value being saved - in a single value (`memory.dir`) and in a list entry
+(`skills.dirs`, `subagents.dirs`, `hooks.files`, `instructions.files`) alike; only a value you
 changed on the screen replaces the reference. A key kept in the environment or in `~/.foxxycode/.env`
-therefore never lands in `config.yaml` because of an unrelated save.
+therefore never lands in `config.yaml` because of an unrelated save, and a save of an untouched form
+writes every value back the way the file spelled it. The same holds for what the process changes
+after reading the file: a command-line flag, the relay listen address `foxxycode serve` fills in or a
+pairing token from the environment is not written into `config.yaml` unless you change that value on
+the screen, and a value another save changed after you opened the form is not put back by yours.
+When the file on disk does not load at the moment of the save (a broken hand edit, a deleted file),
+the save writes the configuration the server runs, as it always did. Indentation and blank lines are
+not kept: a save writes the file indented by two spaces, without blank lines between sections.
 
 Two placeholders are not environment variables:
 

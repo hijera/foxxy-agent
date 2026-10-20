@@ -10,8 +10,12 @@ import {
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
-import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
-import type { QueuedMessage } from "./chat/Composer";
+import type { QueuedMessage, QueueMode } from "./chat/Composer";
+import { fileFromDataUrl } from "./chat/dataUrlFile";
+import {
+  contextUsagePercent,
+  withContextUsedTokens,
+} from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setLlmRetrying } from "./chat/llmRetryState";
@@ -179,6 +183,7 @@ import { permissionPromptDetail } from "./chat/permissionPromptDisplay";
 import { buildPermissionToolPreview } from "./chat/permissionToolPreview";
 import { submitPermissionChoice } from "./chat/permissionSubmit";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
+import { useRailScreenEscape } from "./nav/railEscape";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
@@ -308,6 +313,7 @@ import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
+import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-FoxxyCode-Session-ID";
@@ -929,6 +935,7 @@ export function App() {
   const [queueBySid, setQueueBySid] = useState<Record<string, QueuedMessage[]>>(
     {},
   );
+  const [queueMode, setQueueMode] = useState<QueueMode | undefined>();
   /**
    * Highest queue version applied per session.
    *
@@ -999,7 +1006,7 @@ export function App() {
     sessionId.trim() !== "" &&
     (turnActivity.get(sessionId) ??
       activeComposerSidRef.current.has(sessionId.trim()));
-  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
+  const queuedMessages = queueBySid[sessionId.trim()] ?? [];
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
@@ -1492,16 +1499,18 @@ export function App() {
   });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
-   * Raw mode/model/reasoning stored on the opened session. Held until the
-   * backends list (`llmModelIds`) is available so the restore survives whichever
-   * of `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on
-   * reload.
+   * The opened session's own model and reasoning, as its settings snapshot
+   * names them, with the levels the snapshot says it may hold. Held until the
+   * backends list (`llmModelIds`) is available so the restore survives
+   * whichever of `/v1/models` and `/foxxycode/sessions/.../messages` resolves
+   * first on reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
     model: string;
     reasoning: string;
     mode: string;
+    choices: string[];
   } | null>(null);
   /**
    * Session whose stored selection has already been restored. `loadMessages`
@@ -1521,6 +1530,45 @@ export function App() {
   /** Current mode, readable from callbacks that outlive their render. */
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  /** The selection object already applied to the composer; see the effect below. */
+  const appliedSessionSelectionRef = useRef<{
+    sid: string;
+    model: string;
+    reasoning: string;
+    choices: string[];
+  } | null>(null);
+  /**
+   * The reasoning levels the viewed session's last snapshot named for its
+   * model (`reasoningChoices`): the menu's levels plus `off` where the
+   * provider can turn thinking off, which `GET /v1/models` does not list. The
+   * level is checked against them wherever the composer re-validates it, so a
+   * session running with thinking off is shown and sent as such.
+   */
+  const sessionReasoningChoicesRef = useRef<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
+  /** The same record as state, for what renders from it (the level menu). */
+  const [sessionReasoningChoices, setSessionReasoningChoicesState] = useState<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
+  const setSessionReasoningChoices = useCallback(
+    (next: { sid: string; model: string; choices: string[] }) => {
+      sessionReasoningChoicesRef.current = next;
+      setSessionReasoningChoicesState(next);
+    },
+    [],
+  );
+  /**
+   * Set while the level on the chip is the one the chooser resolved for an
+   * existing session that has none of its own (a model with no
+   * `reasoning_default`): shown so the chip names what the turn runs at, and
+   * never sent, so the session is not pinned to a level nobody chose.
+   */
+  const reasoningImpliedRef = useRef(false);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -2482,12 +2530,22 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
+  // An open job, or its runs, back onto the list: the editor's close control,
+  // and the step Escape takes before it closes the drawer.
+  const closeSchedulerEditor = useCallback(() => {
+    setSchedulerEditor(null);
+    setSchedulerListHash();
+  }, []);
+
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
     setDocsRoute(null);
+    // The chat's address that follows does not take the swarm screen down by
+    // itself (applyLocationHash leaves it on a session), so it goes here.
+    setSwarmRoute(false);
     if (parseAppHash().branch === "settings" || parseAppHash().branch === "docs") {
       const sid = sessionId.trim();
       if (sid) {
@@ -2856,17 +2914,20 @@ export function App() {
       !shouldApplySessionSelection({
         stashSid: openSessionSelection.sid,
         viewedSid: viewedSessionIdRef.current,
-        appliedSid: appliedSelectionSidRef.current,
-        userTouchedSid: userTouchedSelectionSidRef.current,
+        appliedSid: appliedSessionSelectionRef.current === openSessionSelection ? openSessionSelection.sid : "",
+        userTouchedSid: "",
       })
     ) {
       return;
     }
     appliedSelectionSidRef.current = openSessionSelection.sid;
+    appliedSessionSelectionRef.current = openSessionSelection;
+    // The session's own model. What the start page picked, and the cookie that
+    // remembers it, are a new chat's default: shown here they would ride into
+    // this session with its next message (#362).
     const nextModel = pickLlmModelForOpenSession({
       backends: llmModelIds,
       sessionModel: openSessionSelection.model,
-      cookie: readLlmModelCookie(),
     });
     setLlmModel(nextModel);
     // A session carries a reasoning level only once something chose one for it,
@@ -2874,13 +2935,22 @@ export function App() {
     // effective level as empty. Applied as it comes, that empties the composer
     // while the turn still runs at the model's default - so it goes through the
     // same chooser as every other path, with the session's value as the
-    // preference rather than as the answer.
+    // preference rather than as the answer, and without the cookie.
     const openRow = modelInfos.find((m) => m.id === nextModel);
+    const choices =
+      nextModel === openSessionSelection.model ? openSessionSelection.choices : [];
+    setSessionReasoningChoices({
+      sid: openSessionSelection.sid,
+      model: nextModel,
+      choices,
+    });
+    reasoningImpliedRef.current = !openSessionSelection.reasoning.trim();
     setLlmReasoning(
       pickReasoningLevel({
         levels: openRow?.reasoningLevels ?? [],
-        cookie: readReasoningCookie(),
+        cookie: null,
         sessionLevel: openSessionSelection.reasoning,
+        sessionChoices: choices,
         modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
@@ -2957,31 +3027,6 @@ export function App() {
   useEffect(() => {
     sessionsLoadingMoreRef.current = sessionsLoadingMore;
   }, [sessionsLoadingMore]);
-
-  useEffect(() => {
-    if (!sessionsOpen && !schedulerOpen) {
-      return;
-    }
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== "Escape") {
-        return;
-      }
-      if (schedulerEditor) {
-        setSchedulerEditor(null);
-        setSchedulerListHash();
-        return;
-      }
-      if (schedulerOpen) {
-        closeSchedulerDrawer();
-        return;
-      }
-      if (sessionsOpen) {
-        setSessionsOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
 
   // Forgets the archive moves and removals that no listing still out, or yet
   // to be issued, can be affected by (archiveMoves.ts).
@@ -3146,9 +3191,12 @@ export function App() {
         setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
         const { applyUiEffectsFromConfigDoc } = await import("./theme/uiEffects");
         applyUiEffectsFromConfigDoc(res.data);
+        const agent = res.data.agent as { queue_mode?: QueueMode } | undefined;
+        const preferred = agent?.queue_mode;
+        setQueueMode(preferred === "steer" || preferred === "after_turn" ? preferred : undefined);
       }
     })();
-  }, [headers]);
+  }, [headers, configEpoch]);
 
   useEffect(() => {
     const ids = new Set(permissionPendingSessionIdsFromStorage());
@@ -3379,18 +3427,6 @@ export function App() {
       return null;
     }
     if (viewingNow === sid && canApplySnapshot()) {
-      // Stash the session's saved selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). The reasoning
-      // level is later validated by the clamp effect against the chosen model.
-      // The effect restores it once per session open — see
-      // shouldApplySessionSelection — because this call also runs after every
-      // turn and every reconnect.
-      setOpenSessionSelection({
-        sid,
-        model: (res.data.model || res.data.selectedModelId || "").trim(),
-        reasoning: (res.data.selectedReasoning || "").trim(),
-        mode: (res.data.mode || "").trim(),
-      });
       // The backend may have switched the profile itself (a plan run, or the
       // model calling plan_exit). The SSE `mode` frame is the primary signal;
       // this is the recovery for a turn whose stream we did not see whole, and
@@ -3412,6 +3448,30 @@ export function App() {
       // The whole snapshot: the mode, the permission mode, the overrides for
       // the next turns, and the version the next send names.
       const snap = parseSessionSettings(res.data.settings);
+      // Stash the session's own selection; an effect applies it once the
+      // backends list is loaded (the two fetches race on reload). It is the
+      // snapshot's: the top-level model and selectedReasoning name what a
+      // running turn holds, and a turn override taken for the session's
+      // model would become it with the next message. A read whose snapshot
+      // is older than the one this tab already applied - the events stream
+      // got ahead of a slow read - says nothing new and moves nothing back.
+      const held =
+        settingsVersionRef.current.sid === sid
+          ? settingsVersionRef.current.version
+          : 0;
+      if (!snap || isNewerSettings(held, sid, snap)) {
+        setOpenSessionSelection({
+          sid,
+          model: snap
+            ? snap.model
+            : (res.data.model || res.data.selectedModelId || "").trim(),
+          reasoning: snap
+            ? snap.reasoning
+            : (res.data.selectedReasoning || "").trim(),
+          choices: snap?.reasoningChoices ?? [],
+          mode: (res.data.mode || "").trim(),
+        });
+      }
       if (snap) {
         applySessionSettings(snap);
       }
@@ -3850,18 +3910,33 @@ export function App() {
     // A new chat starts in agent; the mode used to survive New chat while the
     // model was reset, so a plan session leaked its profile into the next one.
     setMode("agent");
+    setSessionReasoningChoices({ sid: "", model: "", choices: [] });
+    // A new chat sends its level with the first message: that is its own.
+    reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
     pendingPermissionModeRef.current = "";
     setPermissionMode(configuredPermissionMode);
     setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
-      setLlmModel(
-        pickDefaultLlmModelForNewChat({
-          backends: llmModelIds,
-          cookie: readLlmModelCookie(),
-        }),
-      );
+      const model = pickDefaultLlmModelForNewChat({
+        backends: llmModelIds,
+        cookie: readLlmModelCookie(),
+      });
+      setLlmModel(model);
+      // A new chat starts from this surface's defaults, never from the level
+      // the session it left behind ran at (#362): the cookie, then the model's
+      // default. A model whose row has not arrived is left to the clamp effect.
+      const row = modelInfos.find((m) => m.id === model);
+      if (row) {
+        setLlmReasoning(
+          pickReasoningLevel({
+            levels: row.reasoningLevels ?? [],
+            cookie: readReasoningCookie(),
+            modelDefault: row.reasoningDefault ?? null,
+          }),
+        );
+      }
     }
   }
 
@@ -4690,7 +4765,7 @@ export function App() {
       void turnActivity.refresh(key);
     },
     providerUsage: providerUsageState.applyPushed,
-    configReloaded: () => setConfigEpoch((e) => e + 1),
+    configReloaded: () => { setConfigEpoch((e) => e + 1); noteSettingsConfigReloaded(); },
     // A session is shared: this is what someone else queued, in another
     // browser or from a console attached over --remote.
     messageQueue: (sid: string, queue: QueuedMessageEvent) =>
@@ -4723,6 +4798,7 @@ export function App() {
     ready: () => {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
+      noteSettingsConfigReloaded();
       stoppedTurnBySidRef.current.clear();
       for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
       turnActivity.ready();
@@ -5460,10 +5536,14 @@ export function App() {
         settingsVersionRef.current.sid === sid.trim()
           ? settingsVersionRef.current.version
           : 0;
-      if (yamlSel || reasoningSel || runSlug || heldVersion > 0) {
+      // The level the chip names for a session with none of its own is shown,
+      // not chosen: sent, it would pin the session to it (#362).
+      const sendReasoning =
+        reasoningSel !== "" && !(sid.trim() && reasoningImpliedRef.current);
+      if (yamlSel || sendReasoning || runSlug || heldVersion > 0) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
-        if (reasoningSel) meta.reasoning = reasoningSel;
+        if (sendReasoning) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
         if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
         reqBody.metadata = meta;
@@ -6037,11 +6117,27 @@ export function App() {
 
   const llmReasoningLevels = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.reasoningLevels ?? [];
-  }, [modelInfos, llmModel]);
+    const levels = row?.reasoningLevels ?? [];
+    // Off is not a level GET /v1/models lists; the viewed session's snapshot
+    // names it where the provider can turn thinking off, and the menu offers
+    // it there, so a session can be switched back to it as well as shown so.
+    const known = sessionReasoningChoices;
+    if (
+      levels.length > 0 &&
+      known.sid !== "" &&
+      known.sid === sessionId.trim() &&
+      known.model === llmModel &&
+      known.choices.includes("off") &&
+      !levels.includes("off")
+    ) {
+      return [...levels, "off"];
+    }
+    return levels;
+  }, [modelInfos, llmModel, sessionReasoningChoices, sessionId]);
 
   // Keep the selected reasoning level valid for the current model: keep the user's
-  // pick when the new model still offers it, else fall back (cookie -> model default).
+  // pick when the new model still offers it, else fall back (the cookie for a new
+  // chat, then the model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     // Nothing is known about a model whose row has not arrived - the list is still
@@ -6053,11 +6149,16 @@ export function App() {
       return;
     }
     const levels = row.reasoningLevels ?? [];
+    const viewed = viewedSessionIdRef.current.trim();
+    const known = sessionReasoningChoicesRef.current;
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
-        cookie: readReasoningCookie(),
+        // An open session's level is its own; the cookie seeds a new chat only.
+        cookie: viewed ? null : readReasoningCookie(),
         sessionLevel: prev,
+        sessionChoices:
+          viewed && known.sid === viewed && known.model === llmModel ? known.choices : [],
         modelDefault: row.reasoningDefault ?? null,
       }),
     );
@@ -6091,7 +6192,28 @@ export function App() {
     if (snap.model && llmModelIds.includes(snap.model)) {
       setLlmModel(snap.model);
     }
-    setLlmReasoning(snap.reasoning);
+    setSessionReasoningChoices({
+      sid: snap.sessionId,
+      model: snap.model,
+      choices: snap.reasoningChoices,
+    });
+    reasoningImpliedRef.current = !snap.reasoning.trim();
+    // An empty level is the model's own default when the model names none:
+    // shown as it comes, it blanks the chip while the session still runs at
+    // that default, so it goes through the chooser the open path uses. A
+    // model whose row has not arrived is left to the clamp effect.
+    const row = modelInfos.find((m) => m.id === snap.model);
+    setLlmReasoning(
+      row
+        ? pickReasoningLevel({
+            levels: row.reasoningLevels ?? [],
+            cookie: null,
+            sessionLevel: snap.reasoning,
+            sessionChoices: snap.reasoningChoices,
+            modelDefault: row.reasoningDefault ?? null,
+          })
+        : snap.reasoning,
+    );
   });
 
   /** patchSessionSettings sends a settings change and mirrors the answer. */
@@ -6140,6 +6262,7 @@ export function App() {
       }
       setLlmReasoning(lv);
       writeReasoningCookie(lv);
+      reasoningImpliedRef.current = false;
       const sid = sessionId.trim();
       if (!sid) {
         return;
@@ -6532,7 +6655,9 @@ export function App() {
     setSettingsHash();
   }, []);
 
-  const onCloseSettings = useCallback(() => {
+  // Back to the chat on screen, or to the start screen when there is none:
+  // what closing Settings does.
+  const closeToChat = useCallback(() => {
     const sid = sessionId.trim();
     if (sid) {
       setSessionHashInLocation(sid);
@@ -6552,11 +6677,18 @@ export function App() {
   // "Restart onboarding" in Settings: close settings, clear the tour-seen flag
   // so it can replay, and reopen the provider form.
   const restartOnboarding = useCallback(() => {
-    onCloseSettings();
+    closeToChat();
     resetTour();
     setShowTour(false);
     setShowProviderPicker(true);
-  }, [onCloseSettings]);
+  }, [closeToChat]);
+
+  // The swarm screen over a chat has no close control of its own: Escape
+  // takes it down as the backdrop does, back to the chat.
+  const onCloseSwarm = useCallback(() => {
+    setSwarmRoute(false);
+    closeToChat();
+  }, [closeToChat]);
 
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
@@ -6771,6 +6903,21 @@ export function App() {
     onLoadMore: () => void loadSessionsList(false),
   };
 
+  // Every screen of the rail, whether it is on screen and what Escape does to
+  // it: the step its close control takes (nav/railEscape.ts).
+  useRailScreenEscape({
+    history: { open: sessionsOpen, close: sessionPanelShared.onClose },
+    scheduler: {
+      open: schedulerOpen && schedulerHttpLinked === true,
+      // An open job or its runs first, back onto the list; the drawer next.
+      close: schedulerEditor ? closeSchedulerEditor : closeSchedulerDrawer,
+    },
+    // On a relay the swarm is the home screen, with nothing under it.
+    swarm: { open: swarmRoute && !atSwarmRoot, close: onCloseSwarm },
+    docs: { open: docsRoute !== null, close: onCloseDocs },
+    settings: { open: settingsRoute, close: closeToChat },
+  });
+
   const toggleRailWidth = () => {
     setRailLabelsWide((prev) => {
       const next = !prev;
@@ -6802,12 +6949,27 @@ export function App() {
    * prompt rather than dropped. Any other refusal puts the text back in the
    * composer, because losing it is worse than a second attempt.
    */
-  const handleQueueMessage = useStableHandler((text: string) => {
+  const handleQueueModeChange = useStableHandler((mode: QueueMode) => {
+    setQueueMode(mode);
+    void (async () => {
+      const current = await fetchJSON<Record<string, unknown>>("/foxxycode/config", { headers });
+      if (!current.ok || !current.data) return;
+      const agent = (current.data.agent ?? {}) as Record<string, unknown>;
+      const res = await fetch("/foxxycode/config", {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...current.data, agent: { ...agent, queue_mode: mode } }),
+      });
+      if (res.ok) setConfigEpoch((e) => e + 1);
+    })();
+  });
+
+  const handleQueueMessage = useStableHandler((text: string, mode: QueueMode, files: File[] = []) => {
     const sid = sessionId.trim();
     const generation = turnActivity.generation(sid);
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const body = text.trim();
-    if (!sid || !body) return;
+    if (!sid || (!body && files.length === 0)) return;
     setDraft("");
     void (async () => {
       type QueueAnswer = {
@@ -6818,12 +6980,18 @@ export function App() {
       let payload: QueueAnswer | null = null;
       let status = 0;
       try {
+        const inlineFiles = await Promise.all(files.map((file) => new Promise<{ name: string; data_url: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, data_url: reader.result as string });
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        })));
         const res = await fetch(
           `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
           {
             method: "POST",
             headers: { [HDR]: sid, "Content-Type": "application/json" },
-            body: JSON.stringify({ text: body }),
+            body: JSON.stringify({ text: body, mode, inline_files: inlineFiles }),
           },
         );
         status = res.status;
@@ -6845,10 +7013,13 @@ export function App() {
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
         // being lost between the two answers.
-        void streamResponses(body, { restoreOnRefusal: true });
+        void streamResponses(body, { files, restoreOnRefusal: true });
         return;
       }
-      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      if (viewedSessionIdRef.current.trim() === sid) {
+        setDraft((current) => current || body);
+        setComposerFiles((current) => [...files, ...current]);
+      }
       const code = payload?.error?.code;
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
@@ -6892,6 +7063,9 @@ export function App() {
         const data = (await res.json().catch(() => null)) as {
           messages?: QueuedMessage[];
           version?: number;
+          message?: QueuedMessage & {
+            inline_files?: { name?: string; data_url?: string }[];
+          };
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
@@ -6899,11 +7073,51 @@ export function App() {
         // Taken back before the agent read it: the text returns to the composer to be
         // edited, ahead of anything typed since. A 404 means the agent read it first,
         // and it is already in the conversation.
-        const text = taken?.text ?? "";
+        const text = data?.message?.text ?? taken?.text ?? "";
         if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
           setDraft((current) =>
             current.trim() ? `${text}\n\n${current}` : text,
           );
+        }
+        // Its images come back only in this answer: the queue every client is
+        // sent names them and never carries them.
+        const files = (data?.message?.inline_files ?? [])
+          .map((f) => fileFromDataUrl(f.data_url ?? "", f.name ?? ""))
+          .filter((f): f is File => f !== null);
+        if (res.ok && files.length > 0 && viewedSessionIdRef.current.trim() === sid) {
+          setComposerFiles((current) => [...files, ...current]);
+        }
+      } catch {
+        // The next message_queue frame corrects the list.
+      }
+    })();
+  });
+  /**
+   * Switch a waiting message between steering the running turn and waiting for
+   * its answer. The answer carries the whole queue; a message the agent read a
+   * moment ago answers 404 and the next `message_queue` frame settles the list.
+   */
+  const handleSetQueuedMode = useStableHandler((id: string, mode: QueueMode) => {
+    const sid = sessionId.trim();
+    const messageID = id.trim();
+    if (!sid || !messageID) return;
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(messageID)}`,
+          {
+            method: "PATCH",
+            headers: { [HDR]: sid, "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          },
+        );
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (res.ok && Array.isArray(data?.messages)) {
+          applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
         }
       } catch {
         // The next message_queue frame corrects the list.
@@ -7075,10 +7289,7 @@ export function App() {
               availableModels={llmModelIds}
               defaultModel={llmModel}
               currentCwd={currentSessionCwd}
-              onClose={() => {
-                setSchedulerEditor(null);
-                setSchedulerListHash();
-              }}
+              onClose={closeSchedulerEditor}
               onSaved={(createdId) => {
                 void refreshSchedulerJobs({ silent: true });
                 if (createdId) {
@@ -7121,7 +7332,7 @@ export function App() {
         {settingsRoute ? (
           <div className="settings-dock-cluster">
             <Settings
-              onClose={onCloseSettings}
+              onClose={closeToChat}
               onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
@@ -7266,6 +7477,9 @@ export function App() {
               : {
                   queuedMessages,
                   onQueue: handleQueueMessage,
+                  ...(queueMode ? { queueMode } : {}),
+                  onQueueModeChange: handleQueueModeChange,
+                  onSetQueuedMode: handleSetQueuedMode,
                   onCancelQueued: handleCancelQueued,
                 })}
             onQuestionPromptResolved={resolveQuestionPrompt}
@@ -7337,6 +7551,14 @@ export function App() {
               }
             }}
             onDocsCommand={openDocsCommand}
+            onMCPCommand={() => {
+              setDraft("");
+              setSchedulerOpen(false);
+              setSchedulerEditor(null);
+              setTasksOpen(false);
+              setSessionsOpen(false);
+              setSettingsSectionHash("mcp_servers");
+            }}
             attachedFiles={composerFiles}
             onAttachedFilesChange={setComposerFiles}
             onSend={(text: string, files?: File[]) => {

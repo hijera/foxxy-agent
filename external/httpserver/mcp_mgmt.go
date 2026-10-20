@@ -11,7 +11,9 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -175,16 +177,16 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 			rows[i] = row
 			continue
 		}
-		if srv.Config.Disabled {
-			row.Status = "disabled"
-			rows[i] = row
-			continue
-		}
 		// A gated project entry is reported, never probed: probing it would
 		// start exactly the command the approval is about.
 		if trust != mcp.TrustStateAllowed {
 			row.Status = string(trust)
 			row.Error = gate.Check(cwd, srv).Error()
+			rows[i] = row
+			continue
+		}
+		if srv.Config.Disabled {
+			row.Status = "disabled"
 			rows[i] = row
 			continue
 		}
@@ -236,11 +238,23 @@ func mcpSourcePath(cfg *config.Config, cwd, origin string) string {
 	}
 }
 
-// foxxycodeMCPServerTrust approves the current declaration of a project-local
-// server for this workspace, so sessions may start it.
+// foxxycodeMCPServerTrust approves the declaration of a project-local server the
+// operator was shown, for this workspace, and connects it in live sessions.
+// The optional body {"fingerprint": "..."} names that declaration by the
+// fingerprint the list reported: when the checkout rewrote the entry since,
+// the approval is refused with 409 and nothing is recorded. Without a body the
+// current declaration is approved, for a client that shows it and approves it
+// in one step.
 func (s *Server) foxxycodeMCPServerTrust(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	cwd := s.sessionDefaultCWD()
+	var body struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 	servers, err := mcp.ListManagedServers(s.activeCfg(), cwd)
 	if err != nil {
 		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
@@ -251,11 +265,16 @@ func (s *Server) foxxycodeMCPServerTrust(w http.ResponseWriter, r *http.Request)
 		if srv.Config.Name != name {
 			continue
 		}
-		if err := gate.Approve(cwd, srv); err != nil {
-			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+		if err := gate.ApproveShown(cwd, srv, body.Fingerprint); err != nil {
+			code := http.StatusBadRequest
+			if errors.Is(err, mcp.ErrDeclarationChanged) {
+				code = http.StatusConflict
+			}
+			writeFoxxyCodeMCPErr(w, code, err.Error())
 			return
 		}
 		s.invalidateMCPProbe(name)
+		s.refreshLiveMCPServer(r, name)
 		slog.Info("mcp server approved for workspace",
 			"name", name, "workspace", cwd, "digest", mcp.Fingerprint(srv.Config))
 		w.Header().Set("Content-Type", "application/json")
@@ -279,6 +298,7 @@ func (s *Server) foxxycodeMCPServerUntrust(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.invalidateMCPProbe(name)
+	s.refreshLiveMCPServer(r, name)
 	slog.Info("mcp server approval revoked", "name", name, "workspace", cwd, "removed", removed)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
@@ -308,8 +328,9 @@ func (s *Server) foxxycodeMCPProjectTrust(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// foxxycodeMCPServerToggle enables or disables a whole server, persisting into
-// the file that defines it (config.yaml or .foxxycode/mcp.json).
+// foxxycodeMCPServerToggle enables or disables a whole server and connects or
+// closes it in live sessions, leaving their other servers running. Project
+// switches stay in the operator's home, outside the checkout.
 func (s *Server) foxxycodeMCPServerToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -318,13 +339,15 @@ func (s *Server) foxxycodeMCPServerToggle(disable bool) http.HandlerFunc {
 			return
 		}
 		s.reloadConfigFromDisk()
+		s.refreshLiveMCPServer(r, name)
 		slog.Info("mcp server toggled", "name", name, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}
 }
 
-// foxxycodeMCPToolToggle enables or disables a single tool of a server.
+// foxxycodeMCPToolToggle enables or disables a single tool of a server. Nothing
+// reconnects: every turn rebuilds its tool filter from the switches.
 func (s *Server) foxxycodeMCPToolToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -346,7 +369,8 @@ func (s *Server) foxxycodeMCPToolToggle(disable bool) http.HandlerFunc {
 
 // foxxycodeMCPServerPut creates or updates a server entry in the mcp.json file
 // selected by ?scope=: "local" (default) writes <cwd>/.foxxycode/mcp.json,
-// "global" writes <home>/mcp.json.
+// "global" writes <home>/mcp.json. Live sessions start it, or start it again
+// from the new declaration.
 func (s *Server) foxxycodeMCPServerPut(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := mcp.ValidateServerName(name); err != nil {
@@ -371,13 +395,17 @@ func (s *Server) foxxycodeMCPServerPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateMCPProbe(name)
+	// Live sessions start the server, or start it again from the edited
+	// declaration, and leave their other servers running.
+	s.refreshLiveMCPServer(r, name)
 	slog.Info("mcp server saved", "name", name, "scope", scope)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
 // foxxycodeMCPServerDelete removes an mcp.json-defined server from its owning
-// file. Config.yaml-defined servers are refused (edit Settings instead).
+// file and closes it in live sessions. Config.yaml-defined servers are
+// refused (edit Settings instead).
 func (s *Server) foxxycodeMCPServerDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := mcp.DeleteServer(s.activeCfg(), s.sessionDefaultCWD(), name); err != nil {
@@ -385,9 +413,19 @@ func (s *Server) foxxycodeMCPServerDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.invalidateMCPProbe(name)
+	// Live sessions close the server the declaration named.
+	s.refreshLiveMCPServer(r, name)
 	slog.Info("mcp server deleted", "name", name)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// refreshLiveMCPServer brings live sessions in line with one server whose
+// switch or trust the request changed. The change is already on disk, so a
+// client that goes away does not cut the refresh short: it keeps the request's
+// values but not its cancellation, and the manager bounds its own time.
+func (s *Server) refreshLiveMCPServer(r *http.Request, name string) {
+	s.mgr.RefreshMCPServer(context.WithoutCancel(r.Context()), name)
 }
 
 func writeFoxxyCodeMCPErr(w http.ResponseWriter, code int, msg string) {

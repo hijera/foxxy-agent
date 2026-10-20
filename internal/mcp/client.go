@@ -62,6 +62,12 @@ type Client struct {
 	// teardown paths (CloseAll, reload parking, probe), and two of them
 	// racing the old select-default would panic on a double close.
 	closeOnce sync.Once
+
+	// declared is the fingerprint of the configured declaration the client
+	// was started from (TrustGate.Connect), empty for a client an ACP client
+	// supplied. A reconcile compares it to the declaration on disk, so a
+	// server whose command was edited is started again.
+	declared string
 }
 
 // newClientWithTransport wraps a started transport, performs the MCP
@@ -120,6 +126,12 @@ func (c *Client) Tools() []ToolInfo {
 // Name returns the server name.
 func (c *Client) Name() string {
 	return c.name
+}
+
+// Declared returns the fingerprint of the configured declaration the client
+// was started from, or "" for one no trust gate started.
+func (c *Client) Declared() string {
+	return c.declared
 }
 
 // CallTool invokes a tool on the MCP server and returns the result.

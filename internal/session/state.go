@@ -4,6 +4,7 @@ package session
 import (
 	"context"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -132,6 +133,16 @@ type State struct {
 	// in-flight turn without stranding the tool definitions it already handed
 	// the model, so it is parked here and drained when the turn releases.
 	mcpReloadPending bool
+	// mcpDeferred marks a session restored from disk whose configured MCP
+	// servers have not been started yet: the first turn starts them
+	// (connectDeferredMCPServers), and reloads and switches leave it alone.
+	mcpDeferred bool
+	// mcpServersPending names configured servers whose switch or trust changed
+	// while a turn held the turn lock, or whose dial ran out of time
+	// (RefreshMCPServer, startConfiguredMCPServers). A turn's release closes
+	// those that should no longer run, the next turn's start dials the rest; a
+	// full reload covers them all.
+	mcpServersPending map[string]struct{}
 
 	// pendingReadyNotify holds session updates that must not reach the client
 	// before the response carrying this session id is on the wire. Only
@@ -151,8 +162,12 @@ type State struct {
 
 	// RulesCatalog is discovered project rules for the session CWD.
 	RulesCatalog []*rules.Rule
-	// ActiveAutoRules are sticky auto rules (alwaysApply true after first match).
-	ActiveAutoRules []*rules.Rule
+	// rulesGeneration counts the catalogs this session has had: every
+	// ReplaceRulesCatalog starts a new generation. rulesPrompts are the
+	// standing part of the system prompt rendered for the current one, one per
+	// kind of template: with {{.Rules}} and without (rules_load.go).
+	rulesGeneration uint64
+	rulesPrompts    [2]*RulesPrompt
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
 	// contextWindows reads the provider-reported context windows cached by
@@ -268,10 +283,8 @@ type State struct {
 	turnStopNotice string
 
 	// queue holds the follow-ups written while the current turn runs, read by
-	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
-	// boundary: a message is only ever accepted by the turn it belongs to.
-	// Turn-scoped and never persisted - a queued message outliving the process
-	// would be answered by a conversation that has moved on.
+	// the ReAct loop at its next step (turn_queue.go). queueOpen gates admission;
+	// after_turn messages can remain after Stop, but none survives a restart.
 	queueMu   sync.Mutex
 	queue     []QueuedMessage
 	queueOpen bool
@@ -568,11 +581,123 @@ func (s *State) markMCPReloadPending() {
 	s.mu.Unlock()
 }
 
-// hasPendingMCPReload reports whether a reload is parked, without taking it.
+// hasPendingMCPReload reports whether a parked reload or a parked server is
+// waiting, without clearing it. It lets the turn-lock release skip the lock
+// dance on the common path where nothing is parked.
 func (s *State) hasPendingMCPReload() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.mcpReloadPending
+	return s.mcpReloadPending || len(s.mcpServersPending) > 0
+}
+
+// hasPendingMCPServers reports whether single servers are parked for the
+// session's next turn, without clearing them.
+func (s *State) hasPendingMCPServers() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.mcpServersPending) > 0
+}
+
+// deferConfiguredMCP marks the configured MCP servers as not started yet.
+func (s *State) deferConfiguredMCP() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.mcpClosed {
+		s.mcpDeferred = true
+	}
+}
+
+// configuredMCPDeferred reports whether the configured MCP servers still wait
+// for the session's first turn.
+func (s *State) configuredMCPDeferred() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpDeferred
+}
+
+// takeDeferredConfiguredMCP clears the mark and reports whether it was set, so
+// exactly one turn starts the servers.
+func (s *State) takeDeferredConfiguredMCP() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deferred := s.mcpDeferred
+	s.mcpDeferred = false
+	return deferred
+}
+
+// markMCPServerPending parks one configured server for reconciliation. A
+// closed session drops it: there is nothing left to reconcile.
+func (s *State) markMCPServerPending(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.mcpClosed {
+		return
+	}
+	if s.mcpServersPending == nil {
+		s.mcpServersPending = make(map[string]struct{})
+	}
+	s.mcpServersPending[name] = struct{}{}
+}
+
+// takeMCPServersPending clears the parked servers and returns their names in
+// order, so exactly one of several racing drainers reconciles them.
+func (s *State) takeMCPServersPending() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	names := make([]string, 0, len(s.mcpServersPending))
+	for name := range s.mcpServersPending {
+		names = append(names, name)
+	}
+	s.mcpServersPending = nil
+	sort.Strings(names)
+	return names
+}
+
+// configuredMCPClientDeclared reports whether a configured server of that name
+// is connected to the session, and the fingerprint of the declaration it was
+// started from.
+func (s *State) configuredMCPClientDeclared(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			return client.Declared(), true
+		}
+	}
+	return "", false
+}
+
+// hasConfiguredMCPClient reports whether a configured server of that name is
+// connected to the session.
+func (s *State) hasConfiguredMCPClient(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// closeConfiguredMCPClient disconnects one configured server from the session
+// and stops its process, leaving every other client connected.
+func (s *State) closeConfiguredMCPClient(name string) {
+	s.mu.Lock()
+	kept := make([]*mcp.Client, 0, len(s.configuredMCPClients))
+	var closing []*mcp.Client
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			closing = append(closing, client)
+			continue
+		}
+		kept = append(kept, client)
+	}
+	s.configuredMCPClients = kept
+	s.mu.Unlock()
+	for _, client := range closing {
+		_ = client.Close()
+	}
 }
 
 // takeMCPReloadPending atomically clears the parked-reload flag and reports
@@ -588,6 +713,18 @@ func (s *State) takeMCPReloadPending() bool {
 func (s *State) setMCPFilterFactory(factory func() func(server, tool string) bool) {
 	s.mu.Lock()
 	s.MCPFilterFactory = factory
+	s.mu.Unlock()
+}
+
+// addConfiguredMCPClient attaches a completed dial unless the session closed meanwhile.
+func (s *State) addConfiguredMCPClient(client *mcp.Client) {
+	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		_ = client.Close()
+		return
+	}
+	s.configuredMCPClients = append(s.configuredMCPClients, client)
 	s.mu.Unlock()
 }
 
@@ -1610,25 +1747,14 @@ func (s *State) GetRulesCatalog() []*rules.Rule {
 	return s.RulesCatalog
 }
 
-// ReplaceRulesCatalog sets the rules catalog (session bootstrap).
+// ReplaceRulesCatalog sets the rules catalog and starts a new rules
+// generation, so the next turn renders the standing part of its system prompt
+// from the files again (RulesPrompt).
 func (s *State) ReplaceRulesCatalog(cat []*rules.Rule) {
 	s.mu.Lock()
 	s.RulesCatalog = cat
-	s.ActiveAutoRules = nil
-	s.mu.Unlock()
-}
-
-// GetActiveAutoRules returns sticky auto rules.
-func (s *State) GetActiveAutoRules() []*rules.Rule {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.ActiveAutoRules
-}
-
-// SetActiveAutoRules updates sticky auto rules.
-func (s *State) SetActiveAutoRules(r []*rules.Rule) {
-	s.mu.Lock()
-	s.ActiveAutoRules = r
+	s.rulesGeneration++
+	s.rulesPrompts = [2]*RulesPrompt{}
 	s.mu.Unlock()
 }
 

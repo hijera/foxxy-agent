@@ -37,6 +37,12 @@ export type SectionDescriptor = {
  */
 const HIDDEN_KEYS = ["ui"];
 
+/** Label for a route while its schema is loading. */
+export function knownSectionLabel(id: string): string | null {
+  const key = SECTION_LABEL_KEYS[id];
+  return key ? t(key) : null;
+}
+
 /**
  * Config keys folded into the single "Prompts" tab (rarely edited), which
  * closes the list of schema tabs. The scheduler, the logger and the gateways

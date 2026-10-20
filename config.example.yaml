@@ -129,6 +129,7 @@ models:
 agent:
   model: "openai/gpt-4o"
   max_turns: 0
+  # queue_mode: steer       # Send during a turn: steer or after_turn; unset asks on first use
   # LLM retry and pacing. Transport retries and consecutive empty-answer or
   # first-token recoveries share llm_retry_max extra attempts per model step.
   # Tool progress starts a fresh allowance; no-answer recovery preserves max_turns.

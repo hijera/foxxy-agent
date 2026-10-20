@@ -21,6 +21,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/mention"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
@@ -895,5 +896,28 @@ func TestKeystrokeWorkDoesNotGrowWithTheTranscript(t *testing.T) {
 	t.Logf("allocations per keystroke: 10 turns=%.0f  200 turns=%.0f", short, long)
 	if long > short*2+50 {
 		t.Fatalf("keystroke over a long transcript allocates %.0f vs %.0f over a short one: the backlog is re-rendered on every key", long, short)
+	}
+}
+
+// A queued message the turn reads arrives as the model got it: attachments
+// resolved, the saved-uploads note appended. The bubble shows what the
+// operator wrote, with the mention in place of the file it brought.
+func TestQueuedUserMessageShowsTheMentionNotTheAttachment(t *testing.T) {
+	a := newTestApp(t)
+	content := "check @README.md too\n\n" +
+		mention.Attachment{Path: "/work/README.md", Typed: "README.md", Body: "SECRET-FILE-BODY"}.XML() +
+		"\n\n<foxxycode_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n- /tmp/assets/shot.png\n</foxxycode_session_assets>"
+	a.applyLoopMessage(updateMsg{sessionID: a.sessionID, update: acp.MessageChunkUpdate{
+		SessionUpdate: acp.UpdateTypeUserMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
+	}})
+	got := transcriptText(a)
+	if !strings.Contains(got, "check @README.md too") {
+		t.Fatalf("the bubble lost the typed text:\n%s", got)
+	}
+	for _, leak := range []string{"SECRET-FILE-BODY", "foxxycode_attachment", "foxxycode_session_assets", "shot.png"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("the bubble shows %q:\n%s", leak, got)
+		}
 	}
 }

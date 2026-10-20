@@ -10,6 +10,17 @@
 
 ## Unreleased — 2026-10-20
 
+**Two queue modes and images.**
+While a reply is running, steer that turn or queue a separate prompt after it. Choose the default on first use; Tab switches the mode for one submission. Queued images stay attached and return with a recovered draft.
+
+**MCP controls in chat.**
+Manage servers and individual tools in web settings, the console and Telegram. Project overrides live outside the checkout, and local servers pass the trust check before connecting.
+
+**Stable context and preserved settings.**
+Project rules use the first populated root, and standing prompt content stays stable between steps. Settings account for concurrent edits and preserve unchanged YAML values and comments. Open session settings from chat and dismiss panels with Escape.
+
+## 0.3.32 — 2026-10-20
+
 **Keep whole characters in editor context.**
 Long code selections and terminal output are shortened at character boundaries before being sent to chat. Cyrillic text, CJK characters and emoji are no longer corrupted at the beginning of the retained fragment.
 

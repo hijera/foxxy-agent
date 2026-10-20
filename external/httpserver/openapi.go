@@ -1282,7 +1282,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1298,7 +1298,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. **`agent.model`** is optional and stored as sent; calls without an explicit model report a missing default when it is empty. Keys the file never had appear only when their value differs from the built-in defaults: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**, as in **config.yaml**; **`enabled`**, the name FoxxyCode used before 0.3.x, is still accepted in a request body and answered as **`enable`**.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys, the existing key order and the spelling of every value the body did not change survive the save (a **`${VAR}`** reference, **`${FOXXYCODE_HOME}`**, **`~`**, quotes, a list written on one line), a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. A value sent back as the client read it keeps what the file says now: what the process runs differently from the file (a command-line flag, the relay address **foxxycode serve** fills in, a pairing token from the environment) is not written into it by an unrelated save, and a value another save changed after the client's **GET** is not put back. \"As the client read it\" is measured against the configuration the body's **`revision`** names, else against the one live when the **PUT** arrives. A list is one value: an edited list is written as sent. **`agent.model`** is optional and stored as sent: calls that need a default model (`foxxycode -p`, `foxxycode acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults and from what the file loads them as: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file, and an entry of a list (a provider, a model, an MCP server) keeps only the fields it named plus the ones the body set. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**; legacy **`enabled`** remains accepted.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1475,7 +1475,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/queue": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Follow-ups queued for the running turn",
-					"description": "Lists what the operator wrote while the session's current turn is working: each row carries **id**, **text** and **createdAt**, and the answer carries the **version** the SSE frames carry, so a client applying both keeps whichever is newer. The queue belongs to the turn, not to the session bundle - it opens when a turn is admitted and is gone when that turn releases - so a session that is not working answers with an empty list. The running turn reads the queue at its next step (between the tool calls it just made and the request that follows them) and publishes the change as the **message_queue** SSE event on the composer stream.",
+					"description": "Lists messages waiting in this process: each row carries **id**, **text**, **mode** (**steer** or **after_turn**), optional **imageParts** (each image's **name**, **mimeType** and **sizeBytes** - never its bytes, which come back only to **DELETE**), and **createdAt**. The answer carries the same **version** as **message_queue** SSE updates. Steer rows enter the running turn at its next ReAct step. After-turn rows start separate prompts after the answer; Stop retains them without auto-starting, so an idle session can have waiting rows.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1491,7 +1491,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Queue a follow-up for the running turn",
-					"description": "Adds **text** to the queue of the turn in flight and answers **201** with the stored **message** (its **id** is what a later **DELETE** names) and the whole **messages** list. A session with no turn running answers **409** with code **no_active_turn**: the caller sends that text as an ordinary prompt through **POST /v1/responses** instead. When the turn runs in another FoxxyCode process over the same home (a second IDE window, the console), that process holds the queue and the answer is **409** with code **session_busy**. Past " + strconv.Itoa(session.MaxQueuedMessages) + " waiting messages the answer is **409** with code **queue_full**; a child (subagent) session answers **409** with code **subagent_read_only**. Nothing is persisted: a queued message the turn never read is dropped when the turn ends.",
+					"description": "Adds a message to the queue of the turn in flight and answers **201** with the stored **message** and whole **messages** list. **mode** is **steer** (default, read at the next ReAct step) or **after_turn** (a new prompt after the current answer). **inline_files** carries images with the text as base64 **data:image/...** URIs; any other value is a **400** with code **invalid_request**, a session model without **multimodal: true** gets the text without the images, as **POST /v1/responses** does. Settings commands at the start of **text** apply at once and only the rest is queued; a command-only request without images answers **200**, and one with images queues the images. A **`--once`** or **`--count=N`** command followed by a message answers **409** with code **turn_scoped_follow_up**. A turn owned by another process answers **409** with **session_busy**. No active turn answers **409** with **no_active_turn**; past " + strconv.Itoa(session.MaxQueuedMessages) + " messages answers **queue_full**; a child session answers **subagent_read_only**. Stop drops steer messages but leaves after_turn messages waiting without auto-starting them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1504,10 +1504,11 @@ func openAPISpec() map[string]interface{} {
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
 								"schema": map[string]interface{}{
-									"type":     "object",
-									"required": []interface{}{"text"},
+									"type": "object",
 									"properties": map[string]interface{}{
-										"text": map[string]interface{}{"type": "string", "description": "What the operator wrote. Trimmed; empty is a **400**."},
+										"text":         map[string]interface{}{"type": "string", "description": "What the operator wrote. May be empty when inline_files is non-empty."},
+										"mode":         map[string]interface{}{"type": "string", "enum": []interface{}{"steer", "after_turn"}, "description": "When the message is read: **steer** (default) at the next step of the running turn, **after_turn** as a prompt of its own after the answer."},
+										"inline_files": map[string]interface{}{"type": "array", "description": "Images sent with the message, each a base64 **data:image/...** URI.", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]string{"type": "string"}, "data_url": map[string]string{"type": "string"}}}},
 									},
 								},
 							},
@@ -1538,9 +1539,29 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"/foxxycode/sessions/{id}/queue/{message_id}": map[string]interface{}{
+				"patch": map[string]interface{}{
+					"summary":     "Change a queued message's mode",
+					"description": "Switches a message the agent has not read yet between **steer** and **after_turn** and answers with the whole queue and its **version**. Another mode is a **400** with code **invalid_request**; a message the turn read a moment ago answers **404** with code **not_found**.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "message_id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"mode"},
+									"properties": map[string]interface{}{
+										"mode": map[string]interface{}{"type": "string", "enum": []interface{}{"steer", "after_turn"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Updated queue"}, "400": errorResponseRef(), "404": errorResponseRef()},
+				},
 				"delete": map[string]interface{}{
 					"summary":     "Take one queued follow-up back",
-					"description": "Removes a message the agent has not read yet and answers with the rest of the queue. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",
+					"description": "Removes a message the agent has not read yet and answers with the rest of the queue, plus **message**: the message taken back, with its images in full under **inline_files** (**[{name, data_url}]**, the shape POST takes), so a client can put it back into its draft. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -3019,7 +3040,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable an MCP server",
-					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.foxxycode/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions connect this server if the trust gate admits it; their other servers keep running. A session with a turn in flight connects it when its next turn starts.",
 					"operationId": "enableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -3031,7 +3052,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable an MCP server",
-					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"description": "Sets the disabled flag under the same scope rule as enable. Live sessions close this server, leaving their other servers running (a turn in flight keeps it until the turn ends); new sessions skip connecting it.",
 					"operationId": "disableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -3043,9 +3064,22 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/trust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Approve a project MCP server for this workspace",
-					"description": "Records the operator's approval of the **current** declaration of a project-local (`.foxxycode/mcp.json`) server for the server's workspace, so sessions may start it. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"description": "Records the operator's approval of a project-local (`.foxxycode/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
 					"operationId": "trustMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"fingerprint": map[string]interface{}{"type": "string", "description": "The `fingerprint` of the declaration the operator was shown, from `GET /foxxycode/mcp`."},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Server approved; the response carries the approved `fingerprint`.",
@@ -3062,6 +3096,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -3069,7 +3104,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/untrust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Withdraw a project MCP server approval",
-					"description": "Removes the workspace approval of a project-local server. Sessions already holding a connected client keep it; new sessions no longer start the server. `removed` reports whether an approval was actually on file.",
+					"description": "Removes the workspace approval of a project-local server. Live sessions close it (a turn in flight keeps it until the turn ends) and new sessions no longer start it. `removed` reports whether an approval was actually on file.",
 					"operationId": "untrustMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -3132,7 +3167,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable a single MCP tool",
-					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"description": "Enables **{tool}** in the effective tool list. Global switches persist in their defining file; project switches persist in `<home>/mcp-overrides.json`. Nothing reconnects: live sessions offer the tool again on their next turn.",
 					"operationId": "enableMCPTool",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
 					"responses": map[string]interface{}{
@@ -3144,7 +3179,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a single MCP tool",
-					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.foxxycode/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"description": "Disables **{tool}** under the same scope rule as enable. The tool is hidden from the agent and rejected at dispatch from the next turn on; nothing reconnects.",
 					"operationId": "disableMCPTool",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
 					"responses": map[string]interface{}{
@@ -3156,7 +3191,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}": map[string]interface{}{
 				"put": map[string]interface{}{
 					"summary":     "Create or update an mcp.json MCP server",
-					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.foxxycode/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/foxxycode/config` instead.",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.foxxycode/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Live sessions start the server, or start it again from the edited declaration, and keep their other servers running. Config.yaml-defined servers are edited via **PUT** `/foxxycode/config` instead.",
 					"operationId": "putMCPServer",
 					"parameters": []interface{}{
 						mcpServerNameParam(),
@@ -3182,7 +3217,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Delete an mcp.json MCP server",
-					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server. Servers defined in config.yaml are refused with 400.",
 					"operationId": "deleteMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -3987,6 +4022,12 @@ func openAPISpec() map[string]interface{} {
 				"FoxxyCodeConfigJSON": map[string]interface{}{
 					"type":        "object",
 					"description": "FoxxyCode configuration as JSON (same logical fields as **config.yaml**). See **GET** `/foxxycode/config/schema` for the machine-readable JSON Schema.",
+					"properties": map[string]interface{}{
+						"revision": map[string]interface{}{
+							"type":        "string",
+							"description": "The configuration a **GET** document was read from; not a setting. Sent back unchanged with a **PUT**, it makes the save measure the values a client left alone against what that client read, so a save does not put back what another save changed in between.",
+						},
+					},
 				},
 				"FoxxyCodeConfigValidateResponse": map[string]interface{}{
 					"type": "object",

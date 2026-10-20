@@ -8,6 +8,17 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.27 — 2026-10-20
+
+Checkpoint: `24bf9b367767bb0a76193c4dac57ab03b0203365` (commit of annotated tag `1.2.27`, tag object `b871635452e2a9e37d00dcda960c889ae045a2c7`), following `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (`1.2.18`). The range contains 45 commits, consolidated as a net-change port.
+
+- Ported skill-history documentation, one-folder rules discovery and stable prompt generations, both message queue modes with attachments, MCP management across the web, console and Telegram, session settings retention, config revision checks and minimal saves, settings caching and save feedback, and Escape dismissal of rail screens.
+- The owner approved the first populated project rules root, stable standing rules with scoped rules delivered once in the activating message or tool result, both `steer` and `after_turn` queue modes, the first-use preference question, and the upstream contributor workflow updates.
+- Preserved FoxxyCode's configured send shortcut. Tab chooses the alternate queue mode only outside suggestion menus. Preserved the legacy `.foxxyrules` / `.foxyrules` fallback roots, paginated slash catalog, localization, project trust, provider prompts, both compaction engines, retry and continuation budgets, cross-process history refresh, stop notices, and the Chromium 104 baseline.
+- Preserved asynchronous MCP bootstrap and workspace switching. Publication is bound to its connection generation, so a late dial cannot install clients into a newer workspace or a closed session. Restored sessions defer their initial MCP connection until the first turn. Project switches are stored in the agent home, outside the checkout, and shared state files use process-wide file locks.
+- Browser verification found and fixed queued-image extraction for Windows drive and UNC paths. A regression covers both forms; the relay browser run verifies authenticated thumbnails and originals, live delivery, draft recovery, ordering, stop behavior and two-client synchronization.
+- Validation: UI tests passed 310 files / 2920 tests; `make lint`, `make check-windows`, `make lint-windows`, `make docs`, `make docs-check`, `make site-schema-check`, typechecking and the embedded build passed. All 27 requested behavioral guard tests executed and passed, as did registry integrity. Real pty runs cover queue modes and MCP controls; Chromium layout, phone overflow and chevron checks and WebKit folder-dialog checks passed. Screenshots are embedded in the corresponding feature pages; before/after and light/narrow evidence accompanies the PR.
+
 ## Sync through upstream 1.2.18 — 2026-10-16
 
 Checkpoint: `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (tag `1.2.18`), following `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (`1.2.10`).
