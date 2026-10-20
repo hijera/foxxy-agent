@@ -8,7 +8,12 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-16
+## Unreleased — 2026-10-20
+
+**Keep whole characters in editor context.**
+Long code selections and terminal output are shortened at character boundaries before being sent to chat. Cyrillic text, CJK characters and emoji are no longer corrupted at the beginning of the retained fragment.
+
+## 0.3.31 — 2026-10-16
 
 **The model catalog sits with its provider.**
 Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins. Initial setup also keeps another profile off the shared CLI login.
