@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,7 @@ const (
 	defaultMaxTimeoutSeconds = 3600
 	defaultOutputBufferBytes = 256 * 1024
 	defaultStopGrace         = 3 * time.Second
+	maxClockTimeoutSeconds   = int(math.MaxInt64 / int64(time.Second))
 )
 
 // ErrPoolFull is returned when a session already runs its maximum number of
@@ -34,6 +36,9 @@ var ErrNotFound = errors.New("background task not found")
 // ErrDraining is returned once the process is shutting down, so a turn racing
 // drain cannot start work nothing will clean up.
 var ErrDraining = errors.New("background task pool is shutting down")
+
+// ErrTaskRunning is returned by Forget for a task that has not finished.
+var ErrTaskRunning = errors.New("background task is still running")
 
 // Config bounds what the pool will accept.
 type Config struct {
@@ -168,6 +173,23 @@ func (p *Pool) SubscribeKeyed(key string, fn func(Snapshot)) {
 	p.keyedWatchers[key] = fn
 }
 
+// WakeWatcherKey is the keyed subscription of the component that turns a
+// finished notify_on_finish task into a new agent turn: the console, `foxxycode
+// acp` and `foxxycode serve` each install one. The pool owns the name so anything
+// holding a pool - the shell tools, spawn_agent - can ask whether the promise
+// notify_on_finish makes is one this process keeps, without importing the
+// agent package that keeps it.
+const WakeWatcherKey = "agent.background_waker"
+
+// CanWake reports whether a wake watcher is subscribed. A pool without one
+// still runs the task, but nothing will start a turn when it ends, and the
+// caller must say so rather than promise one.
+func (p *Pool) CanWake() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.keyedWatchers[WakeWatcherKey] != nil
+}
+
 // Draining reports whether the pool is closed to new work.
 func (p *Pool) Draining() bool {
 	p.mu.RLock()
@@ -194,6 +216,9 @@ type task struct {
 	// termination claim that arrives afterwards lose: work that already
 	// succeeded must not be relabelled as stopped.
 	exitObserved bool
+	// resultAcknowledged means the model already received the terminal result
+	// or stopped the task; its completion must not start a redundant turn.
+	resultAcknowledged bool
 }
 
 // claimTermination records the reason a task is about to be terminated and
@@ -275,8 +300,8 @@ func (p *Pool) Launch(spec Spec, launch LaunchFunc) (Snapshot, error) {
 // default: adopted work has no estimate behind it, and the foreground limit it
 // just outlived is the one value that must never be reused - resolveTimeoutSeconds
 // honours an explicit timeout verbatim, so passing the expired one would kill the
-// task immediately. NotifyOnFinish is forced off because the caller is being told
-// about this task right now, in the tool result.
+// task immediately. The caller's NotifyOnFinish choice is retained: the tool
+// result reports the handover, while the eventual outcome may arrive later.
 func (p *Pool) Adopt(spec Spec, adopt AdoptFunc) (Snapshot, error) {
 	if adopt == nil {
 		return Snapshot{}, fmt.Errorf("adopt callback is nil")
@@ -286,7 +311,6 @@ func (p *Pool) Adopt(spec Spec, adopt AdoptFunc) (Snapshot, error) {
 		spec.TimeoutSeconds = p.cfg.MaxTimeoutSeconds
 		p.mu.RUnlock()
 	}
-	spec.NotifyOnFinish = false
 	return p.start(spec, func(_ string, out io.Writer) (Handle, error) { return adopt(out) })
 }
 
@@ -307,7 +331,12 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 		p.mu.Unlock()
 		return Snapshot{}, ErrDraining
 	}
-	if p.runningForSession(spec.SessionID) >= p.cfg.MaxConcurrent {
+	// The per-session cap bounds the work the model starts. A system task
+	// (the memory subagent) is the runtime's own errand: it is admitted past
+	// the cap and, in runningForSession, never counted toward it, so a run
+	// per user turn cannot refuse the model's next command.
+	system := spec.Agent != nil && spec.Agent.System
+	if !system && p.runningForSession(spec.SessionID) >= p.cfg.MaxConcurrent {
 		p.mu.Unlock()
 		return Snapshot{}, fmt.Errorf("%w (limit %d)", ErrPoolFull, p.cfg.MaxConcurrent)
 	}
@@ -339,6 +368,7 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 			StartedAt:       startedAt,
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
+			URL:             strings.TrimSpace(spec.URL),
 			NotifyOnFinish:  spec.NotifyOnFinish,
 			Agent:           cloneAgentInfo(spec.Agent),
 		},
@@ -403,13 +433,17 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 //
 // A non-positive result means "no hard timeout"; supervise arms no timer for it.
 func resolveTimeoutSeconds(spec Spec, cfg Config) int {
+	// fork(background-server-lifetime): preview lifetime leaves command ceilings intact.
+	if spec.Kind == KindServer && spec.NoTimeout {
+		return min(max(spec.TimeoutSeconds, 0), maxClockTimeoutSeconds)
+	}
 	if spec.TimeoutSeconds > 0 {
-		return min(spec.TimeoutSeconds, cfg.MaxTimeoutSeconds)
+		return min(spec.TimeoutSeconds, cfg.MaxTimeoutSeconds, maxClockTimeoutSeconds)
 	}
 	if spec.NoTimeout {
 		return 0
 	}
-	return min(cfg.DefaultTimeoutSeconds, cfg.MaxTimeoutSeconds)
+	return min(cfg.DefaultTimeoutSeconds, cfg.MaxTimeoutSeconds, maxClockTimeoutSeconds)
 }
 
 // registerLocked must be called with the pool lock held.
@@ -531,6 +565,71 @@ func (p *Pool) Get(sessionID, taskID string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return t.Snapshot(p.now()), nil
+}
+
+// SetAgentUsage records what an agent task's model calls have spent so far. The
+// row gets a new AgentInfo rather than an edited one, so a snapshot already handed
+// out never changes under its reader. It reports whether the task was found.
+func (p *Pool) SetAgentUsage(sessionID, taskID string, inputTokens, outputTokens int) bool {
+	t, err := p.lookup(sessionID, taskID)
+	if err != nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.snap.Agent == nil {
+		return false
+	}
+	next := *t.snap.Agent
+	next.InputTokens, next.OutputTokens = max(0, inputTokens), max(0, outputTokens)
+	t.snap.Agent = &next
+	return true
+}
+
+// MarkWokeAgent records that these tasks of a session woke the agent: the turn
+// that reports their outcome has begun. The mark is written to each task's
+// record, so it outlives the process, and ids the pool does not hold are
+// skipped. Nobody is notified: the wake watcher would read a finished task
+// arriving again as a second outcome and wake the agent twice.
+func (p *Pool) MarkWokeAgent(sessionID string, taskIDs ...string) {
+	for _, id := range taskIDs {
+		t, err := p.lookup(sessionID, id)
+		if err != nil {
+			continue
+		}
+		t.mu.Lock()
+		marked := t.snap.WokeAgent
+		t.snap.WokeAgent = true
+		t.mu.Unlock()
+		if !marked {
+			p.persist(t)
+		}
+	}
+}
+
+// AcknowledgeResult prevents a task's pending completion from waking the
+// session after the model collected its result or stopped it. Reading output
+// while the task still runs does not call this method.
+func (p *Pool) AcknowledgeResult(sessionID, taskID string) error {
+	t, err := p.lookup(sessionID, taskID)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	t.resultAcknowledged = true
+	t.mu.Unlock()
+	return nil
+}
+
+// WakePending reports whether a completed task still has an unclaimed wake.
+func (p *Pool) WakePending(sessionID, taskID string) bool {
+	t, err := p.lookup(sessionID, taskID)
+	if err != nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.snap.NotifyOnFinish && t.snap.Status.Finished() && !t.resultAcknowledged && !t.snap.WokeAgent
 }
 
 // Output returns the retained output window for a task. A positive tailLines
@@ -780,14 +879,113 @@ func (p *Pool) ClearFinished(sessionID string) int {
 	return cleared
 }
 
-// RunningCount reports how many tasks of a session are still in flight.
+// Forget drops one finished task of a session, in memory and on disk. It is the
+// retention primitive: a sweep that keeps the newest runs of a scheduled job
+// calls it for every older one, where ClearFinished is the operator's "throw
+// it all away". A task still in flight is refused with ErrTaskRunning; a task
+// neither this process nor the bundle knows is ErrNotFound. A record left by an
+// earlier process is reached through the bundle, exactly as ClearFinished
+// reaches it: it is part of the same history.
+func (p *Pool) Forget(sessionID, taskID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" || taskID != filepath.Base(taskID) || strings.HasPrefix(taskID, ".") {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	key := taskKey(sessionID, taskID)
+
+	p.mu.Lock()
+	sessionDir := p.sessionDirs[sessionID]
+	t, live := p.tasks[key]
+	if live {
+		t.mu.Lock()
+		finished := t.snap.Status.Finished()
+		t.mu.Unlock()
+		if !finished {
+			p.mu.Unlock()
+			return fmt.Errorf("%w: %s", ErrTaskRunning, taskID)
+		}
+		delete(p.tasks, key)
+		kept := make([]string, 0, len(p.order))
+		for _, k := range p.order {
+			if k != key {
+				kept = append(kept, k)
+			}
+		}
+		p.order = kept
+	}
+	p.mu.Unlock()
+
+	if live {
+		if t.dir != "" {
+			_ = os.RemoveAll(t.dir)
+		}
+		return nil
+	}
+	if sessionDir == "" {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	dir := filepath.Join(sessionDir, backgroundDirName, taskID)
+	if _, err := os.Stat(filepath.Join(dir, metaFileName)); err != nil {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	// A record that still says running belongs to a process that is gone (this
+	// one would hold it in memory), so it is as finished as the reader sees it.
+	return os.RemoveAll(dir)
+}
+
+// ReleaseSession lets go of a session that is being retired: its finished
+// tasks leave the pool's memory and its bundle directory is forgotten, while
+// the records on disk stay exactly as they are and a later read finds them
+// there like the records of an earlier process. Running tasks are left alone;
+// a caller retiring a session stops them first (StopSession).
+//
+// It exists because the pool is process-wide and a session is not: a child
+// session or a scheduled run is created, does its work and is retired, and
+// without this its finished tasks, output windows included, would stay in the
+// pool for the life of the process.
+func (p *Pool) ReleaseSession(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	kept := make([]string, 0, len(p.order))
+	for _, key := range p.order {
+		t, ok := p.tasks[key]
+		if !ok {
+			continue
+		}
+		if t.snap.SessionID != sessionID {
+			kept = append(kept, key)
+			continue
+		}
+		t.mu.Lock()
+		finished := t.snap.Status.Finished()
+		t.mu.Unlock()
+		if !finished {
+			kept = append(kept, key)
+			continue
+		}
+		delete(p.tasks, key)
+	}
+	p.order = kept
+	delete(p.sessionDirs, sessionID)
+}
+
+// RunningCount reports how many tasks the model started in a session are
+// still in flight. System tasks are not the model's and are not counted.
 func (p *Pool) RunningCount(sessionID string) int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.runningForSession(strings.TrimSpace(sessionID))
 }
 
-// runningForSession must be called with the pool lock held.
+// runningForSession must be called with the pool lock held. It counts the
+// tasks the per-session cap applies to, so a system task is skipped. The
+// session id never changes once a task is registered; the agent info does
+// (SetAgentUsage replaces it), so it is read under the task's lock.
 func (p *Pool) runningForSession(sessionID string) int {
 	count := 0
 	for _, t := range p.tasks {
@@ -795,13 +993,32 @@ func (p *Pool) runningForSession(sessionID string) int {
 			continue
 		}
 		t.mu.Lock()
-		running := !t.snap.Status.Finished()
+		counted := !t.snap.SystemTask() && !t.snap.Status.Finished()
 		t.mu.Unlock()
-		if running {
+		if counted {
 			count++
 		}
 	}
 	return count
+}
+
+// RunningCountsBySession is RunningCount for every session at once, for a caller
+// that answers about many of them in one pass - the sessions listing asks for one
+// count per row. Asking per row would take the lock and walk the whole pool once
+// per session; this walks it once. Sessions with nothing in flight are left out.
+func (p *Pool) RunningCountsBySession() map[string]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	counts := make(map[string]int)
+	for _, t := range p.tasks {
+		t.mu.Lock()
+		counted := !t.snap.SystemTask() && !t.snap.Status.Finished()
+		t.mu.Unlock()
+		if counted {
+			counts[t.snap.SessionID]++
+		}
+	}
+	return counts
 }
 
 func (p *Pool) lookup(sessionID, taskID string) (*task, error) {
@@ -837,6 +1054,7 @@ func cloneAgentInfo(in *AgentInfo) *AgentInfo {
 	out := *in
 	out.Name = strings.TrimSpace(out.Name)
 	out.SessionID = strings.TrimSpace(out.SessionID)
+	out.Model = strings.TrimSpace(out.Model)
 	return &out
 }
 

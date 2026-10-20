@@ -48,6 +48,7 @@ import org.cef.browser.CefFrame
 import org.cef.callback.CefBeforeDownloadCallback
 import org.cef.callback.CefDownloadItem
 import org.cef.handler.CefDownloadHandlerAdapter
+import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.awt.datatransfer.DataFlavor
@@ -164,11 +165,11 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
 
     private fun loadUrl(url: String) {
         // Append the IDE-matching theme so the SPA applies it before first paint
-        // (contract: docs/intellij-embedding.md). Avoid duplicating the param.
+        // (contract: docs/contributing/intellij-embedding.md). Avoid duplicating the param.
         val themeParam = if (url.contains("theme=")) url
         else url + (if (url.contains("?")) "&" else "?") + "theme=${FoxxyCodeThemeBridge.currentFoxxyCodeTheme()}"
         // Signal the embed mode so the SPA adopts a flatter, more native host-IDE
-        // look (data-embed="intellij" on <html>; see docs/intellij-embedding.md).
+        // look (data-embed="intellij" on <html>; see docs/contributing/intellij-embedding.md).
         var finalUrl = if (themeParam.contains("embed=")) themeParam
         else themeParam + (if (themeParam.contains("?")) "&" else "?") + "embed=intellij"
         finalUrl = appendLangParam(finalUrl)
@@ -205,6 +206,20 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                     // Empty path + showDialog: CEF picks the download directory and
                     // opens the save dialog seeded with the suggested name.
                     callback?.Continue(suggestedName ?: "", true)
+                }
+            }, it.cefBrowser)
+            // A new-tab link in the SPA (API docs, the website) arrives here as a popup, which
+            // CEF would open as an empty native window. Cancel it and let the system browser
+            // open http(s) links; anything else is simply dropped.
+            it.jbCefClient.addLifeSpanHandler(object : CefLifeSpanHandlerAdapter() {
+                override fun onBeforePopup(
+                    browser: CefBrowser?,
+                    frame: CefFrame?,
+                    targetUrl: String?,
+                    targetFrameName: String?,
+                ): Boolean {
+                    ExternalLinks.systemBrowserUrl(targetUrl)?.let { url -> BrowserUtil.browse(url) }
+                    return true
                 }
             }, it.cefBrowser)
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.

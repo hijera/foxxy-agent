@@ -27,7 +27,7 @@ Requires ``build/foxxycode`` built with ``-tags http``.
 Environment:
 
 - ``FOXXYCODE_BIN`` - path to the foxxycode binary (default ``<repo>/build/foxxycode``).
-- ``MODEL`` - YAML ``models[].model`` id (default ``neuraldeep/gpt-oss-120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``neuraldeep/qwen3.8-27b``).
 - ``NEURALDEEP_API_KEY`` - provider key, read by foxxycode itself. Never written to
   the generated config: a provider named ``neuraldeep`` with no ``api_key``
   falls back to this variable.
@@ -226,7 +226,7 @@ def main() -> int:
             print(f"foxxycode binary not found: {binary} (build with -tags http)", file=sys.stderr)
             return 1
 
-    model = os.environ.get("MODEL", "neuraldeep/gpt-oss-120b").strip()
+    model = os.environ.get("MODEL", "neuraldeep/qwen3.8-27b").strip()
     port = int(os.environ.get("REAP_PORT", "19912"))
     home = Path(tempfile.mkdtemp(prefix="foxxycode-reap-home-"))
     work = Path(tempfile.mkdtemp(prefix="foxxycode-reap-work-"))

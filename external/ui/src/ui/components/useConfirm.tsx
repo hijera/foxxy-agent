@@ -22,6 +22,12 @@ export type ConfirmOptions = {
   cancelLabel?: string;
   /** danger = red destructive action; primary = accent-coloured action. */
   variant?: ConfirmDialogVariant;
+  /**
+   * Which button opens focused. Cancel by default, so a stray Enter cannot
+   * confirm a delete; pass "confirm" from a control that does nothing but the
+   * action being confirmed, where the keyboard should be able to answer.
+   */
+  initialFocus?: "cancel" | "confirm";
 };
 
 export type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
@@ -93,6 +99,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
         confirmLabel={pending?.options.confirmLabel ?? translate("confirm.confirm")}
         cancelLabel={pending?.options.cancelLabel}
         variant={pending?.options.variant}
+        initialFocus={pending?.options.initialFocus}
         ariaLabel={pending?.options.title ?? translate("confirm.ariaLabel")}
         onConfirm={onConfirm}
         onCancel={onCancel}

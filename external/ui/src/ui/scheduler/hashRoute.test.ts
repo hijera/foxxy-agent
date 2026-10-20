@@ -1,23 +1,30 @@
 import { describe, expect, test } from "vitest";
 import {
+  appNavHrefDocs,
   appNavHrefHome,
   appNavHrefHistory,
   appNavHrefMiniApps,
   appNavHrefScheduler,
   appNavHrefSchedulerJob,
+  appNavHrefSchedulerJobRuns,
   appNavHrefSchedulerNew,
   appNavHrefSession,
   appNavHrefSettings,
+  appNavHrefSettingsSection,
   appNavHrefSessionTask,
+  docsHrefFromFoxxyCodeLink,
   parseAppHash,
   schedulerEditorFromParsedHash,
+  setDocsHash,
   setHistoryHash,
   setMiniAppsHash,
   setSchedulerCreateHash,
   setSchedulerJobHash,
+  setSchedulerJobRunsHash,
   setSchedulerListHash,
   setSessionHashInLocation,
   setSettingsHash,
+  setSettingsSectionHash,
   setSessionTasksHash,
   stripHistorySidebarFromHash,
 } from "./hashRoute";
@@ -54,6 +61,8 @@ describe("parseAppHash", () => {
       jobId: null,
       createOpen: false,
       historyOpen: true,
+      runsOpen: false,
+      runTaskId: null,
     });
   });
 
@@ -64,6 +73,8 @@ describe("parseAppHash", () => {
       jobId: null,
       createOpen: true,
       historyOpen: true,
+      runsOpen: false,
+      runTaskId: null,
     });
     expect(schedulerEditorFromParsedHash(parseAppHash())).toEqual({
       mode: "create",
@@ -77,12 +88,56 @@ describe("parseAppHash", () => {
       jobId: "demo/one",
       createOpen: false,
       historyOpen: true,
+      runsOpen: false,
+      runTaskId: null,
     });
   });
 
   test("scheduler list hash does not open create editor", () => {
     setHash("#/scheduler");
     expect(schedulerEditorFromParsedHash(parseAppHash())).toBeNull();
+  });
+
+  test("parses the runs panel of a job, with and without a run open", () => {
+    setHash("#/scheduler/jobs/nightly/runs");
+    expect(parseAppHash()).toEqual({
+      branch: "scheduler",
+      jobId: "nightly",
+      createOpen: false,
+      historyOpen: false,
+      runsOpen: true,
+      runTaskId: null,
+    });
+    expect(schedulerEditorFromParsedHash(parseAppHash())).toEqual({
+      mode: "runs",
+      jobId: "nightly",
+      taskId: null,
+    });
+
+    setHash("#/scheduler/jobs/nightly/runs/bg_3?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "scheduler",
+      jobId: "nightly",
+      createOpen: false,
+      historyOpen: true,
+      runsOpen: true,
+      runTaskId: "bg_3",
+    });
+    expect(schedulerEditorFromParsedHash(parseAppHash())).toEqual({
+      mode: "runs",
+      jobId: "nightly",
+      taskId: "bg_3",
+    });
+  });
+
+  test("a job editor hash is not a runs hash", () => {
+    setHash("#/scheduler/jobs/nightly");
+    const p = parseAppHash();
+    expect(p.branch === "scheduler" && p.runsOpen).toBe(false);
+    expect(schedulerEditorFromParsedHash(p)).toEqual({
+      mode: "edit",
+      jobId: "nightly",
+    });
   });
 
   test("parses session with history sidebar flag", () => {
@@ -102,6 +157,7 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: true,
       section: null,
+      item: null,
     });
   });
 
@@ -111,6 +167,7 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: false,
       section: "providers",
+      item: null,
     });
   });
 
@@ -120,7 +177,23 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: false,
       section: "appearance",
+      item: null,
     });
+  });
+
+  test("parses the open row of a list section from ?id=", () => {
+    setHash("#/settings/models?id=demo%2Fqwen3.8-27b&history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: true,
+      section: "models",
+      item: "demo/qwen3.8-27b",
+    });
+  });
+
+  test("an empty ?id= names no row", () => {
+    setHash("#/settings/providers?id=");
+    expect(parseAppHash()).toMatchObject({ section: "providers", item: null });
   });
 
   test("parses settings/<section> with history sidebar", () => {
@@ -129,6 +202,7 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: true,
       section: "appearance",
+      item: null,
     });
   });
 });
@@ -141,6 +215,26 @@ describe("hash writers", () => {
     setMiniAppsHash("build/hello");
     expect(window.location.hash).toBe("#/miniapps/build%2Fhello");
   });
+  test("a settings row is written as ?id= and dropped with the list", () => {
+    expect(appNavHrefSettingsSection("providers", "demo")).toBe(
+      "#/settings/providers?id=demo",
+    );
+    expect(appNavHrefSettingsSection("models", "demo/qwen3.8-27b")).toBe(
+      "#/settings/models?id=demo%2Fqwen3.8-27b",
+    );
+    expect(appNavHrefSettingsSection("models", "demo/q", true)).toBe(
+      "#/settings/models?id=demo%2Fq&history=1",
+    );
+    expect(appNavHrefSettingsSection("providers", null)).toBe(
+      "#/settings/providers",
+    );
+    setHash("#/settings/providers");
+    setSettingsSectionHash("providers", { item: "demo" });
+    expect(window.location.hash).toBe("#/settings/providers?id=demo");
+    setSettingsSectionHash("providers", { item: null });
+    expect(window.location.hash).toBe("#/settings/providers");
+  });
+
   test("setHistoryHash writes #/history", () => {
     setHash("");
     setHistoryHash();
@@ -163,6 +257,24 @@ describe("hash writers", () => {
     setHash("");
     setSchedulerJobHash("demo", { historySidebar: true });
     expect(window.location.hash).toBe("#/scheduler/jobs/demo?history=1");
+  });
+
+  test("setSchedulerJobRunsHash and appNavHrefSchedulerJobRuns spell the runs routes", () => {
+    setSchedulerJobRunsHash("night ly");
+    expect(window.location.hash).toBe("#/scheduler/jobs/night%20ly/runs");
+    setSchedulerJobRunsHash("nightly", "bg_7", { historySidebar: true });
+    expect(window.location.hash).toBe("#/scheduler/jobs/nightly/runs/bg_7?history=1");
+    expect(appNavHrefSchedulerJobRuns("nightly")).toBe("#/scheduler/jobs/nightly/runs");
+    expect(appNavHrefSchedulerJobRuns("nightly", "bg_1")).toBe(
+      "#/scheduler/jobs/nightly/runs/bg_1",
+    );
+    expect(appNavHrefSchedulerJobRuns("")).toBe("#/scheduler");
+  });
+
+  test("stripHistorySidebarFromHash keeps the runs route", () => {
+    setHash("#/scheduler/jobs/x/runs/bg_2?history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe("#/scheduler/jobs/x/runs/bg_2");
   });
 
   test("stripHistorySidebarFromHash removes query from scheduler job URL", () => {
@@ -320,5 +432,61 @@ describe("background tasks routes", () => {
     expect(appNavHrefSessionTask("demo", "bg_1")).toBe("#/s/demo/tasks/bg_1");
     expect(appNavHrefSessionTask("a/b", "c/d")).toBe("#/s/a%2Fb/tasks/c%2Fd");
     expect(appNavHrefSessionTask("")).toBe("#/");
+  });
+});
+
+describe("documentation routes", () => {
+  test("parses the reader, a page and a section of it", () => {
+    setHash("#/docs");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: null,
+      anchor: null,
+      historyOpen: false,
+    });
+    setHash("#/docs/features/mentions");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/mentions",
+      anchor: null,
+      historyOpen: false,
+    });
+    setHash("#/docs/features/mentions#completion?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/mentions",
+      anchor: "completion",
+      historyOpen: true,
+    });
+  });
+
+  test("a malformed escape in a pasted address does not break the router", () => {
+    setHash("#/docs/features/%E0%A4%A#bad%zz");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/%E0%A4%A",
+      anchor: "bad%zz",
+      historyOpen: false,
+    });
+  });
+
+  test("builds the addresses a foxxycode: link and the rail point at", () => {
+    expect(appNavHrefDocs()).toBe("#/docs");
+    expect(appNavHrefDocs("features/mentions")).toBe("#/docs/features/mentions");
+    expect(appNavHrefDocs("features/mentions", "completion")).toBe(
+      "#/docs/features/mentions#completion",
+    );
+    expect(docsHrefFromFoxxyCodeLink("foxxycode:reference/config#agent")).toBe(
+      "#/docs/reference/config#agent",
+    );
+    expect(docsHrefFromFoxxyCodeLink("https://example.com")).toBeNull();
+  });
+
+  test("setDocsHash moves to a page without a history entry of its own", () => {
+    setHash("#/docs");
+    setDocsHash("getting-started/install", "macos-homebrew");
+    expect(window.location.hash).toBe(
+      "#/docs/getting-started/install#macos-homebrew",
+    );
   });
 });

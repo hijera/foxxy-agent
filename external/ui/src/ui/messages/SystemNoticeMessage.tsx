@@ -1,3 +1,4 @@
+import { Chevron } from "../components/Chevron";
 import { memo } from "react";
 
 import {
@@ -19,6 +20,10 @@ function firstLine(message: string): string {
 }
 
 export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
+  /** error: a failed request or turn; info: information the operator should see once. */
   level: "error" | "info";
   message: string;
   createdAtUtc?: string;
@@ -37,7 +42,10 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   const message = localizeLoopGuardNotice(raw, t) ?? raw;
   const preview = firstLine(message);
   return (
-    <div className="msg-system-stack">
+    <div
+      className={`msg-system-stack msg-system-stack-${props.level}`}
+      data-row-id={props.rowId}
+    >
       <div
         className={`msg msg-system msg-system-${props.level}`}
         role={props.level === "error" ? "alert" : "status"}
@@ -49,7 +57,7 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
             className="msg-system-summary"
             aria-label={t("messages.systemToggleAriaLabel")}
           >
-            <span className="msg-system-chevron" aria-hidden="true" />
+            <Chevron className="msg-system-chevron" />
             <span className="msg-system-label">{t("messages.systemLabel")}</span>
             {preview ? (
               <span className="msg-system-preview">{preview}</span>

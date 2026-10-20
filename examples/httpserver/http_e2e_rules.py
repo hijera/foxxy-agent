@@ -14,7 +14,7 @@ from typing import Any, Tuple
 
 GLOB_TOKEN = "RULE_GLOB_TOKEN:e2e-glob"
 MENTION_TOKEN = "RULE_MENTION_TOKEN:e2e-mention"
-BUNDLED_SLASH = "generate-rules"
+BUNDLED_SLASH = "rpa-gen-rules"
 
 
 def http_json(
@@ -74,7 +74,7 @@ def main() -> int:
     examples_dir = Path(__file__).resolve().parent.parent
     v1 = openai_v1_base()
     origin = foxxycode_http_origin(v1)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = os.environ.get("WORK_DIR", "").strip()
     if not work:

@@ -109,6 +109,33 @@ func (s *agentsScopeFeatureState) projectWithNestedAgentsFiles(nested, sibling s
 	return os.WriteFile(filepath.Join(cwd, filepath.FromSlash(nested), "react.go"), []byte("package agent\n"), 0o644)
 }
 
+// projectWithFolderWithoutAgents prepares the same shape minus the nested file,
+// so a scenario can create it once the session is already running.
+func (s *agentsScopeFeatureState) projectWithFolderWithoutAgents(dir string) error {
+	cwd, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	s.cwd = cwd
+	if err := os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte(bddRootAgentsToken), 0o644); err != nil {
+		return err
+	}
+	full := filepath.Join(cwd, filepath.FromSlash(dir))
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(full, "react.go"), []byte("package agent"), 0o644)
+}
+
+// nestedAgentsAppearsLater writes the file after the catalog was discovered,
+// which the walk this replaced could never have picked up.
+func (s *agentsScopeFeatureState) nestedAgentsAppearsLater(dir string) error {
+	if s.cwd == "" {
+		return fmt.Errorf("no project prepared")
+	}
+	return os.WriteFile(filepath.Join(s.cwd, filepath.FromSlash(dir), "AGENTS.md"), []byte(bddNestedAgentsToken), 0o644)
+}
+
 func (s *agentsScopeFeatureState) agentSessionInThatProject() error {
 	if s.cwd == "" {
 		return fmt.Errorf("no project prepared")
@@ -129,6 +156,9 @@ func (s *agentsScopeFeatureState) agentSessionInThatProject() error {
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 6},
 	}
 	cfg.Prompts.ApplyDefaults()
+	// A loaded config always names the root AGENTS.md as an instruction file
+	// (instructions.files defaults to it), so the session here does too.
+	cfg.Instructions.ApplyDefaults()
 	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
 	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
 	return nil
@@ -165,6 +195,22 @@ func (s *agentsScopeFeatureState) systemPrompt(n int) (string, error) {
 	return msgs[0].Content, nil
 }
 
+// wholeRequest returns everything the nth request says to the model. A nested
+// AGENTS.md a tool call pulled in mid-turn arrives in the turn context block
+// after the history, not in the frozen system message, so what matters here is
+// that the model was told, not where (turn_context.go).
+func (s *agentsScopeFeatureState) wholeRequest(n int) (string, error) {
+	if n >= len(s.provider.seen) {
+		return "", fmt.Errorf("request %d was never made (%d total)", n, len(s.provider.seen))
+	}
+	var b strings.Builder
+	for _, m := range s.provider.seen[n] {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
 func (s *agentsScopeFeatureState) firstRequestHasRootOnly() error {
 	sp, err := s.systemPrompt(0)
 	if err != nil {
@@ -183,7 +229,7 @@ func (s *agentsScopeFeatureState) firstRequestHasRootOnly() error {
 
 func (s *agentsScopeFeatureState) requestsAfterReadCarryNested(dir string) error {
 	for n := 1; n < len(s.provider.seen); n++ {
-		sp, err := s.systemPrompt(n)
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}
@@ -197,9 +243,25 @@ func (s *agentsScopeFeatureState) requestsAfterReadCarryNested(dir string) error
 	return nil
 }
 
-func (s *agentsScopeFeatureState) noRequestCarriesSibling(dir string) error {
+// everyRequestCarriesRootOnce counts the root file instead of looking for it:
+// both the rules block and instructions.files name it, and a second copy costs
+// its full size on every request.
+func (s *agentsScopeFeatureState) everyRequestCarriesRootOnce() error {
 	for n := range s.provider.seen {
 		sp, err := s.systemPrompt(n)
+		if err != nil {
+			return err
+		}
+		if c := strings.Count(sp, bddRootAgentsToken); c != 1 {
+			return fmt.Errorf("request %d carries the root AGENTS.md %d times, want exactly once", n, c)
+		}
+	}
+	return nil
+}
+
+func (s *agentsScopeFeatureState) noRequestCarriesSibling(dir string) error {
+	for n := range s.provider.seen {
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}
@@ -221,11 +283,14 @@ func initializeAgentsScopeScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a project with a root AGENTS\.md and nested AGENTS\.md files under "([^"]*)" and "([^"]*)"$`, s.projectWithNestedAgentsFiles)
+	sc.Step(`^a project with a root AGENTS\.md and a folder "([^"]*)" without one$`, s.projectWithFolderWithoutAgents)
+	sc.Step(`^a nested AGENTS\.md appears under "([^"]*)" after the session started$`, s.nestedAgentsAppearsLater)
 	sc.Step(`^a foxxycode agent session in that project$`, s.agentSessionInThatProject)
 	sc.Step(`^the model reads "([^"]*)" and then answers$`, s.modelReadsFileThenAnswers)
 	sc.Step(`^the first request carries the root AGENTS\.md but neither nested one$`, s.firstRequestHasRootOnly)
 	sc.Step(`^every request after the read carries the "([^"]*)" AGENTS\.md$`, s.requestsAfterReadCarryNested)
 	sc.Step(`^no request carries the "([^"]*)" AGENTS\.md$`, s.noRequestCarriesSibling)
+	sc.Step(`^every request carries the root AGENTS\.md exactly once$`, s.everyRequestCarriesRootOnce)
 }
 
 func TestAgentsMDScopingFeature(t *testing.T) {

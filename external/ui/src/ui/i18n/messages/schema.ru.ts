@@ -12,6 +12,21 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
+  "ReAct loop": "Цикл ReAct",
+  "Memory copilot": "Помощник памяти",
+  "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.":
+    "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; поддерживаются NeuralDeep, Codex и Devin.",
+  "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.":
+    "Общий запас повторов сетевого запроса, пустого ответа и отсутствия первого токена до выполнения инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, хуки Stop, резервные модели и ожидание сброса квоты имеют собственные ограничения.",
+
+  "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.": "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
+  "Bind host": "Адрес привязки",
+  "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.": "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
+  "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.": "Предлагать инструмент preview_server (по умолчанию включено). Отключение фоновых задач отключает и его.",
+  "Preview server": "Сервер предпросмотра",
+  "Public host": "Публичный хост",
+  "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.": "Инструмент preview_server: статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы работу можно было открыть в браузере.",
+
   // Root
   "FoxxyCode config": "Конфигурация FoxxyCode",
   "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.":
@@ -94,8 +109,8 @@ export const schemaTextRu: Record<string, string> = {
   "Wire protocol for this provider entry.":
     "Протокол обмена для этой записи провайдера.",
   "API base URL": "Базовый URL API",
-  "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.":
-    "Необязательная замена базового URL API. Для neuraldeep выбирает площадку — https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первой. Игнорируется для codex: он использует фиксированный официальный адрес.",
+  "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex and devin, which use their official endpoints.":
+    "Необязательная замена базового URL API. Для neuraldeep выбирает площадку — https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первой. Игнорируется для codex и devin: они используют свои официальные адреса.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -106,8 +121,8 @@ export const schemaTextRu: Record<string, string> = {
   "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.":
     "Необязательное ограничение на каждый HTTP-запрос к этому провайдеру, включая чтение потокового тела ответа. 0 (по умолчанию) означает отсутствие клиентского таймаута.",
   "HTTP or SOCKS proxy": "HTTP- или SOCKS-прокси",
-  "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none.":
-    "Необязательный исходящий прокси для конкретного провайдера. Используйте http:// или https:// для HTTP-прокси либо socks5:// / socks5h:// для SOCKS5 (socks5h разрешает имена хостов через прокси). Он переопределяет прокси, унаследованный из окружения или из настроек редактора. NO_PROXY по-прежнему учитывается, а локальные адреса всегда подключаются напрямую. Оставьте пустым, чтобы использовать прокси окружения/редактора (HTTP_PROXY/HTTPS_PROXY), либо прямое соединение, если его нет.",
+  "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or the operating system proxy settings when there is none (on Windows including a PAC script or automatic detection); with neither the connection is direct. Special characters in the login or password must be percent-encoded - the … button next to the field builds the URL for you.":
+    "Необязательный исходящий прокси для конкретного провайдера. Используйте http:// или https:// для HTTP-прокси либо socks5:// / socks5h:// для SOCKS5 (socks5h разрешает имена хостов через прокси). Он переопределяет прокси, унаследованный из окружения или из настроек редактора. NO_PROXY по-прежнему учитывается, а локальные адреса всегда подключаются напрямую. Оставьте пустым, чтобы использовать прокси окружения/редактора (HTTP_PROXY/HTTPS_PROXY), а если его нет — системные настройки прокси (в Windows в том числе PAC-скрипт и автоопределение); без них соединение прямое. Спецсимволы в логине и пароле нужно кодировать (percent-encoding) — кнопка … рядом с полем соберёт адрес сама.",
 
   // Models
   "Logical models": "Логические модели",
@@ -124,9 +139,9 @@ export const schemaTextRu: Record<string, string> = {
   Temperature: "Температура",
   "Sampling temperature for this logical model (0 = deterministic, higher = more random).":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
-  "Max context tokens (UI hint)": "Макс. токенов контекста (подсказка UI)",
-  "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.":
-    "Необязательная подсказка UI для полосы контекста композера; 0 означает вывести из метаданных провайдера, если доступно.",
+  "Context window (tokens)": "Окно контекста (токены)",
+  "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.":
+    "Окно контекста модели: по нему считаются индикатор контекста в композере и автоматическое сжатие. 0 — взять из списка моделей провайдера, если он сообщает окно, иначе 128000.",
   Multimodal: "Мультимодальность",
   "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. Интерфейс предложит прикрепление файлов для сообщений, отправляемых этой моделью.",
@@ -215,8 +230,8 @@ export const schemaTextRu: Record<string, string> = {
   "Logical model id from the models list used when the client omits a model.":
     "Логический id модели из списка моделей, используемый, когда клиент не указывает модель.",
   "Max turns": "Макс. шагов",
-  "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.":
-    "Жёсткий лимит итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя.",
+  "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.":
+    "0 отключает лимит итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя.",
   "Max tokens per turn": "Макс. токенов за шаг",
   "Upper bound on total tokens (prompt + completion) the model may use in one agent step.":
     "Верхняя граница суммарных токенов (промпт + ответ), которые модель может использовать за один шаг агента.",
@@ -232,9 +247,9 @@ export const schemaTextRu: Record<string, string> = {
   "LLM first token timeout ms": "Таймаут первого токена LLM (мс)",
   "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).":
     "Сколько потоковый вызов LLM может молчать, прежде чем ход его отменит (явный 0 отключает защиту).",
-  "LLM stall timeout ms": "Таймаут обрыва потока LLM (мс)",
-  "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).":
-    "Сколько потоковый вызов LLM, уже выдавший часть ответа, может не подавать признаков жизни, прежде чем ход оборвёт его и сохранит начатый ответ (явный 0 отключает защиту).",
+  "LLM stream idle timeout ms": "Таймаут простоя потока LLM (мс)",
+  "How long a streamed LLM call that has already delivered something may deliver nothing more before the stream is cut as stalled; the partial answer is kept. Keep-alive comments do not count as delivery (an explicit 0 disables the guard).":
+    "Сколько потоковый вызов LLM, уже выдавший часть ответа, может больше ничего не присылать, прежде чем поток будет оборван как зависший; начатый ответ сохраняется. Keep-alive-комментарии не считаются (явный 0 отключает защиту).",
   "Retry a failed provider call": "Повторять неудавшийся запрос к провайдеру",
   "When a model call fails without producing any output - silence, a dropped connection, a provider timeout, a 5xx - wait and send the same request again instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so nothing can be duplicated. Off restores the immediate error.":
     "Если вызов модели упал, не выдав ничего — молчание, обрыв соединения, таймаут провайдера, 5xx — подождать и отправить тот же запрос снова, вместо того чтобы завалить ход. Запрос, отвергнутый сервером (4xx), не повторяется, равно как и вызов, успевший что-то выдать, — так что текст не задваивается. Выключено — сразу ошибка, как раньше.",
@@ -244,6 +259,21 @@ export const schemaTextRu: Record<string, string> = {
   "Retry budget ms": "Бюджет повторов (мс)",
   "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.":
     "Сколько всего времени можно потратить на паузы между повторами одного вызова, прежде чем ход сдастся и покажет ошибку. Явный 0 — повторять, пока модель не ответит или пока вы не нажмёте «Стоп».",
+  "Continue a cut answer": "Продолжать оборванный ответ",
+  "When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.":
+    "Если провайдер оборвал ответ, в котором уже есть текст (поток завис, прервался или вернул 5xx), текст сохраняется, и модель просят продолжить с места обрыва. Выключено — ход завершается на обрыве, сохраняет текст и объясняет причину.",
+  "Continuation limit": "Лимит продолжений",
+  "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).":
+    "Сколько раз за один ход можно продолжить оборванный ответ, прежде чем ход завершится с уведомлением (0 — завершать ход при первом обрыве).",
+  "Continuation delays after an error ms": "Паузы перед продолжением после ошибки (мс)",
+  "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.":
+    "Пауза перед каждым продолжением после того, как сбой провайдера оборвал ответ (5xx, обрыв потока), в миллисекундах. Последнее значение повторяется.",
+  "Longest Retry-After ms": "Предел Retry-After (мс)",
+  "Longest pause a provider may ask for (Retry-After) before a cut answer is carried on (an explicit 0 ignores Retry-After).":
+    "Самая длинная пауза, которую провайдер может запросить (Retry-After) перед продолжением оборванного ответа (явный 0 — не учитывать Retry-After).",
+  "Continuation delays ms": "Паузы перед продолжением (мс)",
+  "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.":
+    "Пауза перед каждым продолжением после зависания, в миллисекундах. Последнее значение повторяется; по умолчанию 0 — продолжать сразу, потому что защита уже выждала тишину.",
   "Loop guard": "Защита от зацикливания",
   "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.":
     "Останавливать ответ, выродившийся в повтор самого себя, блокировать инструмент, который вызывают снова и снова с теми же аргументами, и блокировать последовательность вызовов, которую модель крутит по кругу.",
@@ -374,33 +404,48 @@ export const schemaTextRu: Record<string, string> = {
   "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.":
     "Пути поиска скилов. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} подставляется при загрузке файла; ${CWD} остаётся в записи и раскрывается для каждой сессии против её рабочей папки.",
   "Remote skill sources": "Удалённые источники скилов",
-  "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.":
-    "Удалённые источники для установки скилов: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог скилов.",
+  "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.":
+    "Удалённые источники для установки скилов: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог скилов. EvilFreelancer/rpa-skills — каталог, из которого опубликованы встроенные скилы rpa-*, — всегда действует как системный источник и в этот список не входит.",
   "Auto-discovery": "Авто-обнаружение",
   "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.":
     "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего скила в ход. По умолчанию включено.",
 
   // Memory
   "Long-term memory": "Долговременная память",
-  "Optional memory copilot (requires memory build tag and provider).":
-    "Необязательный копилот памяти (требует сборки с тегом memory и провайдера).",
-  "Turns on the memory copilot for eligible builds.":
-    "Включает копилот памяти для поддерживаемых сборок.",
+  "Optional memory subagent (requires the memory build tag and a provider).":
+    "Необязательный агент памяти (требует сборки с тегом memory и провайдера).",
+  "Runs the memory subagent on every user turn (memory build tag).":
+    "Запускает агента памяти на каждом ходе пользователя (требуется тег memory).",
   "Memory model": "Модель памяти",
-  "Logical model override for memory LLM calls; empty uses agent model.":
-    "Замена логической модели для вызовов LLM памяти; пусто — используется модель агента.",
+  "Logical model the memory subagent runs on; empty uses the session's model.":
+    "Логическая модель агента памяти; если поле пусто, используется модель сессии.",
   "Memory root": "Корень памяти",
   "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory.":
     "Корневой каталог файловой системы для markdown памяти; пусто — ${FOXXYCODE_HOME}/memory.",
   "Recall max turns": "Макс. шагов извлечения",
-  "Bounds recall-side LLM rounds in the memory loop.":
-    "Ограничивает раунды LLM на стороне извлечения в цикле памяти.",
+  "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two.":
+    "Ограничивает шаги агента памяти вместе с persist_max_turns; действует большее из двух значений.",
   "Persist max turns": "Макс. шагов сохранения",
-  "Bounds persist-side LLM rounds in the memory loop.":
-    "Ограничивает раунды LLM на стороне сохранения в цикле памяти.",
-  "Copilot max tokens": "Макс. токенов копилота",
-  "Completion token cap for memory copilot calls.":
-    "Лимит токенов ответа для вызовов копилота памяти.",
+  "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two.":
+    "Ограничивает шаги агента памяти вместе с recall_max_turns; действует большее из двух значений.",
+  "Max tokens per call": "Макс. токенов на вызов",
+  "Completion token cap for the memory model's calls.":
+    "Лимит токенов ответа для вызовов модели памяти.",
+  "Wait for the report (seconds)": "Ожидание отчёта (с)",
+  "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).":
+    "Сколько ход ждёт отчёта агента памяти перед первым вызовом модели; 0 — не ждать (по умолчанию 20).",
+  "Run timeout (seconds)": "Лимит времени запуска (с)",
+  "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300).":
+    "Жёсткий лимит одного запуска памяти с учётом tools.background.max_timeout_seconds (по умолчанию 300).",
+  "Runs kept per session": "Запусков на сессию",
+  "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20).":
+    "Число завершённых запусков памяти в панели задач на сессию вместе с журналами и дочерними транскриптами; 0 сохраняет все (по умолчанию 20).",
+  "Additional instructions": "Дополнительные инструкции",
+  "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.":
+    "Ваши инструкции для агента памяти в его системном запросе; основной агент их не видит.",
+  "Additional instructions cap (characters)": "Лимит дополнительных инструкций (символы)",
+  "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap.":
+    "Более длинные инструкции обрезаются до указанного числа символов с предупреждением в журнале; 0 снимает лимит.",
   "Max search hits": "Макс. результатов поиска",
   "Maximum snippets returned by memory search tools.":
     "Максимальное число фрагментов, возвращаемых инструментами поиска по памяти.",
@@ -410,19 +455,25 @@ export const schemaTextRu: Record<string, string> = {
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
   "Compaction engine": "Движок сжатия",
-  'Which compaction implementation to use. "coddy" (default) keeps a summary row and replays only the window after it, and supports the /compact command. "opencode" flags older turns and filters them from the payload.':
-    'Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё, поддерживает команду /compact. «opencode» помечает старые шаги и исключает их из отправляемого контекста.',
+  "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
+    "Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
   "Model override for the summary pass; empty uses agent model.":
     "Замена модели для прохода сводки; пусто — используется модель агента.",
+  "Fallback summarizer models": "Запасные модели сводки",
+  "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.":
+    "Модели сводки, которые пробуются по порядку, когда предыдущая не ответила. Модель самой сессии остаётся последним вариантом, даже если её нет в списке.",
+  "Fallback memory models": "Запасные модели памяти",
+  "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.":
+    "Модели, которые агент памяти пробует по порядку при сбое до начала ответа. Модель сессии остаётся последним вариантом, даже если её нет в списке.",
   "Threshold percent": "Порог, %",
-  "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).":
-    "Срабатывает при этом проценте окна контекста модели. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
   "Keep recent turns": "Сохранять последних шагов",
-  "Most recent user turns preserved verbatim (default 2).":
-    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2).",
+  "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
+    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
   "Summary max tokens": "Макс. токенов сводки",
   "Completion token cap for the summary generation (opencode engine only).":
     "Лимит токенов ответа для генерации сводки (только движок opencode).",
@@ -437,6 +488,9 @@ export const schemaTextRu: Record<string, string> = {
   "Min result bytes": "Минимальный размер результата",
   "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).":
     "Результаты этого размера или меньше не вытесняются (по умолчанию 2000; 0 делает кандидатами все результаты).",
+  "Start at (%)": "Начинать с (%)",
+  "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.":
+    "Вытеснять, только когда оценка контекста достигла этого процента окна модели (по умолчанию 50; 0 — с первого результата). До порога история уходит без правок, и кэш промпта у провайдера сохраняется.",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",
@@ -453,22 +507,22 @@ export const schemaTextRu: Record<string, string> = {
 
   // Scheduler
   Scheduler: "Планировщик",
-  "Cron-style scheduled jobs (requires scheduler build tag).":
-    "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler).",
+  "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.":
+    "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler). Каждый запуск — фоновая агентная задача в постоянной сессии задания, где хранится история запусков.",
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
     "Каталог с markdown-описаниями задач.",
   "Max queue": "Макс. очередь",
-  "Maximum concurrent scheduled agent runs.":
-    "Максимальное число одновременных запусков агента по расписанию.",
-  "Job timeout": "Таймаут задачи",
-  "Per-job wall-clock limit, e.g. 30m or 1h30m.":
-    "Ограничение реального времени на задачу, например 30m или 1h30m.",
-  "Retain sessions": "Хранить сессии",
-  "How many completed scheduler session folders to keep per job id.":
-    "Сколько папок завершённых сессий планировщика хранить на каждый id задачи.",
+  "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.":
+    "Максимум одновременных запусков всех заданий. Превышающий лимит запуск по расписанию пропускается, а ручной отклоняется.",
+  "Run timeout": "Таймаут запуска",
+  "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds).":
+    "Ограничение времени одного запуска, например 30m или 1h30m (с учётом предела tools.background.max_timeout_seconds).",
+  "Retain runs": "Хранить запуски",
+  "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes.":
+    "Число завершённых запусков на каждое задание (записи задач и транскрипты). Более старые удаляются при завершении нового запуска.",
 
   // Prompts
   Prompts: "Промпты",
@@ -497,8 +551,8 @@ export const schemaTextRu: Record<string, string> = {
   "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).":
     "Файлы, читаемые из рабочего каталога сессии и добавляемые к системному промпту как инструкции проекта (совместимо с AGENTS.md).",
   "Instruction files": "Файлы инструкций",
-  'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].':
-    'Имена файлов относительно CWD сессии для чтения как инструкций. По умолчанию ["AGENTS.md"].',
+  'Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to ["AGENTS.md", "DESIGN.md"]; the agent home has its own pair, read ahead of this list whenever it exists.':
+    'Файлы инструкций, читаются в указанном порядке. ${FOXXYCODE_HOME}, ${CWD} и ведущая ~ раскрываются; абсолютный путь читается как есть, относительный — от CWD сессии. По умолчанию ["AGENTS.md", "DESIGN.md"]; у домашнего каталога агента своя пара этих файлов, она читается перед списком, если существует.',
 
   // Logger
   Logger: "Логирование",
@@ -609,6 +663,9 @@ export const schemaTextRu: Record<string, string> = {
   "Status line": "Строка статуса",
   "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.":
     "Показывать рядом с анимированными точками строку статуса: текущий инструмент и над чем он работает, ожидание ответа модели и прошедшее время. Выключите, чтобы остались только точки.",
+  "Animations and translucency": "Анимации и прозрачность",
+  "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings > Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else.":
+    "Показывать визуальные эффекты интерфейса: долгие анимации и полупрозрачные панели с размытием (без них панели становятся непрозрачными своего цвета). Значение пишет переключатель в Настройки → Оформление, оно общее для всех клиентов. Если ключ не задан, действует умолчание клиента: в панели IntelliJ эффекты выключены (она рисуется вне экрана и копирует каждый кадр в IDE, а это тормозит IDE, особенно без GPU), в остальных — включены.",
 
   // Browser tool
   "Browser tool": "Инструмент браузера",
@@ -689,6 +746,104 @@ export const schemaTextRu: Record<string, string> = {
     "Панель лимитов аккаунта",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.":
     "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; затрагивает только провайдеров, у которых есть источник лимитов (neuraldeep).",
+  "Web search": "Веб-поиск",
+  "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".":
+    "Какие поисковые движки опрашивает инструмент websearch, в каком порядке сливаются их результаты и сколько на это можно потратить. Каждый движок сообщает свой исход рядом с результатами, поэтому отказавший бэкенд назван по имени, а не посчитан за «ничего не найдено».",
+  "Engines": "Движки",
+  "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.":
+    "Поисковые движки в порядке слияния результатов (по умолчанию: brave, bing). «ddg» и «google» по умолчанию не опрашиваются: с сервера DuckDuckGo отвечает антибот-страницей, а Google отрисовывает результаты в браузере. Для «searxng» нужен адрес ниже.",
+  "Engine timeout (s)": "Таймаут движка (с)",
+  "Seconds one engine may take before it is reported as unavailable (default 8).":
+    "Сколько секунд отводится одному движку, прежде чем он будет отмечен как недоступный (по умолчанию 8).",
+  "Total timeout (s)": "Общий таймаут (с)",
+  "Seconds the whole search may take, however many engines it asks (default 20).":
+    "Сколько секунд отводится всему поиску, сколько бы движков он ни опрашивал (по умолчанию 20).",
+  "Max concurrent engines": "Движков одновременно",
+  "How many engines are asked at once (default 4).":
+    "Сколько движков опрашивается одновременно (по умолчанию 4).",
+  "Snippet length": "Длина фрагмента",
+  "Maximum characters of one result description (default 320).":
+    "Максимальная длина описания одного результата в символах (по умолчанию 320).",
+  "Cache TTL (s)": "Время жизни кэша (с)",
+  "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).":
+    "Сколько секунд ответ движка переиспользуется, прежде чем движок опросят снова (по умолчанию 300; отрицательное значение выключает кэш).",
+  "SearXNG URL": "Адрес SearXNG",
+  "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.":
+    "Базовый адрес вашего экземпляра SearXNG, к которому обращаются по JSON API (включите формат json в его settings.yml). Адреса localhost и локальной сети разрешены.",
+  "Brave Search API key": "Ключ Brave Search API",
+  "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.foxxycode/.env.":
+    "С токеном подписки движок brave использует официальный JSON API вместо чтения публичной страницы результатов. Оставьте пустым, чтобы взять BRAVE_API_KEY из окружения или из ~/.foxxycode/.env.",
+  "HTTP requests": "HTTP-запросы",
+  "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.":
+    "Политика инструмента http_request — curl-а агента. В режимах ask и accept_edits запрос спрашивает разрешения, если его назначение не разрешено здесь и не было одобрено в этой сессии; bypass не спрашивает никогда.",
+  "Allowlist": "Список разрешённых",
+  "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.":
+    "Назначения, к которым обращаются без вопроса: хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/); «*» разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат; для прокси нужна своя запись, а сохранение ответа в файл подчиняется политике записи.",
+  "Proxy URL": "URL прокси",
+  "Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.":
+    "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для провайдера. URL заменяет унаследованный прокси; NO_PROXY и локальные адреса обходят его. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую. Редактор URL защищает учётные данные.",
+  "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.":
+    "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для Telegram. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую.",
+  "Provider id": "ID провайдера",
+  "my-provider": "my-provider",
+  "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.": "Префикс идентификаторов моделей этого провайдера, как в provider/model-id. Латинские буквы, цифры, дефис и подчёркивание, первая буква.",
+  "https://api.openai.com/v1": "https://api.openai.com/v1",
+  "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.": "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса.",
+  "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.": "Ключ напрямую, ссылка ${ENV}, которая разворачивается при загрузке файла, или пусто, чтобы в момент вызова читать переменную окружения из подсказки в поле.",
+  "pass show foxxycode/api-key": "pass show foxxycode/api-key",
+  "Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead.": "Необязательная команда получения ключа, запускается через шелл хоста, когда API-ключ пуст; её вывод без краевых пробелов становится ключом, как у git или docker credential helpers. При ошибке читается переменная окружения.",
+  "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси только для этого провайдера. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для этого провайдера. Пока поле пустое, провайдер ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.": "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
+  "medium when offered, else the first level": "medium, если он есть, иначе первый уровень",
+  "How long a streamed LLM response may send nothing after its first bytes before it is cut as stalled, the delivered text kept (an explicit 0 disables the guard).": "Как долго потоковый ответ LLM может ничего не присылать после первых байтов, прежде чем поток будет обрезан как зависший с сохранением уже полученного текста (явный 0 отключает защиту).",
+  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.": "Останавливает ответ, вырождающийся в повторение самого себя, и блокирует инструмент, вызываемый раз за разом с одинаковыми аргументами.",
+  "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts. A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never saved here.": "Определяет, когда агент запрашивает одобрение перед запуском инструментов. «ask» — подтверждать команды и запись файлов. «accept_edits» — автоматически принимать правки, подтверждать команды. «bypass» — не спрашивать вовсе. Сессия может сменить свой режим до перезапуска процесса (/permissions, чип в композере, диалог разрешений), сюда эта смена не записывается.",
+  "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.": "Максимум строк, которые результат или ошибка инструмента может вернуть в контекст LLM. Включённые лимиты также накладывают страховочный потолок 64 КиБ на вызов. 0 отключает оба лимита; не задано — встроенное значение по умолчанию.",
+  "Max lines for a read file page or directory listing (default 1000).": "Максимум строк страницы чтения файла или листинга каталога (по умолчанию 1000).",
+  "Max path:line:content records from grep (default 200).": "Максимум записей path:line:content от grep (по умолчанию 200).",
+  "Max lines of a directory tree (default 400).": "Максимум строк дерева каталогов (по умолчанию 400).",
+  "Max stdout+stderr lines of a shell command (default 500).": "Максимум строк stdout+stderr команды шелла (по умолчанию 500).",
+  "Max stdout+stderr lines of a remote SSH command (default 500).": "Максимум строк stdout+stderr удалённой SSH-команды (по умолчанию 500).",
+  "Max lines of fetched page markdown (default 800).": "Максимум строк markdown загруженной страницы (по умолчанию 800).",
+  "Max lines of search results (default 200).": "Максимум строк результатов поиска (по умолчанию 200).",
+  "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited).": "Применяется к любому не перечисленному инструменту, включая MCP (по умолчанию 1000; 0 = без лимита).",
+  "127.0.0.1": "127.0.0.1",
+  "The bind host": "Адрес привязки",
+  "Read from BRAVE_API_KEY": "Берётся из BRAVE_API_KEY",
+  "http://localhost:8888": "http://localhost:8888",
+  "Your own commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.": "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
+  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.": "Пути поиска скилов. По умолчанию: ~/.agents/skills (глобальные, совместно с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (специфичные для foxxycode), ${CWD}/.foxxycode/skills (проектные). ${FOXXYCODE_HOME} и ${CWD} разворачиваются во время выполнения.",
+  "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.": "Разрешить агенту самостоятельно загружать полные инструкции подходящего скила (инструмент load_skill, управляемый моделью), а не только по команде /скил. По умолчанию включено.",
+  "Runs the memory subagent on every user turn (binaries built with the memory tag).": "Запускает субагента памяти на каждом ходе пользователя (сборки с тегом memory).",
+  "Model the memory subagent runs on; empty uses the session's model.": "Модель, на которой работает субагент памяти; пусто - модель сессии.",
+  "Tried in order when the model before them fails before answering; the session's own model is the last resort.": "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",
+  "${FOXXYCODE_HOME}/memory": "${FOXXYCODE_HOME}/memory",
+  "Hard limit of one memory run, capped by the background task pool's maximum (default 300).": "Жёсткий предел одного прогона памяти, не больше максимума пула фоновых задач (по умолчанию 300).",
+  "Bounds the memory subagent's rounds together with persist max turns; the cap is the larger of the two.": "Ограничивает раунды субагента памяти вместе с максимумом раундов сохранения; действует большее из двух.",
+  "Bounds the memory subagent's rounds together with recall max turns; the cap is the larger of the two.": "Ограничивает раунды субагента памяти вместе с максимумом раундов выборки; действует большее из двух.",
+  "Save what I decide about this project's architecture": "Сохраняй решения по архитектуре этого проекта",
+  "Master switch for compaction (manual command and automatic trigger). Defaults to true.": "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
+  "Auto threshold (%)": "Порог авто-сжатия (%)",
+  "Auto-compact when the estimated context reaches this percent of the model's context window (1..100, default 80): its max_context_tokens, else the window its provider reports, else 128000.": "Авто-сжатие, когда оценка контекста достигает этой доли от окна контекста модели (1..100, по умолчанию 80): её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000.",
+  "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything). With no more turns than that, automatic compaction still folds the older ones and keeps the prompt being answered.": "Сколько последних ходов пользователя остаются дословными после сжатия (по умолчанию 2; 0 — суммируется всё). Если ходов не больше, автоматическое сжатие всё равно сворачивает более ранние, а запрос, на который идёт ответ, оставляет дословным.",
+  "Summarizer model": "Модель суммаризации",
+  "Optional models[].model for the summarization call; empty uses the session model.": "Необязательный models[].model для вызова суммаризации; пусто — модель сессии.",
+  "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.": "Свёртывает устаревшие результаты read/grep в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Выживают только помеченные (keep_result / keep:true) или самые свежие результаты.",
+  "Master switch for read/grep result eviction. Defaults to true.": "Главный выключатель вытеснения результатов read/grep. По умолчанию включено.",
+  "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none).": "Сколько самых свежих вытесняемых результатов остаются целыми как рабочее окно (по умолчанию 2 — достаточно для одновременных read и grep; 0 — не сохранять ничего).",
+  "Maximum concurrent scheduled agent runs.": "Максимум одновременных запусков агента по расписанию.",
+  "Job timeout": "Таймаут задания",
+  "Per-job wall-clock limit, e.g. 30m or 1h30m.": "Предельное время выполнения задания, например 30m или 1h30m.",
+  "Retain sessions": "Хранить сессий",
+  "How many completed scheduler session folders to keep per job id.": "Сколько папок завершённых сессий планировщика хранить на каждый идентификатор задания.",
+  "Prompt templates": "Шаблоны промптов",
+  "Built-in prompts": "Встроенные промпты",
+  "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].": "Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию [\"AGENTS.md\"].",
+  "Component levels": "Уровни компонентов",
+  "Raise or lower one subsystem on its own. A parent name covers what is nested under it (gateway reaches gateway.telegram), and the longest match wins.": "Повышает или понижает уровень одной подсистемы отдельно от остальных. Родительское имя покрывает вложенные (gateway действует и на gateway.telegram), побеждает самое длинное совпадение.",
+  "${FOXXYCODE_HOME}/logs/foxxycode.log": "${FOXXYCODE_HOME}/logs/foxxycode.log",
+  "${FOXXYCODE_HOME}/sessions": "${FOXXYCODE_HOME}/sessions",
+  "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
 };
 
 /**
@@ -702,6 +857,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   anthropic: "Anthropic",
   neuraldeep: "NeuralDeep",
   codex: "Codex",
+  devin: "Devin",
   // tools.permission_mode / mcp.project_trust / subagents.project_trust /
   // commands[].permission
   ask: "Спрашивать",
@@ -751,4 +907,9 @@ export const schemaEnumLabelRu: Record<string, string> = {
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",
+  brave: "Brave",
+  bing: "Bing",
+  ddg: "DuckDuckGo",
+  google: "Google",
+  searxng: "SearXNG",
 };

@@ -79,7 +79,7 @@ func TestLLMVisibleMessagesMatchesEngineWindow(t *testing.T) {
 // folded messages carry no flag — the ring never dropped after compaction.
 func TestBuildSystemPromptExcludesFoldedTurnsFromConversation(t *testing.T) {
 	a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
-	_ = a.buildSystemPrompt("agent", nil, nil, "", nil)
+	_ = a.buildSystemPrompt("agent", nil, nil, nil)
 
 	b := st.GetLastContextBreakdown()
 	if b == nil {
@@ -123,5 +123,34 @@ func TestRefreshConversationContextUsageMovesTextIntoSummary(t *testing.T) {
 	}
 	if b.EstimatedTotal != b.SystemPrompt+b.Conversation+b.Summary {
 		t.Fatalf("total not re-summed: %+v", b)
+	}
+}
+
+// The estimate a turn opens with is what usage_update reports before the first
+// model call and what the coddy trigger reads before the loop. It has to count
+// the turn context block the request will carry, the same way the loop counts it
+// from its first step; otherwise every turn opens ~50 tokens below the /stats
+// figure the previous turn left, and the number dips and climbs back.
+func TestTurnOpensWithTheEstimateItsFirstRequestCosts(t *testing.T) {
+	for _, mode := range []string{"agent", "plan"} {
+		t.Run(mode, func(t *testing.T) {
+			a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
+			build := a.buildSystemPromptParts(mode, nil, nil, nil)
+			opened := st.GetLastContextBreakdown()
+			if opened == nil {
+				t.Fatal("expected a context breakdown")
+			}
+			turnCtx := a.buildTurnContext(build)
+			if turnCtx == "" {
+				t.Fatal("a built-in template must carry a turn context block")
+			}
+
+			a.refreshContextBreakdown(build, turnCtx)
+			firstStep := st.GetLastContextBreakdown()
+			if opened.EstimatedTotal != firstStep.EstimatedTotal {
+				t.Fatalf("the turn opened at %d tokens and its first step costs %d: the turn context block is not counted from the start",
+					opened.EstimatedTotal, firstStep.EstimatedTotal)
+			}
+		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chromedp/chromedp"
 	"github.com/hijera/foxxycode-agent/internal/cmdprofile/cmdtest"
@@ -85,7 +86,13 @@ func saveMiniAppsScreenshot(t *testing.T, browserCtx context.Context, name strin
 		return
 	}
 	var shot []byte
-	if err := chromedp.Run(browserCtx, chromedp.FullScreenshot(&shot, 90)); err != nil {
+	if err := chromedp.Run(browserCtx,
+		chromedp.EmulateViewport(1280, 900),
+		chromedp.Evaluate(`(()=>{const page=document.querySelector('.miniapps-page');const panel=document.querySelector('.miniapps-commands');page.style.scrollBehavior='auto';page.scrollTo({top:page.scrollTop+panel.getBoundingClientRect().top-200,behavior:'instant'})})()`, nil),
+		chromedp.Poll(`document.querySelector('.miniapps-commands').getBoundingClientRect().bottom <= window.innerHeight`, nil),
+		chromedp.Sleep(100*time.Millisecond),
+		chromedp.CaptureScreenshot(&shot),
+	); err != nil {
 		t.Fatalf("screenshot %s: %v", name, err)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {

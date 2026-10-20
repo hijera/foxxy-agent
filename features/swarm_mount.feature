@@ -13,6 +13,11 @@ Feature: Driving one node through a relay
     Then the node received the path "/foxxycode/sessions"
     And the response comes from the node
 
+  Scenario: A page of a long transcript reaches the node with its window
+    When I call "/foxxycode/sessions/sess_long/messages?limit=60&before=3200" on node "nas02" with the client token
+    Then the node received the path "/foxxycode/sessions/sess_long/messages"
+    And the node received the query "before=3200&limit=60"
+
   Scenario: The relay presents the node's own credential, not the client's
     When I call "/foxxycode/sessions" on node "nas02" with the client token
     Then the node saw the authorization "Bearer node-secret"
@@ -32,3 +37,10 @@ Feature: Driving one node through a relay
   Scenario: A mount still needs the client token
     When I call "/foxxycode/sessions" on node "nas02" without any credential
     Then the request is rejected as unauthorized
+
+  Scenario: A browser hears the relay's CORS answer once, whatever the node says
+    Given the relay allows the browser origin "https://app.example"
+    And the node answers with CORS headers of its own
+    When a browser at "https://app.example" calls "/foxxycode/sessions" on node "nas02" with the client token
+    Then the response comes from the node
+    And the response allows the origin "https://app.example" exactly once

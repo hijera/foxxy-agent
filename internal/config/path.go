@@ -61,7 +61,7 @@ func ReadConfigPath(paths Paths, path string) (*ConfigPathValue, error) {
 	copy := cloneYAMLNode(node)
 	keys := configPathKeys(tokens)
 	redacted := false
-	if configSecretPath(keys) {
+	if configSecretPath(keys) && !publicConfigScalar(copy, keys) {
 		setRedactedNode(copy)
 		redacted = true
 	} else {
@@ -96,7 +96,7 @@ func readExistingConfigBytes(path string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("read config: %w", err)
 	}
-	return raw, true, nil
+	return normalizeConfigSource(raw), true, nil
 }
 
 func parseConfigDocument(raw []byte) (*yaml.Node, error) {
@@ -112,6 +112,9 @@ func parseConfigDocument(raw []byte) (*yaml.Node, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config root must be a mapping")
 	}
+	// A path names the current key, and a write renders it; the legacy `enabled`
+	// becomes that key here rather than a second one beside it.
+	normalizeSwitchAliases(root)
 	return &doc, nil
 }
 
@@ -484,7 +487,7 @@ func redactConfigNode(node *yaml.Node, path []string) bool {
 			key := node.Content[i].Value
 			value := node.Content[i+1]
 			nextPath := appendPath(path, key)
-			if configSecretPath(nextPath) {
+			if configSecretPath(nextPath) && !publicConfigScalar(value, nextPath) {
 				setRedactedNode(value)
 				redacted = true
 				continue
@@ -514,8 +517,14 @@ func configSecretPath(path []string) bool {
 		return false
 	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
+	// A key for a service of its own (tools.websearch.brave_api_key) is as much a
+	// credential as a provider's api_key.
+	if strings.HasSuffix(last, "_api_key") {
+		return true
+	}
 	switch last {
-	case "api_key", "api_key_command", "auth_token", "token", "proxy", "password", "secret":
+	case "api_key", "api_key_command", "auth_token", "token", "proxy", "password", "secret",
+		"pairing_token", "pairing_tokens", "lease_secret":
 		return true
 	case "value":
 		for _, part := range path[:len(path)-1] {
@@ -526,6 +535,22 @@ func configSecretPath(path []string) bool {
 		}
 	}
 	return strings.Contains(last, "password") || strings.HasSuffix(last, "_secret")
+}
+
+// publicConfigValue reports whether a value under a secret-shaped key is no
+// secret after all: a proxy that says inherit, none or nothing names a route,
+// not a credential, and a permission prompt or config_get shows it as it is.
+func publicConfigValue(path []string, value string) bool {
+	if len(path) == 0 || !strings.EqualFold(path[len(path)-1], "proxy") {
+		return false
+	}
+	v := strings.TrimSpace(value)
+	return v == "" || strings.EqualFold(v, ProxyInherit) || strings.EqualFold(v, ProxyNone)
+}
+
+// publicConfigScalar is publicConfigValue for a document node.
+func publicConfigScalar(node *yaml.Node, path []string) bool {
+	return node.Kind == yaml.ScalarNode && publicConfigValue(path, node.Value)
 }
 
 func setRedactedNode(node *yaml.Node) {

@@ -3,7 +3,7 @@ package agent
 // Wiring of operator hooks (internal/hooks) into the ReAct loop: the runner is
 // built per turn from the configured definition files, and executeToolCall
 // consults it before the permission gate and after the tool ran. See
-// docs/hooks.md and docs/plans/hooks.md.
+// docs/features/hooks.md and docs/plans/hooks.md.
 
 import (
 	"context"
@@ -53,6 +53,7 @@ func (a *Agent) buildHookRunner(mode string) *hooks.Runner {
 			Name:            a.subagent.Name,
 			ParentSessionID: a.subagent.ParentSessionID,
 			Depth:           a.subagent.Depth,
+			Kind:            a.subagent.Kind,
 		}
 	}
 	return &hooks.Runner{
@@ -370,6 +371,20 @@ func (a *Agent) hookContextBlock() string {
 		return ""
 	}
 	return "## Hook context\n\nThe operator's hooks handed over the following context.\n\n" + strings.Join(parts, "\n\n")
+}
+
+// surfaceBlock is the system prompt block the surface running this turn
+// contributed: a chat gateway describing the syntax its messenger renders, and
+// whatever the next integration needs to say about answering through it. It is
+// turn-scoped state on the session, set by the manager for the length of the
+// turn and never persisted, so the transcript does not record where an answer
+// was going.
+func (a *Agent) surfaceBlock() string {
+	st := sessionStatePtr(a.state)
+	if st == nil {
+		return ""
+	}
+	return strings.TrimSpace(st.GetSurfaceSystemPrompt())
 }
 
 func reasonOr(reason, fallback string) string {

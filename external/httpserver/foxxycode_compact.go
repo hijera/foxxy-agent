@@ -29,10 +29,20 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 	// An empty request body means "no extra instructions"; malformed JSON is an error.
 	var body struct {
 		Instructions string `json:"instructions"`
+		Model        string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
+	}
+	// A summarizer the body cannot name is refused like malformed JSON, before
+	// the session is admitted: no turn starts and none is announced for it.
+	// CompactSession resolves the name again against the config it runs with.
+	if model := strings.TrimSpace(body.Model); model != "" {
+		if _, err := s.activeCfg().MatchModelID(model); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+			return
+		}
 	}
 
 	st := s.mgr.SessionByID(id)
@@ -44,7 +54,6 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 		}
 		if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.sessionDefaultCWD(),
 		}); err != nil {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return
@@ -61,17 +70,33 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
+	// Admitted like a turn, not just locked: the clients watching this session
+	// (another browser tab, a console on --remote) learn from the turn edges on
+	// GET /foxxycode/events that it changed, and reload its smaller context stats.
+	turnCtx, finish, err := s.mgr.BeginSessionWork(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, session.ErrSessionTurnBusy) {
+		switch {
+		case errors.Is(err, session.ErrSessionTurnBusy):
 			writeSessionBusy(w, id, sessionBusyMessage)
-			return
+		case errors.Is(err, session.ErrSessionDeleting):
+			http.Error(w, `{"error":{"message":"session is being deleted"}}`, http.StatusConflict)
+		case errors.Is(err, session.ErrSessionGone):
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+		case isSubagentReadOnly(err):
+			// The guard above already answered for a child this handler
+			// resolved itself; this keeps the switch honest about every error
+			// admission can return, so the documented 409 does not turn into a
+			// 500 if the two ever drift apart.
+			writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
+		default:
+			s.log.Error("compact: turn admission", "session", id, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		}
-		s.log.Error("compact: turn lock", "session", id, "error", err)
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
-	defer unlock()
+	defer finish()
+	// The summary is a model call: its release refreshes the provider usage.
+	session.MarkTurnRan(turnCtx)
 
 	bridge := NewSender(s.activeCfg(), nil, false, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
@@ -79,7 +104,11 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 	ag.SetProviderFactory(s.agentProviderFactory)
 
 	// Manual trigger: force compaction (fold whatever exists, even a short chat).
-	res, err := ag.CompactSession(r.Context(), strings.TrimSpace(body.Instructions), true)
+	res, err := ag.CompactSession(turnCtx, agent.CompactOptions{
+		Instructions: strings.TrimSpace(body.Instructions),
+		Model:        strings.TrimSpace(body.Model),
+		Force:        true,
+	})
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case errors.Is(err, agent.ErrNothingToCompact):
@@ -88,7 +117,11 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 			"reason":    "nothing_to_compact",
 		})
 	case errors.Is(err, agent.ErrCompactionDisabled):
-		http.Error(w, `{"error":{"message":"compaction is disabled (compaction.enabled)"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"compaction is disabled (compaction.enable)"}}`, http.StatusBadRequest)
+	case errors.Is(err, agent.ErrCompactionModel):
+		// The summarizer asked for by name matches no configured model, or
+		// several: the caller's mistake, and nothing was compacted.
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 	case err != nil:
 		s.log.Error("compact: session compaction", "session", id, "error", err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
@@ -99,6 +132,9 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 			"compacted_messages": res.CompactedMessages,
 			"kept_messages":      res.KeptMessages,
 			"model":              res.Model,
+			// More than one when the history did not fit a single
+			// summarization request and was folded in passes.
+			"steps": res.Steps,
 		})
 	}
 }

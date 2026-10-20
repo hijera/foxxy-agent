@@ -26,3 +26,35 @@ Feature: Context compaction
     When the session is compacted keeping the last 2 user turns
     Then the ACP client receives a smaller context usage update
     And the reported ACP usage matches the compacted LLM context
+
+  Scenario: A history too large for one summarization request is folded in passes
+    Given a session with 4 completed exchanges
+    And the summarizer model has room for only part of the history per request
+    When the session is compacted keeping the last 2 user turns
+    Then the summarizer was called more than once
+    And every summarization request after the first carries the summary so far
+    And the compaction summary is inserted into the transcript
+    And the client was told the compaction was running
+
+  Scenario: The model compacts the session itself
+    Given a session with 4 completed exchanges
+    When the model calls the compact_context tool
+    Then the compaction summary is inserted into the transcript
+    And the tool result says what was compacted
+    And the LLM request after the tool call starts from the summary
+    And every tool result in that request answers a call the request carries
+
+  Scenario: The model compacts with the summarizer the user named
+    Given a session with 4 completed exchanges
+    And a second model "fake/summarizer-qwen" is configured
+    When the model calls the compact_context tool with the model "qwen"
+    Then the compaction summary is inserted into the transcript
+    And the summary was written by "fake/summarizer-qwen"
+    And the tool result names the summarizer "fake/summarizer-qwen"
+
+  Scenario: The model compacts in the first turn of a session
+    Given a session with 0 completed exchanges
+    When the model calls the compact_context tool
+    Then the compaction summary is inserted into the transcript
+    And the LLM request after the tool call starts from the summary
+    And every tool result in that request answers a call the request carries

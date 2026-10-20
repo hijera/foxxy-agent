@@ -17,6 +17,7 @@ type CatalogEntry struct {
 	Path        string     `json:"path,omitempty"`
 	Digest      string     `json:"digest,omitempty"`
 	Model       string     `json:"model,omitempty"`
+	Reasoning   string     `json:"reasoning,omitempty"`
 	Mode        string     `json:"mode,omitempty"`
 	Builtin     bool       `json:"builtin"`
 	Hidden      bool       `json:"hidden"`
@@ -59,6 +60,7 @@ func BuildCatalog(defs []*Definition, policy, workspace string, store *TrustStor
 			Path:          d.Path,
 			Digest:        d.Digest,
 			Model:         d.Model,
+			Reasoning:     d.Reasoning,
 			Mode:          d.Mode,
 			Builtin:       d.Builtin,
 			Hidden:        d.Hidden,
@@ -102,7 +104,7 @@ func PromptBlock(entries []CatalogEntry) string {
 	b.WriteString("pass the agent name and a prompt that carries everything the child needs, because it starts with an empty context and sees none of this conversation. ")
 	b.WriteString("Only its final report comes back to you; the user does not see it, so repeat what matters in your own reply. ")
 	b.WriteString("Delegate when the work would flood this context (a long investigation, reviewing several modules, researching several options) or when independent pieces can run in parallel with **`background: true`**; ")
-	b.WriteString("collect detached runs with **`background_wait`** or **`background_output`** and stop them with **`background_stop`**. Do not delegate a one-step task you can do directly.\n\n")
+	b.WriteString("detached runs wake you with their outcome by default where something can wake you - the call's result says whether it will - so you can end the turn while they work. Collect a result yourself with **`background_wait`** or **`background_output`**, or stop it with **`background_stop`**; those actions prevent a redundant wake. Do not delegate a one-step task you can do directly.\n\n")
 	b.WriteString("Available subagents:\n\n")
 	for _, e := range visible {
 		if e.NeedsApproval {
@@ -125,6 +127,9 @@ func WriteListing(w io.Writer, entries []CatalogEntry) {
 		}
 		if e.Model != "" {
 			flags = append(flags, "model="+e.Model)
+		}
+		if e.Reasoning != "" {
+			flags = append(flags, "reasoning="+e.Reasoning)
 		}
 		if e.Mode != "" {
 			flags = append(flags, "mode="+e.Mode)

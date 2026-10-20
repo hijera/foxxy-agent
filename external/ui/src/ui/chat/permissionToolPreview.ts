@@ -4,6 +4,7 @@ import {
   browserActionLabel,
   isBrowserToolName,
 } from "../messages/browserActionDisplay";
+import { readsADirectory } from "../messages/toolDisplayName";
 import {
   flattenDiffLines,
   parseDiffPatch,
@@ -13,6 +14,11 @@ import { buildTodoToolPreview, type TodoPlanEntry } from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
+import { parseLoadSkillName } from "./loadSkillDisplay";
+import {
+  parseMcpToolName,
+  toolDisplayName,
+} from "../messages/toolDisplayName";
 
 export type PermissionToolCallContext = {
   title?: string | undefined;
@@ -34,6 +40,8 @@ export type PermissionToolPreview =
   | (PermissionPreviewBase & { kind: "svn"; argsText: string })
   | (PermissionPreviewBase & { kind: "browser"; argsText: string })
   | (PermissionPreviewBase & { kind: "code"; text: string })
+  | (PermissionPreviewBase & { kind: "shell"; text: string })
+  | (PermissionPreviewBase & { kind: "action" })
   | (PermissionPreviewBase & { kind: "path" })
   | (PermissionPreviewBase & {
       kind: "move";
@@ -94,6 +102,33 @@ function stringArg(args: Record<string, unknown>, ...names: string[]): string {
   return "";
 }
 
+/** Longest argument value that still reads as a label on a row rather than as a body. */
+const MAX_LABEL_ARG_CHARS = 120;
+
+/**
+ * The first argument of a call that reads as a label: a non-empty single-line string
+ * short enough for the row. Arguments are taken in the order the model wrote them, so
+ * the leading one wins, which is where a tool puts what it acts on.
+ */
+function firstLabelArg(args: Record<string, unknown>): string {
+  for (const value of Object.values(args)) {
+    if (typeof value !== "string" || /[\r\n]/.test(value)) continue;
+    const label = value.trim();
+    if (label !== "" && label.length <= MAX_LABEL_ARG_CHARS) return label;
+  }
+  return "";
+}
+
+/** A repeated string argument, e.g. the uci commands `config_set` stages. */
+function stringListArg(args: Record<string, unknown>, name: string): string[] {
+  const value = args[name];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+}
+
 function boolArg(
   args: Record<string, unknown>,
   name: string,
@@ -133,6 +168,10 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
   if (!args) {
     return "";
   }
+  // Every scheduler tool acts on, or reads, one job.
+  if (toolName.startsWith("foxxycode_scheduler_")) {
+    return stringArg(args, "job_id");
+  }
   switch (toolName) {
     case "run_command":
     case "ssh_run_command":
@@ -141,17 +180,134 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
     case "glob":
       return stringArg(args, "pattern");
     case "websearch":
+    case "foxxycode_docs_search":
       return stringArg(args, "query");
+    case "foxxycode_docs_read":
+      // A page of the documentation built into the binary, with its section.
+      return stringArg(args, "page");
+    case "http_request": {
+      // The method is half of what a request does; the url alone reads like a fetch.
+      const method = stringArg(args, "method").toUpperCase();
+      const url = stringArg(args, "url");
+      return method && url ? method + " " + url : url;
+    }
     case "mv":
       return stringArg(args, "src");
     case "spawn_agent":
       return stringArg(args, "agent");
+    case "load_skill":
+      // Same spelling as the preview header: no leading slash, however it was called.
+      return parseLoadSkillName(context.argsText);
     case "question":
       return "";
-    default:
-      // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / list_dir /
-      // print_tree / docs_* / plan_* take a path; browser and webfetch take a url.
-      return stringArg(args, "path", "filePath", "file_path", "url", "name");
+    case "session_describe":
+      // The new name, when the call carries one; filing that only moves tags
+      // has no target worth a row's width.
+      return stringArg(args, "title");
+    case "config_set":
+      // Staged uci commands are what the call is about, the way a command is for
+      // run_command. One row, so they read as a list rather than as lines.
+      return stringListArg(args, "commands").join(", ");
+    default: {
+      // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
+      // plan_* take a path; webfetch takes a url; config_get and config_revert take a
+      // dotted config key.
+      const known = stringArg(
+        args,
+        "path",
+        "filePath",
+        "file_path",
+        "url",
+        "name",
+      );
+      if (known || !parseMcpToolName(toolName)) return known;
+      // An MCP server names its own arguments, so a call taking none of the above
+      // would show nothing at all beside a label that cannot say what it does. The
+      // first argument that reads as a label is what such a call is about. Only for
+      // those: a FoxxyCode tool landing here keeps naming the argument it is documented
+      // to take, so a write without its path never shows the file body instead.
+      return firstLabelArg(args);
+    }
+  }
+}
+
+/**
+ * The lines a file read takes, spelled the way a mention writes a range: ":120-180"
+ * for a 1-based inclusive window (`read` takes a 1-based `offset` and a line count
+ * `limit`), ":1-40" for a limit alone, ":120-" for an offset that reads to the end
+ * of the file. Returns "" for a read of the whole file, of a directory, and for
+ * every other tool:
+ * an offset of `foxxycode_docs_read` or `keep_result` is not a line of the path the
+ * row names. Kept apart from `toolCallTargetText`, which stays the path alone for
+ * the live status line and for `relativeToolTarget`.
+ */
+export function toolCallTargetRange(context: PermissionToolCallContext): string {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  // A listing has no lines: the tool ignores offset and limit on a directory,
+  // and the row calls it one on the same evidence (toolDisplayName).
+  if (toolName !== "read" || readsADirectory(context.argsText)) return "";
+  const args = parseArgsText(context.argsText || "");
+  if (!args) return "";
+  // Only a whole number is a line: the tool refuses a call that passes
+  // anything else, so such a call names no range at all.
+  const lineArg = (name: string): number | null => {
+    const value = args[name];
+    if (value === undefined || value === null) return 0;
+    return typeof value === "number" && Number.isInteger(value) ? value : null;
+  };
+  const offset = lineArg("offset");
+  const limit = lineArg("limit");
+  if (offset === null || limit === null) return "";
+  // An offset below 1 reads from the first line, as the tool does.
+  const start = Math.max(1, offset);
+  if (limit > 0) return `:${start}-${start + limit - 1}`;
+  return start > 1 ? `:${start}-` : "";
+}
+
+/** Argument names whose value is a filesystem path rather than a url or a name. */
+const PATH_ARGS = ["path", "filePath", "file_path", "src"];
+
+/**
+ * Whether the target of this call is a filesystem path, so a row may spell it
+ * relative to the session's directory (see `relativeToolTarget`). A command, a
+ * search pattern, a url, a skill or an agent name is not one, and rewriting it
+ * against a directory would say something the call never meant.
+ */
+export function toolCallTargetIsPath(
+  context: PermissionToolCallContext,
+): boolean {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+    case "grep":
+    case "glob":
+    case "websearch":
+    case "webfetch":
+    case "http_request":
+    case "foxxycode_docs_search":
+    case "foxxycode_docs_read":
+    case "spawn_agent":
+    case "load_skill":
+    case "question":
+    case "config_get":
+    case "config_set":
+    case "config_revert":
+      // A dotted config key looks like nothing on disk; respelling it against the
+      // session directory would say something the call never meant.
+      return false;
+    default: {
+      const args = parseArgsText(context.argsText || "");
+      return !!args && stringArg(args, ...PATH_ARGS) !== "";
+    }
   }
 }
 
@@ -182,6 +338,8 @@ function questionForTool(
         : t("prompts.permissionQuestion.rm");
     case "rmdir":
       return t("prompts.permissionQuestion.rmdir");
+    case "http_request":
+      return t("prompts.permissionQuestion.httpRequest");
     default:
       return t("prompts.permissionQuestion.fallback");
   }
@@ -252,6 +410,19 @@ function diffMeta(lines: ParsedDiffLine[]): string[] {
   const additions = lines.filter((line) => line.kind === "add").length;
   const deletions = lines.filter((line) => line.kind === "del").length;
   return ["+" + additions, "−" + deletions];
+}
+
+/**
+ * Whether a preview body carries nothing but an empty argument object. Decided on the
+ * parsed value, so `{ }` and a pretty-printed `{\n}` count as empty too, while text that
+ * does not parse - a truncated history preview, an ACP rationale - stays a body worth
+ * showing rather than being mistaken for a call without arguments.
+ */
+function isEmptyArgsText(text: string): boolean {
+  const raw = text.trim();
+  if (raw === "") return true;
+  const parsed = parseArgsText(raw);
+  return parsed !== null && Object.keys(parsed).length === 0;
 }
 
 /** Tool-specific, render-ready preview shared by permission gates and transcript foldouts. */
@@ -366,8 +537,79 @@ export function buildToolCallPreview(
           : t("prompts.permissionHeader.shell"),
       meta: [t("prompts.permissionMeta.timeout", { seconds: timeout })],
       copyText: command,
-      kind: "code",
+      kind: "shell",
       text: command,
+    };
+  }
+
+  if (normalized === "load_skill") {
+    // The skill is what the call is about, and the transcript row already names it next
+    // to the label; a `{"name": "..."}` code block would only repeat it.
+    const skill = parseLoadSkillName(context.argsText);
+    return {
+      toolName,
+      title,
+      header: skill,
+      meta: [],
+      copyText: skill,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "websearch" || normalized === "webfetch") {
+    // The query and the url are the whole of the call; a `{"query": "..."}` block
+    // beside a row that already shows it is punctuation, not information.
+    const subject = stringArg(args, "query", "url");
+    const meta: string[] = [];
+    if (normalized === "websearch") {
+      // Every parameter the search ran with, defaults included, so the header
+      // says what was asked for without opening the arguments: the tool starts
+      // at page 1 and returns 15 rows, never more than 25.
+      const page = Math.max(1, numberArg(args, "page", 1));
+      meta.push(t("prompts.permissionMeta.page", { page }));
+      const requested = numberArg(args, "max_results", 0);
+      const maxResults = requested > 0 ? Math.min(requested, 25) : 15;
+      meta.push(t("prompts.permissionMeta.maxResults", { count: maxResults }));
+      const site = stringArg(args, "site");
+      if (site) meta.push(t("prompts.permissionMeta.site", { site }));
+    }
+    return {
+      toolName,
+      title,
+      header: subject,
+      meta,
+      copyText: subject,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_get" || normalized === "config_revert") {
+    // The dotted key is the whole of the call and the row already names it, so a
+    // `{"path": "..."}` block would only repeat it - same reasoning as load_skill.
+    const key = stringArg(args, "path");
+    return {
+      toolName,
+      title,
+      header: key,
+      meta: [],
+      copyText: key,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_set") {
+    // Staged edits are uci command lines. Read as lines they are a command block
+    // like a shell call; read as a JSON array of strings they are punctuation.
+    const commands = stringListArg(args, "commands");
+    const text = commands.join("\n");
+    return {
+      toolName,
+      title,
+      header: "",
+      meta: [],
+      copyText: text,
+      kind: "code",
+      text,
     };
   }
 
@@ -559,6 +801,18 @@ export function buildToolCallPreview(
   const text =
     fallback ||
     (Object.keys(args).length > 0 ? JSON.stringify(args, null, 2) : "");
+  // A call that takes no input has nothing to preview, and an empty JSON object is not
+  // information. Name the action instead, the way plan_exit names its transition.
+  if (Object.keys(args).length === 0 && isEmptyArgsText(text)) {
+    return {
+      toolName,
+      title,
+      header: toolDisplayName(toolName),
+      meta: [],
+      copyText: "",
+      kind: "action",
+    };
+  }
   return {
     toolName,
     title,

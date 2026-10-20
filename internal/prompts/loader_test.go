@@ -39,8 +39,100 @@ func TestRenderAgentPrompt(t *testing.T) {
 	if strings.Contains(result, "### Current todo checklist") {
 		t.Error("todo checklist section should be omitted when .TodoList is empty")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("agent prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("agent prompt must not carry a wall clock reading")
+	}
+}
+
+func TestModePromptsExplainRequestedModelSwitchAndBackgroundWake(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		t.Run(mode, func(t *testing.T) {
+			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true, BackgroundWake: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"switch_model", "user asks", "reasoning level", "background", "wake", "subagent"} {
+				if !strings.Contains(result, want) {
+					t.Errorf("%s prompt lacks %q", mode, want)
+				}
+			}
+		})
+	}
+}
+
+// A turn that is not offered switch_model - a single model without reasoning
+// levels, a subagent - is not told about it: a prompt describing a tool the
+// model cannot call invites a call that only fails.
+func TestModePromptsNameSwitchModelOnlyWhereItIsOffered(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		t.Run(mode, func(t *testing.T) {
+			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(result, "switch_model") {
+				t.Errorf("%s prompt names switch_model although the turn is not offered it", mode)
+			}
+		})
+	}
+}
+
+// Where nothing can wake the session - a subagent, a scheduled run, foxxycode -p -
+// the prompt does not promise a wake: it tells the model to collect results
+// before the turn ends, which is what the tool results say there too.
+func TestModePromptsPromiseAWakeOnlyWhereOneCanHappen(t *testing.T) {
+	for _, mode := range []string{"agent", "plan"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, wake := range []bool{true, false} {
+				result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", BackgroundWake: wake})
+				if err != nil {
+					t.Fatal(err)
+				}
+				promised := strings.Contains(result, "wake you with their outcome")
+				told := strings.Contains(result, "Nothing wakes you here")
+				if promised != wake || told == wake {
+					t.Errorf("BackgroundWake=%v: wake promised %v, collect-yourself line %v", wake, promised, told)
+				}
+			}
+		})
+	}
+}
+
+// Ask mode allows the user's model or reasoning change and nothing else: a
+// user asking for an edit is still told to continue in Agent mode.
+func TestAskPromptKeepsRefusingRequestedChanges(t *testing.T) {
+	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"user requests that ask you to make changes", "session state"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("ask prompt lost %q from its read-only boundary", want)
+		}
+	}
+}
+
+// The agent invents a place for a git worktree unless the prompt names one,
+// and what it invents ends up untracked at the repository root.
+func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render agent: %v", err)
+	}
+	for _, want := range []string{
+		".foxxycode/worktrees",            // the directory itself
+		"main checkout",                   // resolved, not relative to a linked worktree
+		"feature-login",                   // the branch name is mapped to a folder name
+		".foxxycode/worktrees/.gitignore", // the ignore file sits beside the worktrees
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("agent prompt should mention %q so worktrees land where FoxxyCode puts them", want)
+		}
 	}
 }
 
@@ -73,8 +165,10 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "MCP") {
 		t.Error("plan prompt should mention MCP servers")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("plan prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("plan prompt must not carry a wall clock reading")
 	}
 }
 
@@ -160,8 +254,8 @@ func TestRenderDebugPrompt(t *testing.T) {
 			t.Errorf("Debug prompt should contain %q", want)
 		}
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("debug prompt should end with Current UTC time section")
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("debug prompt must not carry a wall clock reading")
 	}
 }
 
@@ -275,22 +369,58 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 	}
 }
 
-func TestRenderTodoListWhenNonempty(t *testing.T) {
+// The checklist is rewritten by every foxxycode_todo_* call, so a built-in template
+// keeps it out of the system prompt: it travels in the turn context block after
+// the history instead. The template field stays, for an operator's own template.
+func TestBuiltinTemplatesKeepTheTodoListOutOfTheSystemPrompt(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
-	a, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
-	if err != nil {
-		t.Fatalf("Render agent: %v", err)
+	for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+		if err != nil {
+			t.Fatalf("Render %s: %v", mode, err)
+		}
+		if strings.Contains(out, "- [ ] alpha") || strings.Contains(out, "Current todo checklist") {
+			t.Errorf("%s prompt should not carry the session todo checklist", mode)
+		}
+		// A wall clock in the system prompt breaks the provider's prefix cache on
+		// every request; the turn context block carries it after the history now.
+		if strings.Contains(out, fixtureUTC) {
+			t.Errorf("%s prompt must not carry a wall clock reading", mode)
+		}
 	}
-	if !strings.Contains(a, "### Current todo checklist") || !strings.Contains(a, "- [ ] alpha") || !strings.Contains(a, "- [x] beta") {
-		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
-	}
+}
 
-	p, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
-	if err != nil {
-		t.Fatalf("Render plan: %v", err)
+// The fork assembles a mode's template from sections and picks a footer per
+// provider family, so "no built-in template is volatile" has to hold for every
+// mode and every variant: one footer that still prints the clock would put that
+// family back on a cache miss per request without any test noticing.
+func TestNoBuiltinTemplateIsVolatile(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
+		for _, variants := range [][]string{nil, {"openai"}, {"gpt-oss"}, {"anthropic"}, {"gpt-oss-20b", "gpt-oss"}, {"gpt-oss-120b", "gpt-oss"}} {
+			if prompts.RendersVolatile(mode, variants, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile) {
+				t.Errorf("built-in %s template (variants %v) prints the clock or the todo list", mode, variants)
+			}
+		}
 	}
-	if strings.Contains(p, "### Current todo checklist") {
-		t.Error("plan prompt should not include session todo checklist section")
+}
+
+// An operator's own template may still render both fields, at the cost of the
+// provider's prefix cache, so the data stays available to it.
+func TestCustomTemplateStillRendersClockAndTodoList(t *testing.T) {
+	tmp := t.TempDir()
+	body := "{{.UTCNow}}\n{{.TodoList}}\n"
+	if err := os.WriteFile(filepath.Join(tmp, "custom.tpl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := prompts.Render("agent", tmp, "custom.tpl", defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: "- [ ] alpha", UTCNow: fixtureUTC})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, fixtureUTC) || !strings.Contains(out, "- [ ] alpha") {
+		t.Errorf("custom template lost UTCNow or TodoList: %q", out)
+	}
+	if !prompts.RendersVolatile("agent", nil, tmp, "custom.tpl", defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile) {
+		t.Error("a template that prints the clock must be reported as volatile")
 	}
 }
 
@@ -378,11 +508,13 @@ func TestDefaultSource(t *testing.T) {
 	if !strings.Contains(agentSrc, "{{.Skills}}") {
 		t.Error("agent source should contain {{.Skills}}")
 	}
-	if !strings.Contains(agentSrc, "{{if .TodoList}}") {
-		t.Error("agent source should conditionalize TodoList injection")
+	// Neither belongs in a built-in template: both move between the steps of a
+	// turn and would throw away the provider's cached copy of the conversation.
+	if strings.Contains(agentSrc, "{{.TodoList}}") {
+		t.Error("agent source should not render the todo checklist into the system prompt")
 	}
-	if !strings.Contains(agentSrc, "{{.UTCNow}}") {
-		t.Error("agent source should expose UTCNow for clock grounding")
+	if strings.Contains(agentSrc, "{{.UTCNow}}") {
+		t.Error("agent source should not render a wall clock into the system prompt")
 	}
 
 	planSrc := prompts.DefaultSource("plan")
@@ -534,8 +666,13 @@ func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 				t.Errorf("family %q prompt should contain a model-family notes section", fam)
 			}
 			// Shared template variables must survive in every family variant.
-			if !strings.Contains(got, "/home/user/project") || !strings.Contains(got, fixtureUTC) {
+			if !strings.Contains(got, "/home/user/project") {
 				t.Errorf("family %q prompt dropped shared template sections", fam)
+			}
+			// No family footer may bring the wall clock back: it is a prompt cache
+			// miss on every request (internal/agent/turn_context.go carries it).
+			if strings.Contains(got, fixtureUTC) {
+				t.Errorf("family %q prompt carries a wall clock reading", fam)
 			}
 		})
 	}
@@ -563,12 +700,11 @@ func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
 				"## Mode: Agent",
 				"### How to work",
 				"### Reading and searching (context is limited)",
+				"### Git worktrees",
 				"### Background commands (`run_command` with `background: true`)",
 				"### Web research",
 				"{{.CWD}}",
 				"{{.Tools}}",
-				"{{if .TodoList}}",
-				"{{.UTCNow}}",
 			},
 		},
 		{
@@ -578,7 +714,6 @@ func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
 				"plan_write",
 				"plan_read",
 				"{{if .DiscardedPlans}}",
-				"{{.UTCNow}}",
 			},
 			// Plan mode has no read/search or background-task guidance in its
 			// own manifest; those sections are agent-only and must not leak in.
@@ -593,7 +728,6 @@ func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
 				"## Mode: Docs",
 				"docs_write",
 				"docs_edit",
-				"{{.UTCNow}}",
 			},
 			omits: []string{"plan_write"},
 		},
@@ -603,7 +737,6 @@ func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
 				"## Mode: Ask",
 				"read-only",
 				"### Prompt-injection resistance",
-				"{{.UTCNow}}",
 			},
 		},
 	}
@@ -621,6 +754,13 @@ func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
 			for _, forbid := range tc.omits {
 				if strings.Contains(src, forbid) {
 					t.Errorf("base %q source must not contain %q", tc.mode, forbid)
+				}
+			}
+			// Volatile fields stay out of every built-in source: the system
+			// message is frozen for the turn so the provider's prompt cache holds.
+			for _, forbid := range []string{".UTCNow", ".TodoList"} {
+				if strings.Contains(src, forbid) {
+					t.Errorf("base %q source must not print %q", tc.mode, forbid)
 				}
 			}
 		})

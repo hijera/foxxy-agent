@@ -6,8 +6,6 @@ package remote
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -42,13 +40,16 @@ type Handler struct {
 	hc   *http.Client
 	log  *slog.Logger
 
-	mu        sync.Mutex
-	sender    acp.UpdateSender
-	sessions  map[string]*sessionState
-	preferred string
-	models    []remoteModel
-	profiles  []string
-	defModel  string
+	mu          sync.Mutex
+	sender      acp.UpdateSender
+	sessions    map[string]*sessionState
+	preferred   string
+	models      []remoteModel
+	profiles    []string
+	defModel    string
+	controlCtx  context.Context
+	controlStop context.CancelFunc
+	activitySeq uint64
 
 	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
 	cancelWG sync.WaitGroup
@@ -56,22 +57,55 @@ type Handler struct {
 	// usageState caches which providers the server reported as having no
 	// usage source (usage.go).
 	usageState
+
+	// eventsState is the background subscription to the server's event stream
+	// (events.go), which is how this client hears about a shared session.
+	eventsState
+
+	// detachedPromptsState holds the permission prompts of background
+	// subagents the server announced on that stream (detached_prompts.go).
+	detachedPromptsState
+
+	// followState is the woken turns this client follows on the composer
+	// relay (follow.go).
+	followState
 }
 
 type sessionState struct {
-	mode          string
-	modelID       string
-	pendingReplay []messageRow
-	// turnCancel aborts the in-flight turn's stream; turnCancelled records
-	// that the cancel targeted that turn (never a later one).
-	turnCancel    context.CancelFunc
-	turnCancelled bool
+	mode      string
+	modelID   string
+	reasoning string
+	// permissionMode mirrors the server session's permission mode, and
+	// settingsVersion the last settings snapshot adopted (settings.go).
+	permissionMode  string
+	settingsVersion uint64
+	// pendingSettings are changes held for a session the server has not
+	// created yet; they ride in at the start of its first prompt.
+	pendingSettings  []session.SettingsChange
+	pendingReplay    []messageRow
+	turn             *remoteTurn
+	activityRevision uint64
+	queue            queueOrder
+	// historyRev is the messagesRev of the transcript this client loaded, and
+	// historyLoaded whether it loaded one (follow.go).
+	historyRev    uint64
+	historyLoaded bool
+}
+
+// remoteTurn is the identity of one locally admitted request, not the server's
+// activity: a browser-owned turn has no local request or cancellation hook.
+type remoteTurn struct {
+	cancel    context.CancelFunc
+	cancelled bool
+	sender    acp.UpdateSender
 }
 
 type remoteModel struct {
-	ID         string
-	OwnedBy    string
-	Multimodal bool
+	ID               string
+	OwnedBy          string
+	Multimodal       bool
+	ReasoningLevels  []string
+	ReasoningDefault string
 }
 
 // NewHandler validates options and returns a disconnected handler; the first
@@ -90,11 +124,14 @@ func NewHandler(opts Options) (*Handler, error) {
 	if hc == nil {
 		hc = &http.Client{}
 	}
+	controlCtx, controlStop := context.WithCancel(context.Background())
 	return &Handler{
-		opts:     opts,
-		hc:       hc,
-		log:      log,
-		sessions: map[string]*sessionState{},
+		opts:        opts,
+		hc:          hc,
+		log:         log,
+		sessions:    map[string]*sessionState{},
+		controlCtx:  controlCtx,
+		controlStop: controlStop,
 	}, nil
 }
 
@@ -122,19 +159,25 @@ func (h *Handler) session(id string) *sessionState {
 }
 
 // beginTurn registers the cancel hook for one in-flight turn.
-func (h *Handler) beginTurn(st *sessionState, cancel context.CancelFunc) {
+func (h *Handler) beginTurn(st *sessionState, cancel context.CancelFunc, sender acp.UpdateSender) (*remoteTurn, error) {
 	h.mu.Lock()
-	st.turnCancel = cancel
-	st.turnCancelled = false
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	if st.turn != nil {
+		return nil, fmt.Errorf("remote foxxycode: the session is busy (another local request is running)")
+	}
+	turn := &remoteTurn{cancel: cancel, sender: sender}
+	st.turn = turn
+	return turn, nil
 }
 
 // endTurn drops the cancel hook and reports whether the turn was cancelled.
-func (h *Handler) endTurn(st *sessionState) bool {
+func (h *Handler) endTurn(st *sessionState, turn *remoteTurn) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	st.turnCancel = nil
-	return st.turnCancelled
+	if st.turn == turn {
+		st.turn = nil
+	}
+	return turn.cancelled
 }
 
 // rememberEffectiveModel records the model the server reports for a turn so
@@ -153,22 +196,6 @@ func (h *Handler) currentSender() acp.UpdateSender {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.sender
-}
-
-// randRead is indirected so tests can exercise the entropy-failure path;
-// production always uses crypto/rand.
-var randRead = rand.Read
-
-// newRemoteSessionID mints a client-side session id; the server pins the
-// bundle under this exact id on the first prompt (EnsureHTTPSession).
-// Entropy failure is returned as an error rather than panicked on, so one
-// unlucky session/new cannot take down the handler.
-func newRemoteSessionID() (string, error) {
-	var buf [16]byte
-	if _, err := randRead(buf[:]); err != nil {
-		return "", fmt.Errorf("remote: session id entropy: %w", err)
-	}
-	return "sess_" + hex.EncodeToString(buf[:]), nil
 }
 
 // ---- acp.Handler ----
@@ -207,8 +234,10 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	id := preferred
 	if id == "" {
+		// The same shape every session carries; the server pins the bundle
+		// under this exact id on the first prompt (EnsureHTTPSession).
 		var err error
-		if id, err = newRemoteSessionID(); err != nil {
+		if id, err = session.NewSessionID(); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
 	} else if err := session.ValidateFolderSessionID(id); err != nil {
@@ -219,21 +248,18 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if preferred != "" {
 		msgs, err := h.sessionMessages(ctx, id)
 		switch {
-		case isNotFound(err) && session.IsSubagentSessionID(id):
-			// The sub_ prefix belongs to subagent child sessions; an unknown
-			// one cannot be minted remotely any more than locally.
-			h.forget(id)
-			return nil, fmt.Errorf("session/new: %w: %s", session.ErrReservedSessionID, id)
 		case isNotFound(err):
 			// no such session remotely: a fresh one starts under this id
 		case err != nil:
 			return nil, fmt.Errorf("session/new: reopen %s: %w", id, err)
-		case len(msgs.Messages) > 0:
+		case err == nil:
 			h.mu.Lock()
 			st.pendingReplay = msgs.Messages
+			st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 			if msgs.SelectedModelID != "" {
 				st.modelID = msgs.SelectedModelID
 			}
+			st.reasoning = msgs.SelectedReasoning
 			if msgs.Mode != "" {
 				st.mode = msgs.Mode
 			}
@@ -242,6 +268,8 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	h.log.Info("remote session created", "id", id, "remote", h.opts.BaseURL)
+	// A reopened session may have a background subagent already waiting.
+	h.offerDetachedPromptsFor(id)
 	return &acp.SessionNewResult{
 		SessionID:     id,
 		Modes:         h.modeState(st),
@@ -264,11 +292,16 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if msgs.SelectedModelID != "" {
 		st.modelID = msgs.SelectedModelID
 	}
+	st.reasoning = msgs.SelectedReasoning
 	if msgs.Mode != "" {
 		st.mode = msgs.Mode
 	}
+	st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 	h.mu.Unlock()
 	h.replayMessages(id, msgs.Messages)
+	// A background subagent of this session may have asked before the console
+	// opened it; the server announced that prompt then, and it is shown now.
+	h.offerDetachedPromptsFor(id)
 	return &acp.SessionLoadResult{
 		Modes:         h.modeState(st),
 		ConfigOptions: h.configOptions(st),
@@ -283,7 +316,11 @@ func (h *Handler) HandleSessionList(ctx context.Context, params acp.SessionListP
 	if params.Cursor != nil {
 		cursor = *params.Cursor
 	}
-	res, err := h.listSessions(ctx, cursor)
+	cwd := ""
+	if params.CWD != nil {
+		cwd = strings.TrimSpace(*params.CWD)
+	}
+	res, err := h.listSessions(ctx, cursor, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -335,8 +372,9 @@ func (h *Handler) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	return nil
 }
 
-// HandleSessionSetConfigOption adjusts mode or model. The permission mode is
-// governed by the remote server's configuration and cannot be set here.
+// HandleSessionSetConfigOption adjusts mode, model, reasoning or the
+// permission mode; the last goes through the server's setter like its
+// browser's.
 func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
 	st := h.session(params.SessionID)
 	switch params.ConfigID {
@@ -376,37 +414,100 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 			})
 		}
 		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
+	case "reasoning":
+		if err := h.ensureModels(ctx); err != nil {
+			return nil, err
+		}
+		value := strings.TrimSpace(params.Value)
+		h.mu.Lock()
+		modelID := st.modelID
+		if modelID == "" {
+			modelID = h.defModel
+		}
+		var levels []string
+		for _, model := range h.models {
+			if model.ID == modelID {
+				levels = model.ReasoningLevels
+				break
+			}
+		}
+		h.mu.Unlock()
+		if len(levels) == 0 {
+			return nil, fmt.Errorf("reasoning is not available for model %q", modelID)
+		}
+		if value != "" {
+			known := false
+			for _, level := range levels {
+				if level == value {
+					known = true
+					break
+				}
+			}
+			if !known {
+				return nil, fmt.Errorf("unknown reasoning value: %q", value)
+			}
+		}
+		if err := h.patchSelectedReasoning(ctx, params.SessionID, value); err != nil && !isNotFound(err) {
+			return nil, err
+		}
+		h.mu.Lock()
+		st.reasoning = value
+		h.mu.Unlock()
+		if sender := h.currentSender(); sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.ConfigOptionUpdate{
+				SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
+				ConfigOptions: h.configOptions(st),
+			})
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
 	case "permission_mode":
-		return nil, fmt.Errorf("permission mode is managed by the remote server configuration")
+		// The server's own setter decides, as it does for its browser.
+		value := params.Value
+		if _, err := h.ApplySessionSettings(ctx, params.SessionID, session.SettingsChange{PermissionMode: &value, Source: "remote"}); err != nil {
+			return nil, err
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
 	default:
 		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
 	}
 }
 
-// HandleSessionCancel cancels the in-flight turn: it aborts the local stream
-// (which also unblocks a pending permission or question modal) and asks the
-// remote server to stop the detached turn. A cancel with no turn running is
-// forwarded to the server only, so it can never poison a later turn.
+// HandleSessionCancel asks the server to stop, then aborts only the matching
+// local request after acknowledgement. A failure leaves that request readable
+// and reports an error to the surface so Stop remains retryable.
 func (h *Handler) HandleSessionCancel(params acp.SessionCancelParams) {
 	st := h.session(params.SessionID)
 	h.mu.Lock()
-	cancel := st.turnCancel
-	if cancel != nil {
-		st.turnCancelled = true
+	turn := st.turn
+	sender := h.sender
+	if turn != nil {
+		sender = turn.sender
 	}
 	h.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 	// The server-side cancel is posted off the caller's goroutine (a key
 	// handler must not wait on the network), but tracked, so a surface that
 	// is about to exit can wait for it with WaitCancels.
 	h.cancelWG.Add(1)
 	go func() {
 		defer h.cancelWG.Done()
-		if err := h.cancelSession(context.Background(), params.SessionID); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.cancelSession(ctx, params.SessionID); err != nil {
 			h.log.Warn("remote cancel", "session", params.SessionID, "error", err)
+			sendCancelUpdate(sender, params.SessionID, CancelUpdate{Error: err.Error()})
+			return
 		}
+		h.mu.Lock()
+		matching := turn != nil && st.turn == turn
+		if matching {
+			turn.cancelled = true
+		}
+		h.mu.Unlock()
+		if matching {
+			turn.cancel()
+		}
+		sendCancelUpdate(sender, params.SessionID, CancelUpdate{})
+		h.RefreshSessionState(params.SessionID)
 	}()
 }
 
@@ -427,19 +528,13 @@ func (h *Handler) WaitCancels(d time.Duration) {
 	}
 }
 
-// forget drops the client-side state of a session that never came to be.
-func (h *Handler) forget(id string) {
-	h.mu.Lock()
-	delete(h.sessions, id)
-	h.mu.Unlock()
-}
-
 // ---- session.Manager extras used by the console surface ----
 
 // HandleSessionReady flushes the deferred reopen replay and publishes the
 // remote slash command catalog.
 func (h *Handler) HandleSessionReady(sessionID string) {
 	st := h.session(sessionID)
+	h.RefreshSessionState(sessionID)
 	h.mu.Lock()
 	replay := st.pendingReplay
 	st.pendingReplay = nil
@@ -539,6 +634,7 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 	h.mu.Lock()
 	mode := st.mode
 	current := st.modelID
+	reasoning := st.reasoning
 	models := h.models
 	if current == "" {
 		current = h.defModel
@@ -572,7 +668,41 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		CurrentValue: current,
 		Options:      values,
 	})
+	for _, model := range models {
+		if model.ID != current || len(model.ReasoningLevels) == 0 {
+			continue
+		}
+		currentReasoning := ""
+		if hasReasoningLevel(model.ReasoningLevels, reasoning) {
+			currentReasoning = reasoning
+		} else if hasReasoningLevel(model.ReasoningLevels, model.ReasoningDefault) {
+			currentReasoning = model.ReasoningDefault
+		}
+		reasoningValues := make([]acp.ConfigOptionValue, 0, len(model.ReasoningLevels))
+		for _, level := range model.ReasoningLevels {
+			reasoningValues = append(reasoningValues, acp.ConfigOptionValue{Value: level, Name: level})
+		}
+		out = append(out, acp.ConfigOption{
+			ID:           "reasoning",
+			Name:         "Reasoning",
+			Description:  "Reasoning effort for this model.",
+			Category:     "model",
+			Type:         "select",
+			CurrentValue: currentReasoning,
+			Options:      reasoningValues,
+		})
+		break
+	}
 	return out
+}
+
+func hasReasoningLevel(levels []string, value string) bool {
+	for _, level := range levels {
+		if level == value {
+			return true
+		}
+	}
+	return false
 }
 
 // replayMessages mirrors Manager.replayConversation over REST message rows.
@@ -585,6 +715,10 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 	for _, row := range rows {
 		switch row.Role {
 		case "user":
+			if row.BackgroundWake != nil {
+				_ = sender.SendSessionUpdate(sessionID, session.BackgroundWakeUpdate(row.BackgroundWake))
+				continue
+			}
 			if text := strings.TrimSpace(row.Content); text != "" {
 				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeUserMessageChunk,

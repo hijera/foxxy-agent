@@ -18,70 +18,64 @@ import {
   snapshotMcpConnecting,
   subscribeMcpConnecting,
 } from "../chat/mcpConnectingState";
-import {
-  deriveLiveStatus,
-  truncateStatusTarget,
-  type LiveStatusKind,
-} from "../chat/liveStatus";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
 import {
   getStatusLineEnabled,
   onStatusLineChange,
 } from "../chat/statusLineConfig";
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
-import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
+import { userMsgIndices } from "./userMsgIndices";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
 import type { PermissionResolvedState } from "../chat/permissionTypes";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
-import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
+import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
-
-/** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
-function mainThinkingOverlapsMemory(
-  items: TranscriptItem[],
-  memIndex: number,
-): boolean {
-  for (let i = memIndex + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it || it.type === "user_message") return false;
-    if (it.type === "thinking" && it.status === "in_progress") return true;
-  }
-  return false;
-}
+import { opensTurn } from "../chat/backgroundWake";
 
 /**
- * States where nothing is arriving: no model call is in flight, so a bubble the
- * provider cut mid-answer will sit there unchanged until one of them clears.
- *
- * They matter because `streaming` is only cleared when the turn ends. Through the
- * whole wait the bubble still counts as streaming, so the dots row - the one place
- * the live status is rendered - stayed hidden, and the operator watched a frozen
- * half-answer with no sign the turn was alive.
+ * The turn's clock and tokens for the live line: what the server reported, and until it
+ * has (an older server never does) the creation time of the turn's user message.
  */
-const PARKED_STATUS_KINDS: ReadonlySet<LiveStatusKind> = new Set<LiveStatusKind>([
-  "reconnecting",
-  "llmretry",
-  "mcp",
-]);
-
-function hasStreamingAssistant(items: TranscriptItem[]): boolean {
-  return items.some(
-    (it) => it.type === "assistant_message" && it.streaming === true,
-  );
+function turnLineProps(
+  progress: TurnProgress | null | undefined,
+  fallbackStartedAtMs: number | undefined,
+): { turnStartedAtMs?: number; turnTokens?: number } {
+  if (progress) {
+    return {
+      turnStartedAtMs: progress.startedAtMs,
+      turnTokens: progress.outputTokens,
+    };
+  }
+  return typeof fallbackStartedAtMs === "number"
+    ? { turnStartedAtMs: fallbackStartedAtMs }
+    : {};
 }
+
+export type MessageListProps = Parameters<typeof MessageList>[0];
 
 export function MessageList(props: {
   items: TranscriptItem[];
+  /** The slice of `items` on screen, `[renderStart, renderEnd)`; the whole
+   *  list when absent. Every derivation below still reads the whole list, so a
+   *  row's index, its turn and its answer's action row do not depend on how
+   *  much of the transcript is rendered (issue #338). */
+  renderStart?: number;
+  renderEnd?: number;
+  /** Prompts before `items[0]` in the history, compaction summaries excluded:
+   *  the server's index of the first prompt here, which an edit rewinds by. */
+  userMsgIndexBase?: number;
   generating?: boolean;
+  turnActive?: boolean | undefined;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
     sessionId: string,
@@ -99,7 +93,6 @@ export function MessageList(props: {
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
-  onBranchSwitch?: (sessionId: string) => void;
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
@@ -109,7 +102,19 @@ export function MessageList(props: {
   workspacePath?: string | undefined;
   /** Opens the child transcript behind a spawn_agent row. */
   onOpenSubagentTranscript?: (sessionId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
+  /** Background tasks running right now, system runs left out. */
+  runningTasks?: number;
+  /** Opens the Tasks panel from the live line's running-tasks segment. */
+  onOpenTasks?: () => void;
 }) {
+  // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
+  const tailTasks =
+    props.generating === true ? 0 : Math.max(0, props.runningTasks ?? 0);
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
@@ -161,6 +166,7 @@ export function MessageList(props: {
     () =>
       props.generating === true && statusLineOn
         ? deriveLiveStatus(props.items, {
+            pathRoots: props.pathRoots || [],
             reconnecting,
             mcpConnecting,
             llmRetrying,
@@ -170,55 +176,79 @@ export function MessageList(props: {
       props.generating,
       statusLineOn,
       props.items,
+      props.pathRoots,
       reconnecting,
       mcpConnecting,
       llmRetrying,
     ],
   );
 
-  // Only the parked kinds earn a row under a bubble that is already on screen:
-  // while text is actually arriving there is nothing to announce.
-  const parked =
-    liveStatus !== null && PARKED_STATUS_KINDS.has(liveStatus.kind);
+  // The server numbers every user-role message of the transcript, a woken
+  // turn's first message included, so the wake counts here too: an edit of a
+  // later message must name the message the server knows by that index.
+  const userMsgIndexById = useMemo(
+    () => userMsgIndices(props.items, props.userMsgIndexBase ?? 0),
+    [props.items, props.userMsgIndexBase],
+  );
 
-  const userMsgIndices = useMemo(() => {
-    const m = new Map<string, number>();
-    let idx = 0;
-    for (const it of props.items) {
-      if (it.type === "user_message") {
-        m.set(it.id, idx++);
+  // The answer that closes each turn is the only one with an action row: the answers a
+  // turn leaves behind between tool calls would otherwise stack the same copy button and
+  // the same minute down the transcript. Every finished turn keeps its own, so an older
+  // answer stays copyable; the turn still running does not, because its last answer is
+  // not yet the answer.
+  const turnClosingAssistantIds = useMemo(() => {
+    const ids = new Set<string>();
+    let seenInTurn = false;
+    // Walking back, everything after the last user message belongs to the turn in
+    // flight; its answers are not final yet, however many of them have arrived.
+    let inRunningTurn = props.generating === true;
+    for (let i = props.items.length - 1; i >= 0; i--) {
+      const item = props.items[i];
+      if (!item) continue;
+      if (opensTurn(item)) {
+        seenInTurn = false;
+        inRunningTurn = false;
+        continue;
       }
+      if (item.type !== "assistant_message") continue;
+      if (seenInTurn) continue;
+      seenInTurn = true;
+      if (!inRunningTurn) ids.add(item.id);
     }
-    return m;
-  }, [props.items]);
+    return ids;
+  }, [props.generating, props.items]);
+
+  const renderStart = Math.max(0, props.renderStart ?? 0);
+  const renderEnd = Math.min(
+    props.items.length,
+    props.renderEnd ?? props.items.length,
+  );
+  const rendered =
+    renderStart === 0 && renderEnd === props.items.length
+      ? props.items
+      : props.items.slice(renderStart, renderEnd);
 
   return (
     <>
-      {props.items.map((it, idx) => {
+      {rendered.map((it, sliceIdx) => {
+        const idx = renderStart + sliceIdx;
         if (it.type === "user_message") {
-          const myIdx = userMsgIndices.get(it.id) ?? 0;
+          const myIdx = userMsgIndexById.get(it.id);
+          // A missing index must not fall back to 0: a rewind names the first
+          // user message by it, so without one the pencil stays off.
           return (
             <UserMessage
               key={it.id}
+              rowId={it.id}
               content={it.content}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
-              {...(props.onEdit
+              {...(props.knownSkillNames
+                ? { knownSkillNames: props.knownSkillNames }
+                : {})}
+              {...(props.onEdit && myIdx !== undefined
                 ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
-            />
-          );
-        }
-        if (it.type === "branch_nav") {
-          return (
-            <BranchNavigator
-              key={`${it.id}-${it.currentIndex}-${it.total}`}
-              userMessageIndex={it.userMessageIndex}
-              currentIndex={it.currentIndex}
-              total={it.total}
-              sessions={it.sessions}
-              onSwitch={(sid) => props.onBranchSwitch?.(sid)}
             />
           );
         }
@@ -226,6 +256,7 @@ export function MessageList(props: {
           return (
             <ThinkingMessage
               key={it.id}
+              rowId={it.id}
               status={it.status}
               content={it.content}
               {...(typeof it.durationMs === "number"
@@ -237,62 +268,35 @@ export function MessageList(props: {
             />
           );
         }
-        if (it.type === "memory_copilot") {
+        if (it.type === "compaction") {
           return (
-            <MemoryCopilotMessage
-              key={it.id}
-              mainThinkingInProgress={mainThinkingOverlapsMemory(
-                props.items,
-                idx,
-              )}
-              {...(typeof it.memoryStatus !== "undefined"
-                ? { memoryStatus: it.memoryStatus }
-                : {})}
-              {...(typeof it.memoryText === "string"
-                ? { memoryText: it.memoryText }
-                : {})}
-              recallStatus={it.recallStatus}
-              persistStatus={it.persistStatus}
-              recallText={it.recallText}
-              persistText={it.persistText}
-              {...(typeof it.recallDurationMs === "number"
-                ? { recallDurationMs: it.recallDurationMs }
-                : {})}
-              {...(typeof it.persistDurationMs === "number"
-                ? { persistDurationMs: it.persistDurationMs }
-                : {})}
-              {...(typeof it.memoryWallStartedAtMs === "number"
-                ? { memoryWallStartedAtMs: it.memoryWallStartedAtMs }
-                : {})}
-              {...(typeof it.memoryWallLiveCapMs === "number"
-                ? { memoryWallLiveCapMs: it.memoryWallLiveCapMs }
-                : {})}
-              {...(typeof it.memoryWallDurationMs === "number"
-                ? { memoryWallDurationMs: it.memoryWallDurationMs }
-                : {})}
-              {...(typeof it.persistSaved === "boolean"
-                ? { persistSaved: it.persistSaved }
-                : {})}
-              {...(it.persistRelativePath !== undefined
-                ? { persistRelativePath: it.persistRelativePath }
-                : {})}
-              {...(it.persistTitle !== undefined
-                ? { persistTitle: it.persistTitle }
-                : {})}
-              {...(it.persistSavedBody !== undefined
-                ? { persistSavedBody: it.persistSavedBody }
-                : {})}
-              {...(it.recallReadPaths !== undefined
-                ? { recallReadPaths: it.recallReadPaths }
-                : {})}
-            />
+            <CompactionMessage key={it.id} rowId={it.id} summary={it.summary} />
           );
         }
+        if (it.type === "background_wake") {
+          // Nobody typed the first message of a turn a finished background
+          // task started, and nothing stands in its place: the agent's answer
+          // reads as the work carrying on, and the task's card in the Tasks
+          // panel keeps a bell for what woke it.
+          return null;
+        }
+        if (it.type === "memory_run") {
+          // The memory subagent's run is the live status line's business and
+          // the Tasks drawer's record; the transcript shows nothing for it.
+          return null;
+        }
         if (it.type === "assistant_message") {
+          // Whitespace alone is a zero-height row that still takes the column's
+          // gap, a hole between the rows around it; there is nothing in it to copy.
+          if (!it.content.trim()) {
+            return null;
+          }
           return (
             <AssistantMessage
               key={it.id}
+              rowId={it.id}
               content={it.content}
+              showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}
@@ -304,14 +308,12 @@ export function MessageList(props: {
           return (
             <SystemNoticeMessage
               key={it.id}
+              rowId={it.id}
               level={it.level}
               message={it.message}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
             />
           );
-        }
-        if (it.type === "compaction") {
-          return <CompactionMessage key={it.id} summary={it.summary} />;
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
@@ -321,7 +323,7 @@ export function MessageList(props: {
           const onPlanRun = props.onPlanDocumentRun;
           const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
-            <div key={it.id} className="message-row-plan">
+            <div key={it.id} className="message-row-plan" data-row-id={it.id}>
               <PlanDocumentSection
                 sessionId={sid}
                 slug={it.slug}
@@ -345,7 +347,11 @@ export function MessageList(props: {
         }
         if (it.type === "permission_prompt") {
           return (
-            <div key={it.id} className="message-row message-row-permission">
+            <div
+              key={it.id}
+              className="message-row message-row-permission"
+              data-row-id={it.id}
+            >
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
@@ -364,11 +370,16 @@ export function MessageList(props: {
         }
         if (it.type === "question_prompt") {
           return (
-            <div key={it.id} className="message-row message-row-question">
+            <div
+              key={it.id}
+              className="message-row message-row-question"
+              data-row-id={it.id}
+            >
               <QuestionPromptSection
                 itemId={it.id}
                 payload={it.payload}
                 resolved={it.resolved}
+                inactive={props.turnActive === false && props.generating !== true}
                 onResolved={(state) =>
                   props.onQuestionPromptResolved?.(
                     it.payload.sessionId,
@@ -386,11 +397,16 @@ export function MessageList(props: {
         return (
           <ToolCallMessage
             key={it.id}
+            rowId={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            questionInactive={props.turnActive === false && props.generating !== true}
             {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
             {...(props.onOpenSubagentTranscript
               ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
+              : {})}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
               : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
@@ -433,21 +449,40 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true &&
-      (!hasStreamingAssistant(props.items) || parked) ? (
+      {/* The tail rows below belong under the newest message: a window cut short
+          of it (the reader deep in history) leaves them out. */}
+      {/* The live line stands under the transcript for the whole turn and always
+          says what is happening, in general words at least. It used to vanish once
+          the turn had written any text and to fall silent under a reasoning row,
+          which read as a turn that had stopped. */}
+      {props.generating === true && renderEnd === props.items.length ? (
         <TypingDotsMessage
           {...(liveStatus
-            ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
-            : {})}
-          {...(liveStatus && liveStatus.target
             ? {
-                statusTarget: truncateStatusTarget(liveStatus.target),
-                statusTargetFull: liveStatus.target,
+                statusKind: liveStatus.kind,
+                statusKey: liveStatus.key,
+                ...(liveStatus.keyParams
+                  ? { statusKeyParams: liveStatus.keyParams }
+                  : {}),
+                ...(liveStatus.step ? { statusStep: liveStatus.step } : {}),
               }
             : {})}
           {...(typeof liveStatus?.startedAtMs === "number"
             ? { startedAtMs: liveStatus.startedAtMs }
             : {})}
+          {...turnLineProps(props.turnProgress, liveStatus?.turnStartedAtMs)}
+          {...(props.runningTasks ? { runningTasks: props.runningTasks } : {})}
+          {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
+        />
+      ) : null}
+      {/* The turn is over, the work it started is not. The same dots stay at the tail
+          with the count beside them, so a chat with tasks in flight does not read as
+          finished; the running turn's line above already carries that count. */}
+      {tailTasks > 0 && renderEnd === props.items.length ? (
+        <TypingDotsMessage
+          tasksOnly={true}
+          runningTasks={tailTasks}
+          {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}
     </>

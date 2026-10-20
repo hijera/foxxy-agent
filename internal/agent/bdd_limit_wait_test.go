@@ -233,10 +233,12 @@ func (s *limitWaitState) agentOver(p *limitWaitProvider) error {
 	}
 	s.provider = p
 	s.state = &session.State{ID: "sess_bdd_limit_wait", CWD: cwd, Mode: session.ModeAgent, SessionDir: sessionDir}
+	// Three short retries leave the named one-second reset to the opt-in wait.
+	retryMax := 3
 	s.cfg = &config.Config{
 		Providers: []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep", APIKey: "test"}},
 		Models:    []config.ModelEntry{{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 100, MaxContextTokens: 128000}},
-		Agent:     config.Agent{Model: "neuraldeep/qwen3.8-27b"},
+		Agent:     config.Agent{Model: "neuraldeep/qwen3.8-27b", LLMRetryMax: &retryMax},
 		// Auto-titling would spend a scripted answer of its own and be counted
 		// among the provider calls these scenarios assert on.
 		Title: config.TitleConfig{Enabled: new(bool)},

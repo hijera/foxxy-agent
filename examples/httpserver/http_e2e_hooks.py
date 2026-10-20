@@ -9,10 +9,15 @@ one shell command and drives the REST surface around hooks: the catalog, the
 held project file and its notice row in the transcript, the approval route,
 and a second turn that runs the approved hook.
 
+Every hook is written in both shells FoxxyCode runs hooks with: ``command`` for
+``sh`` on Linux and macOS, ``commandWindows`` for PowerShell on Windows. The
+recorder is a Python script run by the interpreter running this harness, so the
+same file works on every OS.
+
 Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base (default ``http://127.0.0.1:19876/v1``).
-- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/qwen3.6-35b-a3b``).
 - ``FOXXYCODE_CHAT_PROFILE`` - session profile (default ``agent``).
 - ``WORK_DIR`` - the workspace the server was started with (``--cwd``).
 - ``FOXXYCODE_HOME`` - the server home (``--home``); the user-scope hooks file is
@@ -25,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 import urllib.error
 import urllib.parse
@@ -79,26 +85,45 @@ def read_events(path: Path) -> list[dict[str, Any]]:
     return out
 
 
+def ps_quote(text: str) -> str:
+    """A PowerShell single-quoted string: literal, a quote doubled."""
+    return "'" + text.replace("'", "''") + "'"
+
+
+def hook_command(program: list[str]) -> dict[str, str]:
+    """One program call in the syntax of both shells a hook runs under.
+
+    ``command`` is read by sh. ``commandWindows`` is what FoxxyCode runs on
+    Windows, through PowerShell, which reads a leading quoted path as a string:
+    the call goes through the call operator with literal arguments, the form
+    internal/hooks' own tests use. A sh script as the hook, which this harness
+    used to write, never runs there at all.
+    """
+    return {
+        "command": " ".join(shlex.quote(part) for part in program),
+        "commandWindows": "& " + " ".join(ps_quote(part) for part in program),
+    }
+
+
 def install_hooks(home: Path, work: Path, events: Path, marker: Path) -> None:
     hooks_dir = home / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    recorder = hooks_dir / "record.sh"
+    # The recorder appends the payload it reads on stdin as one JSON line.
+    recorder = hooks_dir / "record.py"
     recorder.write_text(
-        "#!/bin/sh\n"
-        f'cat >> "{events}"\n'
-        f'printf "\\n" >> "{events}"\n'
-        "exit 0\n",
+        "import sys\n"
+        "payload = sys.stdin.buffer.read().rstrip(b'\\r\\n')\n"
+        "with open(sys.argv[1], 'ab') as out:\n"
+        "    out.write(payload + b'\\n')\n",
         encoding="utf-8",
     )
-    recorder.chmod(0o755)
+    record = {"type": "command", **hook_command([sys.executable, str(recorder), str(events)])}
     (home / "hooks.json").write_text(
         json.dumps(
             {
                 "hooks": {
-                    "PreToolUse": [
-                        {"matcher": "run_command", "hooks": [{"type": "command", "command": str(recorder)}]}
-                    ],
-                    "PostToolUse": [{"hooks": [{"type": "command", "command": str(recorder)}]}],
+                    "PreToolUse": [{"matcher": "run_command", "hooks": [record]}],
+                    "PostToolUse": [{"hooks": [record]}],
                 }
             },
             indent=2,
@@ -114,7 +139,13 @@ def install_hooks(home: Path, work: Path, events: Path, marker: Path) -> None:
                     "PreToolUse": [
                         {
                             "matcher": "run_command",
-                            "hooks": [{"type": "command", "command": f'printf "ran\\n" >> "{marker}"'}],
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": f'printf "ran\\n" >> "{marker}"',
+                                    "commandWindows": f"Add-Content -LiteralPath {ps_quote(str(marker))} -Value 'ran'",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -163,7 +194,7 @@ def run_turn(base: str, profile: str, yaml_model: str, headers: dict[str, str], 
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     foxxycode = foxxycode_base(base)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = os.environ.get("WORK_DIR", "").strip()
     home = os.environ.get("FOXXYCODE_HOME", "").strip()

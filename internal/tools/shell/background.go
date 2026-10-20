@@ -55,12 +55,12 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		ToolCallID:      env.ToolCallID,
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
-		// A subagent's transcript is sealed once its turn returns, so a wake
-		// aimed at it would only be refused: child-started tasks never notify.
-		NotifyOnFinish: args.NotifyOnFinish && env.SubagentDepth == 0,
-		// A dev server or watcher is started so later steps can talk to it, so a
-		// clock must not end it; background_stop does. An explicit
-		// timeout_seconds still wins.
+		// The task records a wake only where one will happen: a child's or a
+		// scheduled run's transcript is sealed once its turn returns, and a
+		// process with no waker (foxxycode -p) has nobody to start the turn.
+		NotifyOnFinish: args.wantsWake() && WakeAvailable(pool, env),
+		// A dev server or watcher runs until background_stop unless an explicit
+		// timeout_seconds was supplied.
 		NoTimeout: isLongRunningCommand(args.Command),
 	})
 	if err != nil {
@@ -79,13 +79,42 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 	default:
 		fmt.Fprintf(&b, "Hard timeout %s.\n", humanSeconds(snap.TimeoutSeconds))
 	}
-	if snap.NotifyOnFinish {
+	switch {
+	case snap.NotifyOnFinish:
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
-	} else {
+	case args.wantsWake():
+		// Promising a turn that never starts would have the model end this one
+		// waiting for it. The wake is the default, so the line does not
+		// blame a flag the call most likely never set.
+		fmt.Fprintf(&b, "Nothing will wake you when it finishes here: check on it with %s or %s, and collect the result with %s before you end your turn.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
+	default:
 		fmt.Fprintf(&b, "Keep working; check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
 	}
 	return b.String(), nil
 }
+
+// WakeAvailable reports whether a task started from env can wake the agent when
+// it ends: the session is one a turn can still be started on, and something in
+// this process is subscribed to turn a finished task into that turn.
+func WakeAvailable(pool *bgtask.Pool, env *tooling.Env) bool {
+	return env != nil && env.WakeableSession && pool != nil && pool.CanWake()
+}
+
+// refuseSystemTask answers a task id that names a system task (the memory
+// subagent): the runtime started it on its own behalf, and the model neither
+// reads its log nor waits on or stops it. The drawer and the HTTP routes show
+// it to the operator.
+func refuseSystemTask(pool *bgtask.Pool, sessionID, taskID string) error {
+	snap, err := pool.Get(sessionID, taskID)
+	if err != nil || !snap.SystemTask() {
+		return nil
+	}
+	return fmt.Errorf("task %s is a system task (%s) and is not yours to read or control", snap.ID, snap.Agent.Name)
+}
+
+// RequirePool is requirePool for the tool packages that start background work
+// of their own (the preview server).
+func RequirePool(env *tooling.Env) (*bgtask.Pool, error) { return requirePool(env) }
 
 // requirePool returns the pool for this session, explaining the refusal when
 // background execution is off or unwired.
@@ -94,7 +123,7 @@ func requirePool(env *tooling.Env) (*bgtask.Pool, error) {
 		return nil, fmt.Errorf("background tasks are not available in this session")
 	}
 	if !env.BackgroundEnabled {
-		return nil, fmt.Errorf("background tasks are disabled (tools.background.enabled is false); run the command in the foreground instead")
+		return nil, fmt.Errorf("background tasks are disabled (tools.background.enable is false); run the command in the foreground instead")
 	}
 	if strings.TrimSpace(env.SessionDir) != "" {
 		env.Background.SetSessionDir(env.SessionID, env.SessionDir)
@@ -119,7 +148,14 @@ func BackgroundListTool() *tooling.Tool {
 			if err != nil {
 				return "", err
 			}
-			tasks := pool.List(env.SessionID)
+			// System tasks are the runtime's own errands, not the model's
+			// work; the listing is what the model started.
+			tasks := make([]bgtask.Snapshot, 0)
+			for _, t := range pool.List(env.SessionID) {
+				if !t.SystemTask() {
+					tasks = append(tasks, t)
+				}
+			}
 			survivors := pool.Survivors(env.SessionID)
 			if len(tasks) == 0 && len(survivors) == 0 {
 				return "No background tasks in this session.", nil
@@ -175,6 +211,9 @@ func BackgroundOutputTool() *tooling.Tool {
 				return "", err
 			}
 
+			if err := refuseSystemTask(pool, env.SessionID, args.TaskID); err != nil {
+				return "", err
+			}
 			tail := defaultOutputTailLines
 			if args.TailLines != nil {
 				tail = *args.TailLines
@@ -182,6 +221,9 @@ func BackgroundOutputTool() *tooling.Tool {
 			text, snap, err := pool.Output(env.SessionID, args.TaskID, tail)
 			if err != nil {
 				return "", err
+			}
+			if snap.Status.Finished() {
+				_ = pool.AcknowledgeResult(env.SessionID, args.TaskID)
 			}
 
 			var b strings.Builder
@@ -235,6 +277,9 @@ func BackgroundWaitTool() *tooling.Tool {
 				return "", err
 			}
 
+			if err := refuseSystemTask(pool, env.SessionID, args.TaskID); err != nil {
+				return "", err
+			}
 			seconds := args.TimeoutSeconds
 			if seconds <= 0 {
 				seconds = defaultWaitSeconds
@@ -252,6 +297,7 @@ func BackgroundWaitTool() *tooling.Tool {
 			if !snap.Status.Finished() {
 				return line + fmt.Sprintf("\nStill running after %ds. Wait again or check %s later.", seconds, ToolBackgroundOutput), nil
 			}
+			_ = pool.AcknowledgeResult(env.SessionID, args.TaskID)
 			text, _, outErr := pool.Output(env.SessionID, args.TaskID, defaultOutputTailLines)
 			if outErr != nil || strings.TrimSpace(text) == "" {
 				return line, nil
@@ -289,10 +335,14 @@ func BackgroundStopTool() *tooling.Tool {
 			if err != nil {
 				return "", err
 			}
+			if err := refuseSystemTask(pool, env.SessionID, args.TaskID); err != nil {
+				return "", err
+			}
 			snap, err := pool.Stop(env.SessionID, args.TaskID)
 			if err != nil {
 				return "", err
 			}
+			_ = pool.AcknowledgeResult(env.SessionID, args.TaskID)
 			return formatTaskLine(snap, time.Now()), nil
 		},
 	}
@@ -337,9 +387,22 @@ func BackgroundReapTool() *tooling.Tool {
 
 // formatTaskLine renders one task the way the model reads it: identity, state,
 // how long it has taken, and how that compares to what was promised.
+// FormatBackgroundTask renders one task the way background_list shows it to the model:
+// id, status, label, elapsed against the estimate, and the hints that say a task is
+// overdue or has gone quiet. The turn context lists the running tasks with the same
+// line, so the model reads one vocabulary wherever it meets a task.
+func FormatBackgroundTask(t bgtask.Snapshot, now time.Time) string {
+	return formatTaskLine(t, now)
+}
+
 func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s [%s] %s", t.ID, t.Status, t.Label)
+	// A server's address is the one thing anybody wants from its row - while it
+	// is up; a finished one only has a dead link.
+	if t.URL != "" && !t.Status.Finished() && t.URL != t.Label {
+		fmt.Fprintf(&b, " at %s", t.URL)
+	}
 
 	elapsed := int(t.Elapsed(now).Round(time.Second) / time.Second)
 	fmt.Fprintf(&b, " (elapsed %s", humanSeconds(elapsed))
@@ -354,7 +417,12 @@ func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 	if t.Overdue(now) {
 		b.WriteString(" overdue")
 	}
-	if silent := t.SilentFor(now); silent >= stallHintAfter {
+	if t.NotifyOnFinish && !t.Status.Finished() {
+		b.WriteString(" wakes you when it ends")
+	}
+	// A server is silent whenever nobody is looking at the page, which says
+	// nothing about it being stuck.
+	if silent := t.SilentFor(now); silent >= stallHintAfter && t.Kind != bgtask.KindServer {
 		fmt.Fprintf(&b, " silent for %s", humanSeconds(int(silent.Round(time.Second)/time.Second)))
 	}
 	if t.Error != "" {

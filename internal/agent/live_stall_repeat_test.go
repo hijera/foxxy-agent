@@ -273,7 +273,7 @@ func TestLiveStallRepeatDrivesTheLoop(t *testing.T) {
 		}},
 		Agent: config.Agent{
 			Model: "neuraldeep/" + model, MaxTurns: 4,
-			LLMStallTimeoutMS:      &stallMS,
+			LLMStreamIdleTimeoutMS: &stallMS,
 			LLMFirstTokenTimeoutMS: &firstTokenMS,
 			LLMStallRetryDelaysMS:  []int{200},
 			LLMStallRetryMaxWaitMS: &retryWait,

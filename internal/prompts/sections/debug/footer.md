@@ -8,12 +8,6 @@
 {{.Skills}}
 
 {{end}}
-{{if .TodoList}}
-### Current todo checklist
-
-{{.TodoList}}
-
-{{end}}
 {{if .Rules}}
 {{.Rules}}
 
@@ -33,7 +27,3 @@
 ## Debug mode invariant
 
 Full tool access — but confirm the diagnosis with the user before applying a fix, and verify the fix afterward by observing its result.
-
-## Current UTC time
-
-{{.UTCNow}}

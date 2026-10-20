@@ -11,15 +11,18 @@ export function sessionRowNeedsUserAttention(
   );
 }
 
-export function sessionRowShowsSpinner(
+/**
+ * Whether the row carries the pulsing activity dot: work is going there and it is
+ * not waiting on the reader. The conversation on screen is no exception - it is the
+ * one the reader is most likely waiting on, and a row without the mark reads as
+ * finished. A running turn is one kind of work; a background task the session still
+ * has in flight is the other, and it outlives the turn that started it.
+ */
+export function sessionRowShowsActivity(
   row: SessionRow,
-  currentSessionId: string,
   permissionPendingSessionIds: ReadonlySet<string>,
   questionPendingSessionIds: ReadonlySet<string>,
 ): boolean {
-  if (row.id === currentSessionId) {
-    return false;
-  }
   if (
     sessionRowNeedsUserAttention(
       row,
@@ -29,7 +32,12 @@ export function sessionRowShowsSpinner(
   ) {
     return false;
   }
-  return !!row.turnActive;
+  return !!row.turnActive || sessionRowHasBackgroundWork(row);
+}
+
+/** Whether the row's activity comes from background tasks rather than a turn. */
+export function sessionRowHasBackgroundWork(row: SessionRow): boolean {
+  return (row.backgroundRunning ?? 0) > 0;
 }
 
 export function sessionRowShowsUnreadDot(

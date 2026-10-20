@@ -18,6 +18,8 @@ var spawnSiteExceptions = map[string]string{
 	"internal/serve/daemon.go:StartDetached":              "DetachFromTerminal already starts the dispatcher with DETACHED_PROCESS and HideWindow, so it has no console to show a window for",
 	"cmd/foxxycode/providers.go:openBrowser":              "hands the URL to the browser the operator is about to log in with; SW_HIDE can travel to a window that must be seen",
 	"internal/update/windows_windows.go:restartFoxxyCode": "restarts the freshly installed FoxxyCode for the operator; hiding it would make the update end in a disappearance",
+	"internal/docsgen/cliref.go:BuildFoxxyCode":           "the documentation generator (make docs, CI) builds the binary from a terminal; it never runs inside the desktop shell",
+	"internal/docsgen/cliref.go:CLIReference":             "the documentation generator runs the freshly built binary's --help from a terminal or CI, never inside the desktop shell",
 }
 
 // The fix is only worth as much as its coverage: one forgotten spawn site is one

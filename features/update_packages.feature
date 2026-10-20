@@ -22,6 +22,8 @@ Feature: Updating a FoxxyCode installed from a system package
     Then FoxxyCode downloads the release package for this platform
     And FoxxyCode hands the package to the system package manager
     And FoxxyCode reports the release it installed
+    And FoxxyCode lists every release since the installed version with its notes
+    And FoxxyCode links the full changelog between the two versions on GitHub
     And the installed executable is left untouched
 
   Scenario: A Homebrew cask install is sent back to brew

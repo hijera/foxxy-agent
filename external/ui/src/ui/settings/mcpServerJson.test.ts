@@ -107,6 +107,46 @@ test("originLabel names the owning file", async () => {
   expect(originLabel("config")).toBe("config.yaml");
   expect(originLabel("home")).toBe("~/.foxxycode/mcp.json");
   expect(originLabel("project")).toBe("./.foxxycode/mcp.json");
+  // The row knows the real file, and the agent home is not always ~/.foxxycode.
+  expect(originLabel("home", "/data/foxxycode/mcp.json")).toBe(
+    "/data/foxxycode/mcp.json",
+  );
+  expect(originLabel("home", "   ")).toBe("~/.foxxycode/mcp.json");
+  // The same holds for the other origins on purpose: a config.yaml outside the
+  // default home, or a workspace opened by absolute path, is worth naming in
+  // full rather than as the generic "config.yaml" / "./.foxxycode/mcp.json".
+  expect(originLabel("config", "/etc/foxxycode/config.yaml")).toBe(
+    "/etc/foxxycode/config.yaml",
+  );
+  expect(originLabel("project", "/work/repo/.foxxycode/mcp.json")).toBe(
+    "/work/repo/.foxxycode/mcp.json",
+  );
+});
+
+test("globalMCPPath takes the real file from a home-scoped row", async () => {
+  const { globalMCPPath } = await import("./mcpServerJson");
+  const row = (over: Record<string, unknown>) =>
+    ({
+      name: "srv",
+      source: "global",
+      origin: "home",
+      transport: "stdio",
+      enabled: true,
+      status: "connected",
+      tools: [],
+      ...over,
+    }) as never;
+  expect(
+    globalMCPPath([
+      row({ origin: "project", source_path: "/work/repo/.foxxycode/mcp.json" }),
+      row({ source_path: "/data/foxxycode/mcp.json" }),
+    ]),
+  ).toBe("/data/foxxycode/mcp.json");
+  // Nothing in the agent home yet: the default location is the answer.
+  expect(globalMCPPath([row({ origin: "config", source_path: "" })])).toBe(
+    "~/.foxxycode/mcp.json",
+  );
+  expect(globalMCPPath([])).toBe("~/.foxxycode/mcp.json");
 });
 
 test("insecureSkipVerify parses as a boolean and is rejected otherwise", () => {

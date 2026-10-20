@@ -3,7 +3,6 @@ package llm
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -63,6 +62,15 @@ type Message struct {
 	// CompactionSummary marks the synthetic message holding a concise summary of earlier turns
 	// produced by auto-compaction. Unlike Compacted messages, it IS sent to the model.
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// Queued marks a user message the operator wrote while a turn was running, which that
+	// turn read later (the message queue). It is sent to the model like any user message; a
+	// client re-attaching to the turn uses it to tell the prompt the turn started from apart
+	// from the follow-ups the turn's own stream will replay.
+	Queued bool `json:"queued,omitempty"`
+	// BackgroundWake marks a user-role message no person typed: the one a
+	// finished notify_on_finish task started a turn with (excluded from what
+	// the provider is sent; the Content still is).
+	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -105,6 +113,12 @@ type Response struct {
 	// InputTokens and OutputTokens are for usage tracking.
 	InputTokens  int
 	OutputTokens int
+	// CachedInputTokens is the part of InputTokens the provider served from its
+	// prompt cache instead of processing again (OpenAI
+	// usage.prompt_tokens_details.cached_tokens, Anthropic
+	// cache_read_input_tokens). Zero when the provider reports nothing, which
+	// is not the same as a miss - most OpenAI-compatible servers omit it.
+	CachedInputTokens int
 }
 
 // StreamChunk is a single chunk streamed from the LLM.
@@ -112,9 +126,17 @@ type StreamChunk struct {
 	TextDelta      string
 	ReasoningDelta string
 	ToolCall       *ToolCall
-	StopReason     string
-	InputTokens    int
-	OutputTokens   int
+	// ToolCallNamed carries a call the model has only begun to write: the name
+	// is known, the arguments are still streaming. It exists so a surface can
+	// say what is happening while that takes seconds, and it is never the call
+	// itself - anything that executes a call, forwards it to a client or
+	// persists it waits for ToolCall.
+	// ToolCallDelta carries only an argument fragment, never an executable call.
+	ToolCallDelta *ToolCall
+	ToolCallNamed *ToolCall
+	StopReason    string
+	InputTokens   int
+	OutputTokens  int
 	// Progress marks a frame that advanced generation without delivering anything
 	// to the caller: a tool call's argument fragment, a thinking-block signature,
 	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the
@@ -135,6 +157,11 @@ type Provider interface {
 
 // ProviderInput selects an LLM backend and connection parameters.
 type ProviderInput struct {
+	// Name is the providers[].name entry this input came from. It is
+	// diagnostic only: every error the provider returns is prefixed with it
+	// and the address it reached, so a user running several providers can
+	// tell which entry of their config failed. Empty leaves errors bare.
+	Name     string
 	Type     string
 	Model    string
 	APIKey   string
@@ -142,10 +169,20 @@ type ProviderInput struct {
 	ProxyURL string
 	// AuthPath is the FoxxyCode-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.
-	AuthPath    string
+	AuthPath string
+	// NoCLILogin keeps a codex or devin row with no credential at AuthPath off
+	// the machine-wide CLI login of its type (the Codex CLI's auth.json, the
+	// Devin CLI's credentials): that login is one account and serves one row,
+	// config.Config.CLILoginRow. The zero value lets the row use it.
+	NoCLILogin  bool
 	MaxTokens   int
 	Temperature float64
-	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
+	// TemperatureSet marks Temperature as asked for on the request rather than
+	// read from the model's configuration, where zero means "not configured":
+	// a set temperature is sent as is, zero included, and next to a reasoning
+	// level too, where a configured one is left out.
+	TemperatureSet bool
+	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
@@ -181,6 +218,13 @@ type ProviderInput struct {
 	// streamed body read (providers[].timeout_ms). Zero means no client
 	// timeout; the turn context stays the only bound.
 	Timeout time.Duration
+	// StreamIdleTimeout, when positive, is how long a streamed response may
+	// deliver nothing after its first chunk before the stream is cut as
+	// stalled (agent.llm_stream_idle_timeout_ms): the call then fails with an
+	// error IsStreamStalled recognises, next to whatever was delivered. Zero
+	// means no such guard. A blocking answer (stream: false) arrives in one
+	// piece and is never guarded.
+	StreamIdleTimeout time.Duration
 	// Stop lists sequences at which generation halts; the matched sequence is
 	// not part of the returned text. Inline completion uses it to stop at the
 	// line the caret's suffix already holds instead of spending the token budget
@@ -231,29 +275,36 @@ func neuralDeepEffectiveKey(explicit, authPath string) string {
 
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(p ProviderInput) (Provider, error) {
-	hc, err := HTTPClientForOptionalProxy(p.ProxyURL)
+	// The shared transport for the proxy setting (transport.go), never the SDK
+	// default client: the proxy is honoured either way, the environment's or the
+	// system's when none is set.
+	hc, err := providerHTTPClient(p.ProxyURL, p.Timeout)
 	if err != nil {
 		return nil, err
-	}
-	if p.Timeout > 0 {
-		if hc == nil {
-			hc = &http.Client{}
-		}
-		hc.Timeout = p.Timeout
 	}
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op.tempSet = p.TemperatureSet
+		inner = op
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		ap.tempSet = p.TemperatureSet
+		inner = ap
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op.tempSet = p.TemperatureSet
+		inner = op
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through FOXXYCODE_CODEX_BASE_URL.
-		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+		inner = newCodexProvider(p.Model, p.AuthPath, !p.NoCLILogin, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+	case "devin":
+		// A Devin session token reaches the Devin API server only: api_base is
+		// ignored, and FOXXYCODE_DEVIN_API_SERVER_URL moves the process as a whole.
+		inner = newDevinProvider(p, hc)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}
@@ -262,7 +313,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// emitted nothing yet, instead of replaying deltas a caller already consumed.
 		inner = newBlockingProvider(inner)
 	}
-	return applyResilientWrap(inner, p), nil
+	// The stall guard sits outside the resilient wrap, so its clock spans a
+	// replayed attempt (stream_idle_guard.go); the label outside both, so
+	// retry classification reads the untouched upstream error, and only what
+	// leaves for the caller carries the label.
+	return labelProvider(WithStreamIdleGuard(applyResilientWrap(inner, p), p.StreamIdleTimeout), p), nil
 }
 
 // UnsupportedProviderError is returned when the provider type is unknown.

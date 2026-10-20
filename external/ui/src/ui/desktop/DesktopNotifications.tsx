@@ -1,3 +1,4 @@
+import { permissionOptionLabel } from "../chat/permissionOptionLabel";
 import { useT } from "../i18n/I18nProvider";
 
 export type DesktopPermissionNotification = {
@@ -78,6 +79,8 @@ export function DesktopNotifications(props: {
               <div className="desktop-toast-actions">
                 {n.options.map((opt) => {
                   const isReject = opt.optionId === "reject";
+                  // Same translation as the inline card: the names are the backend's English.
+                  const label = permissionOptionLabel(opt);
                   return (
                     <button
                       key={opt.optionId}
@@ -89,10 +92,10 @@ export function DesktopNotifications(props: {
                       }
                       data-testid={`desktop-toast-opt-${opt.optionId}`}
                       onClick={() =>
-                        props.onPermissionChoose(n, opt.optionId, opt.name)
+                        props.onPermissionChoose(n, opt.optionId, label)
                       }
                     >
-                      {opt.name}
+                      {label}
                     </button>
                   );
                 })}

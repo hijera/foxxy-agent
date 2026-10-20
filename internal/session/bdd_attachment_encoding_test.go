@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -118,11 +119,13 @@ func (s *attachmentEncodingState) failureSaysNotText() error {
 	return nil
 }
 
-func (s *attachmentEncodingState) noResourceBlocks() error {
-	for _, b := range s.blocks {
-		if b.Type == "resource" && b.Resource != nil {
-			return fmt.Errorf("unexpected resource block for %q", b.Resource.URI)
-		}
+func (s *attachmentEncodingState) resourceSaysBinary() error {
+	res, err := s.resourceFor("logo.png")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(res.Text, "Not inlined") || !strings.Contains(res.Text, "binary") {
+		return fmt.Errorf("resource does not explain binary content: %q", res.Text)
 	}
 	return nil
 }
@@ -212,7 +215,7 @@ func initializeAttachmentEncodingScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I attach "([^"]+)" to the prompt "([^"]*)" and it fails$`, s.attachToPromptFails)
 	sc.Step(`^I hydrate the prompt text "([^"]*)"$`, s.hydratePromptText)
 	sc.Step(`^the prompt has a resource for "([^"]+)"$`, s.hasResource)
-	sc.Step(`^the prompt has no resource blocks$`, s.noResourceBlocks)
+	sc.Step(`^the resource says it is binary$`, s.resourceSaysBinary)
 	sc.Step(`^the prompt text is "([^"]*)"$`, s.promptTextIs)
 	sc.Step(`^the failure says the file is not text$`, s.failureSaysNotText)
 	sc.Step(`^the resource mime type is "([^"]*)"$`, func(mime string) error {

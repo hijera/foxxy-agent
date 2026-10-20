@@ -30,10 +30,10 @@ test("a partially typed range reports the start only", () => {
 });
 
 test("a complete range reports both ends", () => {
-  const d = draftAtEnd("see @docs/ui.md:10-20");
+  const d = draftAtEnd("see @docs/surfaces/web-ui.md:10-20");
   expect(d.open).toBe(true);
   if (!d.open) return;
-  expect(d.path).toBe("docs/ui.md");
+  expect(d.path).toBe("docs/surfaces/web-ui.md");
   expect(d.start).toBe(10);
   expect(d.end).toBe(20);
 });
@@ -74,6 +74,17 @@ test("paths with spaces and folder or traversal tokens", () => {
   });
   expect(draftAtEnd("@pkg/:1-2").open).toBe(false);
   expect(draftAtEnd("@../secret.txt:1-2").open).toBe(false);
+});
+
+test("a path outside the workspace has no preview to open", () => {
+  // The range still reaches the model; only the preview is workspace-bound.
+  expect(draftAtEnd("@/etc/hosts:1-2").open).toBe(false);
+  expect(draftAtEnd("@~/notes.md:1-2").open).toBe(false);
+  expect(draftAtEnd("@a/../../b.md:1-2").open).toBe(false);
+  expect(draftAtEnd("@a..b.md:1-2").open && draftAtEnd("@a..b.md:1-2")).toMatchObject({
+    path: "a..b.md",
+  });
+  expect(draftAtEnd("@c++.md:3").open).toBe(true);
 });
 
 test("fenced code and blockquote lines are excluded", () => {

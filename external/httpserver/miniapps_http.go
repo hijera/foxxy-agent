@@ -1081,14 +1081,14 @@ func addMiniAppsDiffArtifacts(dir string, evidence []miniapps.TraceCallEvidence,
 	if len(evidence) == 0 {
 		return fixtureFiles
 	}
-	turns, err := session.ListStoredTurnDiffs(dir)
+	turns, err := listMiniAppsLegacyDiffs(dir)
 	if err != nil {
 		return fixtureFiles
 	}
 	artifactsByTurn := make(map[int]map[string]miniapps.TraceArtifact)
 	contentsByTurn := make(map[int]map[string][]byte)
 	for _, turn := range turns {
-		diff, err := session.LoadWorkspaceDiff(dir, turn)
+		diff, err := loadMiniAppsLegacyDiff(dir, turn)
 		if err != nil || diff == nil {
 			continue
 		}
@@ -1149,6 +1149,27 @@ func addMiniAppsDiffArtifacts(dir string, evidence []miniapps.TraceCallEvidence,
 				fixtureFiles[path] = append([]byte(nil), contentsByTurn[turn][path]...)
 			}
 		}
+	}
+	// New sessions retain the exact write arguments instead of workspace
+	// snapshots. Derive evidence from successful calls, never from today's file
+	// contents, which may have changed since the source session completed.
+	for i := range evidence {
+		item := &evidence[i]
+		if item.Name != "write" || item.Status != miniapps.TraceActionSucceeded || len(item.Artifacts) > 0 {
+			continue
+		}
+		var args struct {
+			Path    string  `json:"path"`
+			Content *string `json:"content"`
+		}
+		if json.Unmarshal([]byte(item.Arguments), &args) != nil || args.Content == nil || !safeMiniAppsRelativePath(args.Path) {
+			continue
+		}
+		path := filepath.ToSlash(filepath.Clean(args.Path))
+		content := []byte(*args.Content)
+		sum := sha256.Sum256(content)
+		item.Artifacts = append(item.Artifacts, miniapps.TraceArtifact{Path: path, SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(content))})
+		fixtureFiles[path] = content
 	}
 	return fixtureFiles
 }

@@ -35,8 +35,7 @@ async function drive(sse: string): Promise<string[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-0`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
     onModeChanged: (mode) => seen.push(mode),
   };
   const res = await consumeComposerSseReader(params);

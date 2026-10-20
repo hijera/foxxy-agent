@@ -3,7 +3,14 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/remote"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // applyLoopMessage applies one queued update to the UI tree. Runs on the UI
@@ -11,20 +18,35 @@ import (
 func (a *App) applyLoopMessage(msg updateMsg) {
 	// Internal messages first: they carry their own session semantics.
 	switch u := msg.update.(type) {
+	case uiCall:
+		u()
+		return
 	case turnDone:
 		// The turn belongs to the session that started it; clear the running
 		// flag even when the UI has already switched sessions (/new, /resume),
 		// otherwise the editor would refuse prompts forever.
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
+			a.turnStartedAt = time.Time{}
+			a.turnTokens = 0
 			a.stopSpinner()
+			// What the turn left running is what the footer names from here on.
+			a.refreshTasks()
+			// A remote EOF/error only ends our request. The server may still
+			// own a turn and queue (or already have admitted another client).
+			if u.sessionID == a.sessionID {
+				if a.remoteURL != "" {
+					a.refreshRemoteControls()
+				} else {
+					a.queue.SetRows(nil)
+				}
+			}
 			a.stopUsageResume()
 			// A permission or question modal belonging to this turn is now
-			// orphaned (the worker already unblocked via ctx cancellation).
-			switch a.modal.(type) {
-			case *permissionModal, *questionModal:
-				a.closeModal()
-			}
+			// orphaned (the worker already unblocked via ctx cancellation). A
+			// background subagent's prompt is not this turn's: its asker is
+			// still waiting, so it stays on screen.
+			a.dropAbandonedGate()
 			if fn := a.pendingSwitch; fn != nil {
 				a.pendingSwitch = nil
 				fn()
@@ -34,11 +56,44 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			return
 		}
 		a.curAssistant = nil
+		if errors.Is(u.err, remote.ErrSessionBusy) {
+			// The server answered 409 session_busy: a turn this console had not
+			// heard of yet owns the session (another client, or another process
+			// on the same home). Nothing ran, so the prompt is taken back off the
+			// screen and joins that turn's queue, the way it would have had the
+			// activity update arrived first. A refused queue restores the draft.
+			a.chat.RemoveChild(u.row)
+			a.appendStatus(roleDim, "The session is busy with another turn; your message was queued for it.")
+			a.enqueuePrompt(u.text)
+			return
+		}
+		if u.woken && errors.Is(u.err, session.ErrSessionTurnBusy) {
+			// The waker asks again once the session is free.
+			return
+		}
 		if u.err != nil {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
 		} else if u.stop == "cancelled" {
 			a.appendStatus(roleDim, "Operation aborted")
 		}
+		return
+	case wakeTurn:
+		// A finished background task asks for a turn nobody typed; the
+		// console decides on its own goroutine whether one can start now.
+		a.startWakeTurn(u)
+		return
+	case tasksLoaded:
+		a.applyTasksLoaded(u)
+		return
+	case tasksPollDue:
+		a.tasksTimer = nil
+		a.refreshTasks()
+		return
+	case taskOutputLoaded:
+		a.applyTaskOutputLoaded(u)
+		return
+	case taskStopped:
+		a.applyTaskStopped(u)
 		return
 	case configReloaded:
 		// The process configuration changed for every session, so the header
@@ -58,6 +113,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// (providers[].usage_limits_panel): a cache read brings the line up
 		// or takes it down without waiting for the next turn.
 		a.refreshUsage(usageProviderOf(a.modelID), false)
+		return
+	case gateWithdrawn:
+		a.dropAbandonedGate()
 		return
 	case sessionSwitched:
 		a.switching = false
@@ -128,17 +186,49 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	}
 
 	switch u := msg.update.(type) {
+	case remote.QueueControlUpdate:
+		a.queue.ApplyControl(u)
+	case remote.ActivityUpdate:
+		if u.Revision >= a.remoteActivityRevision {
+			a.remoteActivityRevision = u.Revision
+			a.remoteTurnActive = u.TurnActive
+		}
+	case remote.FollowUpdate:
+		a.applyFollow(u)
+	case remote.CancelUpdate:
+		if u.Error != "" {
+			a.appendStatus(roleWarning, "Could not stop the turn: "+u.Error+" (escape to retry)")
+		} else {
+			a.appendStatus(roleDim, "Stop requested")
+		}
+	case queueResult:
+		a.applyQueueResult(u)
+	case acp.BackgroundWakeUpdate:
+		// A woken turn begins, live or replayed. It shows nothing of its own -
+		// the agent carries on where it stopped - but its answer is a block of
+		// its own, and /tasks reads the task that woke the agent again.
+		a.curAssistant = nil
+		a.refreshTasks()
 	case acp.MessageChunkUpdate:
 		a.applyMessageChunk(u)
 	case acp.ToolCallUpdate:
+		if _, exists := a.toolBoxes[u.ToolCallID]; exists {
+			break
+		}
 		tb := newToolBox(a.theme, u.ToolCallID, u.Title, u.Kind, a.loadToolResult)
 		a.toolBoxes[u.ToolCallID] = tb
 		a.lastToolID = u.ToolCallID
 		a.chat.AddChild(tb)
 		a.curAssistant = nil
-		// Title is the plain tool name (internal/agent/react.go); the arguments that name
-		// the target arrive on the following in_progress update.
-		a.setStatus(newWorkingStatus(statusVerbForTool(u.Title), ""))
+		// Title is the plain tool name (internal/agent/react.go). The status line says the
+		// phase and nothing else, so it is complete here: the arguments that follow on the
+		// in_progress update are the tool box's, not the line's. A file tool announces
+		// itself long before it names a path, so it says so while they stream.
+		verb := statusVerbForTool(u.Title)
+		if isWritingTool(u.Title) {
+			verb = "Generating file arguments"
+		}
+		a.setStatus(newWorkingStatus(verb, u.ToolCallID))
 	case acp.ToolCallStatusUpdate:
 		tb, ok := a.toolBoxes[u.ToolCallID]
 		if !ok {
@@ -148,6 +238,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.chat.AddChild(tb)
 		}
 		a.applyToolStatus(tb, u)
+		if toolTouchesTasks(tb.name) && (u.Status == "completed" || u.Status == "failed") {
+			a.refreshTasks()
+		}
 	case acp.PlanUpdate:
 		entries := make([]planEntry, 0, len(u.Entries))
 		for _, e := range u.Entries {
@@ -156,6 +249,8 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.plan.SetEntries(entries)
 	case acp.TokenUsageUpdate:
 		a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+	case acp.TurnProgressUpdate:
+		a.applyTurnProgress(u)
 	case acp.UsageUpdate:
 		percent := 0.0
 		if u.Size > 0 {
@@ -183,6 +278,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 				tb.SetExpanded(true)
 			}
 		}
+	case acp.SessionSettingsUpdate:
+		// A change of the session's settings, whoever made it: a command
+		// here, the web UI, an editor, the permission dialog, the model's
+		// own switch_model. The notice says what changed.
+		a.applySettingsSnapshot(u.Settings)
+		if notice := strings.TrimSpace(u.Notice); notice != "" {
+			a.appendStatus(roleDim, notice)
+		}
+	case settingsApplied:
+		a.applySettingsSnapshot(u.settings)
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.LLMRetryUpdate:
@@ -193,22 +298,53 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		} else if a.turnActive {
 			a.setStatus(newWaitingStatus())
 		}
-	case acp.MemoryPhaseUpdate:
-		if u.Status == "started" {
-			a.appendStatus(roleDim, "memory: "+u.Phase+"...")
-			a.curMemory = nil
+	case acp.MemoryRunUpdate:
+		a.applyMemoryRun(u)
+	case acp.MessageQueueUpdate:
+		// The queue changes from outside this goroutine - another surface, or
+		// the agent reading a batch - so the widget follows the update rather
+		// than what this console last sent. The version orders the two streams
+		// the same update can arrive down.
+		a.queue.Apply(u.Messages, u.Version)
+	}
+}
+
+// applyMemoryRun renders the memory subagent's run: the status phrase while
+// the turn waits for its report, and one dim line when the run settled or
+// could not start. The report itself is in the child transcript (the Tasks
+// drawer of the web UI opens it; on disk it is the child bundle under the
+// session's subagents folder).
+func (a *App) applyMemoryRun(u acp.MemoryRunUpdate) {
+	switch u.Status {
+	case "started":
+		if a.turnActive {
 			a.setStatus(newWorkingStatus("Working with memory", ""))
-		} else if a.turnActive {
+		}
+		return
+	case "finished", "skipped":
+		if a.turnActive {
 			a.setStatus(newWaitingStatus())
 		}
-	case acp.MemoryMessageChunkUpdate:
-		// Memory copilot deltas render as a dim italic stream under the
-		// phase status line (collapses with ctrl+t like thinking).
-		if a.curMemory == nil {
-			a.curMemory = newAssistantMessage(a.theme, a.mdTheme, a.hideThink)
-			a.chat.AddChild(a.curMemory)
-		}
-		a.curMemory.AppendThinking(u.Delta)
+		a.appendStatus(roleDim, memoryRunLine(u))
+	}
+}
+
+// memoryRunLine is the one line the console prints about a settled memory
+// run, or about one that could not start.
+func memoryRunLine(u acp.MemoryRunUpdate) string {
+	if u.Status == "skipped" {
+		return "memory: skipped - " + strings.TrimSpace(u.Reason)
+	}
+	elapsed := (time.Duration(u.DurationMs) * time.Millisecond).Round(100 * time.Millisecond)
+	switch {
+	case u.Delivered:
+		return fmt.Sprintf("memory: recalled in %s (task %s)", elapsed, u.TaskID)
+	case u.TaskStatus == "succeeded":
+		return fmt.Sprintf("memory: finished in %s, nothing reached this turn (task %s)", elapsed, u.TaskID)
+	case strings.TrimSpace(u.Reason) != "":
+		return fmt.Sprintf("memory: %s after %s (task %s) - %s", u.TaskStatus, elapsed, u.TaskID, strings.TrimSpace(u.Reason))
+	default:
+		return fmt.Sprintf("memory: %s after %s (task %s)", u.TaskStatus, elapsed, u.TaskID)
 	}
 }
 
@@ -231,12 +367,12 @@ func (a *App) applyMessageChunk(u acp.MessageChunkUpdate) {
 			a.curAssistant.AppendThinking(u.Content.Text)
 			// setStatus keeps the existing start time when the verb repeats, so the
 			// counter measures the whole reasoning block rather than one chunk.
-			a.setStatus(newWorkingStatus("Thinking…", ""))
+			a.setStatus(newModelStatus("Thinking…"))
 		default:
 			a.curAssistant.AppendText(u.Content.Text)
 			// The SPA hides the dots entirely once assistant text streams; a console
 			// spinner has nowhere to hide, so it names what is happening instead.
-			a.setStatus(newWorkingStatus("Responding", ""))
+			a.setStatus(newModelStatus("Responding"))
 		}
 	}
 }
@@ -261,15 +397,28 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 	}
 	preview := ""
 	switch u.Status {
+	case "pending":
+		if foxxycode, ok := u.Meta["foxxycode"].(map[string]interface{}); ok {
+			if pv, ok := foxxycode["toolInputProgress"].(map[string]interface{}); ok && isWritingTool(tb.name) && tb.status == "pending" {
+				path, _ := pv["path"].(string)
+				draft, _ := pv["preview"].(string)
+				tb.SetInputProgress(path, draft, intFromAny(pv["bytes"]), intFromAny(pv["lines"]), intFromAny(pv["argumentBytes"]))
+				a.setStatus(newWorkingStatus("Generating file arguments", path))
+			}
+		}
 	case "in_progress":
-		// Content carries the raw argument JSON while streaming.
+		// Before the content loop, so an update carrying no content items still
+		// names the phase - including a call the console never saw announced,
+		// which the caller gives a box of its own id above. This is also where a
+		// file tool leaves "Generating file arguments" behind: its arguments are
+		// complete by now.
+		a.setStatus(newWorkingStatus(statusVerbForTool(tb.name), u.ToolCallID))
+		// Content carries the completed argument JSON before execution. It goes to
+		// the box title, which is where what a call acts on is named; the status
+		// line takes the phase alone.
 		for _, item := range u.Content {
 			if item.Content.Text != "" {
 				tb.SetArgs(item.Content.Text)
-				a.setStatus(newWorkingStatus(
-					statusVerbForTool(tb.name),
-					statusTargetFromArgs(tb.name, item.Content.Text),
-				))
 			}
 		}
 		tb.SetStatus("in_progress", "", 0, 0)
@@ -296,4 +445,29 @@ func intFromAny(v interface{}) int {
 		return n
 	}
 	return 0
+}
+
+// applyFollow tracks a turn the server started on its own - a background wake -
+// that this console follows over --remote (internal/remote/follow.go). While it
+// runs the status line works as it does for a turn the operator started: the
+// clock and the tokens arrive on the turn's own turn_progress frames. When it
+// ends, the transcript closes the turn and a prompt it left on screen, now
+// answered or withdrawn, is taken down.
+func (a *App) applyFollow(u remote.FollowUpdate) {
+	a.curAssistant = nil
+	if u.Active {
+		if !a.turnActive {
+			a.stepStatus = newWaitingStatus()
+			a.stepBlocked = ""
+			a.turnStartedAt, a.turnTokens = time.Time{}, 0
+			a.startSpinner()
+		}
+		return
+	}
+	if !a.turnActive {
+		a.stopSpinner()
+		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+	}
+	a.dropAbandonedGate()
+	a.refreshTasks()
 }

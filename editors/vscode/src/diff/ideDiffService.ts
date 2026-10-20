@@ -11,7 +11,13 @@ import {
 import { httpPost } from "../util/http";
 import { readSettings } from "../settings";
 import { t } from "../i18n/bundle";
-import { computeLineFragments, LineFragment } from "./lineFragments";
+import { LineFragment } from "./lineFragments";
+import { InlineHighlightTracker } from "./inlineHighlights";
+
+interface DecorationPair {
+  added: vscode.TextEditorDecorationType;
+  removed: vscode.TextEditorDecorationType;
+}
 
 /** VS Code port of `editors/intellij/.../diff/FoxxyCodeIdeDiffService.kt`.
  *
@@ -22,12 +28,17 @@ export class IdeDiffService {
   private client: IdeEventClient | null = null;
   private clientBase: string | null = null;
   /** Active decoration types per absolute (normalized) path. */
-  private readonly decorations = new Map<string, vscode.TextEditorDecorationType>();
+  private readonly decorations = new Map<string, DecorationPair>();
+  /** Which lines carry the latest edit of each file; see InlineHighlightTracker. */
+  private readonly highlights = new InlineHighlightTracker();
+  private readonly docChanges: vscode.Disposable;
 
   constructor(
     private readonly workspaceRoot: string | undefined,
     private readonly log?: (line: string) => void,
-  ) {}
+  ) {
+    this.docChanges = vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e.document));
+  }
 
   /** Starts (or, after a server restart on a new port, re-points) the event stream. */
   startIfNeeded(baseUrl: string): void {
@@ -48,6 +59,7 @@ export class IdeDiffService {
 
   dispose(): void {
     this.stop();
+    this.docChanges.dispose();
   }
 
   private onEvent(ev: EditEvent): void {
@@ -122,6 +134,10 @@ export class IdeDiffService {
     ev: EditEvent,
     useAfterRanges: boolean,
   ): Promise<vscode.TextEditor | null> {
+    // Registered before the first await, so events keep their arrival order
+    // even when the handlers of two quick edits resume in the other order.
+    const key = this.normalize(ev.path);
+    const token = this.highlights.begin(key, { before: ev.before, after: ev.after, useAfterRanges });
     const uri = vscode.Uri.file(ev.path);
     let doc: vscode.TextDocument;
     try {
@@ -131,11 +147,28 @@ export class IdeDiffService {
     }
     const editor = await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
 
-    this.clearDecorations(ev.path);
+    // The document may still hold the text from before the write: the tracker
+    // places the lines on what it has now and redraws when it reloads.
+    const fragments = this.highlights.place(key, token, doc.getText());
+    if (fragments === null) return editor; // a newer edit of this file owns the highlights
+    this.drawDecorations(key, doc, fragments, editor);
+    return editor;
+  }
 
-    const fragments = computeLineFragments(ev.before, ev.after, useAfterRanges);
-    if (fragments.length === 0) return editor;
+  private onDocumentChanged(doc: vscode.TextDocument): void {
+    if (doc.uri.scheme !== "file") return;
+    const key = this.normalize(doc.uri.fsPath);
+    // A dirty document is not reloaded from disk, so whatever it holds now is final.
+    const fragments = this.highlights.documentChanged(key, doc.getText(), doc.isDirty);
+    if (fragments !== null) this.drawDecorations(key, doc, fragments);
+  }
 
+  private drawDecorations(
+    key: string,
+    doc: vscode.TextDocument,
+    fragments: LineFragment[],
+    editor?: vscode.TextEditor,
+  ): void {
     const addedRanges: vscode.Range[] = [];
     const removedRanges: vscode.Range[] = [];
     const lineCount = doc.lineCount;
@@ -149,38 +182,45 @@ export class IdeDiffService {
       else addedRanges.push(range);
     }
 
-    const addedType = vscode.window.createTextEditorDecorationType({
-      backgroundColor: addedDecorationColor(),
-      isWholeLine: true,
-    });
-    const removedType = vscode.window.createTextEditorDecorationType({
-      backgroundColor: removedDecorationColor(),
-      isWholeLine: true,
-    });
-    editor.setDecorations(addedType, addedRanges);
-    editor.setDecorations(removedType, removedRanges);
-    this.decorations.set(this.normalize(ev.path), addedType);
-    // Track both types so we dispose them on clear; store the second under a sibling key.
-    this.decorations.set(this.normalize(ev.path) + "#del", removedType);
-    return editor;
+    let pair = this.decorations.get(key);
+    if (!pair) {
+      pair = {
+        added: vscode.window.createTextEditorDecorationType({
+          backgroundColor: addedDecorationColor(),
+          isWholeLine: true,
+        }),
+        removed: vscode.window.createTextEditorDecorationType({
+          backgroundColor: removedDecorationColor(),
+          isWholeLine: true,
+        }),
+      };
+      this.decorations.set(key, pair);
+    }
+    const editors = new Set(vscode.window.visibleTextEditors.filter((e) => e.document === doc));
+    if (editor) editors.add(editor);
+    for (const e of editors) {
+      e.setDecorations(pair.added, addedRanges);
+      e.setDecorations(pair.removed, removedRanges);
+    }
   }
 
   private clearDecorations(pathArg: string): void {
     const key = this.normalize(pathArg);
-    const a = this.decorations.get(key);
-    if (a) {
-      a.dispose();
+    this.highlights.forget(key);
+    const pair = this.decorations.get(key);
+    if (pair) {
+      pair.added.dispose();
+      pair.removed.dispose();
       this.decorations.delete(key);
-    }
-    const d = this.decorations.get(key + "#del");
-    if (d) {
-      d.dispose();
-      this.decorations.delete(key + "#del");
     }
   }
 
   private clearAllDecorations(): void {
-    for (const d of this.decorations.values()) d.dispose();
+    this.highlights.forgetAll();
+    for (const pair of this.decorations.values()) {
+      pair.added.dispose();
+      pair.removed.dispose();
+    }
     this.decorations.clear();
   }
 
@@ -218,7 +258,10 @@ export class IdeDiffService {
       )
       .then((choice) => {
         if (choice === t("diff.action.revert")) {
-          void this.revert(ev).then(() => this.clearDecorations(ev.path));
+          // Cleared first: the revert changes the document, and a highlight
+          // still waiting for its reload would redraw on the restored text.
+          this.clearDecorations(ev.path);
+          void this.revert(ev);
         } else if (choice === t("diff.action.showDiff")) {
           void this.showDiff(ev);
         }

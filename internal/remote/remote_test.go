@@ -6,7 +6,6 @@ package remote
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -173,9 +172,9 @@ func TestResolveMapsNamesAddressesAndTokens(t *testing.T) {
 func TestNewRemoteSessionIDsAreValidFolderIDs(t *testing.T) {
 	seen := map[string]bool{}
 	for range 32 {
-		id, err := newRemoteSessionID()
+		id, err := session.NewSessionID()
 		if err != nil {
-			t.Fatalf("newRemoteSessionID: %v", err)
+			t.Fatalf("NewSessionID: %v", err)
 		}
 		if err := session.ValidateFolderSessionID(id); err != nil {
 			t.Fatalf("generated id %q invalid: %v", id, err)
@@ -184,18 +183,6 @@ func TestNewRemoteSessionIDsAreValidFolderIDs(t *testing.T) {
 			t.Fatalf("duplicate id %q", id)
 		}
 		seen[id] = true
-	}
-}
-
-// TestNewRemoteSessionIDEntropyFailure pins the no-panic contract: entropy
-// exhaustion surfaces as an error instead of killing the process.
-func TestNewRemoteSessionIDEntropyFailure(t *testing.T) {
-	old := randRead
-	randRead = func([]byte) (int, error) { return 0, errors.New("boom") }
-	defer func() { randRead = old }()
-
-	if _, err := newRemoteSessionID(); err == nil {
-		t.Fatal("expected error when rand.Read fails")
 	}
 }
 
@@ -373,7 +360,7 @@ func TestCancelAbortsATurnBlockedOnAPermissionModal(t *testing.T) {
 func TestServerStopReasonAndCancelledMetaWin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"m\",\"stop_reason\":\"max_turns\"}}\n\n" +
+		_, _ = w.Write([]byte("event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"m\",\"stop_reason\":\"max_turns\",\"stop_notice\":\"Stopped after 3 steps.\"}}\n\n" +
 			"data: [DONE]\n\n"))
 	}))
 	defer srv.Close()
@@ -381,6 +368,10 @@ func TestServerStopReasonAndCancelledMetaWin(t *testing.T) {
 	res, err := promptOnce(t, srv, sender)
 	if err != nil || res.StopReason != acp.StopReasonMaxTurns {
 		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	// The server's words for why the turn stopped reach the remote console.
+	if res.StopNotice != "Stopped after 3 steps." {
+		t.Fatalf("StopNotice = %q", res.StopNotice)
 	}
 }
 
@@ -432,9 +423,20 @@ func TestAFailedPermissionAnswerFailsTheTurnInsteadOfDeadlocking(t *testing.T) {
 	}
 }
 
-func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
+// An editor's embedded resource reaches the server as an attachment whose
+// literal body is the resource text, never as text inside the input: the
+// server resolves the "@" references of what was typed and must not scan a
+// file's contents for them. A resource_link names something on the editor's
+// machine and travels as the link it is.
+func TestResourceBlocksReachTheRemoteAsAttachments(t *testing.T) {
 	var got struct {
-		Input string `json:"input"`
+		Input       string `json:"input"`
+		Attachments []struct {
+			Path   string `json:"path"`
+			Source struct {
+				Literal string `json:"literal"`
+			} `json:"source"`
+		} `json:"attachments"`
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&got)
@@ -452,14 +454,18 @@ func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
 		SessionID: "sess_test",
 		Prompt: []acp.ContentBlock{
 			{Type: "text", Text: "explain this"},
-			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a"}},
+			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a // @/etc/passwd"}},
+			{Type: "resource_link", URI: "file:///b/", Name: "b"},
 		},
 	}, sender, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got.Input, "explain this") || !strings.Contains(got.Input, "package a") || !strings.Contains(got.Input, "file:///a.go") {
-		t.Fatalf("input %q lacks the resource block", got.Input)
+	if strings.Contains(got.Input, "package a") || !strings.HasPrefix(got.Input, "explain this") || !strings.Contains(got.Input, "[b](file:///b/)") {
+		t.Fatalf("input %q", got.Input)
+	}
+	if len(got.Attachments) != 1 || got.Attachments[0].Path != "file:///a.go" || got.Attachments[0].Source.Literal != "package a // @/etc/passwd" {
+		t.Fatalf("attachments %+v", got.Attachments)
 	}
 }
 
@@ -469,7 +475,7 @@ func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
 			http.Error(w, `{"error":{"message":"disk on fire"}}`, http.StatusInternalServerError)
 			return
 		}
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[{"id":"remote/alpha","owned_by":"r"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/alpha","default":true,"owned_by":"r"}]}`))
 	}))
 	defer srv.Close()
 	h, err := NewHandler(Options{BaseURL: srv.URL})
@@ -483,14 +489,62 @@ func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
 	}
 }
 
+// The server marks the row a session with no model of its own runs on, and
+// that is the model the client shows and checks reasoning levels against - not
+// the first backend it lists.
+func TestRemoteDefaultModelIsTheRowTheServerMarks(t *testing.T) {
+	for _, tc := range []struct {
+		name, beta, want string
+	}{
+		{"the marked row", `,"default":true`, "remote/beta"},
+		// A server with no agent.model, or one from before the flag, marks
+		// nothing: the first backend is the best guess.
+		{"no row marked", "", "remote/alpha"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"object":"list","data":[
+					{"id":"agent","owned_by":"foxxycode"},
+					{"id":"remote/alpha","owned_by":"remote"},
+					{"id":"remote/beta","owned_by":"remote"` + tc.beta + `}]}`))
+			}))
+			defer srv.Close()
+			h, err := NewHandler(Options{BaseURL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := h.ensureModels(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if h.defModel != tc.want {
+				t.Fatalf("default model = %q, want %q", h.defModel, tc.want)
+			}
+		})
+	}
+}
+
 // ---- config options ----
 
-func TestSetConfigOptionValidatesModelsAndRefusesPermissionMode(t *testing.T) {
+func TestSetConfigOptionValidatesModelsAndCarriesThePermissionMode(t *testing.T) {
+	var input string
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[
+		_, _ = w.Write([]byte(`{"object":"list","data":[
 			{"id":"agent","owned_by":"foxxycode"},
-			{"id":"remote/alpha","owned_by":"remote"}]}`))
+			{"id":"remote/alpha","default":true,"owned_by":"remote"}]}`))
+	})
+	// The session does not exist on the server until its first prompt.
+	mux.HandleFunc("PATCH /foxxycode/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		input = body.Input
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -505,10 +559,21 @@ func TestSetConfigOptionValidatesModelsAndRefusesPermissionMode(t *testing.T) {
 	}); err == nil {
 		t.Fatal("unknown model must fail")
 	}
+	// The server's setter decides; a session the server has not created yet
+	// holds the change and sends it as a command with its first prompt.
 	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 		SessionID: "sess_x", ConfigID: "permission_mode", Value: "bypass",
-	}); err == nil || !strings.Contains(err.Error(), "remote server") {
-		t.Fatalf("permission mode err = %v", err)
+	}); err != nil {
+		t.Fatalf("permission mode: %v", err)
+	}
+	sender := &collectSender{}
+	if _, err := h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_x", Prompt: []acp.ContentBlock{{Type: "text", Text: "go"}},
+	}, sender, nil); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if input != "/permissions bypass\ngo" {
+		t.Fatalf("first prompt input = %q, want the held command before it", input)
 	}
 	res, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 		SessionID: "sess_x", ConfigID: "model", Value: "remote/alpha",
@@ -525,6 +590,255 @@ func TestSetConfigOptionValidatesModelsAndRefusesPermissionMode(t *testing.T) {
 	if !found {
 		t.Fatalf("model option not updated: %+v", res.ConfigOptions)
 	}
+}
+
+func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
+	const sessionID = "sess_x"
+	var patches []map[string]string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"agent","owned_by":"foxxycode"},
+			{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["minimal","low","medium","high"],"reasoning_default":"medium"}]}`))
+	})
+	mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"messages":[],"selectedModelId":"remote/terra","selectedReasoning":"low"}`))
+	})
+	mux.HandleFunc("PATCH /foxxycode/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var patch map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			t.Errorf("decode patch: %v", err)
+		}
+		patches = append(patches, patch)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetServer(&collectSender{})
+	h.SetPreferredSessionID(sessionID)
+	newResult, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	assertRemoteReasoningOption(t, newResult.ConfigOptions, "low")
+
+	setResult, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: sessionID, ConfigID: "reasoning", Value: " high ",
+	})
+	if err != nil {
+		t.Fatalf("set reasoning: %v", err)
+	}
+	assertRemoteReasoningOption(t, setResult.ConfigOptions, "high")
+	if len(patches) != 1 || patches[0]["selectedReasoning"] != "high" || len(patches[0]) != 1 {
+		t.Fatalf("patches = %#v, want selectedReasoning high only", patches)
+	}
+	cleared, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: sessionID, ConfigID: "reasoning", Value: "  ",
+	})
+	if err != nil {
+		t.Fatalf("clear reasoning: %v", err)
+	}
+	assertRemoteReasoningOption(t, cleared.ConfigOptions, "medium")
+	if len(patches) != 2 || patches[1]["selectedReasoning"] != "" || len(patches[1]) != 1 {
+		t.Fatalf("clear patches = %#v, want selectedReasoning empty only", patches)
+	}
+
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: sessionID, ConfigID: "reasoning", Value: "ultra",
+	}); err == nil || !strings.Contains(err.Error(), "unknown reasoning value") {
+		t.Fatalf("invalid reasoning error = %v", err)
+	}
+	if len(patches) != 2 {
+		t.Fatalf("invalid reasoning PATCHed: %#v", patches)
+	}
+
+	loaded, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: sessionID})
+	if err != nil {
+		t.Fatalf("HandleSessionLoad: %v", err)
+	}
+	assertRemoteReasoningOption(t, loaded.ConfigOptions, "low")
+}
+
+func TestRemoteReasoningConfigOptionClampsAfterModelSwitch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"remote/alpha","default":true,"owned_by":"remote","reasoning_levels":["minimal","high"],"reasoning_default":"minimal"},
+			{"id":"remote/beta","owned_by":"remote","reasoning_levels":["minimal","low"],"reasoning_default":"minimal"}]}`))
+	})
+	mux.HandleFunc("PATCH /foxxycode/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_x", ConfigID: "reasoning", Value: "high",
+	}); err != nil {
+		t.Fatalf("set reasoning: %v", err)
+	}
+	result, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_x", ConfigID: "model", Value: "remote/beta",
+	})
+	if err != nil {
+		t.Fatalf("switch model: %v", err)
+	}
+	assertRemoteReasoningOptionLevels(t, result.ConfigOptions, "minimal", []string{"minimal", "low"})
+}
+
+func TestRemoteReasoningConfigOptionRetainsSelectionBeforeFirstPrompt(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("PATCH /foxxycode/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	result, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_fresh", ConfigID: "reasoning", Value: "high",
+	})
+	if err != nil {
+		t.Fatalf("set reasoning before first prompt: %v", err)
+	}
+	assertRemoteReasoningOptionLevels(t, result.ConfigOptions, "high", []string{"low", "high"})
+	assertRemoteReasoningOptionLevels(t, h.configOptions(h.session("sess_fresh")), "high", []string{"low", "high"})
+
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	for _, update := range sender.updates {
+		if optionUpdate, ok := update.(acp.ConfigOptionUpdate); ok {
+			assertRemoteReasoningOptionLevels(t, optionUpdate.ConfigOptions, "high", []string{"low", "high"})
+			return
+		}
+	}
+	t.Fatalf("config option update missing: %#v", sender.updates)
+}
+
+func TestRemotePromptSendsPrePromptReasoningSelection(t *testing.T) {
+	var request responsesRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("PATCH /foxxycode/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode responses request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_fresh", ConfigID: "reasoning", Value: "high",
+	}); err != nil {
+		t.Fatalf("set reasoning before first prompt: %v", err)
+	}
+	if _, err := h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_fresh",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}, sender, nil); err != nil {
+		t.Fatalf("first prompt: %v", err)
+	}
+	if request.Metadata["reasoning"] != "high" {
+		t.Fatalf("response metadata = %#v, want reasoning high", request.Metadata)
+	}
+}
+
+func assertRemoteReasoningOption(t *testing.T, options []acp.ConfigOption, current string) {
+	t.Helper()
+	for _, option := range options {
+		if option.ID != "reasoning" {
+			continue
+		}
+		if option.Type != "select" || option.CurrentValue != current {
+			t.Fatalf("reasoning option = %+v, want select with current %q", option, current)
+		}
+		want := []string{"minimal", "low", "medium", "high"}
+		if len(option.Options) != len(want) {
+			t.Fatalf("reasoning options = %+v, want %v", option.Options, want)
+		}
+		for i, value := range want {
+			if option.Options[i].Value != value {
+				t.Fatalf("reasoning option %d = %q, want %q", i, option.Options[i].Value, value)
+			}
+		}
+		return
+	}
+	t.Fatalf("reasoning config option missing: %+v", options)
+}
+
+func TestRemoteReasoningPatchFailureDoesNotUpdateLocalState(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("PATCH /foxxycode/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"disk on fire"}}`, http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_x", ConfigID: "reasoning", Value: "high",
+	}); err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("reasoning PATCH error = %v", err)
+	}
+	assertRemoteReasoningOptionLevels(t, h.configOptions(h.session("sess_x")), "low", []string{"low", "high"})
+}
+
+func assertRemoteReasoningOptionLevels(t *testing.T, options []acp.ConfigOption, current string, levels []string) {
+	t.Helper()
+	for _, option := range options {
+		if option.ID != "reasoning" {
+			continue
+		}
+		if option.CurrentValue != current {
+			t.Fatalf("reasoning current = %q, want %q", option.CurrentValue, current)
+		}
+		if len(option.Options) != len(levels) {
+			t.Fatalf("reasoning options = %+v, want %v", option.Options, levels)
+		}
+		for i, level := range levels {
+			if option.Options[i].Value != level {
+				t.Fatalf("reasoning option %d = %q, want %q", i, option.Options[i].Value, level)
+			}
+		}
+		return
+	}
+	t.Fatalf("reasoning config option missing: %+v", options)
 }
 
 func TestHandleSessionNewFailsFastWhenTheRemoteIsUnreachable(t *testing.T) {
@@ -611,10 +925,10 @@ func TestAStaleAnswerToAWithdrawnPromptKeepsTheTurnAlive(t *testing.T) {
 	}
 }
 
-// --session-id sub_… against a remote server names a subagent child; when the
-// server has no such session the client refuses up front, like the local
-// manager, instead of minting a console that fails on its first prompt.
-func TestRemoteSessionNewRefusesAnUnknownReservedID(t *testing.T) {
+// An id the server does not know still starts a fresh remote session: every
+// session id has the same shape now, so nothing about one says it belongs to a
+// transcript the client may not write to.
+func TestRemoteSessionNewAcceptsAnUnknownPreferredID(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"agent","owned_by":"foxxycode"},{"id":"remote/alpha","owned_by":"remote"}]}`))
@@ -629,14 +943,39 @@ func TestRemoteSessionNewRefusesAnUnknownReservedID(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.SetServer(&collectSender{})
-	h.SetPreferredSessionID("sub_00000000000000000000dead")
-	_, err = h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
-	if !errors.Is(err, session.ErrReservedSessionID) {
-		t.Fatalf("session/new with an unknown sub_ id = %v, want ErrReservedSessionID", err)
-	}
-	// An ordinary unknown id still starts a fresh remote session.
 	h.SetPreferredSessionID("sess_fresh_remote")
 	if _, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{}); err != nil {
-		t.Fatalf("an ordinary preferred id must still be accepted: %v", err)
+		t.Fatalf("an unknown preferred id must be accepted: %v", err)
+	}
+}
+
+// TestSessionListForwardsTheWorkspaceFilter: an editor lists the sessions of
+// the folder it has open, so the cwd it sends has to reach the server instead
+// of being dropped (which listed every session on the server).
+func TestSessionListForwardsTheWorkspaceFilter(t *testing.T) {
+	var gotCWD string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /foxxycode/sessions", func(w http.ResponseWriter, r *http.Request) {
+		gotCWD = r.URL.Query().Get("cwd")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sessions":[{"id":"sess_ws","cwd":"/work/project","title":"one"}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := "/work/project"
+	res, err := h.HandleSessionList(context.Background(), acp.SessionListParams{CWD: &cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCWD != cwd {
+		t.Fatalf("server received cwd=%q, want %q", gotCWD, cwd)
+	}
+	if len(res.Sessions) != 1 || res.Sessions[0].SessionID != "sess_ws" || res.Sessions[0].CWD != cwd {
+		t.Fatalf("sessions = %+v", res.Sessions)
 	}
 }

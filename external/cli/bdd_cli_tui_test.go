@@ -17,6 +17,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,8 +29,12 @@ import (
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/docs"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -92,9 +98,12 @@ type stubDirective struct {
 	tool    string
 	argsKey string
 	argsVal string
-	preview string
-	err     error
-	blockCh chan struct{}
+	// argsJSON carries a whole argument object for calls that need more than
+	// one field (spawn_agent), and replaces the argsKey/argsVal pair.
+	argsJSON string
+	preview  string
+	err      error
+	blockCh  chan struct{}
 	// taken is closed by the turn that pops this directive, so a step can wait
 	// for the hand-off instead of guessing at it with a pause.
 	taken   chan struct{}
@@ -104,7 +113,10 @@ type stubDirective struct {
 type cliTUIState struct {
 	mu   sync.Mutex
 	home string
-	cwd  string
+	// homes is every home the scenario built an app over: a step that
+	// rebuilds the app starts a new one, and the shutdown removes them all.
+	homes []string
+	cwd   string
 
 	cfg   *config.Config
 	store *session.FileStore
@@ -114,19 +126,30 @@ type cliTUIState struct {
 	runCancel context.CancelFunc
 	appDone   chan error
 
+	// bgSessionID and bgTaskID name the pooled command a scenario started.
+	bgSessionID string
+	bgTaskID    string
+	// wakerAttached says the scenario attached the console's waker to the
+	// process pool, which the shutdown takes off again.
+	wakerAttached bool
+
 	directives chan stubDirective
 	turnEnds   chan struct{}
 
-	permOutcome  string
-	permOption   string
-	questionAns  [][]string
-	prompts      []string
-	sawCancel    bool
-	activeToolID string
-	toolSeq      int
-	blockedCh    chan struct{}
+	permOutcome string
+	permOption  string
+	// detachedAnswers carries what a background subagent's prompt returned.
+	detachedAnswers chan *acp.PermissionResult
+	questionAns     [][]string
+	prompts         []string
+	sawCancel       bool
+	activeToolID    string
+	toolSeq         int
+	blockedCh       chan struct{}
 
 	prevSessionID string
+	// outside is a folder outside the workspace the "@" scenarios browse.
+	outside string
 
 	printOut  *syncBuffer
 	printDone chan error
@@ -163,9 +186,10 @@ func (s *syncBuffer) String() string {
 }
 
 func (s *cliTUIState) reset() {
-	s.home, s.cwd = "", ""
+	s.home, s.cwd, s.homes = "", "", nil
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
+	s.detachedAnswers = nil
 	s.questionAns = nil
 	s.prompts = nil
 	s.sawCancel = false
@@ -173,6 +197,10 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	if s.outside != "" {
+		_ = os.RemoveAll(s.outside)
+	}
+	s.outside = ""
 	s.printOut = nil
 	s.printDone = nil
 	s.mgr = nil
@@ -186,17 +214,24 @@ func (s *cliTUIState) reset() {
 }
 
 func (s *cliTUIState) shutdown() {
-	if s.app != nil {
-		s.app.requestQuit(nil)
+	// The console's waker goes first: a task stopped below must not wake an
+	// app that is already quitting, nor the next scenario's.
+	if s.wakerAttached {
+		bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+		s.wakerAttached = false
+	}
+	// A pooled command of the scenario must not outlive it: the pool is the
+	// process's own, shared by every scenario of the suite.
+	if s.bgSessionID != "" {
+		bgtask.Default().StopSession(s.bgSessionID)
+		bgtask.Default().ReleaseSession(s.bgSessionID)
+		s.bgSessionID, s.bgTaskID = "", ""
 	}
 	if s.runCancel != nil {
 		s.runCancel()
 	}
-	if s.appDone != nil {
-		select {
-		case <-s.appDone:
-		case <-time.After(2 * time.Second):
-		}
+	if s.app != nil {
+		closeConsole(s.app, s.appDone != nil)
 	}
 	// The stand-in is selected through a process-wide variable: no usage
 	// fetch may outlive the scenario, or it lands on the next one's server.
@@ -212,6 +247,21 @@ func (s *cliTUIState) shutdown() {
 		_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
 		s.usageEnvSet = false
 	}
+	// The scenario's homes and outside folder live in the system temp dir. Left
+	// behind, a home per scenario piles up there, and the "@" scenario that
+	// browses an absolute path lists that dir on every key it types. The app's
+	// workers go first: a turn may still be persisting into its home.
+	if s.app != nil {
+		s.app.JoinWorkers(3 * time.Second)
+	}
+	for _, home := range s.homes {
+		_ = os.RemoveAll(home)
+	}
+	s.homes = nil
+	if s.outside != "" {
+		_ = os.RemoveAll(s.outside)
+		s.outside = ""
+	}
 }
 
 // stubRunner executes scripted directives against the sender, mirroring what
@@ -226,7 +276,13 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
 	s.mu.Unlock()
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339)})
+	// Like the agent: a woken turn tells the surface what woke it before its
+	// first message is persisted, and the message keeps the marker.
+	wake := st.TakeTurnWake()
+	if wake != nil {
+		_ = snd.SendSessionUpdate(st.GetID(), session.BackgroundWakeUpdate(wake))
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339), BackgroundWake: wake})
 	sessionID := st.GetID()
 	assistant := ""
 	defer func() {
@@ -260,7 +316,10 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					SessionUpdate: "tool_call", ToolCallID: s.activeToolID,
 					Title: d.tool, Kind: "read", Status: "pending",
 				})
-				args := fmt.Sprintf("{%q: %q}", d.argsKey, d.argsVal)
+				args := d.argsJSON
+				if args == "" {
+					args = fmt.Sprintf("{%q: %q}", d.argsKey, d.argsVal)
+				}
 				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
 					Status:  "in_progress",
@@ -354,6 +413,19 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 
 func (s *cliTUIState) buildApp() error { return s.buildAppWith(false) }
 
+// buildAppWithReasoning configures the console with a reasoning-capable stub
+// model and medium as its default level. The fixture reaches the manager
+// before it creates the scenario session.
+func (s *cliTUIState) buildAppWithReasoning() error {
+	models := []config.ModelEntry{{
+		Model:            "stub/gpt-5.6-terra",
+		MaxTokens:        1000,
+		MaxContextTokens: 100000,
+		ReasoningDefault: "medium",
+	}}
+	return s.buildAppWithModels(false, true, models, "stub/gpt-5.6-terra")
+}
+
 // buildAppWith assembles the console; with neuraldeep the default model
 // belongs to a neuraldeep provider whose stored hub login points at a
 // stand-in GET /limits, and the manager runs on the scenario's clock.
@@ -364,7 +436,14 @@ func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
 // buildAppWithUsagePanel is buildAppWith with the neuraldeep row's usage
 // limits panel switched on or off (providers[].usage_limits_panel).
 func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
+	return s.buildAppWithModels(neuraldeep, panel, nil, "")
+}
+
+// buildAppWithModels assembles the console with an optional model fixture.
+// Its model selection is applied before session.NewManager sees the config.
+func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config.ModelEntry, defaultModel string) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("foxxycode-cli-bdd-%d", time.Now().UnixNano()))
+	s.homes = append(s.homes, s.home)
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -398,6 +477,10 @@ func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
 		cfg.Providers = append(cfg.Providers, row)
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000})
 		cfg.Agent.Model = "neuraldeep/qwen3.8-27b"
+	}
+	if len(models) > 0 {
+		cfg.Models = models
+		cfg.Agent.Model = defaultModel
 	}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
@@ -494,6 +577,126 @@ func (s *cliTUIState) usageClockMoves(seconds int) error {
 	return nil
 }
 
+// sessionRunsBackgroundCommand starts a real command in the process's task pool under
+// the console's session, the way run_command with background: true does.
+func (s *cliTUIState) sessionRunsBackgroundCommand(command string) error {
+	if runtime.GOOS == "windows" {
+		return godog.ErrSkip
+	}
+	sessionID := s.app.sessionID
+	snap, err := bgtask.Default().Start(bgtask.Spec{SessionID: sessionID, Command: command, CWD: s.cfg.Paths.CWD})
+	if err != nil {
+		return err
+	}
+	s.bgTaskID = snap.ID
+	s.bgSessionID = sessionID
+	return nil
+}
+
+// sessionRunsWakingBackgroundCommand is sessionRunsBackgroundCommand with
+// notify_on_finish, on a console whose waker is attached the way buildApp
+// attaches it.
+func (s *cliTUIState) sessionRunsWakingBackgroundCommand(command string) error {
+	if runtime.GOOS == "windows" {
+		return godog.ErrSkip
+	}
+	s.app.attachBackgroundWaker(bgtask.Default())
+	s.wakerAttached = true
+	sessionID := s.app.sessionID
+	snap, err := bgtask.Default().Start(bgtask.Spec{SessionID: sessionID, Command: command, CWD: s.cfg.Paths.CWD, NotifyOnFinish: true})
+	if err != nil {
+		return err
+	}
+	s.bgTaskID = snap.ID
+	s.bgSessionID = sessionID
+	return nil
+}
+
+// transcriptShowsNothingOfTheWake checks that the woken turn reads as the agent
+// carrying on: neither the instruction the turn started from nor a note about
+// the wake is on screen.
+func (s *cliTUIState) transcriptShowsNothingOfTheWake() error {
+	text := s.screenText()
+	for _, unwanted := range []string{"background task you started has finished", "Woken by", s.bgTaskID} {
+		if strings.Contains(text, unwanted) {
+			return fmt.Errorf("the woken turn shows %q:\n%s", unwanted, text)
+		}
+	}
+	return nil
+}
+
+// wokenTurnWasHandedOutcome waits for the turn the task's end started and checks
+// that its prompt names the task and how it ended.
+func (s *cliTUIState) wokenTurnWasHandedOutcome() error {
+	taskID := s.bgTaskID
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s.mu.Lock()
+		prompts := append([]string(nil), s.prompts...)
+		s.mu.Unlock()
+		for _, p := range prompts {
+			if strings.Contains(p, taskID) && strings.Contains(p, "did not succeed") {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no turn was handed the outcome of %s: %q", taskID, prompts)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func (s *cliTUIState) tasksOverlaySaysWakes() error {
+	return s.waitScreen("wakes the agent", 3*time.Second)
+}
+
+func (s *cliTUIState) tasksOverlayListsRunning(title string) error {
+	if err := s.waitScreen("Background tasks", 3*time.Second); err != nil {
+		return err
+	}
+	if err := s.waitScreen(title, 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("1 running", 3*time.Second)
+}
+
+func (s *cliTUIState) footerNamesRunningTasks(n int) error {
+	return s.waitScreen(fmt.Sprintf("%d task running (/tasks)", n), 3*time.Second)
+}
+
+func (s *cliTUIState) operatorOpensSelectedTask() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) tasksOverlayShowsOutput(text string) error {
+	return s.waitScreen(text, 5*time.Second)
+}
+
+func (s *cliTUIState) operatorStopsTaskFromOverlay() error {
+	s.press("s")
+	return nil
+}
+
+func (s *cliTUIState) backgroundCommandIsStopped() error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		snap, err := bgtask.Default().Get(s.app.sessionID, s.bgTaskID)
+		if err != nil {
+			return err
+		}
+		if snap.Status == bgtask.StatusStopped {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("task %s was never stopped", s.bgTaskID)
+}
+
+func (s *cliTUIState) tasksOverlayListsStopped() error {
+	return s.waitScreen("stopped", 5*time.Second)
+}
+
 func (s *cliTUIState) operatorSubmitsCommand(text string) error {
 	s.typeText(text)
 	s.press("\r")
@@ -545,6 +748,39 @@ func (s *cliTUIState) startApp(sessionID string) error {
 	return s.waitScreen("foxxycode v", 3*time.Second)
 }
 
+// closeConsole closes an app the way runInteractive does, once its loop has
+// returned: Close stops the timers the loop arms, so closing a live loop from
+// the test goroutine races with it. The caller has cancelled Run's context
+// already; ran says whether Run was started at all.
+func closeConsole(app *App, ran bool) {
+	if ran {
+		select {
+		case <-app.doneCh:
+		case <-time.After(2 * time.Second):
+		}
+	}
+	app.Close()
+}
+
+// onLoop runs fn on the console's UI loop and waits for it, up to timeout for
+// the loop to take the call and as long again for fn to return. The editor and
+// the rest of the component tree belong to that goroutine while Run is live, so
+// a step reads them there rather than from the test goroutine.
+func (s *cliTUIState) onLoop(timeout time.Duration, fn func()) error {
+	done := make(chan struct{})
+	select {
+	case s.app.updatesCh <- updateMsg{update: uiCall(func() { fn(); close(done) })}:
+	case <-time.After(timeout):
+		return fmt.Errorf("the console loop took no call within %s", timeout)
+	}
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("the console loop did not run the call within %s", timeout)
+	}
+}
+
 // screenText returns the current frame stripped of styling.
 func (s *cliTUIState) screenText() string {
 	lines := s.app.screen.Snapshot()
@@ -593,6 +829,46 @@ func (s *cliTUIState) aConsoleAppOverStubRunner() error { return s.buildApp() }
 
 func (s *cliTUIState) theConsoleAppStarts() error { return s.startApp("") }
 
+// workspaceHoldsANestedAgentsFile plants the file whose discovery used to cost
+// a walk of the whole workspace before the console drew anything.
+func (s *cliTUIState) workspaceHoldsANestedAgentsFile() error {
+	if s.cwd == "" {
+		return fmt.Errorf("no workspace prepared")
+	}
+	dir := filepath.Join(s.cwd, "pkg")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("notes no tool asked for"), 0o644)
+}
+
+// rulesDiscoveryIsOn puts the app on the path the bug was reported from: with
+// discovery off there is nothing to walk in the first place.
+func (s *cliTUIState) rulesDiscoveryIsOn() error {
+	if s.cfg == nil {
+		return fmt.Errorf("no config prepared")
+	}
+	on := true
+	s.cfg.Rules.AutoDiscover = &on
+	return nil
+}
+
+// sessionCatalogHoldsNoNestedAgents is the assertion the fix is for: start
+// resolved the rules catalog and no nested AGENTS.md is in it, because none was
+// looked for.
+func (s *cliTUIState) sessionCatalogHoldsNoNestedAgents() error {
+	st := s.app.mgr.SessionByID(s.app.sessionID)
+	if st == nil {
+		return fmt.Errorf("no live session")
+	}
+	for _, r := range st.GetRulesCatalog() {
+		if r != nil && r.Source == rules.SourceAgents {
+			return fmt.Errorf("start read a nested AGENTS.md: %s", r.FilePath)
+		}
+	}
+	return nil
+}
+
 func (s *cliTUIState) screenShowsVersionHeader() error {
 	return s.waitScreen("foxxycode v", 2*time.Second)
 }
@@ -629,6 +905,27 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 	return s.waitTurnEnd(2 * time.Second)
 }
 
+// screenShowsQueuedMessage asserts the queue widget above the input is showing
+// that follow-up, under the header naming how many are waiting.
+func (s *cliTUIState) screenShowsQueuedMessage(text string) error {
+	if err := s.waitScreen("queued for the next step", 2*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen(text, 2*time.Second)
+}
+
+// screenShowsNothingQueued asserts the widget is gone once the turn is over.
+func (s *cliTUIState) screenShowsNothingQueued() error {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), "queued for the next step") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the queue is still on screen; last frame:\n%s", s.screenText())
+}
+
 func (s *cliTUIState) transcriptShowsUserBlock(text string) error {
 	return s.waitScreen(text, 2*time.Second)
 }
@@ -646,13 +943,63 @@ func (s *cliTUIState) footerShowsTokenUsage() error {
 	return s.waitScreen("↑1.2k", 2*time.Second)
 }
 
+// agentReportsTurnTokens is what the agent loop publishes while a call streams and
+// after it: the turn's own numbers, which lead the status line.
+func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
+	return s.app.Sender().SendSessionUpdate(s.app.sessionID, acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		OutputTokens:  tokens,
+		Estimated:     true,
+	})
+}
+
+// statusLineLeadsWithTurnClock waits for "<clock> · <phrase>". The clock is matched,
+// not spelled out: a slow runner may draw its first frame a second into the turn.
+func (s *cliTUIState) statusLineLeadsWithTurnClock(phrase string) error {
+	pattern := regexp.MustCompile(`\d+s · ` + regexp.QuoteMeta(phrase))
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if pattern.MatchString(s.screenText()) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("no turn clock before %q; last frame:\n%s", phrase, s.screenText())
+}
+
+func (s *cliTUIState) statusLineShowsNoTokenCount() error {
+	if text := s.screenText(); strings.Contains(text, " tokens") || strings.Contains(text, " token ·") {
+		return fmt.Errorf("the status line names tokens before the model produced any:\n%s", text)
+	}
+	return nil
+}
+
 func (s *cliTUIState) stubStartsToolCall(tool, argKey, argVal string) error {
 	s.directives <- stubDirective{kind: "tool_start", tool: tool, argsKey: argKey, argsVal: argVal}
 	return s.waitScreen(tool, 3*time.Second)
 }
 
+// stubStartsSpawnAgent starts a delegation with the three arguments the box
+// reads: which subagent, what it is called, and the prompt the child gets.
+func (s *cliTUIState) stubStartsSpawnAgent(agent, description, prompt string) error {
+	args, err := json.Marshal(map[string]interface{}{
+		"agent": agent, "description": description, "prompt": prompt,
+	})
+	if err != nil {
+		return err
+	}
+	s.directives <- stubDirective{kind: "tool_start", tool: "spawn_agent", argsJSON: string(args)}
+	return s.waitScreen("spawn_agent "+agent, 3*time.Second)
+}
+
 func (s *cliTUIState) transcriptShowsPendingToolBox(tool string) error {
 	return s.waitScreen(tool, 2*time.Second)
+}
+
+// toolBoxShows waits for any text the box renders from the call arguments.
+func (s *cliTUIState) toolBoxShows(text string) error {
+	return s.waitScreen(text, 2*time.Second)
 }
 
 func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
@@ -668,8 +1015,10 @@ func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
 	return s.waitTurnEnd(2 * time.Second)
 }
 
-// statusLineShows waits for the spinner's status message. The verb and its target are
-// composed only by the status line, so "Reading README.md" cannot come from the tool box.
+// statusLineShows waits for the spinner's status message. The phrase is composed only by
+// the status line - the tool box above it reads "read README.md" - so "Reading a file"
+// can come from nowhere else. The line names no target at all: the exact string is
+// pinned by TestLiveStatusText.
 func (s *cliTUIState) statusLineShows(text string) error {
 	return s.waitScreen(text, 3*time.Second)
 }
@@ -744,6 +1093,73 @@ func (s *cliTUIState) operatorAllowsPermissionKeepingTurn() error {
 	return fmt.Errorf("permission result never arrived")
 }
 
+// backgroundSubagentAsks raises a prompt the way the relay does once the turn
+// that spawned the subagent is over: straight to the console's broker, under the
+// child's own session, with the subagent named in the title.
+func (s *cliTUIState) backgroundSubagentAsks(name, command string) error {
+	answers := make(chan *acp.PermissionResult, 1)
+	s.mu.Lock()
+	s.detachedAnswers = answers
+	s.mu.Unlock()
+	req := agent.DetachedPermissionRequest{
+		ParentSessionID: s.app.sessionID,
+		ChildSessionID:  "sess_bdd_writer",
+		TaskID:          "bg_1",
+		AgentName:       name,
+		Params: acp.PermissionRequestParams{
+			SessionID: "sess_bdd_writer",
+			ToolCall: acp.PermissionToolCall{
+				ToolCallID: "call_detached",
+				Title:      "[subagent " + name + "] Run: " + command,
+				Status:     "pending",
+			},
+			Options: []acp.PermissionOption{
+				{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+			},
+			EffectivePermissionMode: config.PermModeAsk,
+		},
+	}
+	go func() {
+		res, err := s.app.RequestDetachedPermission(s.runCtx, req)
+		if err != nil {
+			res = nil
+		}
+		answers <- res
+	}()
+	return nil
+}
+
+func (s *cliTUIState) screenShowsModalNamingSubagent(name string) error {
+	if err := s.waitScreen("Permission required", 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("[subagent "+name+"]", 3*time.Second)
+}
+
+func (s *cliTUIState) operatorAnswersSubagentPermission() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) backgroundSubagentAnswered(name, option string) error {
+	s.mu.Lock()
+	answers := s.detachedAnswers
+	s.mu.Unlock()
+	if answers == nil {
+		return fmt.Errorf("the subagent %q never asked", name)
+	}
+	select {
+	case res := <-answers:
+		if res == nil || res.OptionID != option {
+			return fmt.Errorf("the subagent %q was answered %+v, want %q", name, res, option)
+		}
+		return nil
+	case <-time.After(3 * time.Second):
+		return fmt.Errorf("the subagent %q was never answered; last frame:\n%s", name, s.screenText())
+	}
+}
+
 func (s *cliTUIState) stubObservesPermissionOutcome(outcome, option string) error {
 	s.mu.Lock()
 	gotOutcome, gotOption := s.permOutcome, s.permOption
@@ -815,6 +1231,34 @@ func (s *cliTUIState) sessionStateRecordsSecondModel() error {
 	}
 	if got := st.EffectiveModelID(s.cfg); got != "stub/model-two" {
 		return fmt.Errorf("session model = %q", got)
+	}
+	return nil
+}
+
+func (s *cliTUIState) operatorSelectsLowReasoningThroughSelector() error {
+	if err := s.operatorSubmitsCommand("/reasoning"); err != nil {
+		return err
+	}
+	if err := s.waitScreen("Select reasoning", 3*time.Second); err != nil {
+		return err
+	}
+	// The configured default is medium; low is the immediately preceding level.
+	s.press("\x1b[A")
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) footerNamesReasoning(level string) error {
+	return s.waitScreen(" • "+level, 3*time.Second)
+}
+
+func (s *cliTUIState) sessionStateRecordsReasoning(level string) error {
+	st := s.app.mgr.SessionByID(s.app.sessionID)
+	if st == nil {
+		return fmt.Errorf("no live session")
+	}
+	if got := st.GetSelectedReasoning(); got != level {
+		return fmt.Errorf("session reasoning = %q, want %q", got, level)
 	}
 	return nil
 }
@@ -1044,12 +1488,39 @@ func (s *cliTUIState) localShellBlockShowsOutput(text string) error {
 	for time.Now().Before(deadline) {
 		for _, line := range s.app.screen.Snapshot() {
 			if strings.TrimSpace(tui.StripTerminalSequences(line)) == text {
-				return nil
+				return s.localShellCommandFinished(deadline)
 			}
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
 	return fmt.Errorf("no row held the command output %q; last frame:\n%s", text, s.screenText())
+}
+
+// localShellCommandFinished waits for the block's "running" row to go. The
+// output reaches the screen one poll before the exit does, and until the
+// localShellDone update lands the console still refuses a prompt with "A local
+// command is running" - which is how the next step of the `!!` scenario used
+// to fail on a slow runner. A clean exit paints no status row at all, so the
+// running label vanishing is the signal.
+func (s *cliTUIState) localShellCommandFinished(deadline time.Time) error {
+	const running = "running (escape to stop)"
+	for {
+		seen := false
+		for _, line := range s.app.screen.Snapshot() {
+			plain := tui.StripTerminalSequences(line)
+			if strings.Contains(plain, running) && !strings.Contains(plain, "A local command is running") {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the local command still shows %q; last frame:\n%s", running, s.screenText())
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
 }
 
 // noAgentTurnReceived proves the private half of the feature: no prompt the
@@ -1109,19 +1580,30 @@ func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
 
 // waitWorkersIdle blocks until every app worker (the turn, the `!!` poller)
 // has returned, so nothing writes into the session bundle while a step reads
-// it. Unlike App.JoinWorkers it reports a timeout instead of moving on.
+// it. Unlike App.JoinWorkers it reports a timeout instead of moving on. The
+// wait holds the UI loop: the loop is what starts workers (the task list read
+// among them), and a WaitGroup must not see an Add from zero during a Wait.
 func (s *cliTUIState) waitWorkersIdle(timeout time.Duration) error {
-	done := make(chan struct{})
-	go func() {
-		s.app.workers.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(timeout):
+	idle := false
+	err := s.onLoop(timeout, func() {
+		done := make(chan struct{})
+		go func() {
+			s.app.workers.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+			idle = true
+		case <-time.After(timeout):
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if !idle {
 		return fmt.Errorf("app workers still busy after %s", timeout)
 	}
+	return nil
 }
 
 func (s *cliTUIState) operatorTypesWithoutSending(text string) error {
@@ -1145,6 +1627,135 @@ func (s *cliTUIState) editorBordersUseLocalShellColor() error {
 	return fmt.Errorf("no editor border used the bashMode color; frame:\n%s", s.screenText())
 }
 
+// --- "@" mentions in the editor ---
+
+func (s *cliTUIState) withOutside(text string) string {
+	return strings.ReplaceAll(text, "<outside folder>", filepath.ToSlash(s.outside))
+}
+
+func (s *cliTUIState) folderOutsideHolding(name string) error {
+	dir, err := os.MkdirTemp("", "foxxycode-cli-bdd-outside-*")
+	if err != nil {
+		return err
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	s.outside = dir
+	return os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644)
+}
+
+func (s *cliTUIState) workspaceHoldsManyFiles(n int, deep string) error {
+	for i := 0; i < n; i++ {
+		p := filepath.Join(s.cwd, "pkg", fmt.Sprintf("file%03d.go", i))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			return err
+		}
+	}
+	p := filepath.Join(s.cwd, filepath.FromSlash(deep))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte("x"), 0o644)
+}
+
+func (s *cliTUIState) fileAppearsInWorkspace(name string) error {
+	return os.WriteFile(filepath.Join(s.cwd, filepath.FromSlash(name)), []byte("x"), 0o644)
+}
+
+// operatorTypesMention types a mention into the editor and waits for the
+// "@" list to open.
+func (s *cliTUIState) operatorTypesMention(text string) error {
+	s.typeText(s.withOutside(text))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		open := false
+		if err := s.onLoop(2*time.Second, func() { open = s.app.editor.AutocompleteOpen() }); err != nil {
+			return err
+		}
+		if open {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the @ list never opened; frame:\n%s", s.screenText())
+}
+
+func (s *cliTUIState) mentionListOffers(label string) error {
+	return s.waitScreen(s.withOutside(label), 3*time.Second)
+}
+
+func (s *cliTUIState) operatorTakesHighlightedMention() error {
+	s.press("\t")
+	return nil
+}
+
+func (s *cliTUIState) editorHolds(text string) error {
+	want := s.withOutside(text)
+	got := ""
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := s.onLoop(2*time.Second, func() { got = s.app.editor.Text() }); err != nil {
+			return err
+		}
+		if got == want {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("editor holds %q, want %q", got, want)
+}
+
+// --- built-in documentation (F1, /docs) ---
+
+func (s *cliTUIState) operatorPressesF1() error {
+	s.press("\x1bOP")
+	return nil
+}
+
+func (s *cliTUIState) helpLists(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) operatorTypesIntoHelp(text string) error {
+	s.typeText(text)
+	return s.waitScreen("› "+text, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorOpensHelpEntry() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) helpShowsPageAtSection(page, section string) error {
+	if err := s.waitScreen("FoxxyCode docs › "+page, 3*time.Second); err != nil {
+		return err
+	}
+	// The section's heading is on screen: the view scrolled to it.
+	return s.waitScreen(section, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorTurnsToNextHelpPage() error {
+	s.typeText("n")
+	return nil
+}
+
+func (s *cliTUIState) helpShowsPageAfter(page string) error {
+	lib, err := docs.Default()
+	if err != nil {
+		return err
+	}
+	for i, p := range lib.Pages() {
+		if p.Title == page && i+1 < len(lib.Pages()) {
+			return s.waitScreen("FoxxyCode docs › "+lib.Pages()[i+1].Title, 3*time.Second)
+		}
+	}
+	return fmt.Errorf("no page titled %q, or it is the last", page)
+}
+
 func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	s := &cliTUIState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1159,6 +1770,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a foxxycode console app over a stub agent runner$`, s.aConsoleAppOverStubRunner)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
 	sc.Step(`^the screen shows the foxxycode version header$`, s.screenShowsVersionHeader)
+	sc.Step(`^the workspace holds a nested AGENTS\.md in a folder no tool has entered$`, s.workspaceHoldsANestedAgentsFile)
+	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryIsOn)
+	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.sessionCatalogHoldsNoNestedAgents)
 	sc.Step(`^the screen shows the editor between horizontal borders$`, s.screenShowsEditorBorders)
 	sc.Step(`^the footer names the configured default model$`, s.footerNamesDefaultModel)
 	sc.Step(`^the operator submits the prompt "([^"]*)"$`, s.operatorSubmitsPrompt)
@@ -1172,6 +1786,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument agent "([^"]*)"$`, func(tool, agent string) error {
 		return s.stubStartsToolCall(tool, "agent", agent)
 	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument name "([^"]*)"$`, func(tool, name string) error {
+		return s.stubStartsToolCall(tool, "name", name)
+	})
+	sc.Step(`^the stub turn starts a spawn_agent call for "([^"]*)" described as "([^"]*)" with the prompt "([^"]*)"$`, s.stubStartsSpawnAgent)
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument command "([^"]*)"$`, func(tool, command string) error {
 		// A run_command box titles itself "$ <command>", not with the tool name,
 		// so readiness is the command string appearing on screen.
@@ -1182,21 +1800,43 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
 	sc.Step(`^the stub tool call completes with a preview of (\d+) lines$`, s.stubToolCompletesWithLines)
 	sc.Step(`^the tool box shows the preview "([^"]*)"$`, s.toolBoxShowsPreview)
+	sc.Step(`^the tool box shows "([^"]*)"$`, s.toolBoxShows)
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
 	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
 	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)
+	sc.Step(`^the status line leads with the turn clock before "([^"]*)"$`, s.statusLineLeadsWithTurnClock)
+	sc.Step(`^the status line shows no token count yet$`, s.statusLineShowsNoTokenCount)
+	sc.Step(`^the agent reports (\d+) tokens generated in this turn$`, s.agentReportsTurnTokens)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.permissionModeIs)
 	sc.Step(`^the stub turn requests permission for the tool "([^"]*)"$`, s.stubRequestsPermission)
 	sc.Step(`^the screen shows a permission modal with an allow option$`, s.screenShowsPermissionModalWithAllow)
 	sc.Step(`^the operator confirms the highlighted permission option$`, s.operatorConfirmsPermissionOption)
 	sc.Step(`^the stub turn observes the permission outcome "([^"]*)" with option "([^"]*)"$`, s.stubObservesPermissionOutcome)
+	sc.Step(`^the background subagent "([^"]*)" asks for permission to run "([^"]*)"$`, s.backgroundSubagentAsks)
+	sc.Step(`^the screen shows a permission modal naming the subagent "([^"]*)"$`, s.screenShowsModalNamingSubagent)
+	sc.Step(`^the operator answers the subagent's permission with the highlighted option$`, s.operatorAnswersSubagentPermission)
+	sc.Step(`^the background subagent "([^"]*)" is answered "([^"]*)"$`, s.backgroundSubagentAnswered)
 	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
+	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
+	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
+	sc.Step(`^the operator presses F1$`, s.operatorPressesF1)
+	sc.Step(`^the help lists the page "([^"]*)"$`, s.helpLists)
+	sc.Step(`^the help lists the section "([^"]*)"$`, s.helpLists)
+	sc.Step(`^the operator types "([^"]*)" into the help$`, s.operatorTypesIntoHelp)
+	sc.Step(`^the operator opens the selected help entry$`, s.operatorOpensHelpEntry)
+	sc.Step(`^the help shows the page "([^"]*)" at the section "([^"]*)"$`, s.helpShowsPageAtSection)
+	sc.Step(`^the operator turns to the next page of the help$`, s.operatorTurnsToNextHelpPage)
+	sc.Step(`^the help shows the page after "([^"]*)"$`, s.helpShowsPageAfter)
 	sc.Step(`^the stub turn observes cancellation$`, s.stubObservesCancellation)
 	sc.Step(`^the transcript shows an interrupt notice$`, s.transcriptShowsInterruptNotice)
 	sc.Step(`^the operator switches the model to the second configured model$`, s.operatorSwitchesToSecondModel)
 	sc.Step(`^the footer names the second configured model$`, s.footerNamesSecondModel)
 	sc.Step(`^the session state records the second configured model$`, s.sessionStateRecordsSecondModel)
+	sc.Step(`^a foxxycode console app over a stub agent runner with a reasoning-capable model$`, s.buildAppWithReasoning)
+	sc.Step(`^the operator selects the low reasoning level through the /reasoning selector$`, s.operatorSelectsLowReasoningThroughSelector)
+	sc.Step(`^the footer names the reasoning level "([^"]*)"$`, s.footerNamesReasoning)
+	sc.Step(`^the session state records the reasoning level "([^"]*)"$`, s.sessionStateRecordsReasoning)
 	sc.Step(`^a previous console session with the prompt "([^"]*)" and the reply "([^"]*)"$`, s.previousSessionWith)
 	sc.Step(`^the console app starts pinned to that session$`, s.appStartsPinnedToThatSession)
 	sc.Step(`^the replayed prompt "([^"]*)" renders as a user message block and not as assistant text$`, s.replayedPromptRendersAsUserBlock)
@@ -1226,12 +1866,31 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator types "([^"]*)" without sending it$`, s.operatorTypesWithoutSending)
 	sc.Step(`^the editor borders render in the local shell color$`, s.editorBordersUseLocalShellColor)
 	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
+	sc.Step(`^a folder outside the workspace holding the file "([^"]*)"$`, s.folderOutsideHolding)
+	sc.Step(`^the workspace holds (\d+) files and "([^"]*)"$`, s.workspaceHoldsManyFiles)
+	sc.Step(`^a file "([^"]*)" appears in the workspace$`, s.fileAppearsInWorkspace)
+	sc.Step(`^the operator types the mention "([^"]*)"$`, s.operatorTypesMention)
+	sc.Step(`^the mention list offers "([^"]*)"$`, s.mentionListOffers)
+	sc.Step(`^the operator takes the highlighted mention$`, s.operatorTakesHighlightedMention)
+	sc.Step(`^the editor holds "([^"]*)"$`, s.editorHolds)
+	sc.Step(`^the session runs the background command "([^"]*)" that wakes the agent$`, s.sessionRunsWakingBackgroundCommand)
+	sc.Step(`^the transcript shows nothing of the woken turn the operator did not type$`, s.transcriptShowsNothingOfTheWake)
+	sc.Step(`^the woken turn was handed the outcome of that task$`, s.wokenTurnWasHandedOutcome)
+	sc.Step(`^the tasks overlay says the selected task wakes the agent$`, s.tasksOverlaySaysWakes)
 	sc.Step(`^a foxxycode console app over a stub agent runner with a neuraldeep provider$`, s.aConsoleAppWithNeuralDeep)
 	sc.Step(`^the stand-in limits API reports the session window at (\d+)%$`, s.standReportsSessionAt)
 	sc.Step(`^the footer shows the neuraldeep usage "([^"]*)"$`, s.footerShowsUsage)
 	sc.Step(`^the transcript shows a usage notice containing "([^"]*)"$`, s.transcriptShowsUsageNotice)
 	sc.Step(`^the usage clock moves (\d+) seconds forward$`, s.usageClockMoves)
 	sc.Step(`^the operator submits the command "([^"]*)"$`, s.operatorSubmitsCommand)
+	sc.Step(`^the session runs the background command "([^"]*)"$`, s.sessionRunsBackgroundCommand)
+	sc.Step(`^the tasks overlay lists "([^"]*)" as running$`, s.tasksOverlayListsRunning)
+	sc.Step(`^the footer names (\d+) running task$`, s.footerNamesRunningTasks)
+	sc.Step(`^the operator opens the selected task$`, s.operatorOpensSelectedTask)
+	sc.Step(`^the tasks overlay shows the output "([^"]*)"$`, s.tasksOverlayShowsOutput)
+	sc.Step(`^the operator stops the task from the overlay$`, s.operatorStopsTaskFromOverlay)
+	sc.Step(`^the background command is stopped$`, s.backgroundCommandIsStopped)
+	sc.Step(`^the tasks overlay lists the task as stopped$`, s.tasksOverlayListsStopped)
 	sc.Step(`^the usage report shows "([^"]*)"$`, s.usageReportShows)
 	sc.Step(`^the operator switches the model to "([^"]*)"$`, s.operatorSwitchesModelTo)
 	sc.Step(`^the footer names the model "([^"]*)"$`, s.footerNamesModel)

@@ -9,7 +9,7 @@ import (
 
 // newHandler builds the slog.Handler matching cfg.Format. The level comes from
 // lv, a shared *slog.LevelVar, so the caller can change verbosity at runtime
-// via lv.Set (the debug.enabled toggle through PUT /foxxycode/config) without
+// via lv.Set (the debug.enable toggle through PUT /foxxycode/config) without
 // rebuilding the handler or the logger.
 //
 // Per-component overrides (cfg.Levels) need the format handler open at the
@@ -51,7 +51,7 @@ func NewLevelVar(level string) *slog.LevelVar {
 }
 
 // EffectiveLevel returns the slog.Level the process logger should use: debug when the
-// diagnostics master switch is on (the --debug CLI flag / debug.enabled), otherwise the
+// diagnostics master switch is on (the --debug CLI flag / debug.enable), otherwise the
 // configured level name.
 func EffectiveLevel(debugEnabled bool, cfgLevel string) slog.Level {
 	if debugEnabled {

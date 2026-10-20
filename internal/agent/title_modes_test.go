@@ -59,8 +59,11 @@ func TestRunGeneratesSessionTitleInEveryMode(t *testing.T) {
 			}
 
 			// The title pass runs in its own goroutine off the hot path, so the
-			// turn returns before it lands.
-			deadline := time.Now().Add(5 * time.Second)
+			// turn returns before it lands. The wait is generous because the
+			// bound is arbitrary: under the whole suite on a loaded machine the
+			// goroutine is simply scheduled late, and a five-second ceiling
+			// failed there for no reason of its own.
+			deadline := time.Now().Add(30 * time.Second)
 			for st.GetTitleAuto() == "" && time.Now().Before(deadline) {
 				time.Sleep(10 * time.Millisecond)
 			}

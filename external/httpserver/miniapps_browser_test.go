@@ -283,6 +283,7 @@ func newMiniAppsBrowserContext(t *testing.T) (context.Context, context.CancelFun
 	t.Helper()
 	options := append([]chromedp.ExecAllocatorOption{}, chromedp.DefaultExecAllocatorOptions[:]...)
 	options = append(options,
+		chromedp.WindowSize(1280, 900),
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),

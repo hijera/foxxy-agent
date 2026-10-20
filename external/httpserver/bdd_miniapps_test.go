@@ -119,8 +119,8 @@ func (s *miniAppsFeatureState) completedSession() error {
 	if err := session.MarkToolCallFinished(sessionDir, "write-call", "write", "builtin", "completed"); err != nil {
 		return err
 	}
-	return session.StoreWorkspaceDiff(sessionDir, 1, &session.WorkspaceDiff{Changes: []session.WorkspaceChange{{
-		Path: "greeting.txt", After: &session.WorkspaceFile{Content: []byte(source), Mode: 0o644},
+	return storeMiniAppsLegacyDiff(sessionDir, 1, &miniAppsLegacyDiff{Changes: []miniAppsLegacyChange{{
+		Path: "greeting.txt", After: &miniAppsLegacyFile{Content: []byte(source)},
 	}}})
 }
 

@@ -6,6 +6,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	toolcmd "github.com/hijera/foxxycode-agent/internal/tools/cmdprofile"
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
+	"github.com/hijera/foxxycode-agent/internal/tools/preview"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 	toolssh "github.com/hijera/foxxycode-agent/internal/tools/ssh"
 	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
@@ -41,6 +42,12 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 		r.Register(shell.BackgroundWaitTool())
 		r.Register(shell.BackgroundStopTool())
 		r.Register(shell.BackgroundReapTool())
+		// The preview server is a background task, so it needs the pool and
+		// the tools that list and stop it; the operator can still turn it off
+		// alone with tools.preview_server.enable.
+		if cfg == nil || cfg.Tools.PreviewServer.ResolvedEnabled() {
+			preview.RegisterBuiltins(r.Register)
+		}
 	}
 	r.Register(QuestionTool())
 	r.Register(ConfigGetTool())
@@ -50,6 +57,18 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(ConfigRevertTool())
 	r.Register(ConfigRollbackTool())
 	r.Register(PlanExitTool())
+	// Compaction is a capability of the loop, so the model may reach for it
+	// like any other tool; the operator turns it off with compaction.enable.
+	if cfg == nil || cfg.Compaction.IsEnabled() {
+		r.Register(CompactContextTool(cfg))
+	}
+	// Filing the session it runs in: a conversation the model renamed or
+	// tagged is one the operator can find again.
+	r.Register(SessionDescribeTool())
+	// FoxxyCode's own documentation, embedded in the binary: read-only, so
+	// every mode and every child gets it.
+	r.Register(DocsSearchTool())
+	r.Register(DocsReadTool())
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())
@@ -64,6 +83,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(todo.ItemMoveTool())
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
+	r.Register(toolweb.HTTPRequestTool())
 	r.Register(toolssh.SSHRunCommandTool())
 	// Subagents: offered unless explicitly disabled; the runtime hides the tool
 	// again for a child that reached subagents.max_depth.
@@ -81,9 +101,26 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// register even when the binary is missing so a call answers with install
 	// guidance instead of "unknown tool".
 	toolcmd.RegisterBuiltins(r.Register, cfg)
+	// Model and reasoning changes requested by the user are offered when
+	// there is something to switch to.
+	if modelSwitchOffered(cfg) {
+		r.Register(SwitchModelTool(cfg))
+	}
 	registerSchedulerTools(r, cfg)
 	registerBrowserTools(r, cfg)
 	return r
+}
+
+// modelSwitchOffered reports whether switch_model has anything to switch:
+// more than one configured model, or one that offers reasoning levels.
+func modelSwitchOffered(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if len(cfg.Models) > 1 {
+		return true
+	}
+	return len(cfg.Models) == 1 && len(cfg.ReasoningChoicesFor(&cfg.Models[0])) > 0
 }
 
 // ResolvePath returns an absolute filesystem path resolved against cwd.

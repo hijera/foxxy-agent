@@ -40,8 +40,7 @@ function harness(reader: ReadableStreamDefaultReader<Uint8Array>) {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map<string, number>() },
     newId: (p: string) => `${p}${++seq}`,
-    applyMemoryPhaseToItems: (prev: TranscriptItem[]) => prev,
-    applyMemoryChunkToItems: (prev: TranscriptItem[]) => prev,
+    applyMemoryRunToItems: (prev: TranscriptItem[]) => prev,
     getItems: () => items,
   };
 }

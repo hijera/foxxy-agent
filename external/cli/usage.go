@@ -75,10 +75,32 @@ func usageModelOf(modelID string) string {
 	return model
 }
 
+// usageTitle heads the /usage block: the brand, then the row unless it is
+// named after its type, so several profiles of one type are told apart. The
+// sentences keep the brand alone.
+func usageTitle(u *acp.ProviderUsageUpdate) string {
+	brand := usageBrand(u)
+	if u == nil {
+		return brand
+	}
+	row := tui.SanitizeText(strings.TrimSpace(u.Provider))
+	if row != "" && row != brand && row != strings.ToLower(strings.TrimSpace(u.ProviderType)) {
+		return brand + " · " + row
+	}
+	return brand
+}
+
 // usageBrand is the display name of the provider behind an update.
 func usageBrand(u *acp.ProviderUsageUpdate) string {
-	if u != nil && strings.EqualFold(u.ProviderType, "neuraldeep") {
-		return "NeuralDeep"
+	if u != nil {
+		switch strings.ToLower(strings.TrimSpace(u.ProviderType)) {
+		case "neuraldeep":
+			return "NeuralDeep"
+		case "codex":
+			return "Codex"
+		case "devin":
+			return "Devin"
+		}
 	}
 	if u != nil && u.Provider != "" {
 		return tui.SanitizeText(u.Provider)
@@ -179,7 +201,7 @@ func formatResetTime(at, now time.Time) string {
 	case d < 7*24*time.Hour:
 		return local.Format("Mon 15:04")
 	default:
-		return local.Format("Jan 2")
+		return local.Format("Jan 2 15:04")
 	}
 }
 
@@ -319,8 +341,20 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 		provider := tui.SanitizeText(u.Provider)
 		return []usageSegment{{text: provider + ": key rejected, run foxxycode providers login " + provider, role: roleWarning}}
 	}
+	// A missing ProviderType is the legacy NeuralDeep shape; only the
+	// subscription sources (Codex, Devin) get the new presentation.
+	neuraldeep := u.ProviderType == "" || strings.EqualFold(u.ProviderType, "neuraldeep")
 	if u.Error != "" && len(u.Windows) == 0 && u.Wallet == nil && !u.Blocked {
-		return nil
+		// NeuralDeep keeps the footer silent on a failed first read; the
+		// other sources say the quota could not be read rather than nothing.
+		if neuraldeep {
+			return nil
+		}
+		var segs []usageSegment
+		if plan := usagePlanLabel(u.Plan); plan != "" {
+			segs = append(segs, usageSegment{text: plan, role: roleDim, drop: dropPlan})
+		}
+		return append(segs, usageSegment{text: "quota unavailable", role: roleWarning})
 	}
 	var segs []usageSegment
 	if plan := usagePlanLabel(u.Plan); plan != "" {
@@ -343,9 +377,14 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 		}
 	}
 	for _, w := range u.Windows {
-		if w.ID == "day" && (w.UsedPercent > 0 || w.Exhausted) && !u.Blocked {
+		// Only NeuralDeep hides a quiet day meter; other sources show
+		// whatever windows they reported, a zero one included.
+		if w.ID == "day" && (w.UsedPercent > 0 || w.Exhausted || !neuraldeep) && !u.Blocked {
 			segs = append(segs, windowSegment(w, now, dropDay))
 		}
+	}
+	if len(u.Windows) == 0 && u.Wallet == nil && !u.Blocked && blockedModel == nil && !modelUnlimited(u, modelID) && !neuraldeep {
+		segs = append(segs, usageSegment{text: "quota unavailable", role: roleDim})
 	}
 	if u.Wallet != nil {
 		role := roleDim
@@ -436,7 +475,7 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 	if u == nil {
 		return nil
 	}
-	head := usageBrand(u)
+	head := usageTitle(u)
 	if plan := usagePlanLabel(u.Plan); plan != "" {
 		head += " · " + plan
 	}
@@ -476,11 +515,19 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 	if u.Rate != nil {
 		lines = append(lines, fmt.Sprintf("  %-14s %d / %d this minute", "rpm", u.Rate.Used, u.Rate.Limit))
 	}
-	cooldown := "none"
-	if u.CooldownSec > 0 {
-		cooldown = formatDuration(u.CooldownSec)
+	// A cooldown is a NeuralDeep concept; other sources only get the line
+	// when they actually reported one.
+	neuraldeep := u.ProviderType == "" || strings.EqualFold(u.ProviderType, "neuraldeep")
+	if u.CooldownSec > 0 || neuraldeep {
+		cooldown := "none"
+		if u.CooldownSec > 0 {
+			cooldown = formatDuration(u.CooldownSec)
+		}
+		lines = append(lines, fmt.Sprintf("  %-14s %s", "cooldown", cooldown))
 	}
-	lines = append(lines, fmt.Sprintf("  %-14s %s", "cooldown", cooldown))
+	if len(u.Windows) == 0 && u.Wallet == nil && !u.Blocked && modelBlocked(u, modelID) == nil && !modelUnlimited(u, modelID) && !neuraldeep {
+		lines = append(lines, "  quota unavailable")
+	}
 	if u.Wallet != nil {
 		lines = append(lines, fmt.Sprintf("  %-14s %s (%s spent in 30 days)", "wallet", formatRub(u.Wallet.BalanceRub), formatRub(u.Wallet.SpentRub30d)))
 	}

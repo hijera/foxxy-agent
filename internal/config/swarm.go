@@ -30,7 +30,7 @@ type SwarmConfig struct {
 	// Enabled runs the relay in this process. It is independent of Join: an
 	// agent registering into a parent relay does not itself relay, and a relay
 	// that chains into another one does both.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 	// Host is the bind address for the relay when the CLI does not override it.
 	Host string `yaml:"host"`
 	// Port is the relay's listen port. Zero falls back to 12346.
@@ -75,8 +75,9 @@ type SwarmConfig struct {
 	// an agent that cannot run the join loop.
 	Upstreams []SwarmUpstream `yaml:"upstreams"`
 
-	// Join lists parent relays this process registers into on startup. Both
-	// `foxxycode http` and `foxxycode swarm` honour it, which is what lets relays chain.
+	// Join lists parent relays this process registers into on startup. Every
+	// `foxxycode serve` process honours it, relay or not, which is what lets
+	// relays chain; `foxxycode http` joins nothing.
 	Join []SwarmJoin `yaml:"join"`
 }
 

@@ -36,7 +36,7 @@ export default defineConfig({
   plugins: [react(), syntaxLicensePlugin],
   css: {
     // Resolves color-mix() to Chromium-104-safe literals at build time
-    // (JCEF baseline, see docs/intellij-embedding.md). Applies in dev too.
+    // (JCEF baseline, see docs/contributing/intellij-embedding.md). Applies in dev too.
     postcss: {
       plugins: [resolveColorMix()],
     },
@@ -62,13 +62,22 @@ export default defineConfig({
   },
   build: {
     // Chromium 104 is the JCEF baseline for the IntelliJ/PhpStorm 2022.3.3
-    // plugin embedding (docs/intellij-embedding.md). Do not raise without
+    // plugin embedding (docs/contributing/intellij-embedding.md). Do not raise without
     // bumping the minimum supported IDE.
     target: "chrome104",
     cssTarget: "chrome104",
     // Lightning CSS (Vite 8 default) can drop unprefixed `backdrop-filter` when `-webkit-backdrop-filter`
     // is present, which breaks blur in Firefox (and some stacks). Esbuild preserves both declarations.
     cssMinify: "esbuild",
+    // Every asset the bundle imports must be inlined, whatever its size.
+    // scripts-sync-to-go.mjs ships index.html, styles.css and app.js and
+    // nothing else, so an asset Vite emits as its own file is missing from the
+    // go:embed set and 404s at runtime. That is not hypothetical: when the
+    // brand mark became a traced fox the wordmarks grew past the 4 KB default
+    // and the sign-in screen - the one page a browser sees before it has any
+    // credential, so it cannot fetch anything anyway - rendered a broken image.
+    // The sync script fails the build on an unexpected file in dist/ as well.
+    assetsInlineLimit: () => true,
     outDir: "../dist",
     emptyOutDir: true,
     sourcemap: true,
@@ -84,6 +93,18 @@ export default defineConfig({
         },
         chunkFileNames: "app.js",
         inlineDynamicImports: true,
+      },
+    },
+  },
+  // The SharedWorker that holds GET /foxxycode/events for every tab
+  // (src/ui/chat/eventsWorker.ts). It is its own script by necessity, so it gets a
+  // fixed name next to app.js for go:embed. IIFE, not ES: the file then has no
+  // import or export and runs whether a browser honours `type: "module"` or not.
+  worker: {
+    format: "iife",
+    rollupOptions: {
+      output: {
+        entryFileNames: "events-worker.js",
       },
     },
   },

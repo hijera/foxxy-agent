@@ -71,6 +71,18 @@ export function setLocale(lang: string): boolean {
   return true;
 }
 
+/**
+ * Whether a key resolves in the current locale (or the default dictionary).
+ * Lets callers fall back to their own text when no translation exists, which
+ * `translate` cannot express (it returns the key itself when missing).
+ */
+export function hasTranslation(key: string): boolean {
+  return (
+    dictFor(currentLocale)[key] !== undefined ||
+    dictFor(UI_LOCALE_DEFAULT)[key] !== undefined
+  );
+}
+
 /** Translate a key for the current locale; falls back to English then the key. */
 export function translate(
   key: string,
@@ -112,7 +124,7 @@ export function pluralCategories(locale: UiLocale): string[] {
 
 /**
  * Translate a count-dependent key. The dictionary holds one entry per CLDR category under
- * `key.category` ("tasks.chip.running.one" / ".few" / ".many" / ".other"), so each locale
+ * `key.category` ("tasks.running.one" / ".few" / ".many" / ".other"), so each locale
  * declines the noun itself instead of the component choosing between two fixed strings.
  * `{count}` is always available to the entry; extra params interpolate as usual.
  */

@@ -11,6 +11,8 @@ func runCLI(args []string) error {
 	return cli.Run(args, cli.CommandDeps{
 		EnsureHome: ensureFoxxyCodeHomeLayout,
 		OpenStore:  openSessionStore,
+		TestConfig: runConfigTest,
+		DryRun:     runConsoleDryRun,
 	})
 }
 

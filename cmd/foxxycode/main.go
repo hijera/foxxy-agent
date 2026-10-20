@@ -14,9 +14,12 @@ import (
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -79,6 +82,9 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 }
 
 func main() {
+	// Before any request: net/http reads the proxy environment once, and on
+	// Windows the system proxy (manual, PAC or WPAD) reaches Go only this way.
+	netx.InstallSystemProxy()
 	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -160,6 +166,8 @@ func main() {
 		err = runHooks(args[1:])
 	case "mcp":
 		err = runMCP(args[1:])
+	case "docs":
+		err = runDocs(args[1:], os.Stdout)
 	case "update":
 		err = runUpdate(args[1:])
 	default:
@@ -173,13 +181,28 @@ func main() {
 	}
 }
 
-func printUsage(w *os.File) {
+// printUsage writes the command list. It takes an io.Writer rather than the
+// two files it is called with, so usage_test.go can read what an operator
+// would see and hold the man page and the completions to it.
+func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s (no arguments on a terminal: interactive console, build tag cli)
   %[1]s -c | --continue (console: continue the latest session here)
-  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
+  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer;
+        -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+  %[1]s -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   %[1]s -h | --help
   %[1]s -v | --version
+  %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
+        the schema and the loader's rules, print each problem with its line and
+        how to fix it, then exit; cli, acp, http and serve take the same flag)
+  %[1]s --dry-run [--config PATH] [--home DIR] (check config.yaml and probe what it
+        points at: paths, model servers and credentials, MCP commands, the
+        Telegram token, and for http and serve the listen addresses; prints only
+        the problems and a status line, add --test-config for the full report;
+        exits without starting anything; cli, acp, http and serve take the same
+        flag)
   %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
@@ -197,7 +220,7 @@ func printUsage(w *os.File) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
-  %[1]s providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
@@ -207,9 +230,17 @@ func printUsage(w *os.File) {
   %[1]s hooks trust <file> [--cwd DIR]
   %[1]s hooks untrust <file> [--cwd DIR]
   %[1]s serve [flags]                  # every enabled subsystem in one process
+  %[1]s serve -d | --daemon [flags]    # the same, in the background under a dispatcher
+  %[1]s serve install (Linux: install, enable and start the systemd user service in ~/FoxxyCode)
+  %[1]s serve uninstall (stop, disable and remove the unit install wrote; keep user data)
+  %[1]s serve status | stop | restart [--home DIR]
+  %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]
+  %[1]s docs [list] | search <words> [--limit N] | show <page>[#section] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI)
   %[1]s update [flags]
 `, os.Args[0])
 }
@@ -228,11 +259,13 @@ func runACP(args []string) error {
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	remoteFlag := fs.String("remote", "", "serve ACP against a remote foxxycode http server (configured remote name, host:port, or http(s) URL)")
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enable=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
-	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -249,6 +282,18 @@ func runACP(args []string) error {
 		CWD:    strings.TrimSpace(*acpCWD),
 		Config: strings.TrimSpace(*cfgPath),
 	}
+	if *testConfig && !*dryRun {
+		return runConfigTest(cli)
+	}
+	if *dryRun {
+		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *testConfig, *remoteFlag, *remoteToken, func(c *config.Config) error {
+			if *schedulerEnabled {
+				c.Scheduler.Enabled = true
+			}
+			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+		})
+	}
 	paths, err := config.Resolve(cli)
 	if err != nil {
 		return err
@@ -257,7 +302,7 @@ func runACP(args []string) error {
 		return err
 	}
 
-	cfg, err := config.LoadFromCLI(cli)
+	cfg, err := loadRunConfig(cli)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -286,7 +331,8 @@ func runACP(args []string) error {
 	}
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	defer func() { _ = logCloser.Close() }()
 
 	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)
@@ -312,17 +358,18 @@ func runACP(args []string) error {
 		}
 		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
 		srv := acp.NewServer(h, log)
-		h.SetServer(srv)
+		// The server wakes the agent on its own; a turn it woke in a session
+		// this editor has open is followed here, and opens with a note an
+		// editor that renders only the standard updates can read.
+		h.SetServer(acpWakeNotice{srv})
 		return srv.Run(context.Background(), os.Stdin)
 	}
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogDevinAuthNotices(log, cfg)
+	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
-
-	if cfg.SchedulerEffectiveEnabled() {
-		scheduler.Start(context.Background(), cfg, log, paths.CWD)
-	}
 
 	store, err := openSessionStore(*sessionsRoot, cfg)
 	if err != nil {
@@ -355,9 +402,22 @@ func runACP(args []string) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	srv = acp.NewServer(mgr, log)
-	mgr.SetServer(srv)
+	// A woken turn opens with a note an editor that renders only the standard
+	// updates can read, live and when session/load replays it.
+	notice := acpWakeNotice{srv}
+	mgr.SetServer(notice)
+	// A task the model started with notify_on_finish begins its own turn here
+	// when it ends, the way it does in the console and under foxxycode serve.
+	agent.NewBackgroundWaker(log, acpWakeRunner(mgr, notice)).Attach(bgtask.Default())
 
 	ctx := context.Background()
+	// The scheduler runs its jobs as children of their job sessions through
+	// the manager, so it starts once the manager exists.
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(ctx, scheduler.Options{
+			Cfg: live, Log: log, ProcessCWD: paths.CWD, Mgr: mgr, Pool: bgtask.Default(),
+		})
+	}
 	return srv.Run(ctx, os.Stdin)
 }
 
@@ -429,6 +489,37 @@ func bootstrapExampleConfig(home string) error {
 		return nil
 	}
 	return nil
+}
+
+// loadRunConfig loads the config a surface is about to run under and hands the
+// standard skill delivery to the home before anything reads skills. A delivery
+// that cannot be written is not a reason to refuse to start: the copies inside
+// the binary still answer, so the error is reported only where the operator is
+// looking at skills (see runSkills and runPlugin). `-t` and `--dry-run` never
+// reach here - they read the config through config.LoadReadOnly and write
+// nothing.
+func loadRunConfig(cli config.CLIPaths) (*config.Config, error) {
+	cfg, err := config.LoadFromCLI(cli)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = skills.SeedDelivery(cfg)
+	return cfg, nil
+}
+
+// loadSkillsConfig is loadRunConfig for the skill-management commands, which do
+// say when the delivery could not be handed over: that is the answer to why a
+// skill the release carries is not in the listing.
+func loadSkillsConfig() (*config.Config, error) {
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: the bundled skills could not be written to %s: %v\n",
+			cfg.Skills.ManagedDir(cfg.Paths.Home), err)
+	}
+	return cfg, nil
 }
 
 func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore, error) {
@@ -512,9 +603,9 @@ func runSkills(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: %s skills list|enable|disable|add|sync|remove", os.Args[0])
 	}
-	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	cfg, err := loadSkillsConfig()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
 	switch args[0] {
 	case "list":
@@ -572,10 +663,13 @@ func runSkills(args []string) error {
 	}
 }
 
+// runPlugin implements `foxxycode plugin ...` — the Claude-Code-style plugin and
+// marketplace surface, sharing skills.RunPluginCommand with the chat /plugin
+// command so both stay in lockstep.
 func runPlugin(args []string) error {
-	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	cfg, err := loadSkillsConfig()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
 	cwd, _ := os.Getwd()
 	out, err := skills.RunPluginCommand(context.Background(), cfg, cwd, args)
@@ -609,7 +703,7 @@ func runRules(args []string) error {
 		if len(args) >= 3 && args[1] == "--cwd" {
 			cwd = args[2]
 		}
-		return rules.ListCatalog(cwd, rules.DefaultFactory(), rules.ParseSystems(cfg.Rules.Systems))
+		return rules.ListCatalog(cwd, rules.DefaultFactory(cfg.Paths.Home), rules.ParseSystems(cfg.Rules.Systems))
 	}
 	return fmt.Errorf("usage: %s rules list [--cwd DIR]", os.Args[0])
 }

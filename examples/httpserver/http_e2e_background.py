@@ -10,7 +10,7 @@ Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base (default ``http://127.0.0.1:19876/v1``),
   same as the other HTTP harnesses.
-- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/qwen3.6-35b-a3b``).
 - ``FOXXYCODE_CHAT_PROFILE`` - session profile (default ``agent``).
 
 Exits non-zero on any HTTP error or unmet expectation.
@@ -75,7 +75,7 @@ def counting_command(marker: str, count: int) -> str:
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     foxxycode = foxxycode_base(base)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     tasks_url = f"{foxxycode}/foxxycode/sessions/{SESSION_ID}/background-tasks"
 

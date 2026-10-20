@@ -12,7 +12,11 @@ import (
 )
 
 const (
-	DefaultRepo   = "hijera/foxxycode-agent"
+	// DefaultRepo is where the release workflows publish: ${GITHUB_REPOSITORY}
+	// of this repository. The Go module path spells the name differently
+	// (github.com/hijera/foxxycode-agent) on purpose, so this is not derived
+	// from it - that spelling names no repository, and GitHub answers 404.
+	DefaultRepo   = "hijera/foxxy-agent"
 	DefaultAPIURL = "https://api.github.com"
 )
 
@@ -24,6 +28,14 @@ type releaseAsset struct {
 type ghRelease struct {
 	TagName string         `json:"tag_name"`
 	Assets  []releaseAsset `json:"assets"`
+
+	// The fields below feed the report of what changed after an update.
+	Name        string `json:"name"`
+	Body        string `json:"body"`
+	HTMLURL     string `json:"html_url"`
+	PublishedAt string `json:"published_at"`
+	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
 }
 
 func fetchRelease(ctx context.Context, client *http.Client, apiBase, repo, tag string) (*ghRelease, error) {

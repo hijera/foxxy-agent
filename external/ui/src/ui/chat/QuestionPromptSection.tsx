@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   startTransition,
 } from "react";
@@ -160,6 +161,24 @@ function formatResolvedSummaryLine(
   return parts.length > 0 ? parts.join(" · ") : translate("prompts.answered");
 }
 
+/**
+ * Whether Return pressed on `el` belongs to this card. The composer and the rest
+ * of the page stay usable while a gate is open, so the key is the card's only when
+ * it came from inside the card or from a page with nothing focused - never from
+ * the composer's textarea.
+ *
+ * A control the reader reached with the keyboard keeps its own Return, inside the
+ * card as much as outside it: Return on the focused Skip button has to skip, not
+ * send the answer.
+ */
+function keyBelongsToCard(el: EventTarget | null, card: HTMLElement | null): boolean {
+  if (el === null || el === document || el === document.body) return true;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.tagName.toLowerCase() === "html") return true;
+  if (!card?.contains(el)) return false;
+  return el.closest("button, a[href], summary, [role='button']") === null;
+}
+
 function rowLettersForQuestion(q: FoxxyCodeQuestionItem): readonly string[] {
   const opts = Math.max(q.options?.length ?? 0, 0);
   const total = opts + (q.custom ? 1 : 0);
@@ -172,6 +191,7 @@ export type QuestionPromptSectionProps = {
   itemId: string;
   payload: FoxxyCodeQuestionPayload;
   resolved?: QuestionResolvedState | undefined;
+  inactive?: boolean;
   onResolved: (resolution: QuestionResolvedState) => void;
 };
 
@@ -199,12 +219,15 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
     qs.map(() => ""),
   );
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const frameRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setMultiSel(qs.map(() => []));
     setSingleSel(qs.map(() => ""));
     setExtraText(qs.map(() => ""));
     setSubmitting(false);
+    setSubmitError("");
   }, [itemId, payload.requestId, questionsSig]);
 
   const ready = useMemo(
@@ -220,6 +243,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
 
   const submit = useCallback(
     async (skip: boolean) => {
+      if (props.inactive || submitting) return;
       const sid = payload.sessionId.trim();
       const answersMatrix = buildAnswerRows(
         payload,
@@ -230,9 +254,11 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
       );
       const summaryLine = formatResolvedSummaryLine(qs, skip, answersMatrix);
       setSubmitting(true);
+      setSubmitError("");
       try {
-        try {
-          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/question`, {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/question`,
+          {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -242,9 +268,17 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
               requestId: payload.requestId,
               answers: answersMatrix,
             }),
-          });
-        } catch {
-          // still unblock transcript even if POST fails transiently
+          },
+        );
+        if (!res.ok) {
+          setSubmitError(
+            t(
+              res.status === 404
+                ? "prompts.questionInactive"
+                : "prompts.answerSubmitFailed",
+            ),
+          );
+          return;
         }
         startTransition(() => {
           onResolved({
@@ -253,42 +287,67 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
             summaryLine,
           });
         });
+        questionPromptFocusComposer();
+      } catch {
+        setSubmitError(t("prompts.answerSubmitFailed"));
       } finally {
         setSubmitting(false);
       }
-
-      questionPromptFocusComposer();
     },
-    [extraText, multiSel, onResolved, payload, qs, singleSel],
+    [
+      extraText,
+      multiSel,
+      onResolved,
+      payload,
+      props.inactive,
+      qs,
+      singleSel,
+      submitting,
+      t,
+    ],
   );
 
   useEffect(() => {
-    if (resolved) return;
+    if (resolved || props.inactive) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (submitting) return;
+        void submit(true);
+        return;
+      }
+      if (e.key !== "Enter") return;
+      if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!keyBelongsToCard(e.target, frameRef.current)) return;
+      // Only a key this card actually answers with is taken off the page: an
+      // unfinished answer leaves Return to whatever else would have used it.
+      if (submitting || !ready) return;
       e.preventDefault();
-      if (submitting) return;
-      void submit(true);
+      void submit(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [resolved, submit, submitting]);
+  }, [ready, resolved, props.inactive, submit, submitting]);
 
+  // An answered card is a record of one exchange: the question, and under it what
+  // the reader said. It used to carry a summary line on the head and the same
+  // question and answer again inside a foldout, which is the same two lines twice
+  // behind a control that only ever revealed what was already on screen. The
+  // options the model offered are not repeated here either - the tool row above
+  // keeps the whole offer.
   if (resolved) {
-    const sum = resolved.summaryLine.trim() || t("prompts.answered");
     return (
       <section
         className="question-prompt-frame"
         data-test="question_prompt_resolved"
       >
-        <details className="question-prompt-card question-prompt-collapsed">
-          <summary className="question-prompt-head question-prompt-head--stack">
+        <div className="question-prompt-card question-prompt-answered">
+          <div className="question-prompt-head">
             <div className="question-prompt-head-left">
               <span className="question-prompt-icon" aria-hidden />
               <span className="question-prompt-title">{t("prompts.questions")}</span>
             </div>
-            <span className="question-prompt-summary-line">{sum}</span>
-          </summary>
+          </div>
           <div className="question-prompt-body question-prompt-resolved-body">
             {resolved.skipped ? (
               <p className="question-prompt-skipped-note">{t("prompts.skipped")}</p>
@@ -297,7 +356,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
               const parts = (resolved.answers[qi] ?? [])
                 .map((s) => String(s).trim())
                 .filter((s) => s.length > 0);
-              const aText = parts.length > 0 ? parts.join(", ") : "-";
+              const aText =
+                parts.length > 0 ? parts.join(", ") : t("prompts.noAnswer");
               return (
                 <div
                   key={`${qi}-${q.question}`}
@@ -308,20 +368,27 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                   }
                 >
                   <div className="question-prompt-resolved-pair">
-                    <div className="question-prompt-resolved-q">{q.question}</div>
+                    <div className="question-prompt-resolved-q">
+                      {qs.length > 1 ? `${qi + 1}. ` : ""}
+                      {q.question}
+                    </div>
                     <div className="question-prompt-resolved-a">{aText}</div>
                   </div>
                 </div>
               );
             })}
           </div>
-        </details>
+        </div>
       </section>
     );
   }
 
   return (
-    <section className="question-prompt-frame" data-test="question_prompt_section">
+    <section
+      className="question-prompt-frame"
+      data-test="question_prompt_section"
+      ref={frameRef}
+    >
       <div className="question-prompt-card">
         <div className="question-prompt-head">
           <div className="question-prompt-head-left">
@@ -331,7 +398,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
         </div>
 
         <div className="question-prompt-body">
-          {qs.map((q, qi) => {
+          {props.inactive ? <p className="muted">{t("prompts.questionInactive")}</p> : null}
+          {!props.inactive && qs.map((q, qi) => {
             const letters = rowLettersForQuestion(q);
             return (
               <div
@@ -503,11 +571,6 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                               return nx;
                             });
                           }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                            }
-                          }}
                         />
                       </label>
                     </li>
@@ -572,11 +635,6 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                               return nx;
                             });
                           }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                            }
-                          }}
                         />
                       </label>
                     </li>
@@ -587,26 +645,37 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
           })}
         </div>
 
-        <div className="question-prompt-foot">
-          <button
-            type="button"
-            className="question-prompt-skip"
-            disabled={submitting}
-            data-testid="question-skip"
-            onClick={() => void submit(true)}
-          >
-            {t("prompts.skip")}<span className="question-prompt-kbd">Esc</span>
-          </button>
-          <button
-            type="button"
-            className="question-prompt-continue"
-            disabled={submitting || !ready}
-            data-testid="question-submit"
-            onClick={() => void submit(false)}
-          >
-            {t("prompts.continue")}<span className="question-prompt-continue-ic" aria-hidden>↵</span>
-          </button>
-        </div>
+        {submitError ? (
+          <p className="question-prompt-body" role="alert">
+            {submitError}
+          </p>
+        ) : null}
+        {!props.inactive ? (
+          <div className="question-prompt-foot">
+            <button
+              type="button"
+              className="question-prompt-skip"
+              disabled={submitting}
+              data-testid="question-skip"
+              onClick={() => void submit(true)}
+            >
+              {t("prompts.skip")}
+              <span className="question-prompt-kbd">Esc</span>
+            </button>
+            <button
+              type="button"
+              className="question-prompt-continue"
+              disabled={submitting || !ready}
+              data-testid="question-submit"
+              onClick={() => void submit(false)}
+            >
+              {t("prompts.continue")}
+              <span className="question-prompt-continue-ic" aria-hidden>
+                ↵
+              </span>
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
   );

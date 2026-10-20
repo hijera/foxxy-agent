@@ -14,6 +14,8 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/permission"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
@@ -41,6 +43,10 @@ type Sender struct {
 	model       string
 	sessionDir  string
 	cwd         string
+	// asksPermission makes a relay sender ask a permission prompt the way an
+	// interactive one does, questions aside: the woken turn's sender
+	// (NewWakeRelaySender).
+	asksPermission bool
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time
@@ -162,6 +168,19 @@ func NewRelaySender(cfg *config.Config, relay io.Writer, model string) *Sender {
 	return s
 }
 
+// NewWakeRelaySender is the sender of a turn finished background tasks started
+// (Server.RunBackgroundWake). Every frame goes to the relay, as with
+// NewRelaySender, but a permission prompt is asked rather than refused: it is
+// emitted on the relay and persisted as the session's pending prompt, and the
+// web UI or a console following the turn answers it through the permission
+// endpoint. A question is still refused - nothing persists one for a client
+// that arrives after it was asked.
+func NewWakeRelaySender(cfg *config.Config, relay io.Writer, model string) *Sender {
+	s := NewRelaySender(cfg, relay, model)
+	s.asksPermission = true
+	return s
+}
+
 // SetSessionDir sets the persisted session directory for permission persistence across restarts.
 func (s *Sender) SetSessionDir(dir string) {
 	s.mu.Lock()
@@ -209,10 +228,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("usage_update", u)
 	case acp.ProviderUsageUpdate:
 		return s.writeNamedEventJSON("provider_usage", u)
-	case acp.MemoryPhaseUpdate:
-		return s.writeNamedEventJSON("memory_phase", u)
-	case acp.MemoryMessageChunkUpdate:
-		return s.writeNamedEventJSON("memory_chunk", u)
+	case acp.MemoryRunUpdate:
+		return s.writeNamedEventJSON("memory_run", u)
 	case acp.CompactionUpdate:
 		return s.writeNamedEventJSON("compaction", u)
 	case acp.MCPPhaseUpdate:
@@ -229,6 +246,17 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 	// turn writes straight back onto the session.
 	case acp.ModeUpdate:
 		return s.writeNamedEventJSON("mode", u)
+	case acp.MessageQueueUpdate:
+		return s.writeNamedEventJSON("message_queue", u)
+	case acp.TurnProgressUpdate:
+		return s.writeNamedEventJSON("turn_progress", u)
+	case acp.SessionSettingsUpdate:
+		// The session's settings changed during this turn - a command, the
+		// permission dialog, the model's own switch: the client mirrors them.
+		return s.writeNamedEventJSON("session_settings", u)
+	case acp.BackgroundWakeUpdate:
+		// The first frame of a turn nobody typed: what woke the agent.
+		return s.writeNamedEventJSON("background_wake", u)
 	default:
 		return nil
 	}
@@ -247,6 +275,16 @@ func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
 }
 
 func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
+	// A user chunk mid-turn is a queued follow-up the agent has just read. It
+	// is not part of the assistant's answer, so it travels as its own named
+	// event rather than as a content delta: a client renders it as the user
+	// bubble it is, where it was read.
+	if u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
+		if strings.TrimSpace(u.Content.Text) == "" {
+			return nil
+		}
+		return s.writeNamedEventJSON("user_message", u)
+	}
 	if u.SessionUpdate != acp.UpdateTypeAgentMessageChunk {
 		return nil
 	}
@@ -276,6 +314,45 @@ func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
 		}},
 	}
 	line, err := json.Marshal(delta)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
+		return err
+	}
+	s.flushLocked()
+	return nil
+}
+
+// SendToolCall writes a tool call the model made as the OpenAI delta.tool_calls
+// chunk a client running its own tools expects: one chunk per call, arguments
+// complete, index counting the calls of this answer. No-op when not streaming.
+func (s *Sender) SendToolCall(index int, tc llm.ToolCall) error {
+	if !s.emit || s.w == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	line, err := json.Marshal(map[string]interface{}{
+		"id":      s.chatID,
+		"object":  "chat.completion.chunk",
+		"created": s.created,
+		"model":   s.model,
+		"choices": []map[string]interface{}{{
+			"index": 0,
+			"delta": map[string]interface{}{
+				"tool_calls": []map[string]interface{}{{
+					"index": index,
+					"id":    tc.ID,
+					"type":  "function",
+					"function": map[string]interface{}{
+						"name":      tc.Name,
+						"arguments": tc.InputJSON,
+					},
+				}},
+			},
+		}},
+	})
 	if err != nil {
 		return err
 	}
@@ -321,19 +398,26 @@ func (s *Sender) SendError(streamErr error) error {
 	return nil
 }
 
+// writePendingPermission is indirected so tests can answer a prompt at the
+// instant its record lands on disk; production always writes through session.
+var writePendingPermission = session.WritePendingPermission
+
 // RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /foxxycode/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	// A subagent's request carries the child's own effective mode, which
 	// decides the bypass short-circuit instead of the global setting: a child
 	// narrowed to ask is prompted, or denied when nobody can answer.
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
+	// The session's gate stamps the mode it decided under, so a session
+	// switched to ask on a server configured for bypass is asked here too;
+	// the configuration only decides for a request that carries no stamp.
+	cfgMode := ""
+	if s.cfg != nil {
+		cfgMode = s.cfg.Tools.ResolvedPermMode()
+	}
+	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
-	if stamped == "" && s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
-	}
-	if !s.interactive || s.w == nil {
+	if (!s.interactive && !s.asksPermission) || s.w == nil {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 	sid := strings.TrimSpace(params.SessionID)
@@ -362,29 +446,32 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	// is answered live or not at all and never becomes the parent's pending
 	// record, which stays reserved for the parent's own gate.
 	relayed := strings.TrimSpace(params.EffectivePermissionMode) != ""
-	if sd != "" && !relayed {
-		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
-	}
-	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
+	// Registered before anything announces the prompt, so an answer that
+	// arrives the instant a client learns of it already has somewhere to land.
+	// The record is one of those announcements (it is what permissionPending
+	// reports to clients not reading this stream), and an answer that finds no
+	// wait falls through to tryResumePendingPermission, which replies 204 but
+	// cannot take the turn this prompt still holds: the answer is lost and the
+	// turn keeps waiting.
 	ch := registerPermissionWait(sid, tcid, sd)
 	defer unregisterPermissionWait(sid, tcid, sd)
+	if sd != "" && !relayed {
+		_ = writePendingPermission(sd, params, toolName, argsJSON)
+		// The record exists so a prompt can still be answered after the stream
+		// drops or the process restarts. Every way out of this function ends
+		// the gate, the failed event write below included, so none of them may
+		// leave it behind: a stranded record is matched by
+		// tryResumePendingPermission, which reports the late answer as handled
+		// and then fails with "already has a result". Deferred after the
+		// registration, the removal runs before unregisterPermissionWait.
+		defer func() { _ = session.ClearPendingPermission(sd) }()
+	}
+	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
 		return nil, err
 	}
-	// The record on disk exists so a prompt can still be answered after the
-	// stream drops or the process restarts. Every way out of this select ends
-	// the gate, so none of them may leave it behind: a stranded record is
-	// matched by tryResumePendingPermission, which reports the late answer as
-	// handled and then fails with "already has a result", and nothing ever
-	// clears it.
-	clearPending := func() {
-		if sd != "" && !relayed {
-			_ = session.ClearPendingPermission(sd)
-		}
-	}
 	select {
 	case res := <-ch:
-		clearPending()
 		if res == nil {
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 		}
@@ -392,7 +479,6 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	case <-ctx.Done():
 		// The turn was cancelled, or tools.permission_timeout_seconds expired.
 		// Either way the tool call is already finished with a denial.
-		clearPending()
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 }
@@ -431,7 +517,8 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 	if sid == "" || rid == "" {
 		return nil, fmt.Errorf("sessionId and requestId are required")
 	}
-	ch := registerQuestionWait(sid, rid)
+	params.SessionID, params.RequestID = sid, rid
+	ch := registerQuestionWait(params)
 	defer unregisterQuestionWait(sid, rid)
 	if err := s.writeNamedEventJSON("question", params); err != nil {
 		return nil, err
@@ -474,6 +561,21 @@ func (s *Sender) FinishStream() error {
 	_, err := io.WriteString(s.w, "data: [DONE]\n\n")
 	s.flushLocked()
 	return err
+}
+
+// SendErrorFor writes the error frame of a failed turn or completion: the
+// same error object a blocking request is answered with (replyForError), so
+// a provider's status reaches a streaming client as upstream_status too.
+func (s *Sender) SendErrorFor(err error) error {
+	if !s.emit || s.w == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(replyForError(err).body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, werr := fmt.Fprintf(s.w, "data: %s\n\n", raw)
+	s.flushLocked()
+	return werr
 }
 
 // ChatID returns the OpenAI-style completion id for this request.

@@ -84,8 +84,20 @@ func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dto := config.ConfigToJSONDTO(c)
-	// Reflect the live auth state (config token plus any --auth-token / FOXXYCODE_HTTP_TOKEN).
-	dto.HTTPServer.AuthConfigured = s.authPolicyNow().enabled
+	// Report the effective auth state (YAML token or out-of-band --auth-token / FOXXYCODE_HTTP_TOKEN),
+	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
+	pol := s.authPolicyNow()
+	dto.HTTPServer.AuthConfigured = len(pol.tokens) > 0
+	// The sign-in form is reported the same way and for the same reason: the
+	// account may come from the environment, which is nowhere in this document.
+	dto.HTTPServer.LoginConfigured = pol.login.enabled && !pol.login.broken
+	if dto.HTTPServer.LoginConfigured {
+		dto.HTTPServer.LoginSource = pol.login.account.source
+	}
+	// login.user stays whatever the file says, even when the live account came
+	// from the environment: this document is what a save writes back, and an
+	// environment credential must never end up in it. Who is signed in is
+	// GET /foxxycode/auth/me's answer, not this one's.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(dto); err != nil {
 		s.log.Error("foxxycode config get encode", "error", err)

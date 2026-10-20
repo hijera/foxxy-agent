@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { setLocale } from "../i18n/i18n";
 import {
   permissionOptionLabel,
@@ -66,4 +66,63 @@ describe("programGrantFromOptionName", () => {
     expect(programGrantFromOptionName("Allow always")).toBe("");
     expect(programGrantFromOptionName("")).toBe("");
   });
+});
+
+describe("http_request grants", () => {
+  it("names the address or the origin the grant covers", () => {
+    const url = {
+      optionId: "allow_always_url",
+      name: "Always allow https://api.x.dev/v1/items",
+    };
+    const origin = {
+      optionId: "allow_always_origin",
+      name: "Always allow https://api.x.dev",
+    };
+    expect(permissionOptionLabel(url)).toBe(
+      "Always allow https://api.x.dev/v1/items",
+    );
+    setLocale("ru");
+    try {
+      expect(permissionOptionLabel(url)).toBe(
+        "Всегда разрешать https://api.x.dev/v1/items",
+      );
+      expect(permissionOptionLabel(origin)).toBe(
+        "Всегда разрешать https://api.x.dev",
+      );
+    } finally {
+      setLocale("en");
+    }
+  });
+
+  it("falls back to the backend's own text for a name it cannot read", () => {
+    setLocale("ru");
+    try {
+      expect(
+        permissionOptionLabel({
+          optionId: "allow_always_origin",
+          name: "Allow everything",
+        }),
+      ).toBe("Allow everything");
+    } finally {
+      setLocale("en");
+    }
+  });
+});
+
+test("the session-wide switches of #292 are translated", () => {
+  const bypass = {
+    optionId: "allow_session_bypass",
+    name: "Bypass permissions for this session",
+    kind: "allow_always",
+  };
+  const edits = {
+    optionId: "allow_session_accept_edits",
+    name: "Allow edits for this session",
+    kind: "allow_always",
+  };
+  expect(permissionOptionLabel(bypass)).toBe("Bypass permissions for this session");
+  expect(permissionOptionLabel(edits)).toBe("Allow edits for this session");
+  setLocale("ru");
+  expect(permissionOptionLabel(bypass)).toBe("Без вопросов до конца сессии");
+  expect(permissionOptionLabel(edits)).toBe("Правки без вопросов до конца сессии");
 });

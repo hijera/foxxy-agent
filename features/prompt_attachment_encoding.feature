@@ -144,10 +144,11 @@ Feature: Prompt attachments in non-UTF-8 encodings
       Файл сохранён с BOM, но модель должна получить чистый текст.
       """
 
-  Scenario: A bare @mention that lands on a binary file is left as prose
+  Scenario: A bare @mention of a binary file explains why it was not inlined
     Given a workspace file "logo.png" holding binary content
     When I hydrate the prompt text "сравни @logo.png с макетом"
-    Then the prompt has no resource blocks
+    Then the prompt has a resource for "logo.png"
+    And the resource says it is binary
     And the prompt text is "сравни @logo.png с макетом"
 
   Scenario: Explicitly attaching a binary file is refused

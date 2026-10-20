@@ -5,10 +5,13 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -411,13 +414,13 @@ func TestMiniAppsConfirmationInfersSingleWaitingStep(t *testing.T) {
 
 func TestMiniAppsDiffArtifactsFollowTranscriptTurns(t *testing.T) {
 	dir := t.TempDir()
-	if err := session.StoreWorkspaceDiff(dir, 1, &session.WorkspaceDiff{Changes: []session.WorkspaceChange{
-		{Path: "a.txt", After: &session.WorkspaceFile{Content: []byte("old")}},
+	if err := storeMiniAppsLegacyDiff(dir, 1, &miniAppsLegacyDiff{Changes: []miniAppsLegacyChange{
+		{Path: "a.txt", After: &miniAppsLegacyFile{Content: []byte("old")}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := session.StoreWorkspaceDiff(dir, 2, &session.WorkspaceDiff{Changes: []session.WorkspaceChange{
-		{Path: "b.txt", After: &session.WorkspaceFile{Content: []byte("new")}},
+	if err := storeMiniAppsLegacyDiff(dir, 2, &miniAppsLegacyDiff{Changes: []miniAppsLegacyChange{
+		{Path: "b.txt", After: &miniAppsLegacyFile{Content: []byte("new")}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -439,8 +442,8 @@ func TestMiniAppsDiffArtifactsFollowTranscriptTurns(t *testing.T) {
 
 func TestMiniAppsTraceEvidenceFallsBackToPersistedMessages(t *testing.T) {
 	dir := t.TempDir()
-	if err := session.StoreWorkspaceDiff(dir, 1, &session.WorkspaceDiff{Changes: []session.WorkspaceChange{{
-		Path: "from-message.txt", After: &session.WorkspaceFile{Content: []byte("fixture")},
+	if err := storeMiniAppsLegacyDiff(dir, 1, &miniAppsLegacyDiff{Changes: []miniAppsLegacyChange{{
+		Path: "from-message.txt", After: &miniAppsLegacyFile{Content: []byte("fixture")},
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -455,5 +458,35 @@ func TestMiniAppsTraceEvidenceFallsBackToPersistedMessages(t *testing.T) {
 	}
 	if len(evidence[0].Artifacts) != 1 || string(fixtures["from-message.txt"]) != "fixture" {
 		t.Fatalf("message artifacts=%#v fixtures=%#v", evidence[0].Artifacts, fixtures)
+	}
+}
+
+func storeMiniAppsLegacyDiff(dir string, turn int, diff *miniAppsLegacyDiff) error {
+	data, err := json.Marshal(diff)
+	if err != nil {
+		return err
+	}
+	dir = filepath.Join(dir, "diffs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, fmt.Sprintf("turn_%d.json", turn)), data, 0o600)
+}
+
+func TestMiniAppsNewSessionArtifactsUseSuccessfulWriteEvidence(t *testing.T) {
+	evidence := []miniapps.TraceCallEvidence{
+		{Name: "write", Status: miniapps.TraceActionSucceeded, Arguments: `{"path":"out.txt","content":"original"}`},
+		{Name: "write", Status: miniapps.TraceActionFailed, Arguments: `{"path":"failed.txt","content":"bad"}`},
+		{Name: "write", Status: miniapps.TraceActionSucceeded, Arguments: `{"path":"../escape.txt","content":"bad"}`},
+		{Name: "read", Status: miniapps.TraceActionSucceeded, Arguments: `{"path":"read.txt","content":"bad"}`},
+	}
+	fixtures := addMiniAppsDiffArtifacts(t.TempDir(), evidence, nil)
+	if len(fixtures) != 1 || string(fixtures["out.txt"]) != "original" || len(evidence[0].Artifacts) != 1 {
+		t.Fatalf("fixtures=%v evidence=%+v", fixtures, evidence)
+	}
+	for _, item := range evidence[1:] {
+		if len(item.Artifacts) != 0 {
+			t.Fatalf("unexpected artifact: %+v", item)
+		}
 	}
 }

@@ -11,7 +11,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import dev.foxxycode.intellij.FoxxyCodeBundle
 
 /**
- * "Add to FoxxyCode": inserts the selected file(s) into the composer as `@`-mentions carrying
+ * "Add to FoxxyCode": inserts selected files or directories into the composer as `@`-mentions carrying
  * their full project-relative path.
  *
  * This is the keyboard/menu-driven way to reference an open file, offered from the editor tab
@@ -58,7 +58,7 @@ class FoxxyCodeAddFileAction : AnAction(
 
     private fun relativePaths(project: Project, files: List<VirtualFile>): List<String> {
         val ioFiles = files
-            .filter { it.isInLocalFileSystem && !it.isDirectory }
+            .filter { it.isInLocalFileSystem }
             .map { VfsUtilCore.virtualToIoFile(it) }
         return ProjectRelativePaths.relativize(project.basePath, ioFiles)
     }

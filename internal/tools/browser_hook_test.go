@@ -25,6 +25,6 @@ func TestBrowserToolsRegisteredWhenEnabled(t *testing.T) {
 func TestBrowserToolsAbsentWhenDisabled(t *testing.T) {
 	r := NewRegistryFor(&config.Config{Browser: config.BrowserConfig{Enabled: false}})
 	if _, ok := r.Get("foxxycode_browser_navigate"); ok {
-		t.Error("browser tools must not register when browser.enabled is false")
+		t.Error("browser tools must not register when browser.enable is false")
 	}
 }

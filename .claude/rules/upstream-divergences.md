@@ -1,0 +1,71 @@
+---
+description: Standing decisions where FoxxyCode deliberately differs from upstream coddy-agent - read before porting an upstream change or editing a site marked fork(<id>)
+paths:
+  - "internal/llm/**"
+  - "internal/agent/**"
+  - "internal/config/**"
+  - "internal/session/**"
+  - "internal/remote/**"
+  - "external/httpserver/**"
+  - "external/gateway/**"
+  - "external/cli/**"
+  - "external/memory/**"
+  - "UPSTREAM_SYNC.md"
+---
+
+# Upstream divergences (registry)
+
+FoxxyCode ports upstream coddy-agent by hand, wave by wave (`UPSTREAM_SYNC.md`). Where the
+owner decided to keep the fork's behaviour instead of upstream's, the decision is written
+here once, so a later port does not overwrite it by taking the upstream side of a conflict,
+or by taking a clean upstream hunk that undoes it without a conflict at all.
+
+Three things hold an entry in place:
+
+- a `// fork(<id>): <why>` comment at the code sites, so a diff3 conflict there shows that
+  the fork side was chosen on purpose;
+- guard tests that fail when upstream's variant is taken;
+- `internal/forkguard`, which checks the registry itself: every `code` entry keeps at least
+  one marker in non-test Go code, every marker names an entry, every guard test named here
+  exists, this file and `.cursor/rules/upstream-divergences.mdc` have the same body, and the
+  table between the `divergence-registry` markers of `UPSTREAM_SYNC.md` lists the same IDs.
+
+## When porting
+
+1. Before taking an upstream change to a file, run `git grep -n 'fork(' -- <file>` and read
+   the entry of every marker it finds.
+2. Follow the entry's "Next upstream change" column. When upstream reworked the same
+   behaviour again, ask the owner whether the decision still holds; do not settle it by
+   taking either side quietly.
+3. A new decision gets its row here and in `UPSTREAM_SYNC.md`, markers at its sites and a
+   guard test, in the pull request that makes it.
+4. An entry that is no longer needed - upstream converged, or the owner changed their
+   mind - leaves with its markers and its row in the same change.
+
+Older decisions are recorded per wave in the "Расхождения с upstream" sections of
+`UPSTREAM_SYNC.md`; move one here when a port touches it again.
+
+## Registry
+
+Kinds: `code` (markers and guard tests required), `deferred` (parts of an upstream release
+left for its own wave; no markers).
+
+| ID | Kind | Upstream | FoxxyCode | Sites | Guard tests | Next upstream change |
+|----|------|----------|-----------|-------|-------------|----------------------|
+| `retry-max-default` | code | 1.2.0 (#329): the shared retry allowance defaults to 3 extra attempts. | The owner selected 10 extra attempts; with the default first-token timeout and stall delays, a wholly silent model gets about 55m30s before the allowance ends. Explicit retry counts remain unchanged. | `internal/config/agent.go`, `internal/llm/resilient.go` | `TestReActDefaultAllowsTenSilentRetries` | Preserve 10 as the shared default and explicit 0 as retries disabled. |
+| `stall-guard-layer` | code | 1.1.47: `stallGuardTransport` / `idleBody` in `transport.go` cut a `text/event-stream` body that reads no bytes for `agent.llm_stream_idle_timeout_ms`, inside the retry wrapper. | The guard wraps the provider (`llm.WithStreamIdleGuard`) and is re-armed by stream chunks, `Progress` included; keep-alive comments, empty frames and Anthropic pings do not count. It sits outside the retry wrapper, so its clock spans a replayed attempt. The ReAct loop applies it in `getProvider`, everything else through `ProviderInput.StreamIdleTimeout`. | `internal/llm/stream_idle_guard.go`, `internal/llm/provider.go`, `internal/agent/react.go` (`getProvider`) | `TestStreamIdleGuardIgnoresKeepaliveComments`, `TestStreamIdleGuardSpansRetries`, `TestLLMStreamStallFeature` | 1.1.52 proxy modes are ported; keep the chunk-level guard outside the retry wrapper on later changes. |
+| `transport-debug-wrap` | code | 1.1.47: `transport.go` shares one transport per proxy setting, built from `http.DefaultTransport` or by type-asserting the proxy client's `*http.Transport`, with x/net HTTP/2 pings. | The same sharing (`providerTransport`), built from the fork's proxy helpers (`buildLLMTransport`: response-header timeout, the environment and system proxy of #124, CONNECT logging of #123, the `http.HTTP2Config` health check of #125) and wrapped per client in the debug and connection-trace transport. The pool key follows the proxy variables and the system proxy in effect. | `internal/llm/transport.go`, `internal/llm/proxy_http_client.go` | `TestProviderTransportKeepsHeaderTimeoutAndDebugWrap`, `TestProviderTransportFollowsTheProxySetting` | 1.1.52 modes are ported onto `buildLLMTransport`; keep the debug wrapper, system proxy, pool key and NO_PROXY/loopback bypass on later changes. |
+| `continue-path` | code | 1.1.47: a stall after text ends the turn. 1.2.9: provider recovery reruns the step after a 5xx, a cut or a stall, pausing 5x then 20x `llm_retry_base_ms`, off with `llm_retry_max: 0`, a notice in the UI log. | A cut answer is carried on - the stall continuation of PR #64 and the recovery of 1.2.9 on one path - under `agent.llm_continue`; `llm_retry_max: 0` does not turn it off. Pauses: `llm_continue_stall_delays_ms` ([0]) after a stall, `llm_continue_error_delays_ms` ([5000, 20000]) after a failure, a longer Retry-After up to `llm_continue_retry_after_max_ms`. The park is announced on `llm_retry`, not in the UI log. Both paths keep the cut text only up to its last line end (`trimToResumeBoundary`), since the model writes a cut line again from its start; 1.2.9 keeps it whole. A reset under Winsock numbers (10053/10054) counts as transient. A failure before any text stays with the `llm_stall_retry` ladder. | `internal/agent/react.go`, `internal/agent/provider_recovery.go` | `TestContinueOffEndsTheTurnAtTheCut`, `TestRecoveryIgnoresRetryMaxZero`, `TestStalledStreamOverHTTPIsCarriedOn`, `TestTransportFailureAfterDeltasIsCarriedOnNotReplayed`, `TestTransportFailureMidLineKeepsTheTextUpToTheLastLineEnd`, `TestConnectionResetMidAnswerIsTransient` | The rest of 1.2.9 (#351): keep the fork's branch, take changes to `llm.IsTransientProviderError` as upstream wrote them. |
+| `continue-budget` | code | 1.2.9: at most 2 recoveries in a row, reset after a successful call, each a `max_turns` step. 1.2.0 (#329): one retry allowance per step. | One budget per turn, `agent.llm_continue_max` (3), shared by stall and failure continuations, outside `max_turns`, watched by the repeat detector (`attempt_repeat.go`). | `internal/agent/react.go` | `TestContinuationBudgetSharedPerTurnNotMaxTurns`, `TestContinueMaxIsConfigurable`, `TestProviderRecoveryBudgetRunsOut` | 1.2.0 (#329) is ported: the allowance bounds transport and no-answer replays; continuations keep their separate budget. Preserve both on later loop changes. |
+| `stall-timeout-alias` | code | 1.1.47 names the key `agent.llm_stream_idle_timeout_ms`. | Same canonical name; `llm_stall_timeout_ms`, the name FoxxyCode used since PR #64, is read as a deprecated alias by the loader, `-t`, the settings save and the JSON API. | `internal/config/switch_alias.go` (`renamedKeys`) | `TestLegacyStallTimeoutKeyIsRead`, `TestCheckLegacyStallTimeoutIsAWarning` | Keep the alias until the owner retires it; a later rename goes into `renamedKeys` too. |
+| `stop-notice-transcript` | code | 1.2.9: `StopNotice` goes to the UI log, and Telegram (a reply of its own), the console (a warning line) and `-p` (stderr) print it next to the answer. | The notice (step limit, output cap) is streamed into the answer and stored in the transcript; `StopNotice` carries the same text to `meta.stop_notice`, the remote client and the subagent report only; no UI log copy, no second print. | `internal/agent/stop_notice.go`, `internal/session/manager.go` | `TestMaxTurnsNoticeStreamedStoredNotUILog`, `TestPromptResultCarriesTheStopNotice`, `TestPrintPromptDoesNotRepeatStopNotice`, `TestTelegramDoesNotRepeatTheStopNotice` | When the rest of 1.2.9 is ported, leave out its `StopNotice` printing in `bot.go`, `print.go` and `app.go`. |
+| `session-disk-refresh` | code | Nothing: a process answers on the copy of a session it read, and its save writes that copy back. | A turn re-reads a bundle another process changed since this one last saw it; a save of a copy that fell behind leaves `messages.json` to the newer writer, unless the file is gone or holds a prefix of the copy (an older writer). | `internal/session/disk_refresh.go`, `internal/session/filesystem.go` (`Save`), `internal/session/manager.go` | `TestTurnRereadsASessionAnotherProcessChanged`, `TestStaleSaveLeavesTheNewerHistoryOnDisk`, `TestTurnKeepsItsHistoryOverAnOlderCopyOnDisk`, `TestSessionSharedBetweenProcessesFeature` | If upstream adds its own cross-process sync, reconcile the two with the owner. |
+| `progress-chunks` | code | Up to 1.1.67 the readers report nothing for a frame that delivers no content; 1.1.68 (`a6d38251`) adds tool-argument progress of its own. | `StreamChunk.Progress` for every data frame without content (tool-call argument fragments, signatures, usage), sent to `onChunk` directly and never through `emit`, so a stream that showed nothing can still be replayed. | `internal/llm/openai_stream.go`, `internal/llm/anthropic.go`, `internal/llm/codex.go` | `TestProgressChunkDoesNotSetEmitted`, `TestProgressNotFiredOnKeepaliveFrames` | 1.1.68: merge its progress into the fork's and keep the rule that progress never sets `emitted`. |
+| `switch-enable-alias` | code | Switches are spelled `enable`; `enabled` is an unknown key. | `enable` is canonical as upstream; `enabled`, FoxxyCode's spelling before 0.3.x, is read as an alias. | `internal/config/switch_alias.go` | `TestLoadReadsLegacyEnabledKeys`, `TestCheckLegacyEnabledIsAWarning` | A new switch is spelled `enable`; the alias covers it without changes. |
+
+| `prompt-file-encoding` | code | 1.1.63 (#316): CLI files and stdin accept only UTF input. | Regular `-i` files use `internal/textenc`, including Windows-1251; stdin and pipes remain UTF. | `external/cli/prompt_input.go` | `TestPromptFileUsesWorkspaceEncodingButStdinStaysUTF` | Keep the shared file decoder; ask before changing stdin encoding. |
+| `retry-recovery-steps` | code | 1.2.0 (#329): a first-token reissue spends a `max_turns` step. | No-answer replays preserve steps for useful work and share `llm_retry_max` with transport retries. Interrupted answers keep `llm_continue_max`. | `internal/agent/react.go` | `TestReActRetryBudget`, `TestReActRetryBudgetRecoverySurvivesCompaction`, `TestStopHookKeepsUsefulStepsAfterNoAnswerRecovery` | Keep the shared retry bound without charging unanswered attempts to `max_turns`. |
+| `compaction-both-engines` | code | 1.1.64 (#312): a per-call model is wired through the upstream compaction path. | `/compact --model`, the HTTP body and `compact_context.model` share the summarizer chain for coddy and opencode. | `internal/agent/compact.go` | `TestCompactNamedModelWorksWithBothEngines` | Keep both engines and their existing hooks and fold behavior. |
+| `composer-send-mode` | code | 1.1.63 (#323): Enter sends on keyboards, Ctrl+Enter inserts a newline. | `ui.send_mode` and editor panel shortcuts remain; touch input determines phone Return behavior. | `internal/config/ui.go`, `external/ui/src/ui/chat/composerEnter.ts` | `TestUIConfigSendModeValidate` | Preserve configuration and editor panels; reconcile input-device detection. |
+| `session-asset-files` | code | 1.1.68 (#328): the full-size asset route serves images only, refusing links. | The existing regular-file API remains, with confined opens, symlink rejection, content sniffing and private caching. | `external/httpserver/session_assets.go` | `TestSessionAssetKeepsRegularFilesWithSniffedType`, `TestSessionAssetRefusesALinkOutOfTheBundle` | Keep regular-file downloads and symlink rejection. |
+| `background-server-lifetime` | code | 1.1.64 (#317): preview servers use the background pool lifetime rules. | Preview lifetimes can exceed command ceilings; command estimates remain advisory and explicit command timeouts stay capped. | `internal/bgtask/pool.go` | `TestPreviewServerLifetimeKeepsCommandTimeoutPolicy` | Preserve the command policy when adding server kinds or changing timeouts. |

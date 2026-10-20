@@ -69,7 +69,6 @@ func TestConcurrentPerSessionRoutesLoadTheSessionOnce(t *testing.T) {
 		"/foxxycode/sessions/" + sid + "/messages",
 		"/foxxycode/sessions/" + sid + "/tool-calls",
 		"/foxxycode/sessions/" + sid + "/stats",
-		"/foxxycode/sessions/" + sid + "/branches",
 		"/foxxycode/sessions/" + sid + "/activity",
 		"/foxxycode/sessions/" + sid + "/plans",
 		"/foxxycode/sessions/" + sid + "/messages",

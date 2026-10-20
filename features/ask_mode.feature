@@ -1,9 +1,11 @@
 Feature: Read-only ask mode
   Ask mode answers questions from the repository and the web without changing
-  anything. The model is offered only the read-only tools, and a call that
-  names a hidden tool anyway - for example one echoed from history recorded in
-  agent mode - is refused when it is about to run, so the read-only promise
-  holds even when the model does not respect the tool list it was given.
+  anything in the workspace. The model is offered the read-only tools, plus the
+  one that files the session itself - a title and tags are what a long question
+  earns, and a reader of the repository sees nothing of it. A call that names a
+  hidden tool anyway - for example one echoed from history recorded in agent
+  mode - is refused when it is about to run, so the promise holds even when the
+  model does not respect the tool list it was given.
 
   Scenario: The model is offered only read-only tools
     Given a foxxycode session in "ask" mode

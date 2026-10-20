@@ -301,16 +301,22 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// foxxycodeSkillsSourcesGet lists configured remote skill sources.
+// foxxycodeSkillsSourcesGet lists every remote skill source in effect. system names
+// the subset FoxxyCode brings itself: they are in items like any other, but they do
+// not live in config.yaml and DELETE refuses them, so a client shows them
+// without a remove control.
 func (s *Server) foxxycodeSkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
+	system := make([]string, 0, len(skills.SystemSources))
+	system = append(system, skills.SystemSources...)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "foxxycode.skills_sources",
 		"items":  skills.ListSources(s.activeCfg()),
+		"system": system,
 	})
 }
 

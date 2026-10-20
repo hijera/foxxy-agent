@@ -90,6 +90,7 @@ type remoteClientState struct {
 	mgr      *session.Manager
 	srv      *Server
 	token    string
+	cfg      *config.Config
 
 	// subagentPermission makes the runner behave like a parent whose child
 	// asks for permission through the relay.
@@ -99,13 +100,16 @@ type remoteClientState struct {
 	askPermission  bool
 	recordToolCall bool
 	stopReason     string
+	// progress, when set, is the turn_progress update the runner sends first.
+	progress *acp.TurnProgressUpdate
 
-	client    *remote.Handler
-	sender    *recordingClientSender
-	sessionID string
-	firstID   string
-	lastStop  string
-	promptErr error
+	client     *remote.Handler
+	sender     *recordingClientSender
+	newSession *acp.SessionNewResult
+	sessionID  string
+	firstID    string
+	lastStop   string
+	promptErr  error
 
 	replaySender *recordingClientSender
 	loadResult   *acp.SessionLoadResult
@@ -125,9 +129,12 @@ func (s *remoteClientState) reset() error {
 	s.subagentPermission = false
 	s.recordToolCall = false
 	s.stopReason = ""
+	s.progress = nil
 	s.client = nil
 	s.sender = nil
 	s.sessionID = ""
+	s.newSession = nil
+	s.cfg = nil
 	s.firstID = ""
 	s.lastStop = ""
 	s.promptErr = nil
@@ -252,6 +259,9 @@ func (s *remoteClientState) startServer(token string) error {
 			})
 			st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "tool-1", Content: "file body"})
 		}
+		if s.progress != nil {
+			_ = snd.SendSessionUpdate(st.ID, *s.progress)
+		}
 		if s.replyText != "" {
 			_ = snd.SendSessionUpdate(st.ID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -273,6 +283,7 @@ func (s *remoteClientState) startServer(token string) error {
 		Agent:      config.Agent{Model: "remote/alpha"},
 		HTTPServer: config.HTTPServerConfig{AuthToken: token},
 	}
+	s.cfg = cfg
 	store := &session.FileStore{Root: s.sessRoot}
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, store)
 	s.srv = New(cfg, s.mgr, slog.Default(), s.root)
@@ -298,6 +309,32 @@ func (s *remoteClientState) connectClient(token string) error {
 func (s *remoteClientState) agentReplies(text string) error {
 	s.replyText = text
 	return nil
+}
+
+func (s *remoteClientState) agentReportsProgress(tokens, elapsedSec int, text string) error {
+	s.replyText = text
+	s.progress = &acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     time.Now().Add(-time.Duration(elapsedSec) * time.Second).UTC().Format(time.RFC3339Nano),
+		ElapsedMs:     int64(elapsedSec) * 1000,
+		OutputTokens:  tokens,
+		Estimated:     true,
+	}
+	return nil
+}
+
+func (s *remoteClientState) clientReceivedProgress(tokens, elapsedSec int) error {
+	for _, u := range s.sender.snapshot() {
+		p, ok := u.(acp.TurnProgressUpdate)
+		if !ok {
+			continue
+		}
+		if p.OutputTokens != tokens || p.ElapsedMs != int64(elapsedSec)*1000 || !p.Estimated || p.StartedAt == "" {
+			return fmt.Errorf("turn progress reached the client as %+v", p)
+		}
+		return nil
+	}
+	return fmt.Errorf("the client saw no turn progress update")
 }
 
 func (s *remoteClientState) agentAsksPermission(text string) error {
@@ -386,6 +423,33 @@ func (s *remoteClientState) clientAnswersPermissions(option string) error {
 	return nil
 }
 
+// serverAgentModel reloads the server's configuration with another
+// agent.model, the way a saved config.yaml reaches a running server.
+func (s *remoteClientState) serverAgentModel(model string) error {
+	next := *s.cfg
+	next.Agent.Model = model
+	s.srv.ReplaceConfig(&next)
+	s.mgr.ReplaceConfig(&next)
+	return nil
+}
+
+// newSessionModelShows reads the model option of a session nobody selected a
+// model for: the client takes it from the row GET /v1/models marks default.
+func (s *remoteClientState) newSessionModelShows(model string) error {
+	if s.newSession == nil {
+		return fmt.Errorf("no session was started")
+	}
+	for _, opt := range s.newSession.ConfigOptions {
+		if opt.ID == "model" {
+			if opt.CurrentValue != model {
+				return fmt.Errorf("new session model = %q, want %q", opt.CurrentValue, model)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no model option in %+v", s.newSession.ConfigOptions)
+}
+
 func (s *remoteClientState) clientStartsSession() error {
 	if s.client == nil {
 		return fmt.Errorf("client not connected")
@@ -398,6 +462,7 @@ func (s *remoteClientState) clientStartsSession() error {
 		s.firstID = s.sessionID
 	}
 	s.sessionID = res.SessionID
+	s.newSession = res
 	return nil
 }
 
@@ -564,6 +629,8 @@ func initializeRemoteClientScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a remote client connected with the token "([^"]*)"$`, s.connectClient)
 	sc.Step(`^the remote agent replies with "([^"]*)"$`, s.agentReplies)
 	sc.Step(`^the remote agent asks permission before replying "([^"]*)"$`, s.agentAsksPermission)
+	sc.Step(`^the remote agent reports (\d+) generated tokens (\d+) s into the turn before replying "([^"]*)"$`, s.agentReportsProgress)
+	sc.Step(`^the client receives a turn progress update with (\d+) tokens and (\d+) s elapsed$`, s.clientReceivedProgress)
 	sc.Step(`^the remote agent relays a subagent permission prompt before replying "([^"]*)"$`, s.agentRelaysSubagentPermission)
 	sc.Step(`^the remote server runs with permission mode "([^"]*)"$`, s.serverPermissionMode)
 	sc.Step(`^the client received a permission request titled "([^"]*)"$`, s.clientReceivedPermissionTitled)
@@ -579,6 +646,8 @@ func initializeRemoteClientScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the turn ends with stop reason "([^"]*)"$`, s.turnEndedWith)
 	sc.Step(`^the session is persisted on the remote server$`, s.sessionPersistedRemotely)
 	sc.Step(`^the session model options come from the remote server catalog$`, s.modelOptionsFromRemoteCatalog)
+	sc.Step(`^the remote server's agent\.model is "([^"]*)", the second configured model$`, s.serverAgentModel)
+	sc.Step(`^the new session's model option shows "([^"]*)"$`, s.newSessionModelShows)
 	sc.Step(`^a fresh client loads that session$`, s.freshClientLoads)
 	sc.Step(`^the replay contains the user text "([^"]*)"$`, s.replayUserText)
 	sc.Step(`^the replay contains the agent text "([^"]*)"$`, s.replayAgentText)
