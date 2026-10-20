@@ -12,6 +12,11 @@
 **Sign in to NeuralDeep right from onboarding.**
 The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving. The domain selector comes first: choose neuraldeep.ru or neuraldeep.tech, and sign-in, the model catalog and saved settings use that domain.
 
+## 0.3.32 — 2026-10-20
+
+**Keep whole characters in IDE context.**
+Long code selections and terminal output are shortened at character boundaries before being sent to chat. Cyrillic text, CJK characters and emoji are no longer corrupted at the beginning of the retained fragment.
+
 ## 0.3.31 — 2026-10-16
 
 **The model catalog sits with its provider.**

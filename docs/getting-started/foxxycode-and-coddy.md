@@ -22,7 +22,8 @@ exact upstream commit this fork is synced to.
   [`internal/project/`](../../internal/project) and the `/foxxycode/project` route.
 - **IDE open-files context** - the editor sends its open tabs and active file to the backend, which
   injects them into the prompt as `<foxxycode_ide_context>` - see
-  [`internal/ideenv/`](../../internal/ideenv), wired in `internal/agent/react.go`.
+  [`internal/ideenv/`](../../internal/ideenv), formatted by
+  [`internal/idehost/`](../../internal/idehost) and appended by the agent.
 - **IDE terminal tracking (`@terminal`)** - terminal output is streamed to the backend
   (`POST /foxxycode/ide/terminal-state`) and exposed as always-on `<foxxycode_terminal_context>`
   and an explicit `@terminal` mention - see [`internal/ideterm/`](../../internal/ideterm) and
@@ -31,7 +32,7 @@ exact upstream commit this fork is synced to.
   `.vscode` directory are appended to the system prompt as `<vscode_project_context>`, so build
   tasks, launch configurations and workspace settings are known from the first request; the
   IntelliJ `.idea` block shares the loader - see
-  [`internal/session/editor_project_context.go`](../../internal/session/editor_project_context.go).
+  [`internal/idehost/project_context.go`](../../internal/idehost/project_context.go).
 - **IDE file drag-drop -> `@`-mention** - dropping a file into the composer produces a short
   `@`-chip while the full relative path is sent to the model, via the `/workspace/relativize` endpoint.
 - **Native IntelliJ inline diffs** - plugin-side inline diff review with Accept/Reject and

@@ -52,7 +52,7 @@ Working directory: {{.CWD}}
 </environment_context>
 ```
 
-The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt. Editor project metadata is appended the same way: readable files under the workspace's **`.idea`** and **`.vscode`** directories become **`<intellij_idea_project_context>`** and **`<vscode_project_context>`** blocks (**`internal/session/editor_project_context.go`**), capped per file and in total, and framed as data rather than as instructions.
+The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt. Editor project metadata is appended the same way: readable files under the workspace's **`.idea`** and **`.vscode`** directories become **`<intellij_idea_project_context>`** and **`<vscode_project_context>`** blocks (**`internal/idehost/project_context.go`**, reached through the session API), capped per file and in total, and framed as data rather than as instructions. Editor and terminal snapshots are formatted by **`internal/idehost`**; the agent only appends its context annotations.
 
 ### The system prompt is frozen for the turn
 

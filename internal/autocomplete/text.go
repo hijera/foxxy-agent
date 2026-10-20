@@ -1,12 +1,13 @@
-//go:build http
-
-package httpserver
+package autocomplete
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
+
+var completionFenceRe = regexp.MustCompile("(?s)^```[a-zA-Z0-9]*\\n?|```$")
 
 // The pure text rules of inline completion: what a suggestion may look like, where it must
 // stop, and when it is not worth showing. Everything here is deterministic and unit-tested; the
@@ -17,10 +18,10 @@ import (
 // below the caret.
 const autocompleteMaxLines = 12
 
-// autocompleteMaxStops is the most stop sequences sent with one request. OpenAI's own API
+// MaxStops is the most stop sequences sent with one request. OpenAI's own API
 // accepts four; open-model servers accept more, but four is enough for the line stops plus the
 // FIM family's end tokens that matter.
-const autocompleteMaxStops = 4
+const MaxStops = 4
 
 // caretLineRaw returns the (possibly partial) line the caret sits on, indentation included.
 func caretLineRaw(prefix string) string {
@@ -138,7 +139,7 @@ func stripFence(out string) string {
 	if !strings.HasPrefix(lead, "```") {
 		return out
 	}
-	return enhanceFenceRe.ReplaceAllString(lead, "")
+	return completionFenceRe.ReplaceAllString(lead, "")
 }
 
 // trimSuffixOverlap drops the tail of a suggestion that re-types what already follows the
@@ -306,7 +307,9 @@ func commentLeader(language string) string {
 }
 
 // tailBytes keeps at most max bytes from the end of s, snapped forward to a line boundary when one
-// is close by, so the model never receives a half-truncated first line.
+// is close by, so the model never receives a half-truncated first line. It is not
+// textutil.TailBytes: that one only drops back to a rune boundary, while this one
+// also throws away a short leading fragment to keep the first line whole.
 func tailBytes(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s

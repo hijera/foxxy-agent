@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/textutil"
 )
 
 // maxSelectionBytes caps the stored selection text; the tail is kept,
@@ -73,11 +75,7 @@ func cleanSelection(sel *Selection) *Selection {
 	if file == "" || sel.StartLine < 1 || sel.EndLine < sel.StartLine || strings.TrimSpace(sel.Text) == "" {
 		return nil
 	}
-	text := sel.Text
-	if len(text) > maxSelectionBytes {
-		text = text[len(text)-maxSelectionBytes:]
-	}
-	return &Selection{File: file, StartLine: sel.StartLine, EndLine: sel.EndLine, Text: text}
+	return &Selection{File: file, StartLine: sel.StartLine, EndLine: sel.EndLine, Text: textutil.TailBytes(sel.Text, maxSelectionBytes)}
 }
 
 // Get returns a copy of the latest editor snapshot. The zero snapshot (no

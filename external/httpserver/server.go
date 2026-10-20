@@ -21,6 +21,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/autocomplete"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -130,7 +131,7 @@ type Server struct {
 
 	// autocomplete holds inline-completion counters and the per-model "raw FIM
 	// failed, use chat" memory; its zero value is ready to use.
-	autocomplete autocompleteState
+	autocomplete autocomplete.Service
 	bgWG         sync.WaitGroup
 }
 
