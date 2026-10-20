@@ -1,5 +1,6 @@
 package dev.foxxycode.intellij.autocomplete
 
+import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
@@ -8,6 +9,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.util.Alarm
+import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import kotlin.math.max
 import kotlin.math.min
@@ -133,11 +135,36 @@ class FoxxyCodeAutocompleteService(private val project: Project) : Disposable {
         }
     }
 
-    /** Asks for a suggestion right now, ignoring the trigger mode. Backs the editor shortcut. */
+    /** Starts the backend if needed, then asks for a suggestion regardless of the trigger mode. */
     fun triggerManually(editor: Editor) {
-        if (!clientConfig.enabled) return
-        SuggestionPreview.clear(editor, report = false)
-        scheduleFetch(editor, editor.caretModel.offset, 0)
+        if (project.isDisposed || editor.isDisposed) return
+        FoxxyCodeProcessManager.getInstance(project).ensureStarted(
+            onReady = { base ->
+                startIfNeeded()
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    val fetched = CompletionClient.fetchConfig(base)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (project.isDisposed || editor.isDisposed || !editor.contentComponent.isFocusOwner) return@invokeLater
+                        if (fetched == null) {
+                            HintManager.getInstance().showErrorHint(editor, FoxxyCodeBundle.message("autocomplete.hint.configUnavailable"))
+                            return@invokeLater
+                        }
+                        clientConfig = fetched
+                        if (!fetched.enabled) {
+                            HintManager.getInstance().showErrorHint(editor, FoxxyCodeBundle.message("autocomplete.hint.disabled"))
+                            return@invokeLater
+                        }
+                        SuggestionPreview.clear(editor, report = false)
+                        scheduleFetch(editor, editor.caretModel.offset, 0)
+                    }
+                }
+            },
+            onError = { error ->
+                if (!editor.isDisposed && !project.isDisposed) {
+                    HintManager.getInstance().showErrorHint(editor, FoxxyCodeBundle.message("autocomplete.hint.startFailed", error))
+                }
+            },
+        )
     }
 
     private fun cancelPending() {

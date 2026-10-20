@@ -23,4 +23,4 @@ func mountSPARoot(s *Server) {
 	}))
 }
 
-const uiDisabledResponse = "FoxxyCode swarm relay is running with the embedded web UI disabled (ui.enabled: false).\n"
+const uiDisabledResponse = "FoxxyCode swarm relay is running with the embedded web UI disabled (ui.enable: false).\n"

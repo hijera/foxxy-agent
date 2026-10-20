@@ -675,3 +675,22 @@ func TestNeuralDeepClientIDIsTheHubsIdentifierNotOurName(t *testing.T) {
 		t.Fatalf("the key label must stay this fork's own name, not the hub's client id (%q)", NeuralDeepClientID)
 	}
 }
+
+// TestNeuralDeepDeviceLabelNamesTheRow: the label a device login gives its key
+// is what the hub dashboard and /usage show, so a second row of the type puts
+// its name in it; the conventional row keeps the plain label.
+func TestNeuralDeepDeviceLabelNamesTheRow(t *testing.T) {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		t.Skip("no hostname")
+	}
+	if got := NeuralDeepDeviceLabel("neuraldeep"); got != "foxxycode @ "+host {
+		t.Errorf("label of the row named neuraldeep = %q, want the plain one", got)
+	}
+	if got := NeuralDeepDeviceLabel(""); got != "foxxycode @ "+host {
+		t.Errorf("label without a row = %q, want the plain one", got)
+	}
+	if got := NeuralDeepDeviceLabel("nd-tech"); got != "foxxycode @ "+host+" (nd-tech)" {
+		t.Errorf("label of nd-tech = %q, want the row name in parentheses", got)
+	}
+}

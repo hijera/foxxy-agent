@@ -28,45 +28,60 @@ func EffectiveSessionCWD(clientCWD, defaultCWD string) (string, error) {
 
 // CWDInScope reports whether cwd is root itself or a directory beneath it.
 // An empty root matches everything (no scope requested); an empty cwd never matches.
-// Comparison is case-insensitive on Windows, matching the local filesystem.
+// Both sides are compared in their canonical form (CanonicalWorkspacePath:
+// absolute, cleaned, symlinks resolved), case-insensitively where the default
+// filesystem folds case, so a session stored under one spelling of a project is
+// in scope for any other spelling of it.
 func CWDInScope(cwd, root string) bool {
-	r := strings.TrimSpace(root)
+	return NewWorkspaceScope(root)(cwd)
+}
+
+// NewWorkspaceScope returns the CWDInScope test for one root, resolving the
+// root once and each distinct cwd once. A listing asks it for every stored
+// session, and resolving symlinks costs a filesystem call per path component,
+// so the IDE History poll does not pay that per row.
+func NewWorkspaceScope(root string) func(cwd string) bool {
+	r := CanonicalWorkspacePath(filepath.FromSlash(root))
 	if r == "" {
-		return true
+		return func(string) bool { return true }
 	}
-	c := strings.TrimSpace(cwd)
-	if c == "" {
-		return false
-	}
-	c = filepath.Clean(filepath.FromSlash(c))
-	r = filepath.Clean(filepath.FromSlash(r))
-	if runtime.GOOS == "windows" {
-		c = strings.ToLower(c)
+	if caseInsensitivePaths {
 		r = strings.ToLower(r)
-	}
-	if c == r {
-		return true
 	}
 	prefix := r
 	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
 		prefix += string(filepath.Separator)
 	}
-	return strings.HasPrefix(c, prefix)
+	seen := map[string]bool{}
+	return func(cwd string) bool {
+		key := strings.TrimSpace(cwd)
+		if key == "" {
+			return false
+		}
+		if in, ok := seen[key]; ok {
+			return in
+		}
+		c := CanonicalWorkspacePath(filepath.FromSlash(key))
+		if caseInsensitivePaths {
+			c = strings.ToLower(c)
+		}
+		in := c == r || strings.HasPrefix(c, prefix)
+		seen[key] = in
+		return in
+	}
 }
 
 // SetSessionWorkspace switches the session working directory and re-derives
-// cwd-scoped state (skills, project rules, slash commands). The target must
-// be an existing directory.
-func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
-	abs, err := EffectiveSessionCWD(dir, "")
+// workspace-scoped state: the configured MCP servers are re-dialed for the new
+// workspace through the trust gate while the previous workspace's are closed,
+// and skills, project rules, the SessionStart hook context and the slash
+// catalog follow the new cwd. The target must be an existing directory. A
+// switch to another spelling of the same workspace only stores the spelling.
+func (m *Manager) SetSessionWorkspace(ctx context.Context, st *State, dir string) error {
+	abs, err := ValidateWorkspaceDir(dir)
 	if err != nil {
 		return err
 	}
-	fi, err := os.Stat(abs)
-	if err != nil || !fi.IsDir() {
-		return fmt.Errorf("workspace folder not found: %s", abs)
-	}
-
 	if m.SessionTurnActiveInProcess(st.GetID()) {
 		return ErrSessionTurnBusy
 	}
@@ -75,26 +90,113 @@ func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
 		return err
 	}
 	defer unlock()
-
-	// The cwd switch is committed here, synchronously: the caller reports the new workspace as
-	// soon as this returns. Only reconnecting the new workspace's MCP servers moves to the
-	// background - it re-arms the readiness gate, so a prompt sent right after the switch waits
-	// for the servers it is actually going to use. Same reasoning as
-	// connectConfiguredMCPServers: this runs under the turn lock, on a request goroutine.
-	settle := st.beginConfiguredMCPConnect()
+	prevCWD := st.GetCWD()
 	st.SetCWD(abs)
+	if SameWorkspacePath(prevCWD, abs) {
+		return nil
+	}
+	// Keep slow MCP handshakes off the request path; the next turn waits for readiness.
+	settle := st.beginConfiguredMCPConnect()
 	go func() {
 		defer settle()
 		st.replaceConfiguredMCPClients(m.configuredMCPClients(context.Background(), abs))
 	}()
+	m.reloadWorkspaceCatalogs(ctx, st)
+	return nil
+}
 
+// ValidateWorkspaceDir resolves dir to an absolute path and requires it to
+// name an existing directory. It is the workspace switch's own check, exported
+// so a caller can validate a target before handing it to session creation.
+func ValidateWorkspaceDir(dir string) (string, error) {
+	abs, err := EffectiveSessionCWD(dir, "")
+	if err != nil {
+		return "", err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("workspace folder not found: %s", abs)
+	}
+	return abs, nil
+}
+
+// ReloadSessionWorkspace re-derives workspace-scoped state (configured MCP
+// servers, skills, project rules, SessionStart hook context) after the
+// workspace's files changed under the same cwd - an in-place branch checkout.
+// The MCP re-dial is a fresh trust evaluation: a declaration the checkout
+// replaced is approved again or stays cold.
+func (m *Manager) ReloadSessionWorkspace(ctx context.Context, st *State) {
+	m.reloadWorkspaceScopedState(ctx, st)
+}
+
+// reloadWorkspaceScopedState re-derives everything a session's workspace
+// decides. The MCP re-dial goes through the same pending + prompt-turn-lock
+// path a settings save uses, so it serializes against a turn in flight and a
+// config reload; a turn holding the lock drains the parked reload on release.
+func (m *Manager) reloadWorkspaceScopedState(ctx context.Context, st *State) {
+	st.markMCPReloadPending()
+	if unlock, err := m.acquirePromptTurnLock(st.GetID(), st); err == nil {
+		applied := true
+		if st.takeMCPReloadPending() {
+			applied = m.applyConfiguredMCPReload(ctx, st)
+		}
+		unlock()
+		if applied {
+			m.drainPendingMCPReload(st.GetID(), st)
+		}
+	}
+
+	m.reloadWorkspaceCatalogs(ctx, st)
+}
+
+func (m *Manager) reloadWorkspaceCatalogs(ctx context.Context, st *State) {
+	cwd := st.GetCWD()
 	cfg := m.activeCfg()
-	loadedSkills, err := m.loadSkills(abs, cfg)
+	loadedSkills, err := m.loadSkills(cwd, cfg)
 	if err != nil {
 		m.log.Warn("failed to load skills on workspace switch", "error", err)
 	}
 	st.ReplaceSkills(loadedSkills)
-	st.ReplaceRulesCatalog(DiscoverRules(cfg, abs))
+	st.ReplaceRulesCatalog(DiscoverRules(cfg, cwd))
+	m.runSessionStartHooks(ctx, st, hookSourceWorkspace)
 	m.sendAvailableSlashCommands(st.GetID(), st)
-	return nil
+}
+
+// caseInsensitivePaths marks the platforms whose default filesystems fold
+// case, so two spellings of a folder that differ only in case are one folder.
+var caseInsensitivePaths = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
+// CanonicalWorkspacePath returns the form two spellings of one folder share:
+// absolute, cleaned, with symlinks resolved when the folder exists. Sessions
+// keep the cwd as the client gave it (the console stores the logical $PWD of
+// a symlinked checkout, an editor sends the physical path, a Windows client
+// may differ in the drive letter's case), so every workspace filter compares
+// this form rather than the stored string.
+func CanonicalWorkspacePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	return filepath.Clean(abs)
+}
+
+// SameWorkspacePath reports whether two paths name the same folder.
+func SameWorkspacePath(a, b string) bool {
+	return matchesWorkspace(CanonicalWorkspacePath(a), b)
+}
+
+// matchesWorkspace compares an already canonical filter with a stored path.
+func matchesWorkspace(canonical, stored string) bool {
+	c := CanonicalWorkspacePath(stored)
+	if c == canonical {
+		return true
+	}
+	return caseInsensitivePaths && strings.EqualFold(c, canonical)
 }

@@ -1,10 +1,11 @@
+import { FieldLabel } from "./FieldHint";
 import { t } from "../i18n/i18n";
 import { Combobox } from "./Combobox";
 
 /**
  * ModelPicker selects a default model id from the configured logical models, or
  * lets the user type one manually — a single editable combobox. Used for the
- * ReAct agent and memory default model fields.
+ * ReAct agent, memory, and context compaction model fields.
  */
 export function ModelPicker(props: {
   value: string;
@@ -18,10 +19,7 @@ export function ModelPicker(props: {
 
   return (
     <div className="settings-row" data-testid="model-picker">
-      <span className="settings-label">{label}</span>
-      {props.description ? (
-        <p className="settings-field-desc">{props.description}</p>
-      ) : null}
+      <FieldLabel label={label} description={props.description} />
       <Combobox
         value={value}
         onChange={onChange}

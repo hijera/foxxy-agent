@@ -8,6 +8,74 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.18 — 2026-10-16
+
+Checkpoint: `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (tag `1.2.18`), following `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (`1.2.10`).
+
+- Ported the net changes of #350, #353, #355, #356, #352, #369, #372 and #371.
+- Provider settings fetch unsaved rows, expose catalog context windows and retain FoxxyCode's advisory vision flag. OAuth profiles isolate CLI fallback; autocomplete follows the same profile decision.
+- Added structured tool cards, semantic settings groups and field hints, provider/model deep links, the 599px phone tier, archive feedback and bounded transcript pagination/rendering.
+- The owner approved default completion wakes for commands and subagents, user-requested changes to the agent's own model/reasoning/compaction model, and autonomous child-model selection. Explicit `notify_on_finish: false` still disables a wake.
+- The owner approved the full opt-in systemd user service, including packaged units. Installation does not enable a system-wide service.
+- The catalog exposes `default` per model row. New web chats retain the valid model cookie, otherwise the alphabetically first configured model.
+- Preserved SVN/browser/IDE features, provider import/export, configurable send shortcuts, config-backed localization, project trust approvals, file downloads, encoding, retry/continuation budgets, disk refresh, stop notices and the Chromium 104 baseline.
+- Validation: the full tagged Go regression passed every package except one UI BDD binding whose anchored Vitest name omitted its describe group; that binding was corrected and `TestWebUISmallFixesFeature` passed on rerun. The final standalone UI suite passed 299 files / 2806 tests. `make lint`, typechecking, docsgen, the embedded build and Chromium 104 compatibility checks passed.
+- Browser verification covered long transcript paging/anchoring in Chromium and WebKit, phone overflow across the grid, chevron alignment, and folder-dialog scrolling in both engines. The latter exposed WebKit scroll chaining; the modal now locks document scrolling while open and restores it on close. Screenshots of the affected surfaces accompany the documentation; additional light/narrow and before/after evidence is on the `screenshots` branch under `upstream-1.2.18/`.
+- Rules review on 2026-10-18: the onboarding models probe now applies the same CLI-login assignment as the configured-provider catalog; a regression test reproduces a secondary Codex row inheriting the wrong account. The Codex hook configuration gains a Windows Python command override; direct SessionStart and PreToolUse probes confirm always-on and scoped rule delivery. The hook definition must be reviewed again through `/hooks` after this change.
+- Implementation commit: `e80acc45e6512fa6e28b96ea51ec15962e20d9e1` on `codex/upstream-1.2.18`; all 67 upstream records in `ports.yaml` reference this consolidated port. Local race detection requires an unavailable CGo compiler; the PR CI runs that check on Linux.
+
+## Sync through upstream 1.2.10 — 2026-10-14
+
+Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following `75c31bcc0b726a46386b0977fee997353f62a9a1` (`1.2.1`).
+
+- Ported #332, #341, #343, #344, #345, #346, #349, the remaining #351 changes, and #354.
+- Config saves omit unset fields; model selection is remembered per surface and otherwise alphabetical. `agent.model` is optional.
+- Workspace changes reload configured MCP clients through the existing asynchronous readiness and trust gates, plus workspace catalogs.
+- Message edits rewind the same session and never roll workspace files back. Archived chats retain their archived state when opened.
+- The owner approved unlimited steps when `agent.max_turns` is omitted or zero, and removal of `agent.max_tokens_per_turn`. The `max-turns-default` and `deferred-351` registry entries are retired.
+- Provider HTTP status propagation, Devin usage and UTF-8 fixes, binary-read refusal and failed-send draft/attachment recovery are included. Existing retry, continuation, encoding and transcript stop-notice policies remain.
+- FoxxyCode PRs #127, #128 and #132 are explicitly excluded from this wave.
+
+## Реестр постоянных расхождений
+
+Решения владельца, где форк сознательно оставляет своё поведение вместо upstream. Английский
+оригинал с колонками «места в коде» и «тесты-стражи» — правило
+`.claude/rules/upstream-divergences.md` (его зеркало — `.cursor/rules/upstream-divergences.mdc`):
+оно подгружается агенту, как только тот трогает помеченные файлы. В коде каждое место отмечено
+`// fork(<id>)`, и при конфликте diff3 видно, что сторона форка выбрана намеренно.
+`internal/forkguard` падает, если метка пропала, тест-страж исчез или ID здесь и в правиле
+разошлись.
+
+Перед портом волны: `git grep -n 'fork(' -- <файл>` на каждый файл, который трогает upstream,
+и колонка «При следующем изменении upstream» ниже. Новое решение — строка здесь и в правиле,
+метки и тест-страж в том же PR.
+
+<!-- divergence-registry:start -->
+| ID | Upstream | Форк | При следующем изменении upstream |
+|----|----------|------|----------------------------------|
+| `retry-max-default` | 1.2.0 (#329): 3 shared extra attempts | Owner-selected default of 10; about 55m30s for a wholly silent model with the default guards and delays | Preserve the shared default and explicit 0 disabling retries |
+| `stall-guard-layer` | 1.1.47: `stallGuardTransport` в `transport.go` режет SSE-тело без байтов, внутри ретрай-обёртки | Guard оборачивает провайдер и считает чанки (включая `Progress`), не keep-alive; стоит снаружи ретраев | 1.1.52: режимы портированы без `stallGuardTransport`/`idleBody`; при следующих изменениях сохранять слой guard |
+| `transport-debug-wrap` | 1.1.47: общий транспорт на настройку прокси из `http.DefaultTransport`, пинги HTTP/2 через x/net | Тот же общий пул, но из форковых прокси-хелперов (таймаут заголовков, системный прокси #124, пинги `http.HTTP2Config` из #125) и за debug-обёрткой | 1.1.52: режимы портированы в `buildLLMTransport` с системным прокси, debug-обёрткой, ключом пула и форковым обходом NO_PROXY/loopback; при следующих изменениях сохранять их |
+| `continue-path` | 1.1.47: stall после текста завершает ход; 1.2.9: recovery после 5xx/обрыва, пауза от `llm_retry_base_ms`, выключается `llm_retry_max: 0`, уведомление в UI-лог | Оборванный ответ продолжается под `agent.llm_continue`; паузы `llm_continue_stall_delays_ms` и `llm_continue_error_delays_ms`, Retry-After до `llm_continue_retry_after_max_ms`; парковка через `llm_retry`; оборванный текст на обоих путях сохраняется до последнего конца строки (1.2.9 хранит целиком); сброс Winsock (10053/10054) — временный сбой | Остаток 1.2.9: ветку форка сохранить, изменения `IsTransientProviderError` брать |
+| `continue-budget` | 1.2.9: не больше 2 recovery подряд, каждый — шаг `max_turns`; 1.2.0: бюджет ретраев на шаг | Один бюджет на ход `agent.llm_continue_max` (3) для stall и сбоев, вне `max_turns`, с детектором повторов | 1.2.0 (#329): общий бюджет сетевых повторов и пустых попыток, продолжения — отдельно |
+| `stall-timeout-alias` | Ключ `llm_stream_idle_timeout_ms` | То же имя; `llm_stall_timeout_ms` читается как устаревший алиас | Держать алиас, пока владелец его не уберёт |
+| `stop-notice-transcript` | 1.2.9: `StopNotice` в UI-лог, отдельно печатается в Telegram, консоли и `-p` | Уведомление стримится в ответ и пишется в транскрипт; `StopNotice` — только в `meta.stop_notice`, remote-клиент и отчёт субагента | При порте 1.2.9 не брать печать `StopNotice` в `bot.go`, `print.go`, `app.go` |
+| `session-disk-refresh` | Нет: процесс отвечает по своей копии сессии | Ход перечитывает сессию, изменённую другим процессом; устаревшая копия не перезаписывает историю | Если upstream сделает свою синхронизацию — свести с владельцем |
+| `progress-chunks` | До 1.1.67 кадр без содержимого ничего не сообщает; 1.1.68 добавляет свой progress аргументов | `Progress` на каждый кадр без содержимого, мимо `emit` | 1.1.68: слить с форковым, правило «progress не ставит `emitted`» сохранить |
+| `switch-enable-alias` | Переключатели — `enable`, `enabled` неизвестен | `enable` канонический, `enabled` — алиас | Ничего: алиас покрывает новые переключатели |
+| `prompt-file-encoding` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `retry-recovery-steps` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `compaction-both-engines` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `composer-send-mode` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `session-asset-files` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `background-server-lifetime` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+<!-- divergence-registry:end -->
+
+Более ранние решения записаны в разделах «Расхождения с upstream» каждой волны ниже; при порте,
+который снова их трогает, решение переезжает в реестр.
+
+---
+
 ## С чего начался форк
 
 | Поле | Значение |
@@ -29,8 +97,9 @@ git describe --tags $(git merge-base HEAD upstream/main)   # 0.9.26-4-g9370936
 Всё, что попало в upstream **после** `9370936`, приходит сюда только через волны из этого
 файла. Обратное неверно: коммиты форка в upstream не уходят.
 
-Собственная нумерация версий форка (`0.2.x`) **никак не связана** с upstream-овской (`0.9.x`) —
-её ведёт `.github/workflows/tag-on-merge.yaml`, поднимая патч у последнего тега в `origin`.
+Собственная нумерация версий форка (`0.3.x`, до 2026-09-17 — `0.2.x`) **никак не связана** с
+upstream-овской (`0.9.x`) — её ведёт `.github/workflows/tag-on-merge.yaml`, поднимая патч у
+последнего тега в `origin`, но не ниже границы текущей линии `MIN_VERSION` (см. `ROADMAP.md`).
 Поэтому в таблицах ниже upstream-тег — это ориентир «докуда синхронизировано», а не версия
 продукта.
 
@@ -63,13 +132,13 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
   - Гейты зелёные: default / `http` / `http,memory` / `memory` / `scheduler`, `build:go`.
 - **Волна 2 — Remote control / http-auth / env-selector — ГОТОВО (backend `60af986` + UI).**
   - Config: `internal/config/http.go` (+`auth_token`/`public_docs`/`allow_insecure`/`cors`/`remotes`
-    + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enabled` влит в форковый `UIConfig`;
+    + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enable` влит в форковый `UIConfig`;
     jsondto (редакция токена + `ParseConfigJSONPreservingSecrets`); docs schema/reference/example
     + RU-оверлей + фикстура.
   - HTTP: `external/httpserver/auth.go` (bearer-gate, realm `foxxycode`, SSE `?access_token=`,
     **IDE-роуты `/foxxycode/ide/*` освобождены** от auth), `cors.go` (`X-FoxxyCode-Session-ID`),
     `Handler()` = `corsMiddleware(authGate(mux))`, `--auth-token`/`FOXXYCODE_HTTP_TOKEN` +
-    non-loopback-warning в `StartHTTP`, `ui.enabled`-гейт SPA-root, openapi `bearerAuth`.
+    non-loopback-warning в `StartHTTP`, `ui.enable`-гейт SPA-root, openapi `bearerAuth`.
     Тесты: 13 auth/CORS + IDE-exemption unit. Docs: `docs/remote-control.md`, `docs/http-api.md`.
   - UI env-selector: `env/remoteEnv.ts` (fetch-shim, per-env storage), `env/activeHealth.ts`,
     `env/remoteErrors.ts`, `env/EnvHealthBanner.tsx`, `chat/EnvironmentChip.tsx` (чип в
@@ -124,6 +193,21 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
     placeholder-ы формата (`provider/model-id`, примеры URL). Защита от повторения хвоста —
     `i18n/messagesParity.test.ts` (паритет ключей и `{param}`-слотов en/ru) и
     `i18n/noHardcodedStrings.test.ts` (скан JSX-текста и label-атрибутов с аллоулистом).
+- **Хвосты маркетплейса, найденные 2026-09-14** (ветка `claude/skills-marketplace-port-f13580`). Сверка
+  с upstream: код волны перенесён полностью (движок, `/plugin`, роуты, BDD побайтово совпадают), а вот
+  «follow-up нет» было неправдой про документацию — из-за неё фича выглядела отсутствующей:
+  - в `docs/skills.md` не было раздела об установке из источников, правило `core-modules` (`.md` и `.mdc`)
+    утверждало, что ставят только через `npx`, README — что Настройки ставят из реестра skillsbd. Раздел
+    перенесён и сверен с кодом, а не скопирован: синхронизация клонирует заново (без `pull`) и сама же
+    обновляет, кнопки Refresh в UI нет, `file://` работает;
+  - `GET /foxxycode/commands` не был описан в OpenAPI, у `GET /foxxycode/skills` не было 400/404, строки
+    `docs/http-api.md` были урезаны. Расхождение, пойманное живым прогоном: у форка
+    `/foxxycode/slash-commands` **начинается** со встроенных команд, у upstream их там нет — описания
+    исправлены под форк;
+  - 4 английские строки статуса и ошибок в `SkillsSection.tsx` — `noHardcodedStrings` их не видел и получил
+    правило для литералов в `setError` / `setStatus` / `setMessage`; не был перенесён `TestParsePluginCommand`;
+  - баг (есть и в upstream): список для поиска кэшировался на всю жизнь вкладки, и источник, сохранённый
+    после первого поиска, не находился до переоткрытия настроек. Плюс подсказка при пустом `skills.sources`.
 
 ---
 
@@ -475,7 +559,7 @@ Upstream пробует pid через `os.FindProcess`, что отвечает
 
 ### Коммит 2 — инструменты, права, агент (`98c809a`)
 
-`run_command` плюс пять `background_*` тулов за `tools.background.enabled`, `BackgroundWaker`,
+`run_command` плюс пять `background_*` тулов за `tools.background.enable`, `BackgroundWaker`,
 `permission.Options` вместо трёх захардкоженных опций, `program.go` с `allow_always_program`.
 Гранты сессии больше не делят префиксный матч с конфиговым allowlist: грант расширяется только
 на кандидата, который сам является «простым вызовом», поэтому одобрение `curl https://trusted`
@@ -569,9 +653,9 @@ permission-карточки рендерили `opt.name` с бэкенда, т�
 - **Лимиты и таймаут.** При `max_concurrent: 5` стартовали ровно 5 задач, шестая
   отбита: `background task pool is full for this session (limit 5)`.
   `timeout_seconds: 5` против `Start-Sleep -Seconds 60` дал статус `timed_out`.
-- **`tools.background.enabled: false`.** Инструменты исчезают из определений
+- **`tools.background.enable: false`.** Инструменты исчезают из определений
   (модель отвечает «NONE AVAILABLE»), `background: true` отбивается внятным
-  «background tasks are disabled (tools.background.enabled is false)».
+  «background tasks are disabled (tools.background.enable is false)».
 - **Права.** Для `Start-Sleep …; Write-Output …` (метасимволы) четвёртая кнопка
   **не** предлагается — верно. Для `git status` карточка даёт четыре кнопки, включая
   локализованную «Всегда разрешать git status». После неё `git status --short`
@@ -1527,7 +1611,7 @@ README-ханк upstream пропущен (описывает coddy-специф
 `App.cfgAt atomic.Pointer` + `replaceConfig`, `newTurnAgent` с `SetConfigReloader`;
 консоль дренирует turn-воркер перед обходом бандла сессии. Скрипты `examples/cli/*` взяты
 в финальном виде; `examples/config.demo.yaml` → `rpa/qwen3.6-35b-a3b`. В стаб-конфигах
-консольных тестов пришлось выключить форковую автогенерацию заголовка (`title.enabled:
+консольных тестов пришлось выключить форковую автогенерацию заголовка (`title.enable:
 false`) — она съедала шаги scripted-провайдера.
 
 ### Коммит 3 — ask-режим: набор инструментов «как в coddy» (upstream `0145bf76` + куски `79070b0c`, наш `c26c706f`)
@@ -1700,7 +1784,7 @@ ResizeObserver loop limit exceeded». Два источника: (1) `content-vi
   не в `EnsureHTTPSession` (иначе существующие дети не отдавались по HTTP).
 - Windows fail-fast turn-лок + `runWakeTurn`-ретрай уже были в форке; 409 read-only
   ребёнка **не** ретраится (`isSubagentReadOnly` различается от busy).
-- Автогенерация заголовка выключена в стаб-стендах (`title.enabled: false`).
+- Автогенерация заголовка выключена в стаб-стендах (`title.enable: false`).
 - `:has()` → маркер-класс; layout-тест мерит content-box.
 - i18n сразу en+ru, все новые TSX через `t()`/`tp()`; `schema.ru.ts` дополнен блоком
   `subagents` и строками endpoint-пикера/ask_prompt.
@@ -1771,7 +1855,7 @@ read-only детский транскрипт, Settings → Субагенты, 
 | Объём | Портируем всё, включая swarm, hooks и serve |
 | Экспорт сессии | У форка **уже был** свой экспорт (20 файлов `session_export_*.go`), у upstream — слэш-команда с теми же именами файлов. Сведены в один движок `internal/export`; шесть форматов на обеих поверхностях; дефолты разные (UI — только диалог, `/export` — с инструментами) |
 | `foxxycode codex` | Upstream команду удалил; здесь осталась псевдонимом с предупреждением |
-| Ключи-переключатели | Upstream переименовал `cors.enabled` → `enable` и завёл новые как `enable`. Здесь везде `enabled`: шестнадцать ключей форка уже так читаются, и переименование молча сломало бы существующие конфиги |
+| Ключи-переключатели | Upstream переименовал `cors.enabled` → `enable` и завёл новые как `enable`. Форк держался за `enabled` до 0.3.x, теперь тоже пишет `enable` — в YAML, в схеме, в форме настроек и в JSON API, так что конфиг переносится между агентами без правок. Старое написание `enabled` читается как алиас (`internal/config/switch_alias.go`): `-t` предупреждает, схема помечает ключ `deprecated`, ближайшая запись переименовывает его |
 | Адрес по умолчанию | `foxxycode http` остаётся на `0.0.0.0`; узкий loopback-фоллбек (`ServeListenHost`) — только для `foxxycode serve`, где один процесс поднимает все подсистемы |
 | `wait_for_limit_reset` | Как в upstream: выключено по умолчанию. Взаимодействие с форковым `llm_stall_retry` описано в `docs/config-reference.md` |
 | `$id` JSON-схемы | GitHub Pages форка, включён из `main:/docs`. `docs/config.schema.json` **и есть** публикуемый файл — копии нет, поэтому upstream-скрипт `sync-site-schema.sh` не портирован |
@@ -1830,7 +1914,653 @@ chromedp на DevTools-сокет там не хватает; а сценари�
 
 ---
 
-## Последняя синхронизация
+## Волна `b1605996 → 257a332b` (теги `1.0.30`–`1.1.1`) — ГОТОВО
+
+**13 не-merge коммитов** (2026-09-10…09-12), **132 файла у upstream**. Новых внешних
+зависимостей нет: валидатор JSON-схемы написан руками поверх уже имеющегося
+`gopkg.in/yaml.v3`. Портирована шестью PR на стеке веток; каждый перед мерджем
+переносился на свежий `main` и проверялся вживую. Между ними вклинился один PR не из
+upstream — починка релизного конвейера.
+
+| PR | Ветка | Блок | Выпуск |
+| --- | --- | --- | --- |
+| #82 | `claude/upstream-wave-test-matrix` | экспресс-`make test`, `TEST_TAG_SETS`, матрица тегов в CI | 0.2.75 |
+| #84 | `claude/upstream-wave-lane-resilience` | переигрывание запроса, имя провайдера в ошибках LLM | 0.2.78 |
+| #85 | `claude/upstream-wave-agents-on-demand` | вложенные `AGENTS.md` по требованию, консоль/pty, Darwin EPERM | 0.2.79 |
+| #86 | `claude/fix-release-binaries-continuations` | не из upstream: сборка пакетов в релизном workflow | 0.2.80 |
+| #87 | `claude/upstream-wave-config-check` | `-t / --test-config`, `--dry-run`, встроенная схема | 0.2.81 |
+| #88 | `claude/upstream-wave-update-notes` | man/дополнения при обновлении, заметки о выпуске, `DefaultRepo` | 0.2.82 |
+| #89 | `claude/upstream-wave-serve-rename` | свод `serve`-переименования, gutter роя, этот файл | — |
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Объём | Портируем всё |
+| Расположение схемы | `internal/config/config.schema.json` встраивается (`go:embed` не выходит за каталог пакета), `docs/config.schema.json` остаётся побайтовой копией для Pages форка. Upstream публикует в отдельный репозиторий сайта, которого у форка нет; здесь дрейф стережёт `TestPublishedSchemaMatchesTheEmbeddedOne`, а чинит `make site-schema` |
+| Ключи-переключатели | Были `enabled`, с 0.3.x — `enable`, как в upstream (старое имя читается алиасом). `53e71f7c` взят **без** половины `enabled → enable`; у форка это правильный ключ, поэтому во всех фикстурах опечаткой стало `enbaled`, а подсказкой — `enable` |
+| Мгновенный повтор vs `llm_stall_retry` | Повтор встроен первой ступенью форковой лестницы и подчиняется тому же выключателю: `llm_stall_retry: false` означает «вызов без вывода завершает ход», как и до обеих фич |
+| `foxxycode http` / `gateway` | Upstream их удалил — их место занял `serve` (upstream issue #188). Форк сохраняет: `http` — команда, которую запускают плагины IntelliJ и VS Code. Прозу переименовали только там, где речь о серверном процессе вообще; `internal/config/http.go` в месте про саму подкоманду `http` не тронут. Флаги, которые upstream вводит для `serve`, получает и `http`, если они нужны тому, кто его запускает (`-t`, `--dry-run`) |
+| Скриншоты | Пять PNG upstream (`scheduler-disabled-*`, `issue-195-update-notes-*`) не берём — кадры с брендингом coddy |
+| `docs/plans/file-viewer.md` | Взят, но с баннером «upstream design record, not yet ported»: в `docs/plans/` форка лежат записи о том, что **реализовано**, и без пометки файл читался бы как описание существующего экрана |
+
+### Что нашлось по дороге (не из upstream)
+
+Всё найдено тестами или живым прогоном и починено в тех же PR:
+
+- **`swarm.pairing_tokens` не скрывался в `config_get`.** Upstream добавил `pairing_token` и
+  `pairing_tokens` в `configSecretPath` **до** рубежа этой волны — форк пропустил, и агент
+  читал токен сопряжения роя открытым текстом. `lease_secret` скрывался и раньше — его
+  ловит суффикс `_secret`. (#87)
+- **`printUsage` не упоминал `serve status|stop|restart` и `serve --daemon`**, хотя бинарь их
+  принимает, а дополнения предлагают. Поймал новый `cmd/foxxycode/usage_test.go`, который
+  держит три файла упаковки и текст справки в согласии в обе стороны. (#87)
+- **У схемы не было границ `1..100` на `compaction.threshold_percent`**, хотя загрузчик их
+  проверяет: `-t` сообщал о проблеме ступенью позже, чем мог. (#87)
+- **`foxxycode http` не принимал `-t` и `--dry-run`** и отвечал `flag provided but not defined`
+  — а это та команда, которую запускают плагины. Флаги перенесены: `--dry-run` применяет
+  флаги запуска через тот же `applyStartOverrides`, что `StartHTTP`, и пробует адрес, который
+  выбрал бы старт. (#87)
+- **Дополнения: общая ветка `http|desktop`** предлагала `--project-trust` (флаг называется
+  `--mcp-project-trust`), а `desktop` — флаги, которых он не принимает. Тесты упаковки
+  считали вхождения флага по всему файлу и проходили без нужной ветки: флаг есть в списке
+  после голого бинаря. Теперь они читают ветку `case` каждой команды. (#87)
+- **`foxxycode update` без `--repo` отвечал 404 во всех выпусках.** `DefaultRepo` был
+  `hijera/foxxycode-agent` — написание пути Go-модуля; такого репозитория нет, выпуски
+  публикуются в `hijera/foxxy-agent`. Исправлено и закреплено регрессионным тестом. (#88)
+- **Выпуски 0.2.70–0.2.79 вышли без бинарников.** С `49947500` четыре строки
+  `scripts/build-packages.sh` в `release-binaries.yaml` заканчивались литеральными `\r`
+  вместо продолжения строки, сборка пакетов падала на `unknown option: r`, и в релиз
+  попадали только плагин IntelliJ и VSIX. Починено в #86; 0.2.80 снова несёт 14 файлов.
+- **pty-сценарий старта консоли выбирал модель, которой нет в демо-конфиге** — ошибка порта;
+  поймал CI, исправлено в том же PR. (#85)
+- **`mcp.go` и `skills.go` называли флаги не тем командам.** `--skills-auto-discovery`
+  зарегистрирован на `acp`, `cli` и `serve`, но не на `http`; `--mcp-project-trust` — на всех
+  четырёх, включая `http`. Комментарии приведены к регистрации флагов. (#89)
+- **Инструкция зеркалирования `.cursor/rules`** велела копировать тело `.md` в `.mdc`
+  целиком. Это ломает ссылки `@architecture.mdc` (Cursor-диалект указывает на `.mdc`) и
+  стирает абзацы, которых нет во второй копии. Инструкция в `workflow.md` исправлена (#89);
+  **само расхождение файлов старше этой волны и не сведено** — в `core-modules` у `.md`
+  есть «Settings → Subagents» без пары, у `.mdc` — `Pool.Adopt` без пары.
+
+### Расхождения с upstream
+
+- **Первая ступень лестницы, а не отдельная фича.** У upstream нет `llm_stall_retry`, поэтому
+  повтор «нет первого байта» стоит сам по себе. Здесь он идёт перед лестницей задержек и
+  гаснет вместе с ней. Следствие: один молчащий вызов больше не стоит минуты ожидания и не
+  показывает баннер, поэтому сценарий `llm_stall_retry.feature`, называвшийся «retried after
+  a pause», переименован под то, что он теперь делает, а второй сценарий тратит свободную
+  попытку, чтобы дойти до лестницы.
+- **Повтор пустого хода считается в `max_turns`** (как и подсказка, которую он предваряет);
+  не считается только повтор «нет первого байта». У upstream так же, но его документация
+  этого не разделяет.
+- **Darwin EPERM применён шире.** Upstream правит `TerminateProcessGroupByPID`; у форка есть
+  ещё `TerminateProcessGroup` — та, через которую идут фоновые задачи — с тем же
+  `errors.Is(err, syscall.ESRCH)`. Обе теперь спрашивают `nobodyToSignal`.
+- **`sectionFieldRE`.** `validateSubconfigs` форка оборачивает ошибку секции как
+  `«<секция>: <поле>: …»`, у upstream — `«<секция>.<поле>: …»`. Без этого находка загрузчика
+  вставала на строку секции, а находка схемы про то же значение печаталась рядом вместо того,
+  чтобы её накрыть. Чинит адресацию **всех** сообщений этой формы.
+- **`foxxycode http` принимает `-t` и `--dry-run`** — у upstream этой команды нет.
+  Поверхность `dryrun.SurfaceHTTP` пробует один адрес прослушивания и, как консоль и `acp`,
+  не пробует рой: к relay ходит только `serve`.
+- **Экспресс-прогон сохраняет `ui-test`** (vitest + `tsc`), которого в `test` у upstream нет;
+  `TEST_TAG_SETS` включает форковые `browser`, `http,swarm`, `http,gateway,scheduler,memory`.
+  В CI SPA-сьют вынесен в отдельную джобу **рядом** с матрицей, а не перед ней: ошибка типов
+  в UI не должна прятать, какая комбинация тегов сломалась.
+- **Подсказка планировщика.** Строка `scheduler.disabled` советовала `-scheduler-enabled`.
+  Upstream считает этот флаг несуществующим — у форка он есть, на `acp`, `http` и `desktop`.
+  Строка всё равно переписана на `foxxycode serve --scheduler`: это рекомендуемый способ
+  запустить сервер, а голый `-scheduler-enabled` читался как глобальный флаг. Плагины
+  запускают `http`, и в панели IDE работает первая половина подсказки — `scheduler.enable`.
+- **i18n:** весь новый пользовательский текст переведён сразу; `messagesParity` и
+  `noHardcodedStrings` зелёные.
+
+### Отложено
+
+- Сведение `.claude/rules` и `.cursor/rules` (расхождение старше волны).
+- Долг прошлых волн: четыре PNG `docs/assets/screenshot-tool-previews*.png`.
+- ~~Остальные ссылки на несуществующий `hijera/foxxycode-agent`: README, `docs/`,
+  `docker-compose.yml`, ссылка на GHCR-пакет в `docs/update.md`. Строки про `foxxycode update`
+  исправлены в #88.~~ — сделано в #98
+- Заведено отдельными задачами: гонка в `TestRequestPermissionDoesNotPersistARelayedPrompt`
+  (файл ожидания пишется раньше, чем регистрируется ожидание), флейк `TempDir` в тестах
+  браузера на Windows, корневой `AGENTS.md` попадает в промпт дважды — как преамбула правил и
+  через `instructions.files` (у upstream так же).
+
+---
+
+## Волна `257a332b → 45aee1ec` (теги `1.1.2`–`1.1.25`) — ГОТОВО
+
+**76 не-merge коммитов в 24 first-parent мерджах** (2026-09-12…09-14), **656 файлов у upstream**
+(+50 673 / −3 115). Все коммиты — мейнтейнера upstream, коммитов из форка среди них нет.
+Новых внешних зависимостей нет. Портирована тремя PR на стеке веток, разрезанном по темам так,
+чтобы каждая зависимость смотрела назад: `set-password` из #230 опирается на #229, таблица
+сессий #231 — на канонический `cwd` из #215, хунки #233 и #237 в `filesystem.go` написаны поверх
+#231, а `queue_http.go` из #240 использует `writeJSON` из #230.
+
+| PR | Ветка | Upstream | Что |
+| --- | --- | --- | --- |
+| #91 | `claude/upstream-wave-docs-and-fixes` | #197 #205 #207 #209 #216 `04e5c0fd` · #206 #208 `7a36c34c` #214 #215 #228 #229 | тематическая структура `docs/`, генератор `docsgen` и `make docs-check`; независимые исправления |
+| #95 | `claude/upstream-wave-server-features` | #211 #212 #210 · #230 #231 · #232 #234 `424e6620` `82c1f6a1` | инструкции оператора, строгий OpenAI-стрим; вход по паролю, таблица сессий; консоль |
+| #100 | `claude/upstream-wave-sessions-and-queue` | #233 · #236 #237 #238 · #239 · #240 | единый вид id и вложенные сессии субагентов, worktree в репозитории, кэш сохранения; строки инструментов; очередь сообщений; этот файл |
+
+#91 смерджен 2026-09-15 как 0.2.93, #95 — 2026-09-15 как 0.2.94; оба перед мерджем переводились на свежий `main`, их заметки в changelog получили номера своих тегов. #100 смерджен последним, 2026-09-17.
+
+#205 (видео в документации) не взят: ролики с брендингом coddy. `7a36c34c` и `424e6620` лежат на
+first-parent отдельными коммитами; первый вошёл в #91, второй — в #95.
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Документация | Тематическая раскладка upstream **и** `internal/docsgen` с `make docs-check` (CI, pre-commit). Ссылки из бинаря, схемы и скила — `github.com/hijera/foxxy-agent/blob/main/docs/…`; слоя сайта coddy.dev и страницы changelog из Releases нет; изображения-доказательства старых PR ушли из `docs/assets` |
+| README | Структура обоих README форка сохранена: ссылки перенаправлены, возможности волны добавлены пунктами |
+| Вход на `foxxycode http` | `httpserver.login` работает как на `serve`, но прямой локальный клиент (loopback-адрес и `Host`, без `Forwarded`/`X-Forwarded-*`/`X-Real-IP`) считается вошедшим — панели IDE и desktop не меняются; `serve` ведёт себя как у upstream |
+| Git worktree | Как у upstream: `<основной checkout>/.foxxycode/worktrees`, плюс исправления форка (папка пропускается снимком хода и `print_tree`, IntelliJ её не индексирует) |
+| Нарезка | Три PR на стеке веток, см. таблицу выше |
+| Переключатели | Остаются `enabled` (новый `httpserver.login.enable`) |
+| `foxxycode http` | Остаётся: его запускают плагины. Флаги и проверки, которые upstream вводит для `serve`, получает и `http`, если они нужны тому, кто его запускает |
+| Скриншоты | Кадры с брендингом coddy не берём; на страницах документации — собственные снимки форка (вход, таблица сессий, делегирование в консоли, очередь сообщений) |
+
+### Что нашлось по дороге (не из upstream)
+
+- **Компакция движком форка теряла сжатие на диске (#100).** `State.ReplaceMessagesAndPersist`,
+  через который `internal/agent/compaction.go` заменяет старые ходы сводкой, не отмечал историю
+  изменённой. С кэшем сохранения из #237 сохранение после компакции решало «ничего не
+  изменилось», оставляло на диске длинную историю, а следующий `AddMessage` дописывался к ней —
+  после перезагрузки сжатые ходы возвращались. Upstream этого вызова не имеет.
+- **Подсветка кнопки очереди не рисовалась и у upstream (#100).** `.composer-run-icon--queue`
+  стоит в `styles.css` раньше `.composer-send-play` с той же специфичностью и проигрывала ей.
+- **Ответ на позднее уточнение сливался с предыдущим (#100).** Прогон, которым граница хода
+  отвечает на сообщение из очереди, не показывал клиентам само сообщение: текст ответа
+  продолжал пузырь прежнего ответа до сверки с диском. У upstream так же.
+- **Переподключение к ходу рисовало его дважды (#100, только форк).** Форк при повторном
+  подключении обрезает переписку до последнего сообщения пользователя и проигрывает ход
+  из реле. Ход, прочитавший уточнения, этим последним сообщением больше не начинается.
+- **Цикл импортов (#95).** Upstream читает имена переменных входа из `external/httpserver` в
+  dry run, а в форке сервер сам импортирует dry run — имена переехали в `internal/webauth`.
+- **Логотипы экрана входа — текстовые файлы (#95).** `src/assets/*.svg` — символьные ссылки, а
+  чекаут на Windows (`core.symlinks=false`) хранит их текстом; бандл, собранный на Windows,
+  встроил бы путь вместо картинки. Экран входа импортирует SVG из `docs/assets`.
+- **Генератор документации на CRLF-чекауте (#91).** Регулярные выражения блоков и якорей и
+  проверка устаревания ломались на `\r\n`; генератор читает всё как LF, тесты на CRLF-фикстурах.
+  Размер симлинка в `docs/assets/INDEX.md` считается по самой ссылке.
+- **Таблица «Сессии» не помещается в панель IDE (#95, у upstream так же).** При ширине около 560 px
+  столбцы «Создан», «Изменён» и значок удаления строки уходят за край и доступны прокруткой вбок;
+  при 1280 px значок обрезан на 17 px. CSS взят у upstream без изменений.
+- **Junction на Windows не склеивается с папкой (#91).** Канонический путь «Истории» раскрывает
+  короткие имена 8.3 (`C:\Users\3EC2~1` и `C:\Users\<имя>` — один проект) и символьные ссылки, но
+  Go 1.25 не раскрывает точки монтирования: сессия под `mklink /J` остаётся отдельным проектом.
+- **На этой машине не работает детектор гонок.** ThreadSanitizer падает при старте с
+  `failed to allocate … (error code: 87)` на любом пакете, в WSL нет Go. `-race` для пакетов
+  волны не прогонялся локально.
+
+### Расхождения с upstream
+
+**#91**
+- **UTF-16 в `config.yaml` читается, а не отклоняется.** Upstream отказывается стартовать; форк
+  декодирует через `internal/textenc`, `-t` предупреждает, следующее сохранение пишет UTF-8.
+- **`GET /foxxycode/sessions?cwd=` — поддерево, а не точное совпадение**: «История» плагинов
+  показывает сессии корня проекта и подпапок. `CWDInScope` перестроен на канонической форме.
+- **Папки вызовов прежних версий находятся**: имя, которое форк давно писал для id NeuralDeep
+  (`functions.foxxycode_todo_plan_replace:0`), остаётся, если проходит новое правило.
+- **`7a36c34c` визуально ничего не меняет**: тень в бандле форка уже не рисовалась, правила удалены.
+
+**#95**
+- **Прямой локальный клиент `foxxycode http` проходит мимо формы входа** (решение выше), а
+  `/foxxycode/ide/*` при включённой защите отвечает только ему.
+- **Список сессий не разбирает переписки**: число сообщений считается потоком только для строк
+  страницы (`TestListSnapshotsDoesNotReadTranscripts`).
+- **`bulk-delete` принимает `cwd`**: панель проекта не удалит чаты других проектов из общего home.
+- **#211 поверх #92**: `LoadInstructions` сравнивает файлы на диске (`os.SameFile`).
+
+**#100**
+- **#233.** Ошибка генерации id (`session.NewSessionID() (string, error)`) доходит до remote-обработчика,
+  запуска субагента и шлюза (`sessionstore.Get/Reset`). Корневые бандлы `sub_*`, записанные
+  прежними версиями, остаются в дереве родителя и удаляются вместе с ним — у upstream миграции нет.
+  `HandleSessionNew` при повторном открытии ищет вложенную сессию принудительным обходом: второй
+  бэкенд на том же home иначе не видит ребёнка, созданного после своего обхода.
+  `surfaceBlock()` встаёт после блока контекста хуков в собранном промпте форка.
+- **#236.** Подсказка про worktree — секция `sections/agent/git_worktrees.md` собранного промпта,
+  а не абзац `agent.md`. Папки веток Subversion остаются в `<home>/worktrees`: у рабочей копии нет
+  самоигнорируемого аналога. `.foxxycode/worktrees` (и только эта папка, а не весь `.foxxycode`)
+  пропускается снимком хода для отката ветки и `print_tree`; плагин IntelliJ регистрирует
+  `directoryIndexExcludePolicy`.
+- **#237.** Порядок заголовка форка: закреплённый > `TitleAuto` > выведенный из сообщений.
+  `ReplaceMessagesAndPersist` отмечает историю изменённой (см. выше). Кэш хранит полную копию
+  переписки, поэтому запись сбрасывается, когда сессия уходит из памяти, откатывается запуск
+  субагента или удаляется дерево.
+- **#238.** Метка прочтения пишется `PatchSessionMetaActivitySync` до следующего сохранения, поэтому
+  открытие чата не поднимает его в «Истории» (`TestSavingAfterMarkingReadKeepsUpdatedAt`).
+- **#239.** Строки браузера и SVN сохраняют свои подписи операций, их значок живёт внутри
+  неразрывной группы строки; строка SVN сообщает об ошибке своей плашкой, строка браузера
+  получает метку и на результат `error:`. У `spawn_agent` цель не повторяет имя агента из
+  плашки фоновой задачи. Шапка «Результат» и её стили остались для карточки браузера. Каталог
+  названий покрывает `docs_write`, `docs_edit` и `…_job_resume`; русские подписи в терминах форка
+  (субагент, каталог, конфигурация, задача планировщика). В таблицу `http-api.md` добавлена
+  недостающая строка `/foxxycode/workspace/file`.
+- **#240.** Итерации восстановления `llm_stall_retry` (повтор молчащего запроса, лестница
+  ожиданий, ожидание лимита, повтор пустого ответа, продолжение оборванного) не читают очередь;
+  подсказки петли и пустого ответа читают. Чтение в конце хода считает собственные шаги модели
+  (`reactTurn`). Постановка в очередь при ходе в другом процессе на том же home отвечает
+  `409 session_busy`. Уточнение хранится с флагом `queued`, который возвращает
+  `GET …/messages`; граница хода показывает клиентам сообщение, на которое отвечает. SPA:
+  постановка идёт через `handleSend` и следует `ui.send_mode`; переподключение обрезает переписку
+  до сообщения без `queued` и читает очередь по REST; строка уточнения встаёт после ожидающих
+  строк инструментов и открытого размышления. В BDD агента выключен проход заголовка — он
+  забирал шаг у скриптового провайдера.
+
+### Отложено
+
+- Сведение `.claude/rules` и `.cursor/rules` (расхождение старше волны).
+- Проверка Stop-хука в цикле форка сравнивает `turn+1` с `max_turns`, не учитывая итерации
+  восстановления — до этой волны; очередь сообщений считает шаги правильно.
+- Уточнение из очереди — текст: упоминание `@file` не прикладывает файл, как при отправке
+  промпта, `@terminal` не раскрывается.
+- Кэш сохранения держит копию переписки каждой сессии, пока она в памяти; сброс есть только при
+  выгрузке. VS Code показывает `.foxxycode/worktrees` в проводнике (поиск её не индексирует).
+- Upstream `docs/assets/video/*` не взяты.
+- Не проверено на этой волне: панели IntelliJ (JCEF, Chromium 104) и VS Code вживую — сборки плагина
+  ставились в PhpStorm 2022.3.3 только headless, бандл проходит `check:compat`, SPA проверена в
+  Chrome; консоль (#232, #234, `/queue`) — на Windows нет pty-стенда; `-race` (см. выше).
+- `examples/httpserver/http_e2e_hooks.py` на Windows не проходит: регистратор хука — скрипт
+  `#!/bin/sh`, а хуки здесь запускаются через PowerShell (на `main` так же).
+
+---
+
+## Волна `45aee1ec → 04198c85` (теги `1.1.26`–`1.1.41`) — ГОТОВО
+
+**93 не-merge коммита в 16 first-parent мерджах** (2026-09-14…09-19), **420 файлов у upstream**
+(+40 925 / −17 581, из них −15 400 — удаление `docs/llms*.txt`). Все коммиты — мейнтейнера
+upstream. Тег `1.1.41` — аннотированный объект `cb8a95c6` на коммите `04198c85`; локальных тегов
+upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Новых внешних зависимостей нет, одна ушла:
+`kuhahalong/ddgsearch` (#279 пишет DuckDuckGo сам). Портирована четырьмя PR на стеке веток, каждая
+зависимость смотрит назад: #271 раньше #262 (хунки #262 ссылаются на `sys`/`turnCtx`), #249 раньше
+#282/#283 (хук активности хода), #275 до #281 (общие правки `configure-foxxycode`).
+
+| PR | Ветка | Upstream | Что |
+| --- | --- | --- | --- |
+| #115 | `claude/upstream-1141-core` | #251 · #243 (LLM) · #249 · #271 · #262 | docsgen уважает `.gitignore`; строка вызова по имени; Stop и очередь по ходу сессии; замороженный промпт и кэш; одно окно контекста, `compact_context`, fallback-модели, свёртка в проходах; полный паритет движка `opencode` |
+| #116 | `claude/upstream-1141-sessions` | #272 · #277 | теги, архив, закрепления, группировка и меню фильтра; `session_describe`; `docs/llms*.txt` из git |
+| #117 | `claude/upstream-1141-tools` | #275 · #276 · #279 · #281 | поставка rpa-скилов и системный источник; движки веб-поиска; `http_request` и сохранение `${VAR}` |
+| #118 | `claude/upstream-1141-spa` | #243 (UI) · #274 · #278 · #280 · #282 · #283 | пути относительно сессии, кнопка «вниз», без `content-visibility`, строки вопросов; `since_rev` и три режима подключения; общий `/events`; этот файл |
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Нарезка | Стек из четырёх PR: ядро → сессии → инструменты → SPA |
+| #275 rpa-скилы | Всё как у upstream, включая неудаляемый системный источник `EvilFreelancer/rpa-skills`; `generate-rules` удалён. Поставку отдаёт и форковая `foxxycode http` |
+| #262 и движок `opencode` | Полный паритет: общее окно, `compact_context`, REST-компакция как ход, fallback-цепочка, строка прогресса, многопроходная свёртка — на обоих движках |
+| #283 общий `/events` | Портирован; при `html[data-embed]` панель сразу берёт поток на вкладку; `check:compat` смотрит и `events-worker.js` |
+| `sort=messages` | Лениво через `FileStore.MessageCount`, только когда запрошена эта сортировка; листинг по-прежнему читает только `session.json` |
+| Режимы | `session_describe` — plan, docs, ask (agent и debug не ограничены); `compact_context` — plan, как upstream; `http_request` — только agent и debug |
+| RU-подписи #243 | Формулировки upstream («размышляю») и его тест |
+| Скриншоты | Пересняты своим UI в тех же PR |
+| `docs/llms*.txt` | Как upstream: вне git, рендерит сборка сайта |
+| `content-visibility` (#278) | Удалён везде вместе с JCEF-обходом форка |
+| Консоль `--remote` на занятом ходе | Как upstream: 409 `session_busy` → сверка активности → очередь |
+
+### Расхождения с upstream
+
+- **Теги нового чата.** У upstream их предлагает `POST /describe`, который зовёт веб-клиент; в
+  форке заголовок даёт бэкенд-проход заголовков, поэтому `prompts/title.md` просит вторую строку
+  `tags: a, b`, а `splitTitleTags` кладёт метки, только если у сессии их ещё нет (#116).
+- **Повторное подключение к ходу (#282).** Ревизия снимка едет, как у upstream, пометкой на
+  массиве, который возвращает `loadMessages` (форковый `loadMessages` возвращает ровно помеченный
+  массив). Форковый trim-гейт теперь работает только в режиме полного реплея; в режимах курсора
+  (`Last-Event-ID`) и снимка (`?since_rev=`) он срезал бы шаги, которые больше не придут, — на это
+  есть тест, падающий на старом поведении. Этот риск был и до волны: при обрыве реле с курсором.
+- **Строка вызова в фоне.** Чип на строке транскрипта остаётся только для делегированного шага
+  (`explore · Running`): ребёнок работает в своём транскрипте, и родительская строка — единственное
+  место, где видно ожидание. Для фоновой команды, как у upstream, — часы задачи в слоте длительности.
+- **Живая строка статуса** стоит весь ход (#282); форковое исключение «parked kinds» ею поглощено.
+- **`:has()`** из #243 заменён маркер-классом `permission-preview--shell`, как везде на базе
+  Chromium 104.
+- **`events-worker.js`** в форке отслеживается в git, как `app.js`: сборка с `-tags ui` без Node
+  должна работать из чистого клона. Upstream держит его в `.gitignore`.
+- **Словари.** Новые ключи легли в неймспейсы форка (`settings.skills.*`,
+  `prompts.permissionMeta.*`, `prompts.permissionQuestion.*`); русская лексика планировщика форка
+  («задача планировщика») сохранена.
+- **Стоп и реле.** После #283 «Стоп» отпускает поток до ответа; реле, оборванное «Стопом», больше не
+  сверяет транскрипт на выходе — иначе в режиме полного реплея снимок снимал бы с экрана ещё не
+  сохранённый текст хода.
+
+### Нашлось по дороге
+
+- `Dockerfile` не копировал четыре `foxxycode-logo-mark*.svg`, на которые ссылаются симлинки
+  `src/assets`; тест из #243 нашёл это сразу. Теперь копируется глобом, а тест читает симлинки из
+  индекса git (на Windows без поддержки симлинков они материализуются обычными файлами).
+- Windows-ловушки в тестах upstream: `chmod 0` не запрещает чтение (тест пропускается, как
+  `TestFoxxyCodeWorkspaceFileGetUnreadableIs500`), а путь из `filepath.Join`, вклеенный в JSON,
+  даёт невалидные escape-последовательности (`filepath.ToSlash`).
+- Каталог slash-команд в HTTP- и session-тестах теперь считается от `skills.Bundled()`.
+- `http_request`: гейт разрешений вписан в форковый `permissionRequired`, а не в цикл, как у upstream.
+
+### Отложено
+
+- Кадр консоли `--remote` для #249 — нет pty-стенда на Windows.
+- ~~Живой прогон на NeuralDeep и проверка панелей IntelliJ (JCEF) и VS Code вживую — после мерджа
+  стека.~~ Сделано 2026-09-21 на сборках каждого PR до мерджа (набор `examples/httpserver`,
+  точечные live-скрипты, OpenIDE Pro, песочница JCEF, VS Code).
+
+## Волна `04198c85 → e8c15305` (теги `1.1.42`–`1.1.45`) — ГОТОВО
+
+**17 не-merge коммитов в 4 first-parent мерджах** (2026-09-17…09-18), **107 файлов у upstream**
+(+6 803 / −386, из них ~5 000 — новый `internal/tgfake`). Тег `1.1.45` — аннотированный объект
+`008a09ba` на коммите `e8c15305`. Пять коммитов #285 (`tgfake`, `allowed_updates`, документация
+стенда, Windows-переносимость) написаны владельцем форка и ушли в upstream, так что в форк они
+возвращаются ребрендом. Новых внешних зависимостей нет. Порт — один PR, по коммиту на upstream PR,
+в порядке тегов: хунки #288 в `codex_test.go` стоят на тестах #286.
+
+| Коммит | Upstream | Тег | Что |
+| --- | --- | --- | --- |
+| `fix: direct chat completions honour their options…` | #286 (`02cdc5b5`) | `1.1.42` | прямая модель в `POST /v1/chat/completions` берёт `max_tokens` / `max_completion_tokens`, `temperature` (и `0`) и `reasoning_effort` запроса на один запрос (`llm.RequestOptions`), без уровня — `reasoning_default`; недопустимое — 400 до сессии и провайдера. Codex-стрим закончен только `response.completed` / `response.incomplete` (`max_tokens`, `content_filter`), `response.failed` несёт код, сбой после дельт не переигрывается |
+| `fix(config): warn that max_tokens bounds nothing on a codex model` | #288 (`4be480ef`) | `1.1.43` | `-t`, `--dry-run` и лог старта предупреждают о `max_tokens` на codex-модели |
+| `fix(llm): retry a TLS handshake or dial that never completed` | #294 (`7c338eb2`) | `1.1.44` | ретрай `TLS handshake timeout`, dial-таймаута и временной ошибки DNS; раздел в troubleshooting |
+| `feat(gateway): an offline Telegram stand (tgfake)…` | #285 (`e8c15305`) | `1.1.45` | `internal/tgfake` + `cmd/tgfake` (фейковый Bot API, `/sim/*`, страница чата, `llmstub`), бот читает `FOXXYCODE_TELEGRAM_API_BASE` и шлёт `allowed_updates`, CI-джоб `gateway` гоняет `examples/gateway/tg_e2e_offline.sh`; этот файл |
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Нарезка | Один PR, четыре коммита — по одному на upstream PR |
+| Живой прогон | NeuralDeep после гейтов; Codex — только на заглушках (входа ChatGPT на стенде нет) |
+| Скриншот стенда | Переснят с форковой сборки (`@foxxycode_fake_bot`), а не взят у upstream |
+
+### Расхождения с upstream
+
+- **Провайдеры.** Форковый `withTuning` (stop, deterministic, noThinking) остаётся рядом с новым
+  `tempSet`: конструктор `.withTuning(p)`, затем `tempSet`.
+- **Codex-стрим.** Форковые чанки прогресса (`response.completed`, reasoning-элемент, `default:`)
+  сохранены, но идут через `progress()` с проверкой на `nil`: upstream теперь зовёт `Stream` из
+  `Complete` без колбэка, и прямой вызов `onChunk` упал бы. Прогресс по-прежнему мимо `emit`.
+- **Прямая модель** в форке не получает `Timeout` из `models[].timeout_ms` — такого ключа в форке нет.
+- **Температура при Anthropic thinking** (`9897c9f2`, правка владельца в PR). Upstream отправляет
+  запрошенную `temperature` рядом с extended thinking и оставляет отказ бэкенду. Форк отвечает
+  400 ещё до сессии, если у `anthropic`-модели включено мышление (уровнем запроса или её
+  `reasoning_default`) и температура не `1`: Anthropic с мышлением принимает только `1`.
+- **Профили.** `openapi.go` и `docs/reference/http-api.md` перечисляют и `docs`/`debug` там, где
+  upstream пишет `agent`/`plan`/`ask`.
+- **Windows-коммит #285 (`5177dcd3`)** лёг в основном на код, где форк уже решил то же своим
+  способом (`readFile`/`assetSize` в docsgen, симлинки из индекса git в `image_assets_test.go`,
+  пропуски POSIX-прав в тестах) — осталась сторона форка, а новые тесты upstream теперь её
+  проверяют. Из upstream взяты `GOEXE` в `Makefile` (на Windows сборка пишет
+  `build/foxxycode.exe`, форковая копия `DOCS_BINARY` для `make docs` больше не нужна) и сравнение
+  `Stale` через `normalize`.
+- **`examples/build_foxxycode.sh`** собирает форковый набор тегов плюс `gateway` (без `cli`, как и
+  раньше в форке).
+
+### Нашлось по дороге
+
+- `docs/getting-started/configuration.md` в форке называл переменную `CODDY_TELEGRAM_API_BASE` —
+  пропущенный ребренд; теперь `FOXXYCODE_TELEGRAM_API_BASE`.
+- На Windows-чекауте с CRLF четыре SPA-теста (`backgroundTaskCss`, `composerQueueCss`) падают:
+  они ищут правила в тексте `styles.css`; с LF-копией проходят. Волна SPA не трогает; на Linux в
+  CI это не видно.
+
+---
+
+## Волна `e8c15305 → 2792691e` (теги `1.1.46`–`1.1.47`) и часть `1.2.9` — ГОТОВО
+
+Два upstream PR: #297 (тег `1.1.46`, `dd6fd09e`) — `/resume` в Telegram, и #298 (тег `1.1.47`,
+`3b98e2e3`) — ретрай HTTP/2-сбросов, пинги соединений и stall guard. #298 бьёт в область, где у
+форка своё решение (PR #64: продолжение ответа после зависания, лестница 1/3/5, детектор
+повторов), а upstream возвращается к ней в 1.2.0 (#329) и 1.2.9 (#351). Поэтому владелец решил
+соединить решения, а не заменить одно другим, и сразу взять из #351 (тег `1.2.9`, `61d59d40`)
+восстановление после сбоя провайдера (#246) и уведомление об остановке хода (#255). Решения
+записаны в «Реестр постоянных расхождений» в начале файла. Порт — один PR; до него смерджены
+форковые #123 (трасса соединений), #124 (системный прокси) и #125 (HTTP/2-пинги), на которых
+стоит транспорт.
+
+| Коммит | Upstream | Тег | Что |
+| --- | --- | --- | --- |
+| `feat(gateway): /resume switches a Telegram chat to another session` | #297 (`dd6fd09e`) | `1.1.46` | `/resume` — клавиатура по всем сессиям сервера, запрос по id или заголовку, `sessionstore.Bind`, выбор переживает рестарт шлюза |
+| `fix(session): a turn re-reads a session another process changed` | — (форк) | — | ход перечитывает сессию, которую изменил другой процесс (панель IDE и бот после `/resume`); сохранение устаревшей копии не затирает чужой ход |
+| `fix(llm): cut a stalled stream at the provider and carry the answer on` | #298 (`3b98e2e3`) | `1.1.47` | один stall guard на уровне провайдера, ключ `llm_stream_idle_timeout_ms` (алиас `llm_stall_timeout_ms`), галочка `llm_continue`, бюджет и паузы продолжения; общий пул транспортов; игла RST_STREAM |
+| `feat(agent): carry an answer a provider cut on, and say why a turn stopped short` | #351 (`61d59d40`, часть) | `1.2.9` | продолжение ответа после 5xx или обрыва, `StopNotice` о лимите шагов и выхода модели |
+| `docs: a registry of the decisions the fork keeps over upstream` | — (форк) | — | реестр: правило `.claude/rules/upstream-divergences.md`, метки `// fork(<id>)`, `internal/forkguard` |
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Stall guard | Один, по-форковому: сбрасывается каждым кадром с данными (текст, reasoning, аргументы тулов, usage), keep-alive и пустые кадры не считаются; режет поток и продолжает ответ; лестница 1/3/5 для вызова без вывода остаётся под `llm_stall_retry` |
+| Галочка | `agent.llm_continue` (вкл.) управляет всем после частичного ответа: stall, обрыв, 5xx. Выключена — ход завершается на обрыве, как в upstream 1.1.47 |
+| Имя таймаута | Канон — `llm_stream_idle_timeout_ms` (upstream), `llm_stall_timeout_ms` читается алиасом |
+| Бюджет | Один на ход, `llm_continue_max` (3), вне `max_turns`, с детектором повторов |
+| Паузы | Два настраиваемых списка: `llm_continue_stall_delays_ms` ([0]) и `llm_continue_error_delays_ms` ([5000, 20000]); Retry-After — до `llm_continue_retry_after_max_ms` (120000) |
+| StopNotice | Уведомление стримится в ответ и пишется в транскрипт; `StopNotice` — только `meta.stop_notice`, remote-клиент и отчёт субагента; Telegram, консоль и `-p` не печатают повторно, в UI-лог не пишется |
+| Прочее из 1.2.9 | Не берём: #322, `max_turns: 0`, удаление `max_tokens_per_turn`, Devin; `max_turns` по умолчанию — 30 |
+| `/resume` | Как upstream: все сессии сервера, риск описан в `docs/surfaces/gateway.md` |
+| Сессия в двух процессах | Перечитывать перед ходом, в этом же PR |
+| Транспорт | Общий пул, как upstream, но из форковых прокси-хелперов, с пингами #125 и за debug-обёрткой |
+| Порядок | Сначала #123, #124 и #125, порт — поверх свежего main |
+| Как сохранить решения | Все четыре способа: правило с `paths`, таблица здесь, метки в коде, тесты-стражи + `internal/forkguard` |
+
+### Расхождения с upstream
+
+Все — в «Реестре постоянных расхождений» в начале файла (`stall-guard-layer`, `continue-path`,
+`continue-budget`, `stall-timeout-alias`, `stop-notice-transcript`, `max-turns-default`,
+`session-disk-refresh`, `transport-debug-wrap`, `deferred-351`); `progress-chunks` и
+`switch-enable-alias` перенесены туда из более ранних волн. Кроме того:
+
+- Сценарий upstream «stall до первого кадра повторяется внутри провайдера» переписан: у форка
+  guard стоит снаружи ретрай-обёртки, а перевыпуск и лестница принадлежат агенту.
+- Фича `turn_end_reasons.feature` адаптирована: сценарий «без лимита шагов» стал «незаданный
+  лимит — 30 шагов», уведомление проверяется в транскрипте и в результате, пауза — по анонсу
+  парковки.
+- `TestTransportFailureAfterDeltasIsNotReplayed` закреплял старое окончание хода; теперь он
+  проверяет, что ответ продолжается без повтора запроса, а `llm_continue: false` возвращает
+  прежнее.
+
+### Нашлось по дороге
+
+- Прямые маршруты модели (`/v1/chat/completions`, describe) и copilot памяти никогда не получали
+  `providers[].timeout_ms` — теперь получают, как у upstream.
+- `transport.go` upstream, взятый как есть, сломал бы все провайдеры за прокси: он
+  приводит транспорт к `*http.Transport`, а у форка он обёрнут в debug-слой.
+- Отчёт субагента, остановленного лимитом, вернул бы родителю уведомление вместо ответа
+  (`subagentReport`).
+- Строка описания Gherkin-фичи, начинающаяся с `#255`, — это комментарий, и он ломает разбор.
+- Память о `TurnLockHeld` на Windows устарела: это настоящий `LockFileEx`.
+- Прогон в OpenIDE на NeuralDeep через ретранслятор, который рвёт соединение посреди ответа, нашёл две
+  дыры recovery: на Windows сброс приходит как WSAECONNRESET (`wsarecv: An existing connection was
+  forcibly closed by the remote host`), который `syscall.ECONNRESET` не узнаёт, и ход падал с
+  потерей текста; а текст, сохранённый путём ошибки, не обрезался до конца строки, и модель
+  повторяла начатую строку. Оба исправлены, тесты `TestConnectionResetMidAnswerIsTransient` и
+  `TestTransportFailureMidLineKeepsTheTextUpToTheLastLineEnd`.
+- Под нагрузкой полного прогона на Windows `TestConfigReloadBroadcastFeature` однажды упал на
+  `rename … config.yaml.bak: Access is denied` (файл держал другой процесс); отдельно проходит,
+  к порту не относится.
+
+---
+
+## Волна `2792691e → f35b2943` (теги `1.1.48`–`1.1.50`)
+
+- **1.1.48:** передача запросов разрешений фонового субагента после завершения родительского хода через HTTP, CLI, `serve` и Telegram; каталог определений и подтверждений в Settings; карточка разрешения в чате и Tasks. Сохранены форковые trust-gates и маршруты, авторизующие project-local определения.
+- **1.1.49:** запуск заданий планировщика как фоновых агентных задач под постоянной сессией задания; история, отмена, очистка, лимиты, статусы, панель запусков в SPA, поля агента и режима разрешений. Прямой `foxxycode http` запускает daemon после создания менеджера сессий. По решению владельца старые top-level `sched_`-запуски остаются доступными через `GET /foxxycode/scheduler/jobs/{job_id}/runs`, а их время и исход не теряются при повторной записи сессии. Старые sidecar-файлы и поля задания читаются прежним кодом; новый запуск создаёт сессию задания без миграции истории.
+- **1.1.50:** проверка TypeScript и все сборочные теги в lint-gate, исправления типов SPA и условия последнего сообщения `/v1/chat/completions`. Форковый CI уже выполнял отдельный SPA suite; дублирующий шаг не добавлен.
+- **Проверки:** полный прогон `external/scheduler/...`, `external/httpserver`, `internal/session`, `internal/forkguard` со всеми тегами; `internal/config` и `internal/platform`; 265 файлов / 2151 тестов SPA; TypeScript; сборка встроенных UI-ресурсов; генератор документации; три прохода `golangci-lint` (без тегов, все теги без `ui`, все теги). При попытке `go test` по всему дереву выявлены два старых теста, зависящих от окружения: `internal/skills/TestSyncFromLocalMarketplaceGit` обращается к недоступному в sandbox GitHub, `internal/tools/shell/TestForegroundTimeoutDoesNotWaitOnAPipeHoldingGrandchild` оставляет дочерний процесс, который на Windows блокирует очистку `t.TempDir`. Остальные пакеты полного прогона прошли. Снимки схемы обновлены после проверки их регрессионными тестами.
+
+---
+
+## Волна `f35b2943 → 11b10bb1` (тег `1.1.51`)
+
+- Портирована архитектура memory subagent: фоновый системный агент с отдельной сессией и задачей, ограниченным набором инструментов, ожиданием отчёта и доставкой в контекст текущего хода. Старые заметки и настройки `memory.model`, `memory.dir`, лимиты и `memory.fallback_models` продолжают читаться; новые настройки ожидания, таймаута и хранения запусков добавлены в схему и UI.
+- Старые `memory_phase`, `memory_chunk`, `memoryTurns` и карточка copilot заменены событием `memory_run`, статусом ожидания и записью в Tasks. Существующие файлы заметок памяти сохраняются на прежних путях.
+- Форковая политика длительного повтора недоступного провайдера сохранена для обычного хода. По решению владельца для memory child она отключена: после исчерпания цепочки fallback агент завершает задачу без минутного ожидания.
+- Проверены `TestMemorySubagentFeature` (17 сценариев), HTTP memory BDD, компиляция обычных пакетов, типизация UI и 2147 UI-тестов (после исправления локализации схемы); документация и опубликованная схема обновлены.
+
+---
+
+## Волна `11b10bb1 → 1.1.52` (режимы прокси)
+
+- `providers[].proxy` и `gateways.telegram.proxy` принимают `inherit`, `none` и URL. Все запросы провайдера, включая список моделей, лимиты и вход, используют его настройку.
+- Сохранены форковые транспорт, системный прокси Windows, debug-обёртка, пул соединений и обход `NO_PROXY`/loopback для URL. UI совмещает переключатель прямого подключения с форковым редактором URL и маскировкой пароля.
+- Проверены конфигурация, LLM и прокси-сценарии, dry-run, Telegram gateway, типизация UI и сценарии настроек; опубликованная JSON Schema и документация обновлены.
+
+---
+
+## Волна `1.1.52 → 934a69e0` (тег `1.1.53`)
+
+- Портированы счётчик времени и токенов текущего хода, показ фоновых задач в живом статусе, `/tasks` в консоли и карточки задач в веб-панели. Карточки раскрываются на месте; управление задачами находится в заголовке чата.
+- Сохранены форковые экспорт из заголовка, запросы разрешения фонового дочернего агента в чате и его карточке, переход к дочернему чату, а также поток событий для IntelliJ. Прокси на loopback по решению форка обходится и при входе в NeuralDeep/Codex.
+- Проверены Go-пакеты агента, сессий, фоновых задач и удалённого клиента, полный HTTP-регресс, типизация UI, 2221 из 2222 UI-тестов до исправления последнего CSS-правила (после исправления сценарий прошёл), документация и `forkguard`. Встроенные ресурсы UI пересобраны.
+
+---
+
+## Волна `934a69e0 → 0673dfa7` (тег `1.1.54`)
+
+- Единый `BackgroundWaker` пробуждает сессию после `notify_on_finish` для CLI, ACP, HTTP, `serve` и Telegram. Поверхность, владеющая разговором, получает ход первой; при отсутствии подключённой поверхности менеджер сохраняет результат в транскрипт.
+- Форковая блокировка хода по-прежнему сразу возвращает `session_busy` обычному запросу. Waker повторяет попытку до освобождения сессии и только после захвата блокировки открывает HTTP composer relay: текущий поток не прерывается, а просматривающий чат видит пробуждённый ход. Новые запросы разрешений в таком ходе доступны через relay и переживают перезагрузку вкладки в текущем процессе.
+- Сохранены форковые очереди CLI, `Queued` и `Compacted` в API, `NoTimeout` для долгоживущих команд, маршруты и документация IDE. Старые тесты ожидания занятой сессии переведены на центральный waker; сценарий ошибки команды исправлен для Windows shell.
+- Проверены TypeScript и 2237 UI-тестов, собраны встроенные ресурсы SPA, `docsgen` и `forkguard`. Go-пакеты со всеми новыми тегами компилируются; целевые тесты пробуждения для агента, `serve`, HTTP, CLI и Telegram прошли. Полный Go-регресс остаётся финальным гейтом после переноса всех тегов до `1.1.61`.
+
+---
+
+## Волна `0673dfa7 → ea0f61c3` (тег `1.1.55`)
+
+- Портирован единый разбор `@` для файлов, каталогов, диапазонов строк, сессий, правил, дочерних агентов и URL. Клиенты CLI, ACP, HTTP и веб-панель получают один механизм поиска и прикрепления ресурсов; очередь разрешает упоминания при чтении сообщения.
+- Сохранены форковые диапазоны вставленного текста IDE и `@terminal[:name]`: терминал разворачивается из состояния IDE, а файловый resolver его пропускает. Пустые ресурсы пользователя по-прежнему проходят через общий декодер `internal/textenc`.
+- По решению владельца упоминание бинарного файла прикрепляет пояснение о том, почему тело не включено; явное бинарное вложение отклоняется. Обновлены BDD и старые тесты форка.
+- Совмещены веб-композер и отображение `<foxxycode_attachment>` с форковым скрытием IDE-контекста. 2327 UI-тестов, TypeScript, Chromium 104 сборка, документация, `forkguard` и целевые Go-тесты зелёные. Полный Go-регресс остаётся финальным гейтом после `1.1.61`.
+
+---
+
+## Волна `ea0f61c3 → 4e9c63d3` (тег `1.1.56`)
+
+- Портирована встроенная документация: `docs/nav.yaml` и страницы в бинарнике, поиск и чтение через `foxxycode docs`, инструменты агента, F1 в консоли, HTTP API и веб-читатель. `/docs` в композере открывает читатель через существующее форковое меню команд; упоминания страниц доступны и в сообщениях.
+- Сохранены форковые команды, инструменты SVN и `session_describe`, HTTP-маршруты, очередь сообщений и терминальный контекст IDE. Навигация сверена с фактическим именем страницы `foxxycode-and-coddy.md`; встроенные ресурсы SPA пересобраны с проверкой Chromium 104.
+- По решению владельца публичные ссылки из бинарника, API и читателя ведут на `https://hijera.github.io/foxxy-agent/<slug>.md`. Изображения и записи читатель берёт из `hijera/foxxy-agent` на GitHub. Старый адрес upstream остаётся допустимой записью ссылки при чтении, чтобы не ломать сохранённые ссылки.
+- Проверены 2374 UI-теста, типизация, целевые Go-пакеты, генератор документации, схема конфигурации и `forkguard`. Полный Go-регресс остаётся финальным гейтом после `1.1.61`.
+
+---
+
+## Волна `4e9c63d3 → 1.1.57` (тег `1.1.57`)
+
+- Портированы команды настроек с ограничением по числу ходов, снимок настроек с версией и синхронизация между CLI, ACP, HTTP, Telegram и веб-панелью. Обычный `permission_mode` после перезапуска возвращается к конфигурации; для дочерней сессии разрешение сохраняется в её метаданных.
+- Сохранены `/docs` как команда читателя документации и `/mode docs` с переключателем Mode как способ выбрать режим docs. Единый каталог `/foxxycode/slash-commands` содержит настройки, действия и навыки; `/foxxycode/commands` оставлен для клиентов, которым нужны варианты и текущие значения.
+- Совмещены правила форка для обновления сессии с диска, обработки остановки ответа и пяти режимов. Добавлены страница настроек и скриншоты, обновлены OpenAPI, HTTP-справка и схема конфигурации.
+- Проверены 2384 UI-теста, TypeScript, сборка SPA для Chromium 104, docsgen, forkguard и lint. Целевые Go-тесты настроек, HTTP и CLI прошли; полный Go-регресс продолжается при завершении всей серии тегов.
+
+---
+
+## Волны `1.1.57 → 1.1.60` (теги `1.1.58`–`1.1.60`)
+
+- `1.1.58`: шаги BDD веб-панели проверяют, что Vitest действительно выполнил хотя бы один тест, а не пропустил все по устаревшему имени.
+- `1.1.59`: стабилизированы тесты CLI и синхронизации настроек HTTP; чтение события настроек ждёт поток вместо гонки с ответом POST.
+- `1.1.60`: пул фоновых задач читает изменяемые сведения об агенте под блокировкой. Добавлены запуск `make test-race` и CI-задание с детектором гонок; сохранены форковые блокировки в тестах scheduler и транспорта.
+- Пройдены целевые Go-тесты пула, CLI, HTTP, Telegram, scheduler и транспорта, а также docsgen.
+
+---
+
+## Волна `1.1.60 → 4b091359` (тег `1.1.61`)
+
+- Портирован провайдер Devin: вход через браузер или Devin CLI, хранение токенов, обновление авторизации, получение списка моделей, потоковые ответы и выход. Добавлены `internal/devinfake`, BDD входа и диалога, настройки в схеме, CLI, справке и мастере конфигурации. Транспорт запросов проходит через форковые настройки прокси и debug-обёртку.
+- Сохранены форковый идентификатор клиента NeuralDeep `coddy`, прямое подключение к loopback при входе и правила сессий. Тестовые стенды на Windows изолированы от внешнего GitHub, а дочерний процесс команды не удерживает временный каталог теста. Проверка `golangci-lint` и генератор документации прошли.
+- Живой `foxxycode cli` с NeuralDeep: `--dry-run` показал 0 ошибок и 0 предупреждений; модель `gpt-oss-20b` ответила на запрос. В запущенном sandbox IntelliJ плагин открыл панель, отправил запрос через JCEF и показал ответ `LIVE_OK_1161`; снимок прогона хранится в локальном `editors/intellij/build/uiconsole/` и не включён в документацию, поскольку эта волна не меняет UI панели.
+- Первый полный Go-прогон с релизными тегами прошёл все пакеты, кроме `external/ui`: в двух BDD шагах стояли старые имена Vitest-тестов. После исправления весь `external/ui` прошёл отдельно (`111.6s`); повторный обход всего дерева Go застрял до запуска следующих пакетов и был остановлен. Обычный Go-прогон без тегов прошёл отдельно. Полный Vitest: 271 файл, 2385 тестов. TypeScript, docsgen, forkguard и три набора lint прошли.
+- Linux CI обнаружил десять Go-файлов серии `1.1.51`–`1.1.60`, где `gofmt` отличался от содержимого коммитов; Windows-чекаут с CRLF не позволял заметить это командой `gofmt -l` в рабочем дереве. Все десять файлов отформатированы отдельным follow-up-коммитом.
+
+---
+
+## Synchronization through upstream 1.2.1 (2026-10-07)
+
+| Field | Value |
+| --- | --- |
+| Fork base | Latest `origin/main`, `530c1bf78bfca863186fa504c31a29d67b6fe036` |
+| Upstream range | `4b091359e027df31acf00d32378f112b8af4dba6` (exclusive, 1.1.61) to `75c31bcc0b726a46386b0977fee997353f62a9a1` (inclusive, 1.2.1) |
+| Implementation | Core/CLI/HTTP `4af77e86e1857a2b9849bc92660b8208d6583b0e`; UI `71ad3dec4a861415eecad17e1205f90a49ee9123`; docs `6a7aa79e4ca74ed0d68068dcebb134b7ba20fcd8` |
+| Accounting | 38 constituent commits and 10 PR merges adapted; 6 overlapping integration merges reviewed and skipped. Full decisions are in `ports.yaml`. |
+| Validation | `make test` (all Go packages and 2553 UI tests), `make lint`, `make check-windows`, `make lint-windows`, `make docs-check`, schema republication check and real-browser layout checks pass. PR CI owns the tag matrix and race detector. |
+| Live UI | Real HTTP server, compiled embedded SPA and local preview server; 390/1280 px, dark/light before/after captures on `screenshots` at `418ecf37e9261d7048c344de410c5bb37f87e926`. No live paid-provider request. |
+| Limits | Windows WebKit's three short-window overscroll checks fail identically on the pinned fork base and port. Local race needs an unavailable C compiler. CLI progress was captured through a real Ubuntu WSL pty using Linux binaries from the pinned base and port. Codex/Devin quota visuals need managed provider credentials; adapter/cache and presentation tests pass. |
+| Open backlog | The existing partial/deferred PR #351 entries remain open and are outside this target. |
+
+The wave adds file/stdin CLI input, per-call compaction models, phone input/layout,
+`preview_server`, file-argument progress, stable boot routing, background/MCP activity,
+the shared image viewer, SVG chevrons, bounded shared retries and Codex/Devin quotas.
+All owner decisions remain guarded: file input uses `textenc`, stdin stays UTF;
+both engines compact with a named model; `ui.send_mode` and editor behavior remain;
+unanswered recovery preserves useful steps and has a shared retry allowance;
+interrupted answers have a separate continuation allowance; assets still serve regular
+files while refusing symlinks. Existing background command timeout policy stays intact.
+
+---
+
+## Previous synchronization (1.1.61)
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-30 (порт) |
+| **Синхронизировано до upstream** | `4b091359` (`1.1.61`, 2026-09-19), плюс из `7755751c` (`1.2.9`) ранее взяты provider recovery и `StopNotice` (#351) — см. `deferred-351` в реестре |
+| **Ближайший upstream-тег** | `1.1.61` |
+| **Наш коммит-порт** | ветка `codex/upstream-1.1.61`, последовательные коммиты для тегов `1.1.50`–`1.1.61` |
+| **Гейты** | Все Go-пакеты, кроме `external/ui`, прошли в первом общем запуске с релизными тегами; весь `external/ui` прошёл отдельно после исправления BDD. Go без тегов, 2385 UI-тестов, TypeScript, сборка UI, генератор документации, forkguard и три набора lint прошли. Матрица тегов остаётся за CI. |
+| **Живой прогон** | NeuralDeep через CLI и реальный IntelliJ/JCEF: ответ `LIVE_OK_1161`; более ранний прогон HTTP с `scheduler` см. в волне `1.1.50`. |
+| **Отложенные follow-up** | остаток #351 из `1.2.9` — см. `deferred-351` в реестре |
+
+---
+
+## Предыдущая синхронизация (`04198c85 → e8c15305`)
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-23 (порт), 2026-09-24 смерджен (#121 = 0.3.18) |
+| **Синхронизировано до `upstream/main`** | `e8c15305` (2026-09-18) |
+| **Ближайший upstream-тег** | `1.1.45` (аннотированный объект `008a09ba`) |
+| **Наш коммит-порт** | один PR, четыре коммита; см. таблицу волны выше |
+| **Гейты** | `go test` со всеми тегами (`http,ui,scheduler,memory,cli,browser,gateway,swarm`, 67 пакетов) и без тегов; `make lint` (0 issues на всех наборах тегов), `make lint-windows`, `make check-windows`, `make docs-check`, `make site-schema-check`. SPA-часть `make test` (vitest): 2060 из 2064, четыре CSS-теста падают только на CRLF-чекауте Windows (см. «Нашлось по дороге»). Каждый новый тест upstream сначала запущен на коде до порта: терминальные состояния Codex, предупреждение `-t`, классификация TLS/dial и `allowed_updates` падали. Матрица тегов, Windows и macOS — в CI |
+| **Живой прогон** | 2026-09-23, NeuralDeep (`qwen3.8-27b-noreason`, `gpt-oss-120b`), 15 из 15: тело запроса к провайдеру (debug capture) несёт `max_tokens`/`temperature` запроса, затем снова настроенные, `temperature: 0` и `max_completion_tokens`; расходящиеся лимиты, неизвестный уровень и уровень у модели без уровней — 400 без вызова провайдера; `reasoning_effort: high` доходит, без него — `reasoning_default` и `metadata.reasoning_effort`; поток с `finish_reason: length` и `[DONE]`; форковые enhance-prompt и ход агента; `config.yaml` не изменился; `-t` на codex-модели с `max_tokens` — предупреждение. Офлайн-стенд `examples/gateway/tg_e2e_offline.sh` проходит в Git Bash на Windows; с него же снят кадр страницы чата |
+| **Отложенные follow-up** | нет |
+
+---
+
+## Предыдущая синхронизация (`45aee1ec → 04198c85`)
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-19 (порт) … 2026-09-22 (все PR смерджены: #115 = 0.3.12, #116 = 0.3.13, #117 = 0.3.15, #118 = 0.3.16) |
+| **Синхронизировано до `upstream/main`** | `04198c85` (2026-09-19) |
+| **Ближайший upstream-тег** | `1.1.41` (аннотированный объект `cb8a95c6`) |
+| **Наш коммит-порт** | #115, #116, #117 и #118, стеком; см. таблицу волны выше |
+| **Гейты** | на каждом PR: `make test` (экспресс-прогон: `ui-build`, `tsc` и vitest — к #118 это 254 файла и 2060 тестов, затем `go test` со всеми тегами), `make lint` (0 issues на всех наборах тегов), `make docs-check`, `make site-schema-check`. Матрица тегов, Windows и macOS — в CI |
+| **Живой прогон** | На локальных заглушках (OpenAI-совместимая модель, SearXNG, фикстурное API) против собранных `http,ui`-бинарей каждой ветки — headless Chrome: кольцо контекста и строка компакции, неудавшийся «Стоп» (#115); «История» с тегами, закреплениями, меню фильтра и редактором тегов (#116); системный источник скилов, карточка разрешения `http_request` и его ответ (#117); кнопка «вниз», строка поиска, карточки планировщика (#118, с кадрами «до» на сборке #117). 2026-09-21 — NeuralDeep (набор `examples/httpserver` и точечные скрипты) и панели IDE вживую на сборках каждого PR |
+| **Отложенные follow-up** | см. «Отложено» в разделе волны выше |
+
+---
+
+## Предыдущая синхронизация (`257a332b → 45aee1ec`)
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-14 (порт) … 2026-09-17 (все PR смерджены) |
+| **Синхронизировано до `upstream/main`** | `45aee1ec` (2026-09-14) |
+| **Ближайший upstream-тег** | `1.1.25` |
+| **Наш коммит-порт** | #91 (0.2.93), #95 (0.2.94) и #100, стеком; см. таблицу волны выше |
+| **Гейты** | на каждом PR: `make test` (экспресс-прогон: `ui-build`, `tsc` и vitest — к #100 это 230 файлов и 1725 тестов, затем `go test` со всеми тегами), `make lint`, `make docs-check`. Матрица тегов, Windows и macOS — в CI |
+| **Живой прогон** | #91: конфиг из Блокнота, UTF-16 и строка ошибки на бинарях `main` и ветки. #95: инструкции оператора в промпте, строгий стрим, вход на `serve` и прямой локальный клиент `http`, таблица сессий с `cwd` — на локальной заглушке OpenAI. #100: строки инструментов на фикстурной сессии до и после (тёмная, светлая, русский, 390 px) и очередь сообщений на живом ходе против заглушки, которая держит первый ответ открытым, — headless Chrome; кадр консоли снят из её экранного буфера. 2026-09-14…15 на NeuralDeep (`gpt-oss-120b`, Windows): набор `examples/httpserver` на каждой ветке — #91 19 из 20, #95 19 из 21, #100 20 из 21; падал `http_e2e_hooks` (хук под `sh`, на `main` так же) и однажды `http_e2e_memory` (модель памяти не сохранила строку, три повтора прошли). Против бинаря `main`: строка ошибки, CRLF и UTF-16 при сохранении (#229), путь 8.3 в «Истории» (#215), строгий поток (#210), инструкции из home (#211, #212). На ветках: вход на `http` для прямого loopback, прокси, чужого `Host` и другого адреса (#230, 26 проверок), удаление сессий по `cwd` (#231), очередь на живом ходе и `session_busy` второго бэкенда (#240), worktree в репозитории (#236), вложенные и прежние `sub_*` бандлы (#233), `updatedAt` (#238), компакция opencode с кэшем сохранения (#237, на заглушке) |
+| **Отложенные follow-up** | см. «Отложено» в разделе волны выше |
+
+---
+
+## Предыдущая синхронизация (`b1605996 → 257a332b`)
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-12 (порт) … 2026-09-14 (все PR смерджены) |
+| **Синхронизировано до `upstream/main`** | `257a332b` (2026-09-12) |
+| **Ближайший upstream-тег** | `1.1.1` |
+| **Наш коммит-порт** | #82, #84, #85, #87, #88 и #89; #86 — вне upstream. См. таблицу волны выше |
+| **Гейты** | на каждом PR после переноса на свежий `main`: `make test` (экспресс-прогон: `ui-build`, `ui-test` — к #88 это 217 файлов и 1575 vitest-тестов, затем `go test` со всеми тегами) и `make lint` (0 issues на всех наборах тегов). Матрица тегов, Windows и macOS — в CI |
+| **Живой прогон** | NeuralDeep, изолированные home, ключ только через окружение. #84: ошибка с неверным ключом называет `provider "neuraldeep"` и адрес; в 57 живых вызовах сторож первого байта не сработал ни разу; на `gpt-oss-120b` 17 из 57 вызовов вернули одно рассуждение, из 10 таких эпизодов повтор сам выручил 3, подсказка после него — остальные 7, и все 8 ходов закончились полным ответом. #85: правила вложенных `AGENTS.md` подключаются по мере захода в папки — через агента из тестовой сборки плагина; старт первого чата в проекте на 736 тыс. записей — 23,5 с до порта, 0,4 с после. #87: `-t` и `--dry-run` на сломанном и рабочем конфиге, у `foxxycode http` в том виде, как его запускает плагин, и на настоящем `~/.foxxycode/config.yaml` только на чтение. #88: `foxxycode update` 0.2.79 → 0.2.81 на Windows и в WSL, с обновлением man-страницы и дополнений |
+| **Отложенные follow-up** | см. «Отложено» в разделе волны выше |
+
+---
+
+## Предыдущая синхронизация (`2c0872c4 → b1605996`)
 
 | Поле | Значение |
 | --- | --- |
@@ -1927,7 +2657,7 @@ chromedp на DevTools-сокет там не хватает; а сценари�
 | **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) |
 | **Ближайший upstream-тег** | `0.9.43` |
 | **Наш коммит-порт** | `f0a2506`, `60af986`, `305fc5a`, `3b3e812`, `0e75aa7` (ветка `sync/upstream-6666606`) |
-| **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7) |
+| **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7). Пропущенное тогда (раздел `docs/skills.md`, правило core-modules, `/foxxycode/commands` в OpenAPI, 4 строки, `TestParsePluginCommand`) догнано 2026-09-14 — см. «Хвосты маркетплейса» в разделе волны |
 
 ### Что портировано в этой волне
 - **Platform-aware shell** (upstream `2e979b7`) — новый пакет `internal/platform` (детект
@@ -1981,7 +2711,10 @@ chromedp на DevTools-сокет там не хватает; а сценари�
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges b1605996..upstream/main` — список кандидатов.
-3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
-4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
-5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.
+2. `git log --oneline --no-merges 5ed775c..upstream/main` — список кандидатов.
+3. Сверить кандидатов с «Реестром постоянных расхождений» в начале файла: `git grep -n 'fork(' --`
+   по каждому файлу, который они трогают; где upstream снова меняет помеченное место — спросить
+   владельца.
+4. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
+5. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
+6. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.

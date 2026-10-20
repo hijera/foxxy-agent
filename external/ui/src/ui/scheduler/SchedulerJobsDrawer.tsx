@@ -1,11 +1,57 @@
-import type { SchedulerInfo, SchedulerJob } from "./types";
+import type { SchedulerInfo, SchedulerJob, SchedulerRunEntry } from "./types";
 import { useT } from "../i18n/I18nProvider";
 import { t as translate } from "../i18n/i18n";
-import { SchedulerIconPlus } from "./schedulerToolbarIcons";
-import { appNavHrefSchedulerJob } from "./hashRoute";
+import { SchedulerIconPlus, SchedulerIconRuns } from "./schedulerToolbarIcons";
+import { appNavHrefSchedulerJob, appNavHrefSchedulerJobRuns } from "./hashRoute";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
+import { taskTone } from "../tasks/taskStatus";
+import type { BackgroundTaskStatus } from "../tasks/types";
 
-function formatNextRunUtc(iso: string | undefined): string {
+/** Local clock of a run's start or end for the row's last-run mark. */
+export function formatRunClock(iso: string | undefined): string {
+  if (!iso || !iso.trim()) return "";
+  const d = new Date(iso.trim());
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function LastRunMark(props: { jobId: string; run: SchedulerRunEntry }) {
+  const { t } = useT();
+  const run = props.run;
+  const status = (run.status || "") as BackgroundTaskStatus;
+  const clock = formatRunClock(run.running ? run.started_at : run.ended_at || run.started_at);
+  const label = run.running
+    ? t("scheduler.lastRun.running")
+    : t(`tasks.status.${statusKey(status)}`);
+  return (
+    <span
+      className="scheduler-job-row-last-run"
+      data-testid={`scheduler-last-run-${props.jobId}`}
+      title={`${label}${clock ? ` · ${clock}` : ""}`}
+    >
+      <span className={`bgtask-dot bgtask-dot--${taskTone(status)}`} aria-hidden="true" />
+      <span className="scheduler-job-row-last-run-text">
+        {label}{clock ? ` · ${clock}` : ""}
+      </span>
+    </span>
+  );
+}
+
+function statusKey(status: string): string {
+  switch (status) {
+    case "timed_out": return "timedOut";
+    case "queued":
+    case "running":
+    case "succeeded":
+    case "failed":
+    case "stopped":
+    case "orphaned": return status;
+    default: return "orphaned";
+  }
+}
+
+/** Renders next fire as YYYY-MM-DD HH:MM (UTC) for list rows (scheduler uses UTC five-field cron). */
+export function formatNextRunUtc(iso: string | undefined): string {
   if (!iso || !iso.trim()) {
     return translate("scheduler.noNextRun");
   }
@@ -43,6 +89,8 @@ export function SchedulerJobsDrawer(props: {
   loading: boolean;
   onAddJob: () => void;
   onOpenJob: (jobId: string) => void;
+  /** Opens the job's runs panel (its run history). */
+  onOpenRuns: (jobId: string) => void;
   onRunJob: (jobId: string) => void;
   onCancelJob: (jobId: string) => void;
   searchDraft: string;
@@ -167,9 +215,25 @@ export function SchedulerJobsDrawer(props: {
                 >
                   {(j.description || "").trim() || t("scheduler.noDescription")}
                 </div>
+                {j.last_run ? (
+                  <LastRunMark jobId={j.job_id} run={j.last_run} />
+                ) : null}
               </div>
             </a>
             <div className="scheduler-job-row-actions">
+              <a
+                href={appNavHrefSchedulerJobRuns(j.job_id)}
+                className="scheduler-btn scheduler-btn-icon-only scheduler-job-runs-icon"
+                aria-label={t("scheduler.openRuns", { jobId: j.job_id })}
+                title={t("scheduler.runs")}
+                data-testid={`scheduler-runs-${j.job_id}`}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  sameTabInAppNavClick(ev, () => props.onOpenRuns(j.job_id));
+                }}
+              >
+                <SchedulerIconRuns />
+              </a>
               {j.running ? (
                 <button
                   type="button"
@@ -182,7 +246,7 @@ export function SchedulerJobsDrawer(props: {
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
-                    ■
+                    <span className="composer-stop-square" />
                   </span>
                 </button>
               ) : (

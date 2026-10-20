@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FoxxyCodeEnv } from "./remoteEnv";
 import {
+  errorDetail,
   isAbortError,
   remoteHttpErrorMessage,
   remoteSendErrorMessage,
@@ -104,5 +105,47 @@ describe("transport messages follow the UI locale", () => {
     expect(remoteHttpErrorMessage(500, local)).toBe(
       "Запрос завершился ошибкой (500).",
     );
+  });
+});
+
+// The notice is all an operator has for a request that never reached the
+// server, so the browser's reason and the server's message ride along.
+describe("the reason behind a failed send", () => {
+  it("adds the browser's reason to a network failure", () => {
+    expect(
+      remoteSendErrorMessage(new TypeError("Failed to fetch"), local),
+    ).toBe(
+      "Network error sending the message — check that the server is running. (Failed to fetch)",
+    );
+  });
+  it("adds nothing when the error carries no reason", () => {
+    expect(remoteSendErrorMessage({}, local)).toBe(
+      "Network error sending the message — check that the server is running.",
+    );
+    expect(remoteSendErrorMessage(new TypeError(""), local)).toBe(
+      "Network error sending the message — check that the server is running. (TypeError)",
+    );
+  });
+  it("adds the server's message to a refusal by status", () => {
+    expect(remoteHttpErrorMessage(413, local, "request body too large")).toBe(
+      "Request failed (413). (request body too large)",
+    );
+    expect(remoteHttpErrorMessage(500, local, "  ")).toBe(
+      "Request failed (500).",
+    );
+  });
+  it("keeps the auth hint alone for 401", () => {
+    expect(remoteHttpErrorMessage(401, local, "unauthorized")).toBe(
+      "Unauthorized (401).",
+    );
+  });
+  it("reads a DOMException's message, then its name", () => {
+    expect(
+      errorDetail(new DOMException("could not be read", "NotReadableError")),
+    ).toBe("could not be read");
+    expect(errorDetail(new DOMException("", "NotReadableError"))).toBe(
+      "NotReadableError",
+    );
+    expect(errorDetail(null)).toBe("");
   });
 });

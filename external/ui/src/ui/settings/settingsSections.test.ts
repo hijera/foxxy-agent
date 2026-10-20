@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { initLocale } from "../i18n/i18n";
 import { deriveSettingsSections } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
 
@@ -47,6 +48,7 @@ test("derives tabs in schema order with General and Appearance first and System 
   expect(ids).toEqual([
     "general",
     "appearance",
+    "sessions_manager",
     "providers",
     "models",
     "agent",
@@ -55,6 +57,9 @@ test("derives tabs in schema order with General and Appearance first and System 
     "mcp_servers",
     "skills",
     "memory",
+    "scheduler",
+    "logger",
+    "gateways",
     "system",
   ]);
 });
@@ -93,26 +98,66 @@ test("subagents is a hybrid tab that keeps its schema key", () => {
 test("System group folds the rarely edited tail keys", () => {
   const system = deriveSettingsSections(rootSchema).find((s) => s.id === "system");
   expect(system?.kind).toBe("group");
-  expect(system?.childKeys).toEqual([
-    "scheduler",
-    "prompts",
-    "instructions",
-    "logger",
-    "sessions",
-    "gateways",
-  ]);
+  expect(system?.childKeys).toEqual(["prompts", "instructions"]);
 });
 
-test("skills is its own combined tab; labels come from schema titles", () => {
+test("skills is its own combined tab; labels prefer the curated i18n form", () => {
   const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
   expect(byId.skills!.kind).toBe("skills");
   expect(byId.agent!.kind).toBe("object");
-  expect(byId.agent!.label).toBe("ReAct agent");
+  // The curated short label (`settings.section.agent.label`) wins over the
+  // schema title, which reads as a sentence and would overflow the tiles.
+  expect(byId.agent!.label).toBe("ReAct loop");
 });
 
-test("General and Appearance tabs are present even without a schema", () => {
+test("an unknown schema section keeps its server-provided title", () => {
+  const schema = {
+    ...rootSchema,
+    properties: {
+      ...rootSchema.properties,
+      custom_section: { type: "object", title: "Custom longer section title", properties: {} },
+    },
+    "x-foxxycode-property-order": [...(rootSchema["x-foxxycode-property-order"] as string[]), "custom_section"],
+  } as unknown as JsonSchema;
+  const section = deriveSettingsSections(schema).find((s) => s.id === "custom_section");
+  expect(section?.label).toBe("Custom longer section title");
+});
+
+test("General, Appearance and Sessions are present even without a schema", () => {
+  // All three are client-side tabs: the language and theme pickers edit no
+  // schema-driven form and the session table talks to /foxxycode/sessions, so
+  // none of them waits for the schema.
   const sections = deriveSettingsSections(null);
-  expect(sections).toHaveLength(2);
-  expect(sections[0]!.id).toBe("general");
-  expect(sections[1]!.id).toBe("appearance");
+  expect(sections.map((s) => s.id)).toEqual([
+    "general",
+    "appearance",
+    "sessions_manager",
+  ]);
+});
+
+test("the session management tab also edits session storage", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  // Storage configuration belongs with the stored-session table.
+  expect(byId.sessions).toBeUndefined();
+  expect(byId.sessions_manager?.kind).toBe("sessions");
+  expect(byId.sessions_manager?.schemaKey).toBe("sessions");
+  expect(byId.sessions_manager?.label).toBe("Sessions");
+  expect(byId.sessions_manager?.description).toBe("Stored chats & cleanup");
+});
+
+test("the session management tab follows the active locale", () => {
+  initLocale("ru");
+  try {
+    const byId = Object.fromEntries(
+      deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+    );
+    expect(byId.sessions_manager?.label).toBe("Сессии");
+    expect(byId.sessions_manager?.description).toBe(
+      "Сохранённые чаты и очистка",
+    );
+  } finally {
+    initLocale("en");
+  }
 });

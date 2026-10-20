@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 )
 
@@ -14,7 +16,9 @@ type ResolvedLLM struct {
 	BaseURL      string
 	ProxyURL     string
 	AuthPath     string
-	MaxTokens    int
+	// NoCLILogin prevents this provider profile from inheriting the shared CLI login.
+	NoCLILogin bool
+	MaxTokens  int
 	// MaxContextTokens is the model's context window (models[].max_context_tokens), 0 when unset.
 	// Used by auto-compaction to detect when history approaches the window.
 	MaxContextTokens int
@@ -38,6 +42,51 @@ func (c *Config) FindProvider(name string) *ProviderConfig {
 	return nil
 }
 
+// CLILoginRow names the row of providerType that the machine-wide CLI login
+// of that type stands in for when the row has no login of its own: the Codex
+// CLI's ~/.codex/auth.json for "codex", the Devin CLI's credentials for
+// "devin". One CLI login is one account, so it serves one row - the only row
+// of the type, or, when several rows share the type, the row named after it.
+// Every other row signs in itself instead of quietly running on that account.
+// alsoRow counts a row the settings form holds but has not saved yet, or a
+// saved row it is switching to providerType. "" means no row may use it.
+func (c *Config) CLILoginRow(providerType, alsoRow string) string {
+	if providerType != "codex" && providerType != "devin" {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	if c != nil {
+		for i := range c.Providers {
+			if c.Providers[i].Type == providerType {
+				add(c.Providers[i].Name)
+			}
+		}
+	}
+	add(alsoRow)
+	switch {
+	case len(names) == 1:
+		return names[0]
+	case seen[providerType]:
+		return providerType
+	}
+	return ""
+}
+
+// ProviderMayUseCLILogin reports whether the row named name may fall back to
+// the CLI login of providerType when it has no login of its own (CLILoginRow).
+func (c *Config) ProviderMayUseCLILogin(name, providerType string) bool {
+	name = strings.TrimSpace(name)
+	return name != "" && c.CLILoginRow(providerType, name) == name
+}
+
 // FindModelEntry returns the model entry whose Model selector equals ref, or nil.
 func (c *Config) FindModelEntry(ref string) *ModelEntry {
 	want := strings.TrimSpace(ref)
@@ -47,6 +96,84 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 		}
 	}
 	return nil
+}
+
+// FirstModelID returns the alphabetically first configured model id, or ""
+// when no models are configured. Surfaces use it as the initial pick for a
+// session before any surface-level preference exists.
+func (c *Config) FirstModelID() string {
+	ids := make([]string, 0, len(c.Models))
+	for _, m := range c.Models {
+		if s := strings.TrimSpace(m.Model); s != "" {
+			ids = append(ids, s)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
+// MatchModelID resolves a model a person named to a configured models[].model.
+// A whole name wins: the exact selector, then the id in any letter case, then
+// the model part after its provider ("qwen3.8-27b" for
+// "neuraldeep/qwen3.8-27b", even beside "neuraldeep/qwen3.8-27b-noreason").
+// Otherwise the name is a case-insensitive substring that must name exactly
+// one model ("qwen" for "hub/qwen3-coder"). An unknown or an ambiguous name is
+// an error listing the candidates, never a guess.
+func (c *Config) MatchModelID(want string) (string, error) {
+	w := strings.TrimSpace(want)
+	if w == "" {
+		return "", fmt.Errorf("model is empty")
+	}
+	if entry := c.FindModelEntry(w); entry != nil {
+		return entry.Model, nil
+	}
+	var all []string
+	for i := range c.Models {
+		if id := c.Models[i].Model; id != "" {
+			all = append(all, id)
+		}
+	}
+	ambiguous := func(matches []string) error {
+		return fmt.Errorf("model %q is ambiguous (matches: %s)", w, strings.Join(matches, ", "))
+	}
+	modelPart := func(id string) string {
+		if _, name, found := strings.Cut(id, "/"); found {
+			return name
+		}
+		return id
+	}
+	for _, whole := range []func(string) string{func(id string) string { return id }, modelPart} {
+		var matches []string
+		for _, id := range all {
+			if strings.EqualFold(whole(id), w) {
+				matches = append(matches, id)
+			}
+		}
+		switch {
+		case len(matches) == 1:
+			return matches[0], nil
+		case len(matches) > 1:
+			return "", ambiguous(matches)
+		}
+	}
+	needle := strings.ToLower(w)
+	var matches []string
+	for _, id := range all {
+		if strings.Contains(strings.ToLower(id), needle) {
+			matches = append(matches, id)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("unknown model %q (configured: %s)", w, strings.Join(all, ", "))
+	default:
+		return "", ambiguous(matches)
+	}
 }
 
 // ResolveLLM merges provider and model configuration for use with internal/llm.
@@ -72,12 +199,66 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		BaseURL:          prov.APIBase,
 		ProxyURL:         prov.Proxy,
 		AuthPath:         ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		NoCLILogin:       !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		MaxTokens:        entry.MaxTokens,
 		MaxContextTokens: entry.MaxContextTokens,
 		Temperature:      entry.Temperature,
 		TimeoutMS:        prov.TimeoutMS,
 		Stream:           entry.EffectiveStream(),
 	}, nil
+}
+
+// UnsentModelSetting is a models[] setting the provider serving the model never
+// sends, so it bounds nothing.
+type UnsentModelSetting struct {
+	// Model is the models[].model selector the setting sits on.
+	Model string
+	// Key is the setting's key inside that entry.
+	Key string
+	// Message says what the setting fails to do and why.
+	Message string
+}
+
+// Path is the setting's config path, in the selector form the config check and
+// the dry run place a finding with.
+func (u UnsentModelSetting) Path() string { return "models[" + u.Model + "]." + u.Key }
+
+// UnsentModelSettings reports the models[] settings their provider never sends:
+// today max_tokens on a model served by a codex provider, whose backend rejects
+// an output cap (max_output_tokens). The loader still accepts them, unlike
+// stream: false on the same provider: the settings form seeds max_tokens on
+// every model row it adds, and refusing to load would stop a server over a
+// value that never did anything. The config check, the dry run and the startup
+// log name each one instead, so the value is not taken for a bound.
+func (c *Config) UnsentModelSettings() []UnsentModelSetting {
+	if c == nil {
+		return nil
+	}
+	var out []UnsentModelSetting
+	for i := range c.Models {
+		m := &c.Models[i]
+		prov := c.FindProvider(m.ProviderName())
+		if prov == nil || prov.Type != "codex" || m.MaxTokens <= 0 {
+			continue
+		}
+		out = append(out, UnsentModelSetting{
+			Model:   m.Model,
+			Key:     "max_tokens",
+			Message: "max_tokens bounds nothing on a codex model: the Codex backend takes no output cap, so no request carries it",
+		})
+	}
+	return out
+}
+
+// LogUnsentModelSettings writes a startup warning for every setting
+// UnsentModelSettings reports. Nothing is logged when there is none.
+func (c *Config) LogUnsentModelSettings(log *slog.Logger) {
+	if log == nil {
+		return
+	}
+	for _, u := range c.UnsentModelSettings() {
+		log.Warn("model setting has no effect", "setting", u.Path(), "detail", u.Message)
+	}
 }
 
 // ValidateModelsProvidersAndAgent checks providers, models, and agent.model references.
@@ -118,11 +299,11 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 	}
 
 	if len(c.Models) > 0 {
-		rm := strings.TrimSpace(c.Agent.Model)
-		if rm == "" {
-			return fmt.Errorf("agent.model is required when models are configured")
-		}
-		if c.FindModelEntry(rm) == nil {
+		// agent.model is optional: interactive surfaces pick a model per
+		// session, and unattended paths that need one (foxxycode -p, foxxycode acp,
+		// API calls without a model selector) report the missing default when
+		// they resolve it. A name that is set must still resolve.
+		if rm := strings.TrimSpace(c.Agent.Model); rm != "" && c.FindModelEntry(rm) == nil {
 			return fmt.Errorf("agent.model %q: not found in models list", rm)
 		}
 	}

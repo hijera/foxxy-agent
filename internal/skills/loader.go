@@ -28,6 +28,12 @@ type Skill struct {
 
 	// Content is the body of the skill file (without frontmatter).
 	Content string
+
+	// Model and Reasoning, when set, are what the turn that uses the skill
+	// runs on from then on: frontmatter model and reasoning (alias effort,
+	// Claude Code's spelling). They last until that turn ends.
+	Model     string
+	Reasoning string
 }
 
 // Loader discovers and loads skills from the filesystem.
@@ -50,8 +56,10 @@ func NewLoader(dirs []string) *Loader {
 // This means ${CWD}/.foxxycode/skills (last by default) has the highest priority.
 func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill, error) {
 	var disabled map[string]struct{}
+	var withdrawn map[string]struct{}
 	if len(installDir) > 0 && installDir[0] != "" {
 		disabled = ReadDisabled(installDir[0])
+		withdrawn = DeliveredAndDeleted(installDir[0])
 	}
 
 	// ordered tracks insertion order of first encounter; byName points to the slot
@@ -78,8 +86,14 @@ func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill,
 		}
 	}
 
-	// Bundled skills are always prepended (lowest priority, never overridden).
+	// The standard delivery is prepended at the lowest priority, so the copy in
+	// the managed dir overrides it. One the operator deleted from there is left
+	// out: the in-binary copy is a fallback for a home the delivery could not
+	// write, not a way for a deleted skill to come back as an undeletable one.
 	for _, s := range Bundled() {
+		if _, gone := withdrawn[CanonicalCommandName(s)]; gone {
+			continue
+		}
 		addSkill(s)
 	}
 
@@ -208,7 +222,12 @@ func loadFile(path string) (*Skill, error) {
 			skill.Name = fm.Name
 		}
 		skill.Description = fm.Description
-		skill.Version = strings.TrimSpace(fm.Version)
+		skill.Version = fm.version()
+		skill.Model = strings.TrimSpace(fm.Model)
+		skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Reasoning))
+		if skill.Reasoning == "" {
+			skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Effort))
+		}
 	}
 
 	return skill, nil
@@ -219,7 +238,33 @@ func loadFile(path string) (*Skill, error) {
 type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	Version     string `yaml:"version"`
+	// Metadata is the Agent Skills map of free keys; its version is where a
+	// skill declares its version now. Kept as a node: a metadata of another
+	// shape must not fail the whole frontmatter and lose the name with it.
+	Metadata yaml.Node `yaml:"metadata"`
+	// Version is the top-level key skills declared their version with before
+	// the metadata map; still read for the files that carry it.
+	Version   string `yaml:"version"`
+	Model     string `yaml:"model"`
+	Reasoning string `yaml:"reasoning"`
+	Effort    string `yaml:"effort"`
+}
+
+// version is the skill's declared version: metadata.version, else the
+// top-level version key older files carry, else "".
+func (fm *frontmatter) version() string {
+	if fm.Metadata.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(fm.Metadata.Content); i += 2 {
+			key, val := fm.Metadata.Content[i], fm.Metadata.Content[i+1]
+			if key.Value != "version" || val.Kind != yaml.ScalarNode {
+				continue
+			}
+			if v := strings.TrimSpace(val.Value); v != "" {
+				return v
+			}
+		}
+	}
+	return strings.TrimSpace(fm.Version)
 }
 
 // parseFrontmatter splits a file into frontmatter and body.

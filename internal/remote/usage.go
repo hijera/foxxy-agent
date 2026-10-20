@@ -189,9 +189,16 @@ func (h *Handler) pullProviderUsage(ctx context.Context, sessionID string, refre
 // Close refuses new pulls and marks the ones in flight as not to be
 // delivered: the console is quitting, nothing may fire into a dead sender.
 func (h *Handler) Close() {
+	h.controlStop()
 	h.usageMu.Lock()
 	h.usageClosed = true
 	h.usageMu.Unlock()
+	h.StopEvents()
+	// The subagent prompts this client offered run on the control context,
+	// which is cancelled above, so none can post an answer after Close; the
+	// woken turns it follows read on the same context.
+	h.detachedWG.Wait()
+	h.stopFollowing()
 }
 
 // usageIsClosed reports whether Close ran.

@@ -17,6 +17,15 @@ import (
 
 const toolCallMetaVersion = 1
 
+// toolCallStampLayout is RFC3339 with milliseconds. A transcript row reports how
+// long a step took by subtracting StartedAt from FinishedAt, and time.RFC3339
+// carries whole seconds only - so a call that finished inside the second it
+// started in was written down as starting and ending at the same instant, and
+// every step faster than a second read "0ms" once the session was reloaded.
+// Bundles written before this keep their second-granular stamps; there is no
+// sub-second reading left in them to recover.
+const toolCallStampLayout = "2006-01-02T15:04:05.000Z07:00"
+
 type ToolCallMeta struct {
 	Version      int             `json:"version"`
 	ToolCallID   string          `json:"toolCallId"`
@@ -28,34 +37,39 @@ type ToolCallMeta struct {
 	PlanSnapshot []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
-func toolCallDir(sessionDir, toolCallID string) (string, error) {
-	if strings.TrimSpace(sessionDir) == "" {
-		return "", fmt.Errorf("session directory is empty")
-	}
+// ToolCallDirName maps a tool call id to the name of its folder under
+// tool_calls/. An id that is already a safe single path segment keeps its own
+// name, so every bundle written so far reads back unchanged; anything else - a
+// provider that sends "../x", an id carrying a separator, one longer than a file
+// name may be - is stored under a digest of the id instead of escaping the
+// bundle or losing the record, and meta.json keeps the id itself. A derived name
+// is a safe segment in its turn, so resolving one again is a no-op and a folder
+// name handed back by ListToolCalls addresses the same folder.
+//
+// Before that rule this fork already stored ids with path-unsafe characters -
+// NeuralDeep-hosted models answer with harmony ids such as
+// "functions.foxxycode_todo_plan_replace:0", and ':' is not a legal path
+// character on Windows - under the id rewritten to the safe alphabet plus a short
+// hash suffix. Every id that rewrite still turns into a valid segment keeps that
+// folder name, so those bundles read back unchanged; only what the rewrite cannot
+// make safe (a leading dot, "..", a name past 128 characters) falls through to the
+// digest.
+func ToolCallDirName(toolCallID string) string {
 	id := strings.TrimSpace(toolCallID)
-	if id == "" {
-		return "", fmt.Errorf("toolCallId is empty")
-	}
-	return filepath.Join(sessionDir, toolCallsDirName, toolCallDirName(id)), nil
-}
-
-// toolCallDirName maps a tool call id to its directory name. Ids made of
-// letters, digits, '.', '_' and '-' are used verbatim, which keeps every store
-// written so far readable. Anything else (NeuralDeep-hosted models answer with
-// harmony ids such as "functions.foxxycode_todo_plan_replace:0", and ':' is not a
-// legal path character on Windows) is rewritten to that alphabet with a short
-// hash suffix so distinct ids never share a directory.
-func toolCallDirName(id string) string {
-	safe := true
-	for _, r := range id {
-		if !toolCallDirRuneOK(r) {
-			safe = false
-			break
-		}
-	}
-	if safe {
+	if ValidateToolCallID(id) == nil {
 		return id
 	}
+	if legacy := sanitizedToolCallDirName(id); ValidateToolCallID(legacy) == nil {
+		return legacy
+	}
+	sum := sha256.Sum256([]byte(id))
+	return "tc_" + hex.EncodeToString(sum[:16])
+}
+
+// sanitizedToolCallDirName is the fork's original mapping for an id with
+// characters outside [A-Za-z0-9._-]: each such character becomes '_', and a hash
+// of the whole id is appended so distinct ids never share a directory.
+func sanitizedToolCallDirName(id string) string {
 	var b strings.Builder
 	for _, r := range id {
 		if toolCallDirRuneOK(r) {
@@ -70,6 +84,17 @@ func toolCallDirName(id string) string {
 
 func toolCallDirRuneOK(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+}
+
+func toolCallDir(sessionDir, toolCallID string) (string, error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return "", fmt.Errorf("session directory is empty")
+	}
+	id := strings.TrimSpace(toolCallID)
+	if id == "" {
+		return "", fmt.Errorf("toolCallId is empty")
+	}
+	return filepath.Join(sessionDir, toolCallsDirName, ToolCallDirName(id)), nil
 }
 
 func ensureToolCallDir(sessionDir, toolCallID string) (string, error) {
@@ -223,7 +248,7 @@ func ListToolCalls(sessionDir string) ([]string, error) {
 // MarkToolCallStarted resets meta.json for a new attempt of the call: nothing from an
 // earlier attempt (timestamps, plan snapshot) may survive a restart.
 func MarkToolCallStarted(sessionDir, toolCallID, name, kind, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(toolCallStampLayout)
 	meta := ToolCallMeta{
 		Version:    toolCallMetaVersion,
 		ToolCallID: strings.TrimSpace(toolCallID),
@@ -238,7 +263,7 @@ func MarkToolCallStarted(sessionDir, toolCallID, name, kind, status string) erro
 // MarkToolCallFinished stamps the outcome while keeping what the running call already
 // recorded: StartedAt and the plan snapshot a todo tool wrote before finishing.
 func MarkToolCallFinished(sessionDir, toolCallID, name, kind, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(toolCallStampLayout)
 	meta := ToolCallMeta{
 		Version:    toolCallMetaVersion,
 		ToolCallID: strings.TrimSpace(toolCallID),

@@ -17,13 +17,18 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
@@ -31,6 +36,31 @@ import (
 type CommandDeps struct {
 	EnsureHome func(home string) error
 	OpenStore  func(flagValue string, cfg *config.Config) (*session.FileStore, error)
+	// TestConfig runs the -t / --test-config check; nil falls back to
+	// config.RunCheck on stdout.
+	TestConfig func(cli config.CLIPaths) error
+	// DryRun runs --dry-run (verbose when --test-config is given as well);
+	// nil falls back to dryrun.RunConsole on stdout.
+	DryRun func(cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error
+	// Stdin, Stdout and Stderr are the streams of a one-shot run; nil means
+	// the process's own. The interactive console always uses the terminal.
+	Stdin  *os.File
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+func (d CommandDeps) stdio() (*os.File, io.Writer, io.Writer) {
+	in, out, errOut := d.Stdin, d.Stdout, d.Stderr
+	if in == nil {
+		in = os.Stdin
+	}
+	if out == nil {
+		out = os.Stdout
+	}
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	return in, out, errOut
 }
 
 // Run parses flags, wires the manager, and drives the interactive console.
@@ -46,9 +76,8 @@ func Run(args []string, deps CommandDeps) error {
 	var contFlag bool
 	fs.BoolVar(&contFlag, "continue", false, "continue the most recent session in this folder")
 	fs.BoolVar(&contFlag, "c", false, "shorthand for --continue")
-	var promptFlag string
-	fs.StringVar(&promptFlag, "prompt", "", "run one prompt non-interactively, print the answer, and exit")
-	fs.StringVar(&promptFlag, "p", "", "shorthand for --prompt")
+	prompt := newPromptRequest()
+	prompt.register(fs)
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
 	modeFlag := fs.String("mode", "", "start in this mode: agent|plan")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
@@ -61,29 +90,75 @@ func Run(args []string, deps CommandDeps) error {
 	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of cli (interactive console, also the default for bare %s on a terminal):\n", os.Args[0])
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(expandBarePrompt(fs, args)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-
-	// One-shot print mode needs no terminal at all; only the interactive
-	// console insists on a tty.
-	printMode := strings.TrimSpace(promptFlag) != ""
-	if !printMode && !IsInteractiveTerminal() {
-		return errors.New("the interactive console needs a terminal on stdin and stdout (or run one prompt with -p/--prompt)")
+	// flag.Parse stops at the first argument that is not a flag and leaves
+	// the rest: `foxxycode -p fix the bug` would send "fix" alone. The interactive
+	// console keeps ignoring them, as it always has.
+	if rest := fs.Args(); len(rest) > 0 && prompt.printMode() {
+		return fmt.Errorf("unexpected argument %q: quote the whole prompt (-p \"...\"), or pass it with -i or on stdin", rest[0])
 	}
+	stdin, stdout, stderr := deps.stdio()
 
 	cli := config.CLIPaths{
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*cwdFlag),
 		Config: strings.TrimSpace(*cfgPath),
 	}
+	// A config check needs neither a terminal nor a session: it reports on
+	// the file and leaves. cmd/foxxycode supplies the runner so the report
+	// reads the same as from acp and serve.
+	if *testConfig && !*dryRun {
+		if deps.TestConfig != nil {
+			return deps.TestConfig(cli)
+		}
+		return config.RunCheck(os.Stdout, cli)
+	}
+	if *dryRun {
+		customize := func(c *config.Config) error {
+			if *schedulerEnabled {
+				c.Scheduler.Enabled = true
+			}
+			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+		}
+		if deps.DryRun != nil {
+			return deps.DryRun(cli, *testConfig, *remoteFlag, *remoteToken, customize)
+		}
+		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *testConfig, *remoteFlag, *remoteToken, customize)
+	}
+
+	// One-shot print mode needs no terminal at all; only the interactive
+	// console insists on a tty.
+	printMode := prompt.printMode()
+	if !printMode && !IsInteractiveTerminal() {
+		return errors.New(`the interactive console needs a terminal on stdin and stdout; run one prompt with -p "...", with -i FILE, or piped: ... | foxxycode -p`)
+	}
+	var input printInput
+	if printMode {
+		if *resume {
+			return errors.New("--resume needs the interactive picker; use --continue or --session-id with --prompt")
+		}
+		// The prompt is read before anything else starts: input that cannot
+		// be sent stops the run before a config, a session or a request, and
+		// a read that blocks on a pipe still ends on the first ctrl+c.
+		var err error
+		input, err = readPrintInput(prompt, printInputEnv{Stdin: stdin, Notices: stderr})
+		if err != nil {
+			return err
+		}
+	}
+
 	paths, err := config.Resolve(cli)
 	if err != nil {
 		return err
@@ -97,6 +172,10 @@ func Run(args []string, deps CommandDeps) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// Hand over the standard skill delivery before the session catalogue is
+	// built. Best effort: a home that cannot be written still gets the copies
+	// the binary carries (skills.Bundled).
+	_, _ = skills.SeedDelivery(cfg)
 	if *schedulerEnabled {
 		cfg.Scheduler.Enabled = true
 	}
@@ -124,6 +203,12 @@ func Run(args []string, deps CommandDeps) error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	// The first interrupt cancels the context so the startup can unwind
+	// through every step that watches it. The second must not be swallowed
+	// while a step that does not (a server that never answers, a git that
+	// hangs) is still running: once the context is done the handler is
+	// unregistered, and the next ctrl+c ends the process the default way.
+	context.AfterFunc(ctx, cancel)
 
 	// Flag conflicts shared by both modes.
 	if *resume && strings.TrimSpace(*sessionID) != "" {
@@ -142,13 +227,11 @@ func Run(args []string, deps CommandDeps) error {
 	}
 
 	if printMode {
-		if *resume {
-			return errors.New("--resume needs the interactive picker; use --continue or --session-id with --prompt")
-		}
 		popts := PrintOptions{
-			Prompt:       promptFlag,
-			Out:          os.Stdout,
-			ErrOut:       os.Stderr,
+			Prompt:       input.Prompt,
+			Stdin:        input.Stdin,
+			Out:          stdout,
+			ErrOut:       stderr,
 			SessionID:    strings.TrimSpace(*sessionID),
 			ContinueLast: contFlag,
 			Model:        opts.model,
@@ -158,12 +241,12 @@ func Run(args []string, deps CommandDeps) error {
 		}
 		if ropts != nil {
 			ropts.Log = log
-			warnInsecureRemote(ropts, os.Stderr)
+			warnInsecureRemote(ropts, stderr)
 			h, herr := remote.NewHandler(*ropts)
 			if herr != nil {
 				return herr
 			}
-			h.SetServer(&printSender{mgr: h, cfg: cfg, out: os.Stdout, errOut: os.Stderr, remote: true})
+			h.SetServer(&printSender{mgr: h, cfg: cfg, out: stdout, errOut: stderr, remote: true})
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
@@ -172,7 +255,8 @@ func Run(args []string, deps CommandDeps) error {
 			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
-		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
+		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
+		startScheduler(ctx, cfg, mgr, log)
 		return PrintPrompt(ctx, mgr, popts)
 	}
 
@@ -235,7 +319,26 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
+	// A task the model started with notify_on_finish begins its own turn in
+	// this console when it ends. A console attached to a remote server does
+	// not attach one (buildRemoteApp): the server's pool runs its tasks and
+	// the server wakes the agent.
+	app.attachBackgroundWaker(bgtask.Default())
+	startScheduler(context.Background(), cfg, mgr, log)
 	return app
+}
+
+// startScheduler runs the cron daemon in this console process when the
+// configuration (or --scheduler) asks for it. A scheduled run is a child of
+// its job session through the manager, which is why it starts only once the
+// manager exists; a binary built without the scheduler tag does nothing here.
+func startScheduler(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *slog.Logger) {
+	if cfg == nil || mgr == nil || !cfg.SchedulerEffectiveEnabled() {
+		return
+	}
+	scheduler.Start(ctx, scheduler.Options{
+		Cfg: mgr.Cfg, Log: log, ProcessCWD: cfg.Paths.CWD, Mgr: mgr, Pool: bgtask.Default(),
+	})
 }
 
 // newTurnAgent builds the ReAct agent for one local console turn on the
@@ -247,6 +350,15 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 // model catalog, footer, and header follow the file.
 func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.UpdateSender, log *slog.Logger) *agent.Agent {
 	loop := agent.NewAgent(mgr.Cfg(), st, snd, log)
+	// The manager owns child sessions, so a turn on this surface can spawn
+	// subagents like every other surface.
+	loop.SetSubagentRuntime(mgr)
+	// A background subagent outlives this turn; while the console is open it
+	// asks through the same modal. One-shot print mode exits with its turn and
+	// has no console, so its detached children are refused with a reason.
+	if app != nil {
+		loop.SetDetachedPermissionBroker(app)
+	}
 	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := mgr.ReloadConfigForSession(ctx, st)
 		if err == nil && app != nil {
@@ -278,11 +390,14 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 	if err != nil {
 		return nil, err
 	}
-	lateSender := &lateBoundSender{}
-	h.SetServer(lateSender)
 	app := newApp(cfg, h, log, term, themeName, plain)
 	app.remoteURL = h.BaseURL()
-	lateSender.inner = app.Sender()
+	h.SetServer(app.Sender())
+	// A session on the server is shared: this is how the console hears that
+	// someone queued a follow-up onto the turn it is watching from a browser.
+	// The subscription holds a request open, and the run loop's Close hook
+	// (below) is what ends it.
+	h.StartEvents()
 	return app, nil
 }
 
@@ -379,7 +494,15 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		app.populateHeader()
 	}
 
-	return app.Run(ctx)
+	runErr := app.Run(ctx)
+	// The console does not drain the pool: a memory run still persisting
+	// would die with the process. Give it the drain grace, as foxxycode serve
+	// does before it stops the pool.
+	if agent.MemoryRunsInFlight() > 0 {
+		_, _ = fmt.Fprintln(os.Stderr, "finishing the memory subagent of the last turn...")
+		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
+	}
+	return runErr
 }
 
 // isolatedLogger forces log output away from the terminal: exactly one file
@@ -404,11 +527,12 @@ func isolatedLogger(cfg *config.Config, home, level, file string) (*slog.Logger,
 		return nil, nil, fmt.Errorf("log: %w", err)
 	}
 	// The console honours the diagnostics master switch the same way the other entry
-	// points do: debug.enabled (or --debug) forces debug verbosity and turns on raw
+	// points do: debug.enable (or --debug) forces debug verbosity and turns on raw
 	// LLM HTTP capture, which lands in this same log file.
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	return log, closer, nil
 }
 

@@ -14,7 +14,7 @@ is their single source of truth. Codex does not read `.mdc` files on its own, so
 The hook parses `.mdc` frontmatter (`description`, `globs`, `alwaysApply`) directly, so a
 new rule file is picked up with no wiring. It fails open: a malformed rule exits quietly
 instead of blocking an edit. Configuration lives in `.codex/hooks.json`; the full guide,
-including trust, context budget, and debugging, is [docs/codex-hooks.md](../docs/codex-hooks.md).
+including trust, context budget, and debugging, is [docs/contributing/codex-hooks.md](../docs/contributing/codex-hooks.md).
 
 Codex tracks hooks by content hash and skips untrusted ones without a hard error. Run
 `/hooks` once per clone, and again after any edit to `attach_rules.py`. Project-local
@@ -33,14 +33,17 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [architecture.mdc](../.cursor/rules/architecture.mdc) | Go architecture, layers, optional build tags | always |
 | [code-style.mdc](../.cursor/rules/code-style.mdc) | Go formatting, linting, code comments | always |
 | [testing.mdc](../.cursor/rules/testing.mdc) | Go test commands, tags, and conventions | always |
-| [workflow.mdc](../.cursor/rules/workflow.mdc) | BDD/TDD workflow, UI screenshots in the PR, final checks | always |
+| [workflow.mdc](../.cursor/rules/workflow.mdc) | BDD/TDD workflow, UI screenshots in the PR, final checks | Go, documentation and UI edits |
+| [russian-wording.mdc](../.cursor/rules/russian-wording.mdc) | Russian wording: `агентный`, never `агентский` | always |
 | [api-layer.mdc](../.cursor/rules/api-layer.mdc) | HTTP API handlers, OpenAPI, HTTP docs | `external/httpserver/**/*.go` |
 | [core-modules.mdc](../.cursor/rules/core-modules.mdc) | Main `internal/*` package boundaries | `internal/**/*.go` |
 | [gateway.mdc](../.cursor/rules/gateway.mdc) | Messenger gateway: session store, Telegram adapter, Sender streaming, proxy | `external/gateway/**/*.go`, `internal/config/gateway.go` |
 | [implementation-order.mdc](../.cursor/rules/implementation-order.mdc) | Layered implementation order for new behavior | `cmd`, `internal`, `external`, `lib`, `tools` |
 | [ui-spa.mdc](../.cursor/rules/ui-spa.mdc) | Embedded UI source and SPA behavior | `external/ui/**/*` |
 | [ui-verification.mdc](../.cursor/rules/ui-verification.mdc) | UI verification and screenshots | `external/ui/**/*` |
-| [release-changelog.mdc](../.cursor/rules/release-changelog.mdc) | Post-merge version and the user-facing changelogs (IntelliJ + VS Code) | `editors/**`, `**/CHANGELOG.md` |
+| [release-changelog.mdc](../.cursor/rules/release-changelog.mdc) | Post-merge version and the user-facing changelogs (IntelliJ + VS Code) | `editors/**`, `**/CHANGELOG.md`, `**/CHANGELOG.en.md` |
+| [site.mdc](../.cursor/rules/site.mdc) | The website: copy in both languages, baked data, real screenshots, the `docs/` overlay | `site/**`, `.github/workflows/site.yaml` |
+| [upstream-divergences.mdc](../.cursor/rules/upstream-divergences.mdc) | Registry of the decisions where FoxxyCode keeps its own behaviour over upstream coddy-agent; `fork(<id>)` markers | `internal/llm`, `internal/agent`, `internal/config`, `internal/session`, `internal/remote`, `external/httpserver`, `external/gateway`, `external/cli`, `external/memory`, `UPSTREAM_SYNC.md` |
 
 ## Operating rule
 

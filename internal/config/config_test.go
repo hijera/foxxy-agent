@@ -537,7 +537,7 @@ memory:
 		t.Fatal(err)
 	}
 	if cfg.Memory.Enabled {
-		t.Fatal("expected memory.enabled false")
+		t.Fatal("expected memory.enable false")
 	}
 }
 
@@ -616,7 +616,7 @@ agent:
 	}
 	cfg.Scheduler.Enabled = true
 	if !cfg.SchedulerEffectiveEnabled() {
-		t.Fatal("scheduler.enabled should be observable")
+		t.Fatal("scheduler.enable should be observable")
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		t.Fatal(err)
@@ -664,6 +664,205 @@ agent:
 	}
 	if cfg.Models[1].Multimodal {
 		t.Errorf("models[1] (gpt-4o-mini): want multimodal=false (default)")
+	}
+}
+
+func TestHTTPRequestAllowlistJSONRoundTrip(t *testing.T) {
+	// A save from the settings screen goes through the JSON DTO: an allowlist
+	// set in YAML must survive it, or the next request to those hosts asks again.
+	c := &config.Config{Tools: config.Tools{HTTPRequest: config.ToolHTTPRequest{Allowlist: []string{"api.github.com", "http://localhost:8080"}}}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(c), config.Paths{})
+	if got := strings.Join(back.Tools.HTTPRequest.Allowlist, ","); got != "api.github.com,http://localhost:8080" {
+		t.Fatalf("allowlist after the round-trip = %q", got)
+	}
+}
+
+func TestSettingsSaveKeepsWebSearchAndSSHTimeout(t *testing.T) {
+	// PUT /foxxycode/config rebuilds the whole file from the JSON DTO. A key the DTO
+	// does not carry comes back empty, so an unrelated save from the settings
+	// screen used to erase the search engines, the SearXNG address, the Brave key
+	// and the SSH timeout the operator had set. This walks the same path the
+	// handler does: load, DTO, JSON, parse over the live config, render, reload.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := `providers:
+  - name: p
+    type: openai
+models:
+  - model: p/m
+agent:
+  model: p/m
+tools:
+  ssh_connect_timeout: 77
+  websearch:
+    engines: [searxng, brave]
+    engine_timeout_seconds: 5
+    total_timeout_seconds: 12
+    max_concurrent_engines: 2
+    snippet_chars: 200
+    cache_ttl_seconds: -1
+    searxng_url: http://127.0.0.1:8888
+    brave_api_key: BSA-secret
+`
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: path, Home: dir, CWD: dir}
+	live, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(config.ConfigToJSONDTO(live))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.MarshalConfigYAMLForFile(next, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("the saved file does not load: %v\n%s", err, saved)
+	}
+	if got := reloaded.Tools.SSHConnectTimeout; got != 77 {
+		t.Errorf("tools.ssh_connect_timeout after a save = %d, want 77", got)
+	}
+	want := live.Tools.WebSearch
+	if got := reloaded.Tools.WebSearch; !reflect.DeepEqual(got, want) {
+		t.Errorf("tools.websearch after a save = %+v, want %+v\n%s", got, want, saved)
+	}
+}
+
+func TestSettingsSaveKeepsEnvironmentReferences(t *testing.T) {
+	// A key the operator keeps in the environment is written as ${VAR} in
+	// config.yaml, or not written at all. The load expands the reference, so the
+	// config the settings screen saves holds the secret itself; a save that wrote
+	// that value back turned every reference into the key in plain text.
+	t.Setenv("FOXXYCODE_TEST_PROVIDER_KEY", "sk-from-env")
+	t.Setenv("FOXXYCODE_TEST_BRAVE_KEY", "BSA-from-env")
+	t.Setenv(config.WebSearchBraveAPIKeyEnv, "BSA-fallback")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := `providers:
+  - name: p
+    type: openai
+    api_key: "${FOXXYCODE_TEST_PROVIDER_KEY}"
+  - name: q
+    type: openai
+    api_key: ${FOXXYCODE_TEST_PROVIDER_KEY}
+models:
+  - model: p/m
+agent:
+  model: p/m
+tools:
+  websearch:
+    brave_api_key: ${FOXXYCODE_TEST_BRAVE_KEY}
+`
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: path, Home: dir, CWD: dir}
+	save := func(edit func(*config.ConfigJSON)) string {
+		t.Helper()
+		live, err := config.LoadWithPaths(paths)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dto := config.ConfigToJSONDTO(live)
+		if edit != nil {
+			edit(dto)
+		}
+		body, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved, err := config.MarshalConfigYAMLForFile(next, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, saved, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return string(saved)
+	}
+
+	saved := save(nil)
+	for _, secret := range []string{"sk-from-env", "BSA-from-env", "BSA-fallback"} {
+		if strings.Contains(saved, secret) {
+			t.Fatalf("a save wrote the secret %q into config.yaml:\n%s", secret, saved)
+		}
+	}
+	if strings.Count(saved, "${FOXXYCODE_TEST_PROVIDER_KEY}") != 2 || !strings.Contains(saved, "${FOXXYCODE_TEST_BRAVE_KEY}") {
+		t.Fatalf("a save dropped the environment references:\n%s", saved)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Providers[0].APIKey != "sk-from-env" || reloaded.Tools.WebSearch.BraveAPIKey != "BSA-from-env" {
+		t.Fatalf("the references no longer resolve: %+v %+v", reloaded.Providers[0], reloaded.Tools.WebSearch)
+	}
+
+	// A value the operator changed on the settings screen is written as changed.
+	saved = save(func(dto *config.ConfigJSON) { dto.Tools.WebSearch.BraveAPIKey = "BSA-typed-in" })
+	if strings.Contains(saved, "${FOXXYCODE_TEST_BRAVE_KEY}") || !strings.Contains(saved, "BSA-typed-in") {
+		t.Fatalf("an edited key was not written:\n%s", saved)
+	}
+}
+
+func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
+	f := false
+	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
+	dto := config.ConfigToJSONDTO(c)
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if back.Skills.AutoDiscoveryEnabled() {
+		t.Fatal("auto_discovery=false must survive the JSON DTO round-trip")
+	}
+}
+
+func TestApplySkillsAutoDiscoveryFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *bool) {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		v := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Flag not provided → config value untouched (stays nil = default-on).
+	fs, v := newFS(nil)
+	cfg := &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery != nil {
+		t.Fatalf("unset flag must not touch config, got %v", *cfg.Skills.AutoDiscovery)
+	}
+
+	// -skills-auto-discovery=false → overrides to false.
+	fs, v = newFS([]string{"-skills-auto-discovery=false"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=false must disable auto_discovery")
+	}
+
+	// -skills-auto-discovery=true → explicit enable.
+	fs, v = newFS([]string{"-skills-auto-discovery=true"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery == nil || !cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=true must explicitly enable auto_discovery")
 	}
 }
 
@@ -1008,8 +1207,8 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 	if !unset.LLMStallRetryEnabled() {
 		t.Error("stall retry must default to on")
 	}
-	if got := unset.EffectiveLLMStallTimeout(); got != 5*time.Minute {
-		t.Errorf("unset llm_stall_timeout_ms = %v, want 5m", got)
+	if got := unset.EffectiveLLMStreamIdleTimeout(); got != 5*time.Minute {
+		t.Errorf("unset llm_stream_idle_timeout_ms = %v, want 5m", got)
 	}
 	if got := unset.EffectiveLLMStallRetryMaxWait(); got != config.AgentDefaultLLMStallRetryMaxWaitMS*time.Millisecond {
 		t.Errorf("unset llm_stall_retry_max_wait_ms = %v, want 1h", got)
@@ -1028,7 +1227,7 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 	if got := (&config.Agent{LLMStallRetryMaxWaitMS: &zero}).EffectiveLLMStallRetryMaxWait(); got != 0 {
 		t.Errorf("explicit 0 max wait = %v, want 0 (unbounded)", got)
 	}
-	if got := (&config.Agent{LLMStallTimeoutMS: &zero}).EffectiveLLMStallTimeout(); got != 0 {
+	if got := (&config.Agent{LLMStreamIdleTimeoutMS: &zero}).EffectiveLLMStreamIdleTimeout(); got != 0 {
 		t.Errorf("explicit 0 stall timeout = %v, want 0 (guard disabled)", got)
 	}
 
@@ -1044,8 +1243,8 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 // against the provider with no gap at all.
 func TestAgentStallRetryValidation(t *testing.T) {
 	neg := -1
-	if err := (&config.Agent{LLMStallTimeoutMS: &neg}).Validate(); err == nil {
-		t.Error("negative llm_stall_timeout_ms must fail validation")
+	if err := (&config.Agent{LLMStreamIdleTimeoutMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stream_idle_timeout_ms must fail validation")
 	}
 	if err := (&config.Agent{LLMStallRetryMaxWaitMS: &neg}).Validate(); err == nil {
 		t.Error("negative llm_stall_retry_max_wait_ms must fail validation")
@@ -1188,5 +1387,115 @@ logger:
 		if filepath.Clean(tc.got) != filepath.Clean(tc.want) {
 			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+// TestInstructionsDefaultMatchesTheSchema is the guard against the drift this
+// test was written for: the loader, the UI defaults and the embedded schema all
+// have to name the same pair, or a config.yaml validates against a default the
+// binary does not apply.
+func TestInstructionsDefaultMatchesTheSchema(t *testing.T) {
+	want := []string{"AGENTS.md", "DESIGN.md"}
+	assertFiles := func(what string, got []string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s = %v, want %v", what, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s = %v, want %v", what, got, want)
+			}
+		}
+	}
+
+	// An absent key and an explicit empty list are the same thing, as they are
+	// for skills.dirs and hooks.files.
+	for _, tc := range []struct {
+		name  string
+		start config.Instructions
+	}{
+		{"key absent", config.Instructions{}},
+		{"files: []", config.Instructions{Files: []string{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := tc.start
+			c.ApplyDefaults()
+			assertFiles("instructions.files", c.Files)
+		})
+	}
+
+	assertFiles("the loader defaults", config.DocDefaults(config.Paths{Home: filepath.FromSlash("/agent/home")}).Instructions.Files)
+	assertFiles("the UI example config", config.SchemaExampleConfigJSON().Instructions.Files)
+
+	var schema struct {
+		Properties struct {
+			Instructions struct {
+				Properties struct {
+					Files struct {
+						Default []string `json:"default"`
+					} `json:"files"`
+				} `json:"properties"`
+			} `json:"instructions"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(config.ConfigSchemaJSON(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	assertFiles("the embedded schema default", schema.Properties.Instructions.Properties.Files.Default)
+}
+
+// TestAgentModelOptional covers foxxycode-project/foxxycode-agent#336: agent.model is
+// optional, so a Settings save that lists models but leaves the field empty
+// parses and keeps it empty - interactive surfaces pick a model per session,
+// and the unattended paths report a missing model when they resolve one.
+func TestAgentModelOptional(t *testing.T) {
+	paths := config.Paths{Home: t.TempDir(), CWD: t.TempDir()}
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"},{"model":"openai/gpt-5"}]}`
+
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if next.Agent.Model != "" {
+		t.Fatalf("agent.model materialized: %q", next.Agent.Model)
+	}
+	// An explicit value is kept verbatim.
+	body = `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"},{"model":"openai/gpt-5"}],` +
+		`"agent":{"model":"openai/gpt-5"}}`
+	next, err = config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json with explicit model: %v", err)
+	}
+	if got, want := next.Agent.Model, "openai/gpt-5"; got != want {
+		t.Fatalf("explicit agent.model overwritten: got %q want %q", got, want)
+	}
+	// And a name that matches no configured model is still refused.
+	body = `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"}],` +
+		`"agent":{"model":"openai/typo"}}`
+	if _, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil); err == nil ||
+		!strings.Contains(err.Error(), "not found in models list") {
+		t.Fatalf("unknown agent.model: err = %v", err)
+	}
+}
+
+// The file path accepts the same optional shape: a hand-edited config.yaml
+// with models but no agent.model loads, and a bad name is still refused.
+func TestLoadAgentModelOptional(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\n"
+	if err := os.WriteFile(path, []byte(yml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load without agent.model: %v", err)
+	}
+	if cfg.Agent.Model != "" {
+		t.Fatalf("agent.model materialized: %q", cfg.Agent.Model)
 	}
 }

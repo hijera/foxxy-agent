@@ -32,7 +32,7 @@ func Start(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *s
 	}
 
 	if len(adapters) == 0 {
-		log.Warn("gateway: no adapters enabled; set gateways.telegram.enabled: true in config")
+		log.Warn("gateway: no adapters enabled; set gateways.telegram.enable: true in config")
 		return
 	}
 

@@ -62,10 +62,10 @@ func (s *pluginFeatureState) close() {
 		s.srv.Drain()
 		s.srv = nil
 	}
+	// Only a home this scenario saved is put back: TestMain always sets one,
+	// so an empty value means the scenario never changed it.
 	if s.prevHOME != "" {
 		_ = os.Setenv("FOXXYCODE_HOME", s.prevHOME)
-	} else {
-		_ = os.Unsetenv("FOXXYCODE_HOME")
 	}
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
@@ -235,6 +235,7 @@ func TestPluginCommandFeature(t *testing.T) {
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
+	offlineSystemSources(t)
 	suite := godog.TestSuite{
 		Name:                "plugin_command",
 		ScenarioInitializer: initializePluginScenario,

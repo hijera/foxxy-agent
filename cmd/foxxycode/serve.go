@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,15 +17,13 @@ import (
 	"github.com/hijera/foxxycode-agent/external/httpserver"
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/external/swarm"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/serve"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
-
-// httpTokenEnvVar is where the HTTP API looks for its bearer credential when no
-// flag carries one, so a token need not be written into config.yaml.
-const httpTokenEnvVar = "FOXXYCODE_HTTP_TOKEN"
 
 // runServe implements `foxxycode serve`: one process running every subsystem the
 // configuration enables.
@@ -34,17 +33,27 @@ const httpTokenEnvVar = "FOXXYCODE_HTTP_TOKEN"
 // over one sessions directory and no way to watch a chat conversation from a
 // browser. Here they are goroutines sharing one manager, and turning one on is
 // a line of YAML.
+// serveVerbList names the verbs runServe dispatches on, for the error that
+// refuses a word it does not know.
+const serveVerbList = "install, uninstall, status, stop, restart, set-password"
+
 func runServe(args []string) error {
 	// The control verbs come before the flag set, because they are about a
 	// daemon that is already running and share none of its options.
 	if len(args) > 0 {
 		switch args[0] {
+		case "install":
+			return runServeInstall(args[1:])
+		case "uninstall":
+			return runServeUninstall(args[1:])
 		case "status":
 			return runServeStatus(args[1:])
 		case "stop":
 			return runServeStop(args[1:])
 		case "restart":
 			return runServeRestart(args[1:])
+		case "set-password":
+			return runServeSetPassword(args[1:])
 		}
 	}
 
@@ -64,7 +73,7 @@ func runServe(args []string) error {
 	port := fs.String("P", "", "listen port for the HTTP API (default httpserver.port, else 12345)")
 	fs.StringVar(host, "host", "", "alias of -H")
 	fs.StringVar(port, "port", "", "alias of -P")
-	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* (else "+httpTokenEnvVar+", else httpserver.auth_token). Empty = no auth")
+	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* (else "+httpserver.TokenEnvVar+", else httpserver.auth_token). Empty = no auth")
 
 	swarmHost := fs.String("swarm-host", "", "bind address for the swarm relay (default swarm.host, else 0.0.0.0)")
 	swarmPort := fs.String("swarm-port", "", "listen port for the swarm relay (default swarm.port, else 12346)")
@@ -72,16 +81,18 @@ func runServe(args []string) error {
 	swarmPairing := fs.String("swarm-pairing-token", "", "credential nodes must present to register (else "+swarm.PairingEnvVar+", else swarm.pairing_tokens)")
 	swarmInsecure := fs.Bool("swarm-allow-insecure", false, "permit binding the relay off loopback without a client token")
 
-	httpOn := fs.Bool("http", true, "run the HTTP API in this process; overrides httpserver.enabled")
-	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enabled")
-	swarmOn := fs.Bool("swarm", false, "run the swarm relay; overrides swarm.enabled")
-	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enabled")
+	httpOn := fs.Bool("http", true, "run the HTTP API in this process; overrides httpserver.enable")
+	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enable")
+	swarmOn := fs.Bool("swarm", false, "run the swarm relay; overrides swarm.enable")
+	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enable")
 
 	daemon := fs.Bool("daemon", false, "run in the background under a dispatcher that restarts the process if it dies (see `foxxycode serve status|stop|restart`)")
 	fs.BoolVar(daemon, "d", false, "alias of --daemon")
 
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of serve (runs every subsystem enabled in config.yaml):\n")
@@ -93,11 +104,23 @@ func runServe(args []string) error {
 		}
 		return err
 	}
+	// serve takes no positional arguments, so a word here is a verb that does
+	// not exist - a typo, or one a release renamed. Starting a server in the
+	// foreground over it would be the worst possible reading.
+	if fs.NArg() > 0 {
+		return fmt.Errorf("foxxycode serve: unknown verb %q (the verbs are %s; serve itself takes flags only)", fs.Arg(0), serveVerbList)
+	}
 
 	cli := config.CLIPaths{
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*serveCWD),
 		Config: strings.TrimSpace(*cfgPath),
+	}
+	// A config check reports on the file and leaves: nothing is created under
+	// the home and no subsystem starts. Next to --dry-run it asks for the full
+	// report instead of the problems-only one.
+	if *testConfig && !*dryRun {
+		return runConfigTest(cli)
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {
@@ -106,7 +129,7 @@ func runServe(args []string) error {
 	if err := serve.EnsureHomeLayout(paths.Home); err != nil {
 		return err
 	}
-	cfg, err := config.LoadFromCLI(cli)
+	cfg, err := loadRunConfig(cli)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -180,10 +203,15 @@ func runServe(args []string) error {
 	swarmListenAddr := func(c *config.Config) string {
 		return net.JoinHostPort(c.Swarm.Host, firstNonEmpty(strings.TrimSpace(*swarmPort), strconv.Itoa(c.Swarm.EffectivePort())))
 	}
+	// A dry run resolves the subsystems and their addresses as a start would,
+	// probes them together with everything the file names, and leaves.
+	if *dryRun {
+		return runServeDryRun(cli, *testConfig, applyProcessOverrides, httpListenAddr, swarmListenAddr)
+	}
 	httpAddr := httpListenAddr(cfg)
 	swarmAddr := swarmListenAddr(cfg)
 
-	httpTokens := outOfBandTokens(*authToken, httpTokenEnvVar)
+	httpTokens := outOfBandTokens(*authToken, httpserver.TokenEnvVar)
 
 	rt := &serve.Runtime{}
 	all := subsystems(rt, subsystemDeps{
@@ -193,6 +221,7 @@ func runServe(args []string) error {
 		swarmListenAddr: swarmListenAddr,
 		home:            paths.Home,
 		httpAuthTokens:  httpTokens,
+		httpLogin:       outOfBandLogin(),
 		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
 	})
 	// Resolve is the pre-flight: it refuses a configuration this binary cannot
@@ -217,6 +246,15 @@ func runServe(args []string) error {
 		defer stop()
 		return serve.RunDispatcher(ctx, daemonOpts)
 	case *daemon:
+		if hint, active := serviceHint(); hint != "" {
+			// Over the same agent home both would bind the same listeners,
+			// and the worker that loses would be restarted forever. Another
+			// home may well listen elsewhere, so that one is only warned.
+			if active && filepath.Clean(paths.Home) == serve.ServiceAgentHome() {
+				return fmt.Errorf("%s; it serves %s already, so a daemon there would only fight it for the port", hint, paths.Home)
+			}
+			fmt.Fprintf(os.Stderr, "warning: %s\n", hint)
+		}
 		rec, err := serve.StartDetached(daemonOpts)
 		if err != nil {
 			return err
@@ -244,7 +282,7 @@ func runServe(args []string) error {
 	}
 
 	log.Info("starting foxxycode serve", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
-	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0)
+	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -297,9 +335,13 @@ func runServe(args []string) error {
 	// over a configuration change. In the foreground the operator is the only
 	// one who would bring it back, so they are told instead.
 	sup.Restartable = serve.Supervised()
+	// The role is this process's, not its children's: a `foxxycode serve` the
+	// agent starts from a tool call must not believe a dispatcher or systemd
+	// will bring it back.
+	_ = os.Unsetenv(serve.EnvRole)
 	err = sup.Run(ctx, cfg, reloads)
 	if errors.Is(err, serve.ErrRestartRequested) {
-		log.Info("exiting so the dispatcher can start a process with the new listen settings")
+		log.Info("exiting so the dispatcher or the service manager can start a process with the new listen settings")
 		return serve.ExitCodeError{Code: serve.ExitRestart, Err: err}
 	}
 	return err
@@ -316,7 +358,12 @@ func runServe(args []string) error {
 func typedServeFlags(fs *flag.FlagSet) []string {
 	var out []string
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "d" || f.Name == "daemon" {
+		switch f.Name {
+		case "d", "daemon":
+			return
+		// One-shot checks: a daemon restarted with these would report and exit
+		// instead of serving.
+		case config.CheckFlagName, config.CheckFlagShort, dryrun.FlagName:
 			return
 		}
 		out = append(out, "-"+f.Name+"="+f.Value.String())
@@ -346,6 +393,28 @@ func applySubsystemFlags(fs *flag.FlagSet, cfg *config.Config, f subsystemFlags)
 	})
 }
 
+// httpAuthSummary names the credentials the API will accept, because "no auth"
+// next to an address on a network is the line an operator needs to read, and a
+// server closed with only one of the two is a thing worth being able to see.
+func httpAuthSummary(cfg *config.Config, extraAuth, extraLogin bool) string {
+	token := extraAuth || len(cfg.HTTPServer.EffectiveAuthTokens()) > 0
+	// An `enabled: true` with no account behind it is not a sign-in: the server
+	// refuses to start on it, and announcing one here would be the last thing
+	// the operator read before that error.
+	login := !cfg.HTTPServer.Login.IsExplicitlyDisabled() &&
+		(extraLogin || cfg.HTTPServer.Login.HasAccount())
+	switch {
+	case token && login:
+		return "bearer auth, web sign-in"
+	case token:
+		return "bearer auth"
+	case login:
+		return "web sign-in, no token for API clients"
+	default:
+		return "no auth"
+	}
+}
+
 // subsystemDeps are the already-resolved values the descriptors close over.
 type subsystemDeps struct {
 	httpAddr  string
@@ -357,6 +426,7 @@ type subsystemDeps struct {
 	swarmListenAddr func(*config.Config) string
 	home            string
 	httpAuthTokens  []string
+	httpLogin       httpserver.LoginCredentials
 	swarmAuthTokens []string
 }
 
@@ -369,7 +439,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	return []serve.Subsystem{
 		{
 			Kind:      serve.KindHTTP,
-			ConfigKey: "httpserver.enabled",
+			ConfigKey: "httpserver.enable",
 			BuildTag:  "http",
 			Available: httpserver.Available,
 			Enabled:   func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
@@ -380,23 +450,32 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			// settings screen they are typing into.
 			RestartKey: deps.httpListenAddr,
 			Run: func(ctx context.Context) error {
+				// OnServer is called with the live server and then with nil,
+				// both from this instance's goroutine.
+				withdrawPrompts := func() {}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpAddr, ExtraAuthTokens: deps.httpAuthTokens,
+					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
+							withdrawPrompts()
 							return
 						}
 						rt.SetTurnMirror(s)
+						// A detached subagent's prompt is shown in the chat of
+						// its parent session, in the browser and in a console
+						// attached over --remote alike.
+						withdrawPrompts = rt.AddDetachedPermissionApprover(s)
 					},
 				})
 			},
 		},
 		{
 			Kind:      serve.KindGateway,
-			ConfigKey: "gateways.telegram.enabled",
+			ConfigKey: "gateways.telegram.enable",
 			BuildTag:  "gateway",
 			Available: gateway.Available,
 			Enabled:   func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
@@ -407,13 +486,13 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Run: func(ctx context.Context) error {
 				return gateway.Serve(ctx, gateway.Options{
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
-					DefaultCWD: rt.Paths.CWD, Mirror: rt,
+					DefaultCWD: rt.Paths.CWD, Mirror: rt, Prompts: rt, Wakes: rt,
 				})
 			},
 		},
 		{
 			Kind:       serve.KindSwarm,
-			ConfigKey:  "swarm.enabled",
+			ConfigKey:  "swarm.enable",
 			BuildTag:   "swarm",
 			Available:  swarm.Available,
 			Enabled:    func(c *config.Config) bool { return c.Swarm.Enabled },
@@ -427,7 +506,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 		},
 		{
 			Kind:      serve.KindScheduler,
-			ConfigKey: "scheduler.enabled",
+			ConfigKey: "scheduler.enable",
 			BuildTag:  "scheduler",
 			Available: scheduler.Available,
 			Enabled:   func(c *config.Config) bool { return c.SchedulerEffectiveEnabled() },
@@ -436,7 +515,8 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Fingerprint: schedulerFingerprint,
 			Run: func(ctx context.Context) error {
 				return scheduler.Serve(ctx, scheduler.Options{
-					Cfg: rt.Cfg(), Log: rt.Log, ProcessCWD: rt.Paths.CWD,
+					Cfg: rt.Cfg, Log: rt.Log, ProcessCWD: rt.Paths.CWD,
+					Mgr: rt.Mgr, Pool: bgtask.Default(),
 				})
 			},
 		},
@@ -487,6 +567,19 @@ func needsSessions(enabled []serve.Subsystem) bool {
 
 // outOfBandTokens collects a credential from a flag and then the environment,
 // so it never has to be written into config.yaml.
+// outOfBandLogin reads the web sign-in account from the environment.
+//
+// There is deliberately no flag for it: a password on a command line is in
+// `ps` and in the shell history, which is the same reason --auth-token is
+// steered towards FOXXYCODE_HTTP_TOKEN. $FOXXYCODE_HOME/.env is the intended home, and
+// the config loader has already read that file by the time this runs.
+func outOfBandLogin() httpserver.LoginCredentials {
+	return httpserver.LoginCredentials{
+		User:     strings.TrimSpace(os.Getenv(httpserver.LoginUserEnvVar)),
+		Password: os.Getenv(httpserver.LoginPasswordEnvVar),
+	}
+}
+
 func outOfBandTokens(flagValue, envVar string) []string {
 	var out []string
 	if t := strings.TrimSpace(flagValue); t != "" {
@@ -512,16 +605,13 @@ func firstNonEmpty(values ...string) string {
 // One command that starts a different set of surfaces per config file is only
 // as clear as what it reports, so the reachable addresses and whether the API
 // is open are stated rather than left to be inferred from the logs.
-func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, swarmAddr string, extraAuth bool) {
+func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, swarmAddr string, extraAuth, extraLogin bool) {
 	fmt.Fprintf(os.Stderr, "foxxycode serve %s\n", version.Get())
 	for _, sub := range enabled {
 		switch sub.Kind {
 		case serve.KindHTTP:
-			auth := "no auth"
-			if extraAuth || len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 {
-				auth = "bearer auth"
-			}
-			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr, auth)
+			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr,
+				httpAuthSummary(cfg, extraAuth, extraLogin))
 		case serve.KindSwarm:
 			scheme := "http"
 			if cfg.Swarm.TLS.Enabled() {

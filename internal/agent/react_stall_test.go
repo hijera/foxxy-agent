@@ -220,7 +220,7 @@ func newStallHarness(t *testing.T, provider *stallProvider, tune func(*config.Ag
 		Model:                  "fake/model",
 		MaxTurns:               12,
 		LLMFirstTokenTimeoutMS: &firstToken,
-		LLMStallTimeoutMS:      &stall,
+		LLMStreamIdleTimeoutMS: &stall,
 		LLMStallRetryDelaysMS:  []int{1, 2},
 		LLMStallRetryMaxWaitMS: &maxWait,
 	}
@@ -266,9 +266,12 @@ func (h *stallHarness) assistantMessages() []llm.Message {
 }
 
 // TestSilentProviderIsWaitedOutAndRetried is the reported bug: the model answers
-// nothing, and instead of a red SYSTEM row the turn pauses and tries again.
+// nothing, and instead of a red SYSTEM row the turn pauses and tries again. The
+// first silence is spent on the free immediate re-issue, so the script needs a
+// second one to reach the ladder this test is about.
 func TestSilentProviderIsWaitedOutAndRetried(t *testing.T) {
 	p := &stallProvider{script: []stallBehaviour{
+		{silent: true},
 		{silent: true},
 		{answer: "Here is the answer."},
 	}}
@@ -281,8 +284,8 @@ func TestSilentProviderIsWaitedOutAndRetried(t *testing.T) {
 	if stop != string(acp.StopReasonEndTurn) {
 		t.Errorf("stop reason = %q, want end_turn", stop)
 	}
-	if got := p.callCount(); got != 2 {
-		t.Errorf("provider called %d times, want 2 (one silent, one answering)", got)
+	if got := p.callCount(); got != 3 {
+		t.Errorf("provider called %d times, want 3 (one silent, the free re-issue, one answering)", got)
 	}
 	if got := h.sender.waitingPhases(); got != 1 {
 		t.Errorf("emitted %d waiting phases, want 1", got)
@@ -356,8 +359,52 @@ func TestSilentRetryGivesUpWithinBudget(t *testing.T) {
 	if !strings.Contains(err.Error(), "gave up after 2 retries") {
 		t.Errorf("error = %q, want it to name the retries it spent", err)
 	}
-	if got := p.callCount(); got != 3 {
-		t.Errorf("provider called %d times, want 3 (initial plus two retries)", got)
+	if got := p.callCount(); got != 4 {
+		t.Errorf("provider called %d times, want 4 (initial, the immediate re-issue, plus two waited retries)", got)
+	}
+}
+
+// TestSilentReissueRunsBeforeTheWaitingLadder pins the order of the two
+// recoveries a silent call has. The cheap one goes first and says nothing,
+// because a sick member of a load-balanced group is gone by the next draw and a
+// minute of waiting would buy nothing; the ladder is what a saturated gateway
+// needs, and it is the only one the operator is told about.
+func TestSilentReissueRunsBeforeTheWaitingLadder(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{silent: true},
+		{answer: "Here is the answer."},
+	}}
+	h := newStallHarness(t, p, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := p.callCount(); got != 2 {
+		t.Errorf("provider called %d times, want 2 (one silent, one answering)", got)
+	}
+	if got := h.sender.waitingPhases(); got != 0 {
+		t.Errorf("emitted %d waiting phases, want 0: the free re-issue must not announce a wait", got)
+	}
+	// The replay is the same request, not a nudged one.
+	if len(p.request(2)) != len(p.request(1)) {
+		t.Errorf("the re-issue carried %d messages, the original %d: it must be the identical request",
+			len(p.request(2)), len(p.request(1)))
+	}
+}
+
+// TestSilentReissueObeysTheStallRetrySwitch keeps the free re-issue on the same
+// switch as the ladder it heads: llm_stall_retry off means a call that produced
+// nothing ends the turn, exactly as it did before either recovery existed.
+func TestSilentReissueObeysTheStallRetrySwitch(t *testing.T) {
+	off := false
+	p := &stallProvider{script: []stallBehaviour{{silent: true}, {answer: "Unreachable."}}}
+	h := newStallHarness(t, p, func(c *config.Agent) { c.LLMStallRetry = &off })
+
+	if _, err := h.run(t); err == nil {
+		t.Fatal("expected the turn to fail with the retry switch off")
+	}
+	if got := p.callCount(); got != 1 {
+		t.Errorf("provider called %d times, want 1 with llm_stall_retry off", got)
 	}
 }
 
@@ -469,8 +516,8 @@ func TestStallContinuationIsBounded(t *testing.T) {
 	if !strings.Contains(err.Error(), "stopped sending data mid-answer") {
 		t.Errorf("error = %q, want it to name the provider as the cause", err)
 	}
-	if got := p.callCount(); got != maxStallContinuations+1 {
-		t.Errorf("provider called %d times, want %d", got, maxStallContinuations+1)
+	if got := p.callCount(); got != config.AgentDefaultLLMContinueMax+1 {
+		t.Errorf("provider called %d times, want %d", got, config.AgentDefaultLLMContinueMax+1)
 	}
 	if len(h.assistantMessages()) == 0 {
 		t.Error("the partial answer must survive in the transcript")
@@ -582,20 +629,81 @@ func TestRefusedRequestIsNotRetried(t *testing.T) {
 	}
 }
 
-// TestTransportFailureAfterDeltasIsNotReplayed is the duplication guard. A
-// transport failure mid-stream returns no response at all, yet the deltas it
-// managed to send are already on the user's screen: replaying would show the
-// same text twice.
-func TestTransportFailureAfterDeltasIsNotReplayed(t *testing.T) {
+// TestTransportFailureAfterDeltasIsCarriedOnNotReplayed is the duplication
+// guard. A transport failure mid-stream returns no response at all, yet the
+// deltas it managed to send are already on the user's screen: sending the same
+// request again would show that text twice. Since upstream 1.2.9's provider
+// recovery the turn goes on anyway - but by keeping the text once and asking
+// the model to continue from it, never by replaying the request.
+func TestTransportFailureAfterDeltasIsCarriedOnNotReplayed(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{deltaThenErr: "Half a sentence", err: fmt.Errorf("openai stream: unexpected EOF")},
+		{answer: " and the rest."},
+	}}
+	h := newStallHarness(t, p, func(a *config.Agent) { a.LLMContinueErrorDelaysMS = []int{1} })
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := p.callCount(); got != 2 {
+		t.Fatalf("provider called %d times, want the failed call and one continuation", got)
+	}
+	msgs := h.assistantMessages()
+	if len(msgs) != 2 || msgs[0].Content != "Half a sentence" {
+		t.Fatalf("assistant messages = %+v, want the delivered text kept once, then the rest", msgs)
+	}
+	// The second request carries the kept text and the nudge, so it is not the
+	// first request sent again.
+	second := p.request(2)
+	var sawPartial, nudged bool
+	for _, m := range second {
+		if m.Role == llm.RoleAssistant && m.Content == "Half a sentence" {
+			sawPartial = true
+		}
+		if m.Role == llm.RoleUser && m.Content == providerRecoveryNudge {
+			nudged = true
+		}
+	}
+	if !sawPartial || !nudged {
+		t.Errorf("the continuation was a replay: partial=%v nudge=%v", sawPartial, nudged)
+	}
+}
+
+// A provider failure cut the answer mid-line, and the model carries it on by
+// writing that line again from its start (seen live on NeuralDeep after a
+// connection reset). The kept text stops at the last line end, as the stall
+// path's does, so the line reaches the answer once.
+func TestTransportFailureMidLineKeepsTheTextUpToTheLastLineEnd(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{deltaThenErr: "1. The first point.\n2. The second po", err: fmt.Errorf("openai stream: unexpected EOF")},
+		{answer: "2. The second point, whole.\n3. The third."},
+	}}
+	h := newStallHarness(t, p, func(a *config.Agent) { a.LLMContinueErrorDelaysMS = []int{1} })
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	msgs := h.assistantMessages()
+	if len(msgs) != 2 || msgs[0].Content != "1. The first point.\n" {
+		t.Fatalf("assistant messages = %+v, want the text kept up to its last line end", msgs)
+	}
+	if joined := msgs[0].Content + msgs[1].Content; strings.Count(joined, "2. The second") != 1 {
+		t.Fatalf("answer = %q, want the cut line once", joined)
+	}
+}
+
+// With agent.llm_continue off the same failure ends the turn with the error,
+// and nothing is sent again.
+func TestTransportFailureAfterDeltasEndsTheTurnWithContinueOff(t *testing.T) {
 	p := &stallProvider{script: []stallBehaviour{
 		{deltaThenErr: "Half a sentence", err: fmt.Errorf("openai stream: unexpected EOF")},
 		{answer: "Recovered."},
 	}}
-	h := newStallHarness(t, p, nil)
+	off := false
+	h := newStallHarness(t, p, func(a *config.Agent) { a.LLMContinue = &off })
 
-	_, err := h.run(t)
-	if err == nil {
-		t.Fatal("expected the turn to surface the transport error rather than replay it")
+	if _, err := h.run(t); err == nil {
+		t.Fatal("expected the turn to surface the transport error")
 	}
 	if got := p.callCount(); got != 1 {
 		t.Errorf("provider called %d times, want 1 (delivered output must never be replayed)", got)
@@ -651,8 +759,8 @@ func TestRepeatedRestartTellsTheModelItIsRepeating(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the turn to stop once the continuation budget ran out")
 	}
-	if got := p.callCount(); got != maxStallContinuations+1 {
-		t.Fatalf("provider called %d times, want %d", got, maxStallContinuations+1)
+	if got := p.callCount(); got != config.AgentDefaultLLMContinueMax+1 {
+		t.Fatalf("provider called %d times, want %d", got, config.AgentDefaultLLMContinueMax+1)
 	}
 
 	// The first continuation cannot know it is a repeat yet.

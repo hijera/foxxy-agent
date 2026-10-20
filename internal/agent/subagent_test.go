@@ -137,7 +137,7 @@ func backgroundCommandCall(id, command string, notify bool) llm.ToolCall {
 
 func permParams(title string) acp.PermissionRequestParams {
 	return acp.PermissionRequestParams{
-		SessionID: "sub_child",
+		SessionID: "sess_child",
 		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_1", Title: title, Status: "pending"},
 	}
 }
@@ -249,6 +249,8 @@ type stubBroker struct {
 	requests []DetachedPermissionRequest
 	asked    chan struct{}
 	release  chan *acp.PermissionResult
+	// err is answered instead of waiting when set.
+	err error
 }
 
 func newStubBroker() *stubBroker {
@@ -260,6 +262,9 @@ func (b *stubBroker) RequestDetachedPermission(ctx context.Context, req Detached
 	b.requests = append(b.requests, req)
 	b.mu.Unlock()
 	b.asked <- struct{}{}
+	if b.err != nil {
+		return nil, b.err
+	}
 	select {
 	case res := <-b.release:
 		return res, nil
@@ -315,6 +320,12 @@ func TestPermissionRelayRoutesToTheBrokerOnceTheTurnEnded(t *testing.T) {
 	// and a sibling's live prompt would be stuck behind it.
 	if n := arbiterWaiters(parentID); n != 0 {
 		t.Fatalf("detached wait queued %d relays on the arbiter slot", n)
+	}
+	select {
+	case relay.arbiter.slot <- struct{}{}:
+		<-relay.arbiter.slot
+	default:
+		t.Fatal("the detached wait holds the parent's arbiter slot")
 	}
 	if parent.calls() != 0 {
 		t.Fatalf("the finished turn's transport was touched %d times", parent.calls())
@@ -567,6 +578,9 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 			Content: acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: "thinking hard"}},
 		text("hello wor"),
 		text("ld\nsecond"),
+		// The pending row streamed with the name, then the complete call: one
+		// announcement in the log.
+		start("c1", "read"),
 		start("c1", "read"),
 		status("c1", "in_progress"),
 		status("c1", "completed"),
@@ -577,7 +591,7 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 		text("tail without newline"),
 	}
 	for i, u := range updates {
-		if err := s.SendSessionUpdate("sub_x", u); err != nil {
+		if err := s.SendSessionUpdate("sess_x", u); err != nil {
 			t.Fatalf("update %d: %v", i, err)
 		}
 	}
@@ -602,6 +616,47 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 	s.Flush()
 	if got := out.String(); got != want {
 		t.Fatalf("second Flush changed the sink:\n%q", got)
+	}
+}
+
+// The child's calls are counted as they come: the input every call sent, summed, and
+// the output its turns have generated, the call in flight included through
+// turn_progress. A second turn (a Stop hook follow-up) adds to the first, and every
+// change reaches the task row.
+func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
+	var buf bytes.Buffer
+	s := newSubagentSender(&buf, nil)
+	type usage struct{ in, out int }
+	var seen []usage
+	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+
+	first := "2026-09-18T10:00:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 45, Estimated: true})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1200, OutputTokens: 40, TotalTokens: 1240})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 40})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1300, OutputTokens: 60, TotalTokens: 2600})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 100})
+
+	second := "2026-09-18T10:01:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1500, OutputTokens: 20, TotalTokens: 1520})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 20})
+
+	if len(seen) == 0 {
+		t.Fatal("the task row never heard of the child's usage")
+	}
+	if got := seen[len(seen)-1]; got != (usage{4000, 120}) {
+		t.Fatalf("last usage = %+v, want 4000 in and 120 out", got)
+	}
+	// The opening frame of a turn carries nothing new and is not reported; the
+	// estimate of the call in flight is, while it streams.
+	if seen[0] != (usage{0, 45}) {
+		t.Fatalf("usage while streaming = %+v, want the estimate", seen[0])
+	}
+	// Nothing is written to the task's log for it.
+	if strings.Contains(buf.String(), "1200") {
+		t.Fatalf("usage leaked into the task log: %q", buf.String())
 	}
 }
 
@@ -650,21 +705,21 @@ func parseSubagentEnvelope(t *testing.T, result string) subagentEnvelope {
 
 func TestSubagentForegroundResultEnvelopeSurvivesHostileReport(t *testing.T) {
 	report := "found ]]> inside and a fake </subagent> close tag\nsecond line <![CDATA[ nested"
-	run := &subagentRun{def: &subagents.Definition{Name: "explore"}, childID: "sub_0123", taskID: "bg_7",
+	run := &subagentRun{def: &subagents.Definition{Name: "explore"}, childID: "sess_0123", taskID: "bg_7",
 		report: report, turns: 2, status: "end_turn", startedAt: time.Now()}
 	out := formatForegroundResult(run, bgtask.Snapshot{ID: "bg_7", Status: bgtask.StatusSucceeded})
 
 	env := parseSubagentEnvelope(t, out)
-	if env.Task != "bg_7" || env.Session != "sub_0123" || env.Agent != "explore" || env.Status != "succeeded" || env.Turns != 2 {
+	if env.Task != "bg_7" || env.Session != "sess_0123" || env.Agent != "explore" || env.Status != "succeeded" || env.Turns != 2 {
 		t.Fatalf("envelope attributes = %+v", env)
 	}
 	if strings.TrimSpace(env.Body) != report {
 		t.Fatalf("decoded report = %q, want %q", env.Body, report)
 	}
-	if !strings.HasPrefix(out, `<subagent task="bg_7" session="sub_0123" agent="explore" status="succeeded" turns="2">`+"\n<![CDATA[") {
+	if !strings.HasPrefix(out, `<subagent task="bg_7" session="sess_0123" agent="explore" status="succeeded" turns="2">`+"\n<![CDATA[") {
 		t.Fatalf("envelope head = %q", out)
 	}
-	for _, want := range []string{"The user did not see this report", "session sub_0123"} {
+	for _, want := range []string{"The user did not see this report", "session sess_0123"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("result lacks %q:\n%s", want, out)
 		}
@@ -715,7 +770,7 @@ func TestSubagentForegroundResultStatusLines(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			run := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sub_1", taskID: "bg_1",
+			run := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_1", taskID: "bg_1",
 				report: tc.report, status: tc.runStatus, err: tc.runErr, turns: 1, startedAt: time.Now()}
 			out := formatForegroundResult(run, tc.snap)
 			env := parseSubagentEnvelope(t, out)
@@ -739,10 +794,77 @@ func TestSubagentForegroundResultStatusLines(t *testing.T) {
 	}
 }
 
+func TestSubagentMaxTurnsWithoutFinalAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "max_turns: 1\n")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(toolStep(llm.ToolCall{ID: "unfinished", Name: "read", InputJSON: `{"path":"README.md"}`}))
+	})
+	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, result)
+	if env.Status != "failed" || !strings.Contains(result, "max_turns") {
+		t.Fatalf("unfinished child result = %q, want failed with max_turns reason", result)
+	}
+	if snap := rig.lastAgentTask(); snap.Status != bgtask.StatusFailed || !strings.Contains(snap.Error, "max_turns") {
+		t.Fatalf("unfinished child task = %+v, want failed with max_turns reason", snap)
+	}
+}
+
+// A child that wrote something on the way and then ran out of turns still
+// failed, and the parent is told the text it gets is not a conclusion.
+func TestSubagentMaxTurnsWithPartialTextSaysItIsNotAConclusion(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "max_turns: 1\n")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+			call := llm.ToolCall{ID: "more", Name: "read", InputJSON: `{"path":"README.md"}`}
+			onChunk(llm.StreamChunk{TextDelta: "Let me read the README first."})
+			onChunk(llm.StreamChunk{ToolCall: &call})
+			return &llm.Response{Content: "Let me read the README first.", ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}
+		})
+	})
+	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, result)
+	if env.Status != "failed" || !strings.Contains(result, "before its final answer") || !strings.Contains(result, "not a conclusion") {
+		t.Fatalf("partial child result = %q, want failed with the text marked as not a conclusion", result)
+	}
+}
+
+// silentChildRuntime runs no turn at all: the child's turn "ends" at once,
+// without an error and without a single assistant message.
+type silentChildRuntime struct{ *session.Manager }
+
+func (silentChildRuntime) RunSubagentTurn(context.Context, string, []acp.ContentBlock, acp.UpdateSender) (*acp.SessionPromptResult, error) {
+	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+// A child whose turn ends cleanly without any answer has no report to give:
+// the run fails with that reason instead of passing a placeholder off as a
+// success. The loop's own "model produced no reply" error is a different path.
+func TestSubagentEmptyAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	parent := rig.parentAgent()
+	parent.SetSubagentRuntime(silentChildRuntime{rig.mgr})
+	result, err := parent.spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, result); env.Status != "failed" || !strings.Contains(result, "ended with an error: the subagent produced no final message") {
+		t.Fatalf("empty child answer = %q, want failed with the missing report named", result)
+	}
+}
+
 func TestSubagentReportBlock(t *testing.T) {
-	run := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sub_9", taskID: "bg_2",
+	run := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_9", taskID: "bg_2",
 		status: "failed", err: errors.New("provider exploded"), turns: 3, startedAt: time.Now()}
-	st := &session.State{ID: "sub_9"}
+	st := &session.State{ID: "sess_9"}
 	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "from the transcript"})
 
 	out := formatSubagentReport(run, st)
@@ -750,7 +872,7 @@ func TestSubagentReportBlock(t *testing.T) {
 		t.Fatalf("report head = %q", out)
 	}
 	for _, want := range []string{
-		"agent: general | task: bg_2 | session: sub_9 | outcome: failed | turns: 3 | duration: ",
+		"agent: general | task: bg_2 | session: sess_9 | outcome: failed | turns: 3 | duration: ",
 		"error: provider exploded\n",
 		"--- report ---\nfrom the transcript\n",
 	} {
@@ -759,7 +881,7 @@ func TestSubagentReportBlock(t *testing.T) {
 		}
 	}
 
-	bare := &subagentRun{def: &subagents.Definition{Name: "explore"}, childID: "sub_8", taskID: "bg_3",
+	bare := &subagentRun{def: &subagents.Definition{Name: "explore"}, childID: "sess_8", taskID: "bg_3",
 		status: "end_turn", startedAt: time.Now()}
 	out = formatSubagentReport(bare, nil)
 	if !strings.Contains(out, "--- report ---\n(the subagent produced no final message)\n") {
@@ -781,7 +903,7 @@ func newChildAgentForTest(t *testing.T, cwd string, allowed []string) (*Agent, *
 // so tests can exercise the loop without a manager or a spawn.
 func newChildAgentWithConfig(t *testing.T, cwd string, allowed []string, cfg *config.Config) (*Agent, *session.State, *recordingClient) {
 	t.Helper()
-	st := &session.State{ID: "sub_enforce_" + strings.ReplaceAll(t.Name(), "/", "_"), CWD: cwd, Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	st := &session.State{ID: "sess_enforce_" + strings.ReplaceAll(t.Name(), "/", "_"), CWD: cwd, Mode: session.ModeAgent, SessionDir: t.TempDir()}
 	st.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "tool"}, {Name: "other"}}))
 	st.SetSubagentMeta(session.SubagentMeta{Name: "explore", ParentSessionID: "sess_parent", TaskID: "bg_1", Depth: 1, Tools: allowed})
 	st.SetPermissionMode(config.PermModeBypass)
@@ -1081,15 +1203,22 @@ func (r *subagentRig) taskOutput(taskID string) string {
 	return out
 }
 
+// childBundles names the sessions spawned under the rig's parent. A child
+// bundle lives inside the bundle of the session that spawned it, so this is a
+// look into the parent's own folder, not a scan of the sessions root.
 func (r *subagentRig) childBundles() []string {
 	r.t.Helper()
-	entries, err := os.ReadDir(r.store.Root)
+	dir := filepath.Join(r.store.SessionPath(r.parent.ID), session.ChildSessionsDirName)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		r.t.Fatal(err)
 	}
 	var out []string
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "sub_") {
+		if e.IsDir() {
 			out = append(out, e.Name())
 		}
 	}
@@ -1098,6 +1227,25 @@ func (r *subagentRig) childBundles() []string {
 
 // assertRetired checks the child left the live map (later reads come from the
 // bundle) while its bundle stayed on disk with the link to parentID.
+// childTasks lists a child's tasks the way the HTTP surface does: what the
+// pool still holds plus the records the child's bundle kept. A retired child
+// is released from the pool's memory, so after its run the records are what
+// says what it left behind and how that ended.
+func (r *subagentRig) childTasks(childID string) []bgtask.Snapshot {
+	live := bgtask.Default().List(childID)
+	seen := make(map[string]bool, len(live))
+	out := append([]bgtask.Snapshot(nil), live...)
+	for _, s := range live {
+		seen[s.ID] = true
+	}
+	for _, s := range bgtask.LoadPersisted(r.store.SessionPath(childID)) {
+		if !seen[s.ID] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (r *subagentRig) assertRetired(childID, parentID string) {
 	r.t.Helper()
 	if r.mgr.SessionByID(childID) != nil {
@@ -1211,7 +1359,11 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	}
 
 	// Control: a detached spawn from a root session keeps the flag, so the
-	// foreground case is a decision and not a dropped field.
+	// foreground case is a decision and not a dropped field. The wake is only
+	// promised where something is subscribed to deliver it, which on a surface
+	// is its BackgroundWaker.
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	t.Cleanup(func() { bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil) })
 	bg := spawnReq("reviewer")
 	bg.Background = true
 	bg.NotifyOnFinish = true
@@ -1225,6 +1377,31 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	final := rig.waitTask(rig.lastAgentTask().ID)
 	if !final.NotifyOnFinish {
 		t.Fatalf("background task %s lost notify_on_finish", final.ID)
+	}
+}
+
+// Where nothing is subscribed to wake the agent (foxxycode -p), a detached spawn
+// that asks for notify_on_finish still runs, but the result says nobody will
+// wake the model and the task does not claim a wake it will not get.
+func TestSpawnSubagentWithoutAWakerDoesNotPromiseAWake(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: quiet")) })
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+
+	req := spawnReq("reviewer")
+	req.Background = true
+	req.NotifyOnFinish = true
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatalf("background spawn: %v", err)
+	}
+	if strings.Contains(res, "You will be woken") || !strings.Contains(res, "Nothing will wake you") {
+		t.Fatalf("a spawn with no waker promised a wake:\n%s", res)
+	}
+	final := rig.waitTask(rig.lastAgentTask().ID)
+	if final.NotifyOnFinish {
+		t.Fatalf("task %s claims a wake nothing will deliver", final.ID)
 	}
 }
 
@@ -1299,7 +1476,7 @@ func TestSpawnSubagentDepthGateRemovesSpawnAgentAtTheLimit(t *testing.T) {
 	}
 	// The grandchild's task lives under the middle child's session and settled.
 	var nested []bgtask.Snapshot
-	for _, s := range bgtask.Default().List(middle.ID) {
+	for _, s := range rig.childTasks(middle.ID) {
 		if s.Kind == bgtask.KindAgent {
 			nested = append(nested, s)
 		}
@@ -1441,7 +1618,7 @@ func TestSpawnSubagentDetachedChildOutlivesTheSpawnCall(t *testing.T) {
 		t.Fatal("the detached child never started")
 	}
 	task := rig.lastAgentTask()
-	if task.Status != bgtask.StatusRunning || task.Agent == nil || !strings.HasPrefix(task.Agent.SessionID, "sub_") {
+	if task.Status != bgtask.StatusRunning || task.Agent == nil || task.Agent.SessionID == "" {
 		t.Fatalf("task after the spawn returned = %+v, want running with a child id", task)
 	}
 	if !strings.Contains(res, "Started subagent reviewer as background task "+task.ID) || !strings.Contains(res, task.Agent.SessionID) {
@@ -1552,7 +1729,7 @@ func TestSpawnSubagentChildBackgroundWorkSettlesBeforeRetirement(t *testing.T) {
 		t.Fatalf("envelope = %+v", env)
 	}
 	child := rig.childByDepth(1)
-	left := bgtask.Default().List(child.ID)
+	left := rig.childTasks(child.ID)
 	if len(left) != 1 || left[0].Kind != bgtask.KindCommand || left[0].Command != "sleep 30" {
 		t.Fatalf("child tasks = %+v, want the one sleep", left)
 	}
@@ -1582,7 +1759,7 @@ func TestSpawnSubagentChildBackgroundCommandNeverNotifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := rig.childByDepth(1)
-	left := bgtask.Default().List(child.ID)
+	left := rig.childTasks(child.ID)
 	if len(left) != 1 {
 		t.Fatalf("child tasks = %+v, want one", left)
 	}
@@ -1648,7 +1825,7 @@ func TestSpawnSubagentChildSpawnNeverNotifies(t *testing.T) {
 	}
 	middle := rig.childByDepth(1)
 	var nested []bgtask.Snapshot
-	for _, s := range bgtask.Default().List(middle.ID) {
+	for _, s := range rig.childTasks(middle.ID) {
 		if s.Kind == bgtask.KindAgent {
 			nested = append(nested, s)
 		}
@@ -1727,6 +1904,70 @@ func TestSpawnSubagentChildInheritsTheParentModelUnlessTheDefinitionNamesAConfig
 			}
 			if tc.wantLog == "" && strings.Contains(out, "is not configured") {
 				t.Fatalf("task log carries a fallback note without reason:\n%s", out)
+			}
+		})
+	}
+}
+
+// A scheduled run made under a definition runs at the definition's reasoning
+// level, as a spawn does: the level applies when the run's model offers it, is
+// dropped with a warning when it does not, and "default" is the model's own.
+func TestScheduledRunTakesTheDefinitionsReasoningLevel(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	shallow := []string{"minimal"}
+	// agent.model (fake/model) is not the first row, and the two models share
+	// no level, so a check against the wrong model fails one of the cases.
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models = []config.ModelEntry{
+			{Model: "fake/shallow", MaxTokens: 100, ReasoningLevels: &shallow},
+			{Model: "fake/model", MaxTokens: 100, ReasoningLevels: &levels, ReasoningDefault: "medium"},
+		}
+	})
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
+	for _, tc := range []struct {
+		name, jobModel, reasoning, want string
+	}{
+		{"a level the model offers", "", "high", "high"},
+		{"a level the model does not offer", "", "xhigh", ""},
+		{"the model's own level", "", "default", ""},
+		// The job's model decides which levels there are.
+		{"a level the job's model does not offer", "fake/shallow", "high", ""},
+		{"a level only the job's model offers", "fake/shallow", "minimal", "minimal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def, err := subagents.Parse("nightly.md", []byte("---\ndescription: nightly check\nreasoning: "+tc.reasoning+"\n---\nCheck the build.\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID, err := session.NewSessionID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap, err := RunScheduledJob(context.Background(), rig.cfg, rig.mgr, bgtask.Default(), slog.Default(), ScheduledRunSpec{
+				JobID:         "nightly",
+				JobSessionID:  rig.parent.ID,
+				JobSessionDir: rig.parent.GetPersistedSessionDir(),
+				RunSessionID:  runID,
+				Label:         "nightly (manual)",
+				Trigger:       "manual",
+				CWD:           rig.cwd,
+				Mode:          "agent",
+				Model:         tc.jobModel,
+				Instruction:   "Check the build and report.",
+				Definition:    def,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := bgtask.Default().Wait(context.Background(), rig.parent.ID, snap.ID, 10*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			run, err := rig.store.ReadSnapshot(runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := run.Meta.SelectedReasoning; got != tc.want {
+				t.Fatalf("scheduled run reasoning = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -1999,14 +2240,14 @@ func TestPermissionRelayKeepsTheStricterStampAcrossNestedRelays(t *testing.T) {
 	defer releaseArbiter(parentID)
 	inner := &permissionRelay{
 		parent:              relayAsSender{r: outer},
-		parentSessionID:     "sub_worker",
+		parentSessionID:     "sess_worker",
 		agentName:           "auditor",
 		childPermissionMode: config.PermModeAsk,
 		turnCtx:             turnCtx,
 		childCtx:            turnCtx,
-		arbiter:             acquireArbiter("sub_worker"),
+		arbiter:             acquireArbiter("sess_worker"),
 	}
-	defer releaseArbiter("sub_worker")
+	defer releaseArbiter("sess_worker")
 
 	params := permParams("Run: run_command")
 	params.Options = []acp.PermissionOption{

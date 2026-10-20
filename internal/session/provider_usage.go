@@ -1,7 +1,7 @@
 package session
 
 // Provider usage: the account quota behind a session's model provider,
-// fetched from the provider (today: NeuralDeep GET /v1/limits) and published
+// fetched from the provider's account endpoint and published
 // as acp.ProviderUsageUpdate. The manager owns one cache and one schedule so
 // the console footer, the remote console, the SPA and scripts read the same
 // numbers. Design record: docs/plans/neuraldeep-usage.md.
@@ -193,7 +193,12 @@ func (m *Manager) notifyUsageObservers(sessionID string, u acp.ProviderUsageUpda
 
 // providerUsageSource says whether a provider type has a usage source.
 func providerUsageSource(providerType string) bool {
-	return strings.EqualFold(strings.TrimSpace(providerType), "neuraldeep")
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "neuraldeep", "codex", "devin":
+		return true
+	default:
+		return false
+	}
 }
 
 // providerUsageEnabled says whether a row is read at all: its type has a
@@ -245,7 +250,8 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		}, nil
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -284,7 +290,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		m.usage.mu.Unlock()
 		return &u, nil
 	}
-	done := m.usageStartFetchLocked(prov, authPath, e, "")
+	done := m.usageStartFetchLocked(prov, authPath, cliLogin, e, "")
 	generation := e.generation
 	m.usage.mu.Unlock()
 	return m.usageAwait(ctx, done, prov.Name, generation)
@@ -405,7 +411,8 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 		return
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 	if e.fingerprint != fingerprint {
 		// The credential changed while the refresh waited: the entry and its
 		// numbers describe another account, so the fetch goes into a fresh
@@ -415,7 +422,7 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 		m.usageArmPendingLocked(name, e, at, sessions)
 		return
 	}
-	m.usageStartFetchLocked(prov, authPath, e, "")
+	m.usageStartFetchLocked(prov, authPath, cliLogin, e, "")
 	e.waiters = appendSessions(e.waiters, sessions)
 }
 
@@ -442,7 +449,7 @@ func appendSessions(list []string, ids []string) []string {
 // closed when it ends. The result is stored only when the entry's
 // generation is unchanged, then delivered to the requesting session and to
 // the observers.
-func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath string, e *providerUsageEntry, sessionID string) <-chan struct{} {
+func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath string, cliLogin bool, e *providerUsageEntry, sessionID string) <-chan struct{} {
 	done := make(chan struct{})
 	// Cancel-only: the fetcher bounds its HTTP read itself and the
 	// credential helper keeps its own budget; a logout, a config swap or a
@@ -461,7 +468,7 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 	go func() {
 		defer m.usage.wg.Done()
 		defer cancel()
-		usage, err := llm.NeuralDeepUsageForProvider(ctx, provider, authPath)
+		mapped, err := m.fetchProviderUsage(ctx, provider, authPath, cliLogin)
 		fetchedAt := m.usageNow()
 		m.usage.mu.Lock()
 		if e.generation != generation {
@@ -473,7 +480,6 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 		}
 		e.inflight, e.inflightCancel = nil, nil
 		if err == nil {
-			mapped := mapNeuralDeepUsage(usage, name, fetchedAt)
 			e.update, e.fetchedAt = &mapped, fetchedAt
 			e.unauthorized, e.backoffUntil = false, time.Time{}
 		} else {
@@ -482,8 +488,8 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 		delivered := m.usageDeliverableLocked(e, fetchedAt)
 		// Every session that asked while the fetch ran gets the result: the
 		// one that started it and the ones that joined it, each through the
-		// manager sender and through the observers (foxxycode http listens there
-		// only). A fetch nobody asked for by session reaches the observers
+		// manager sender and through the observers (the HTTP API server listens
+		// there only). A fetch nobody asked for by session reaches the observers
 		// once, unattributed.
 		waiters := e.waiters
 		e.waiters = nil
@@ -525,15 +531,11 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 		base.Stale = true
 	}
 	base.Error, base.RefreshPending, base.RefreshInSec = "", false, 0
-	ue, ok := llm.IsNeuralDeepUsageError(err)
-	kind := ProviderUsageErrorUnavailable
-	if ok {
-		kind = ue.Kind
-	}
+	kind, retryAfter := providerUsageFailure(err)
 	switch kind {
-	case llm.NeuralDeepUsageUnauthorized:
-		// The hub's word is final: numbers read with a key it no longer
-		// honours are not this account's numbers any more.
+	case llm.ProviderUsageUnauthorized:
+		// The upstream's word is final: numbers read with a credential it
+		// no longer honours are not this account's numbers any more.
 		e.unauthorized, e.unauthorizedAt = true, at
 		base = fresh
 		base.Error = ProviderUsageErrorUnauthorized
@@ -543,12 +545,12 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 		base.Blocked = true
 		base.Blockers = []string{providerUsageBlockerUser}
 		base.RetryAt, base.RetryInSec = "", 0
-	case llm.NeuralDeepUsageInvalid:
+	case llm.ProviderUsageInvalid:
 		base.Error = ProviderUsageErrorInvalid
 	default:
 		base.Error = ProviderUsageErrorUnavailable
-		if ok && ue.RetryAfter > 0 {
-			pause := ue.RetryAfter
+		if retryAfter > 0 {
+			pause := retryAfter
 			if pause > providerUsageBackoffCap {
 				pause = providerUsageBackoffCap
 			}
@@ -699,7 +701,8 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -728,7 +731,7 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	default:
-		m.usageStartFetchLocked(prov, authPath, e, sessionID)
+		m.usageStartFetchLocked(prov, authPath, cliLogin, e, sessionID)
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
@@ -753,7 +756,8 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -767,7 +771,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	default:
-		m.usageStartFetchLocked(prov, authPath, e, sessionID)
+		m.usageStartFetchLocked(prov, authPath, cliLogin, e, sessionID)
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {

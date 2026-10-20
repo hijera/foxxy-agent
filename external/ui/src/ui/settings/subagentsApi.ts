@@ -7,6 +7,7 @@
  * server answers for the cwd a new session would get.
  */
 
+import { translate } from "../i18n/i18n";
 import type { SubagentCatalog, SubagentCatalogEntry } from "./subagentCatalog";
 
 export type SubagentApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -33,7 +34,7 @@ export async function fetchSubagentCatalog(
   try {
     res = await fetch(withCwd("/foxxycode/subagents", cwd));
   } catch {
-    return { ok: false, error: "network" };
+    return { ok: false, error: translate("subagents.error.network") };
   }
   if (!res.ok) {
     return { ok: false, error: await errorMessage(res) };
@@ -43,13 +44,13 @@ export async function fetchSubagentCatalog(
     return {
       ok: true,
       data: {
-        items: body.items ?? [],
+        items: Array.isArray(body.items) ? body.items : [],
         workspace: body.workspace ?? "",
         policy: body.policy ?? "ask",
       },
     };
   } catch {
-    return { ok: false, error: "parse" };
+    return { ok: false, error: `HTTP ${res.status}` };
   }
 }
 
@@ -67,7 +68,7 @@ async function postTrust(
       body: JSON.stringify(dir ? { cwd: dir } : {}),
     });
   } catch {
-    return { ok: false, error: "network" };
+    return { ok: false, error: translate("subagents.error.network") };
   }
   if (!res.ok) {
     return { ok: false, error: await errorMessage(res) };

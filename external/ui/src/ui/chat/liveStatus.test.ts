@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import {
   deriveLiveStatus,
   formatElapsedSeconds,
   statusKeyForTool,
+  stepShowsItsOwnClock,
   truncateStatusTarget,
   waitingStatusKey,
 } from "./liveStatus";
@@ -207,19 +208,16 @@ describe("deriveLiveStatus", () => {
   it("reports memory work below tool and thinking", () => {
     const memory: TranscriptItem = {
       id: "m1",
-      type: "memory_copilot",
-      memoryRowId: "m",
-      userTurnIndex: 0,
-      recallStatus: "in_progress",
-      persistStatus: "idle",
-      recallText: "",
-      recallReasoning: "",
-      persistText: "",
-      persistReasoning: "",
-      memoryWallStartedAtMs: 42,
+      type: "memory_run",
+      status: "started",
+      taskId: "bg_1",
+      startedAtMs: 42,
     };
     expect(deriveLiveStatus([user(), memory]).key).toBe("status.memory");
     expect(deriveLiveStatus([user(), memory]).startedAtMs).toBe(42);
+    expect(
+      deriveLiveStatus([user(), { ...memory, status: "finished" }]).key,
+    ).not.toBe("status.memory");
     expect(
       deriveLiveStatus([
         user(),
@@ -227,6 +225,27 @@ describe("deriveLiveStatus", () => {
         { id: "th", type: "thinking", status: "in_progress", content: "" },
       ]).kind,
     ).toBe("thinking");
+  });
+
+  // The dots used to vanish as soon as the turn had written anything, and a turn
+  // that writes its answer is still working: the line says so in general words.
+  it("reports writing while the turn's last row is its answer text", () => {
+    const s = deriveLiveStatus([
+      user(),
+      { id: "a1", type: "assistant_message", content: "The price is", streaming: true },
+    ]);
+    expect(s.kind).toBe("writing");
+    expect(s.key).toBe("status.writing");
+    expect(s.target).toBe("");
+  });
+
+  it("text earlier in the turn does not hide the step running after it", () => {
+    const s = deriveLiveStatus([
+      user(),
+      { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+      tool({ title: "webfetch", argsText: '{"url":"https://foxxycode.dev/"}' }),
+    ]);
+    expect(s.kind).toBe("tool");
   });
 
   it("stops at the turn boundary", () => {
@@ -340,6 +359,7 @@ describe("waitingStatusKey", () => {
 describe("statusKeyForTool", () => {
   it("maps prefixes and exact ids", () => {
     expect(statusKeyForTool("foxxycode_browser_click")).toBe("status.browse");
+    expect(statusKeyForTool("preview_server")).toBe("status.previewServer");
     expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
     expect(statusKeyForTool("foxxycode_todo_write")).toBe("status.plan");
     expect(statusKeyForTool("foxxycode_todo_plan_read")).toBe("status.planRead");
@@ -349,7 +369,10 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("foxxycode_memory_search")).toBe("status.memory");
     expect(statusKeyForTool("config_set")).toBe("status.config");
     expect(statusKeyForTool("svn_commit")).toBe("status.vcs");
+    expect(statusKeyForTool("http_request")).toBe("status.httpRequest");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
+    expect(statusKeyForTool("foxxycode_docs_search")).toBe("status.docsSearch");
+    expect(statusKeyForTool("foxxycode_docs_read")).toBe("status.docsRead");
     expect(statusKeyForTool("")).toBe("status.tool");
   });
 
@@ -435,5 +458,48 @@ describe("waiting for MCP servers", () => {
       mcpConnecting: true,
     });
     expect(status.kind).toBe("reconnecting");
+  });
+});
+
+describe("the turn's start, for a line that has not heard from the server yet", () => {
+  test("is the creation time of the turn's user message, whatever step is running", () => {
+    const createdAtUtc = new Date(Date.now() - 90_000).toISOString();
+    const items: TranscriptItem[] = [
+      { id: "u0", type: "user_message", content: "earlier", createdAtUtc: new Date(Date.now() - 900_000).toISOString() },
+      { id: "a0", type: "assistant_message", content: "earlier answer" },
+      { id: "u1", type: "user_message", content: "go", createdAtUtc },
+      {
+        id: "t1",
+        type: "tool_call",
+        toolCallId: "c1",
+        title: "run_command",
+        status: "in_progress",
+        startedAtMs: Date.now() - 5_000,
+      },
+    ];
+    const status = deriveLiveStatus(items);
+    expect(status.kind).toBe("tool");
+    expect(status.turnStartedAtMs).toBe(Date.parse(createdAtUtc));
+  });
+
+  test("is absent when the message carries no usable time", () => {
+    const items: TranscriptItem[] = [
+      { id: "u1", type: "user_message", content: "go" },
+    ];
+    expect(deriveLiveStatus(items).turnStartedAtMs).toBeUndefined();
+    expect(
+      deriveLiveStatus([
+        { id: "u1", type: "user_message", content: "go", createdAtUtc: new Date(Date.now() + 3_600_000).toISOString() },
+      ]).turnStartedAtMs,
+    ).toBeUndefined();
+  });
+
+  test("only a tool call and the memory run keep a clock of their own", () => {
+    expect(stepShowsItsOwnClock("tool")).toBe(true);
+    expect(stepShowsItsOwnClock("memory")).toBe(true);
+    for (const kind of ["waiting", "thinking", "writing", "permission", "question"] as const) {
+      expect(stepShowsItsOwnClock(kind)).toBe(false);
+    }
+    expect(stepShowsItsOwnClock(undefined)).toBe(false);
   });
 });

@@ -13,6 +13,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
@@ -31,6 +32,13 @@ type turnDone struct {
 	sessionID string
 	stop      string
 	err       error
+	// text and row are what submitPrompt put on screen, kept so a prompt the
+	// server refused as session_busy can be taken back and queued instead.
+	text string
+	row  tui.Component
+	// woken marks the turn a finished background task started: a busy
+	// refusal of it is the waker's to retry, not a failure to report.
+	woken bool
 }
 
 // App is the interactive console application: one UI goroutine over a
@@ -41,10 +49,14 @@ type App struct {
 	// the UI goroutine and other workers keep reading it, hence the atomic.
 	cfgAt atomic.Pointer[config.Config]
 	mgr   backend
-	log   *slog.Logger
+	// settingsVersion is the version of the last settings snapshot shown.
+	settingsVersion uint64
+	log             *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote foxxycode serve server.
 	remoteURL string
+	// completion is the editor's autocomplete; rebuilt with the editor.
+	completion *completionProvider
 	// configOpts is the last adopted session option set (model catalog).
 	configOpts []acp.ConfigOption
 	// toolFullCache and toolFullPending back the async remote ctrl+o expand.
@@ -56,10 +68,12 @@ type App struct {
 	screen *tui.MainScreen
 
 	// UI tree.
-	header     *header
-	chat       *tui.Container
-	status     *tui.Container
-	plan       *planWidget
+	header *header
+	chat   *tui.Container
+	status *tui.Container
+	plan   *planWidget
+	// queue shows the follow-ups waiting for the running turn (queue.go).
+	queue      *queueWidget
 	editorWrap *tui.Container
 	editor     *tui.Editor
 	foot       *footer
@@ -77,18 +91,38 @@ type App struct {
 	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
-	switching     bool
-	pendingSwitch func()
-	readyPending  string
-	lastCtrlC     time.Time
-	expanded      bool
-	hideThink     bool
-	themeName     string
-	plain         bool
+	// The running turn's own numbers, which lead the status line (status.go): when it
+	// started, the tokens the model has generated in it (acp.TurnProgressUpdate) and
+	// the background tasks running right now (tasks.go).
+	turnStartedAt time.Time
+	turnTokens    int
+	runningTasks  int
+	// tasks is the last read of the session's background tasks, newest first;
+	// tasksReading says a read is in flight and tasksTimer stops the armed poll.
+	tasks        []bgtask.Snapshot
+	tasksReading bool
+	tasksTimer   func() bool
+	// Output reads of the task open in /tasks: taskOutputSeq numbers them,
+	// taskOutputApplied is the number of the answer on screen - an older answer that
+	// arrives after it is dropped - and taskOutputInflight counts the reads not yet
+	// answered, so the poll does not queue more behind a slow server.
+	taskOutputSeq      int
+	taskOutputApplied  int
+	taskOutputInflight int
+	// Remote activity drives Stop/queue but never owns or releases our worker.
+	remoteTurnActive       bool
+	remoteActivityRevision uint64
+	switching              bool
+	pendingSwitch          func()
+	readyPending           string
+	lastCtrlC              time.Time
+	expanded               bool
+	hideThink              bool
+	themeName              string
+	plain                  bool
 
 	// Streaming state.
 	curAssistant *assistantMessage
-	curMemory    *assistantMessage
 	toolBoxes    map[string]*toolBox
 	lastToolID   string
 
@@ -96,9 +130,17 @@ type App struct {
 	modeID    string
 	// modes is the catalogue the agent advertises; the fork ships more than the
 	// two profiles upstream assumes, so the selector is data-driven.
-	modes     []acp.SessionMode
-	modelID   string
+	modes   []acp.SessionMode
+	modelID string
+
+	// wakesHeld remembers the wakes of other sessions the operator has been
+	// told about (background.go), so a held wake is announced once.
+	wakesHeld map[string]bool
 	reasoning string
+	// reasoningMu serializes backend updates without blocking the UI goroutine
+	// while an earlier update is in flight.
+	reasoningMu   sync.Mutex
+	reasoningTail chan struct{}
 
 	// Provider usage on the status bar (usage.go): the reset timer, the
 	// notices already shown, the follow-up armed after a passed reset, and
@@ -126,6 +168,12 @@ type App struct {
 	workStop  context.CancelFunc
 
 	modal tui.Component
+	// gateCtx is the context of the asker behind the permission or question
+	// modal on screen, gateStop the watch that takes it down when that asker
+	// gives up, and gates the ones waiting behind it (gates.go).
+	gateCtx  context.Context
+	gateStop func() bool
+	gates    []pendingGate
 
 	mdTheme tui.MarkdownTheme
 
@@ -203,6 +251,7 @@ func (a *App) buildTree() {
 	a.chat = &tui.Container{}
 	a.status = &tui.Container{}
 	a.plan = newPlanWidget(a.theme)
+	a.queue = newQueueWidget(a.theme)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnChange = a.onEditorChange
@@ -215,12 +264,56 @@ func (a *App) buildTree() {
 	root.AddChild(a.chat)
 	root.AddChild(a.status)
 	root.AddChild(a.plan)
+	root.AddChild(a.queue)
 	root.AddChild(a.editorWrap)
 	root.AddChild(a.foot)
 	a.screen.SetFocus(a.editor)
 
-	provider := newCompletionProvider(a.config().Paths.CWD, a.slashCatalog)
-	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
+	a.editor.SetAutocomplete(a.newCompletion(), selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 40}, a.screen.RequestRender)
+}
+
+// mentionConsoleWait is how long the console waits for the first index of a
+// workspace before it shows what it has; the list fills in when the build
+// lands (completionProvider.watchIndex).
+const mentionConsoleWait = 150 * time.Millisecond
+
+// newCompletion builds the editor's autocomplete: the slash catalog, and the
+// "@" search of the session the draft belongs to, asked in-process or, in
+// remote mode, of the server that runs the session.
+func (a *App) newCompletion() *completionProvider {
+	if a.completion != nil {
+		a.completion.Close()
+	}
+	search := func(ctx context.Context, query string, refresh bool) (session.MentionSearchResult, error) {
+		return a.mgr.SearchMentions(ctx, session.MentionSearch{
+			SessionID: a.sessionID,
+			CWD:       a.config().Paths.CWD,
+			Query:     query,
+			Limit:     mentionListLimit,
+			Refresh:   refresh,
+			Wait:      mentionConsoleWait,
+		})
+	}
+	p := newCompletionProvider(a.slashCatalog, search, a.remoteURL != "")
+	p.watchIndex(a.postUI, func() {
+		if a.editor != nil {
+			a.editor.RefreshAutocomplete()
+			a.screen.RequestRender()
+		}
+	})
+	a.completion = p
+	return p
+}
+
+// uiCall is work posted to the UI loop from another goroutine.
+type uiCall func()
+
+// postUI runs fn on the UI loop.
+func (a *App) postUI(fn func()) {
+	select {
+	case a.updatesCh <- updateMsg{update: uiCall(fn)}:
+	case <-a.closed:
+	}
 }
 
 // Start begins a session (new or pinned) and populates the header.
@@ -241,6 +334,12 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 			return fmt.Errorf("session/new: %w", err)
 		}
 		a.adoptSession(res.SessionID, res.Modes, res.ConfigOptions)
+		// A pinned id may reopen a persisted bundle (its saved model then
+		// arrives in the adopted options); only a session minted now gets the
+		// console's initial pick.
+		if sessionID == "" {
+			a.applyInitialModel(res)
+		}
 		// Ready (slash catalog + deferred replay for reopened bundles) fires
 		// once the UI loop is draining updates, so a large replay can never
 		// fill the channel while nothing consumes it.
@@ -281,7 +380,20 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 }
 
 func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOption) {
+	switched := id != a.sessionID
+	if switched {
+		a.remoteTurnActive, a.remoteActivityRevision = false, 0
+		a.queue.Reset()
+	}
 	a.sessionID = id
+	if switched {
+		// The tasks on screen were the other session's, and so were the turn's clock
+		// and tokens. The next turn_progress the console hears restores both from the
+		// server's figures (applyTurnProgress), so nothing is lost by dropping them,
+		// and the line never pairs one session's clock with another's tokens.
+		a.resetTasks()
+		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+	}
 	a.reasoning = ""
 	if modes != nil {
 		a.modeID = modes.CurrentModeID
@@ -292,21 +404,27 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		if opt.ID == "model" {
 			a.modelID = opt.CurrentValue
 		}
+		if opt.ID == "reasoning" {
+			a.reasoning = opt.CurrentValue
+		}
 	}
 	if a.modelID == "" {
 		a.modelID = a.config().Agent.Model
+	}
+	if a.modelID == "" {
+		// agent.model is optional: an interactive console picks a model the
+		// same way the web composer does - the first configured row.
+		a.modelID = a.config().FirstModelID()
 	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 }
 
 func (a *App) refreshFooterModel() {
-	reasoning := a.reasoning
-	if reasoning == "" {
-		if st := a.mgr.SessionByID(a.sessionID); st != nil {
-			reasoning = st.EffectiveReasoning(a.config())
-		}
+	if opt := a.reasoningOption(); opt != nil {
+		a.reasoning = opt.CurrentValue
 	}
+	reasoning := a.currentReasoning()
 	if reasoning == "" {
 		if entry := a.config().FindModelEntry(a.modelID); entry != nil {
 			reasoning = entry.ReasoningDefault
@@ -402,6 +520,7 @@ func (a *App) Close() {
 		a.workStop()
 		a.stopUsageTimer()
 		a.stopUsageResume()
+		a.stopTasksPoll()
 	})
 }
 
@@ -516,9 +635,13 @@ func (a *App) handleGlobalKey(data []byte) bool {
 			a.stopLocalShell()
 			return true
 		}
-		if a.turnActive {
+		if a.remoteTurnActive || (a.turnActive && a.turnSessionID == a.sessionID) {
 			a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: a.sessionID})
-			a.appendStatus(roleWarning, "Interrupted by escape")
+			if a.remoteURL != "" {
+				a.appendStatus(roleDim, "Requesting stop…")
+			} else {
+				a.appendStatus(roleWarning, "Interrupted by escape")
+			}
 			return true
 		}
 		return false
@@ -542,6 +665,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 		return false
 	case "ctrl+l":
 		a.openModelSelector()
+		return true
+	case "f1":
+		a.openDocsOverlay("")
 		return true
 	case "ctrl+p":
 		a.cycleModel(1)
@@ -601,32 +727,38 @@ func (a *App) closeModal() {
 	// The gate is answered; the status line goes back to the gated step itself
 	// (an approved tool only starts executing now, so its clock restarts too).
 	a.unblockStatus()
+	a.releaseGate()
 	a.modal = nil
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(a.editor)
 	a.screen.SetFocus(a.editor)
+	a.openNextGate()
 }
 
 func (a *App) openPermissionModal(req permRequest) {
-	a.blockStatus("Waiting for your approval")
-	m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
-	m.OnDone = func(res *acp.PermissionResult) {
-		req.reply <- res
-		a.closeModal()
-		a.screen.RequestRender()
-	}
-	a.openModal(m)
+	a.showGate(req.ctx, func() {
+		a.blockStatus("Waiting for your approval")
+		m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
+		m.OnDone = func(res *acp.PermissionResult) {
+			req.reply <- res
+			a.closeModal()
+			a.screen.RequestRender()
+		}
+		a.openModal(m)
+	})
 }
 
 func (a *App) openQuestionModal(req questRequest) {
-	a.blockStatus("Waiting for your answer")
-	m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
-	m.OnDone = func(res *acp.QuestionResult) {
-		req.reply <- res
-		a.closeModal()
-		a.screen.RequestRender()
-	}
-	a.openModal(m)
+	a.showGate(req.ctx, func() {
+		a.blockStatus("Waiting for your answer")
+		m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
+		m.OnDone = func(res *acp.QuestionResult) {
+			req.reply <- res
+			a.closeModal()
+			a.screen.RequestRender()
+		}
+		a.openModal(m)
+	})
 }
 
 // --- submit / turn ---
@@ -647,36 +779,62 @@ func (a *App) onSubmit(text string) {
 }
 
 func (a *App) submitPrompt(text string) {
-	if a.turnActive {
-		a.appendStatus(roleWarning, "A turn is already running (escape to interrupt)")
+	if a.turnActive || a.remoteTurnActive {
+		// The moment an operator knows most about what the agent should do next
+		// is while it is working, so a second prompt joins the queue the turn
+		// reads at its next step instead of being refused (queue.go).
+		a.enqueuePrompt(text)
 		return
 	}
 	if a.shellActive {
 		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
 		return
 	}
-	a.chat.AddChild(newUserMessage(a.theme, text))
+	row := newUserMessage(a.theme, text)
+	a.chat.AddChild(row)
+	a.startTurnWorker(acp.SessionPromptParams{
+		SessionID: a.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+	}, nil, nil, text, row)
+}
+
+// startTurnWorker runs one prompt on the manager and posts turnDone when it
+// returns. The caller has already rendered whatever announces the turn; this
+// owns the shared turn state, which is why it runs on the UI goroutine.
+//
+// done, when non-nil, also receives the turn's error once turnDone is posted: a
+// background wake waits on it (background.go), so the waker starts at most one
+// turn at a time and hears a busy session as busy.
+func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error, text string, row tui.Component) {
+	if a.remoteURL == "" {
+		a.setQueueRows(nil)
+	}
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
+	a.turnStartedAt = time.Now()
+	a.turnTokens = 0
 	a.startSpinner()
 	a.turnActive = true
-	sessionID := a.sessionID
+	// A running turn is when tasks appear: read them on the fast cadence.
+	a.armTasksPoll()
+	sessionID := params.SessionID
 	a.turnSessionID = sessionID
+	woken := opts != nil && opts.BackgroundWake != nil
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, acp.SessionPromptParams{
-			SessionID: sessionID,
-			Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-		}, a.Sender(), nil)
+		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, params, a.Sender(), opts)
 		stop := ""
 		if res != nil {
 			stop = string(res.StopReason)
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, text: text, row: row, woken: woken}}:
 		case <-a.closed:
+		}
+		if done != nil {
+			done <- err
 		}
 	}()
 }
@@ -764,7 +922,14 @@ func (a *App) openModelSelector() {
 
 func (a *App) setModel(id string) {
 	sessionID := a.sessionID
+	// Remember the pick immediately: the next /new may arrive before the
+	// worker below finishes, so the console-state file must already say it.
+	a.rememberModel(id)
+	// A worker: the change is written to session.json, and JoinWorkers lets
+	// that write finish before the process exits.
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 			SessionID: sessionID, ConfigID: "model", Value: id,
 		}); err != nil {
@@ -809,27 +974,117 @@ func (a *App) cycleModel(dir int) {
 }
 
 func (a *App) cycleReasoning() {
-	entry := a.config().FindModelEntry(a.modelID)
-	// Cycle the levels the model actually offers, not just a configured override:
-	// ReasoningLevelsFor is the same resolved, provider-aware list the composer and
-	// GET /v1/models expose, so shift+tab works for auto-detected reasoning models too.
-	levels := a.config().ReasoningLevelsFor(entry)
-	if entry == nil || len(levels) == 0 {
+	if a.busyWithLocalShell() {
 		return
 	}
+	levels := a.reasoningLevels()
+	if len(levels) == 0 {
+		return
+	}
+	current := a.currentReasoning()
 	cur := -1
 	for i, l := range levels {
-		if l == a.reasoning {
+		if l == current {
 			cur = i
 			break
 		}
 	}
 	next := levels[(cur+1+len(levels))%len(levels)]
-	a.reasoning = next
-	if st := a.mgr.SessionByID(a.sessionID); st != nil {
-		st.SetSelectedReasoning(next)
+	a.setReasoning(next)
+}
+
+func (a *App) reasoningOption() *acp.ConfigOption {
+	for i := range a.configOpts {
+		if a.configOpts[i].ID == "reasoning" {
+			return &a.configOpts[i]
+		}
 	}
-	a.refreshFooterModel()
+	return nil
+}
+
+func (a *App) reasoningLevels() []string {
+	if opt := a.reasoningOption(); opt != nil {
+		levels := make([]string, 0, len(opt.Options))
+		for _, option := range opt.Options {
+			levels = append(levels, option.Value)
+		}
+		return levels
+	}
+	if entry := a.config().FindModelEntry(a.modelID); entry != nil {
+		return a.config().ReasoningLevelsFor(entry)
+	}
+	return nil
+}
+
+func (a *App) currentReasoning() string {
+	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+		return st.EffectiveReasoning(a.config())
+	}
+	if opt := a.reasoningOption(); opt != nil {
+		return opt.CurrentValue
+	}
+	return a.reasoning
+}
+
+func (a *App) openReasoningSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
+	levels := a.reasoningLevels()
+	if len(levels) == 0 {
+		a.appendStatus(roleDim, "No reasoning levels are available for this model")
+		return
+	}
+	items := make([]tui.SelectItem, 0, len(levels))
+	current := a.currentReasoning()
+	selected := 0
+	for i, level := range levels {
+		items = append(items, tui.SelectItem{Value: level, Label: tui.SanitizeText(level)})
+		if level == current {
+			selected = i
+		}
+	}
+	sel := newSelectorModal(a.theme, "Select reasoning", items, 10, a.screen.RequestRender)
+	sel.list.SetSelectedIndex(selected)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		a.setReasoning(item.Value)
+	}
+	a.openModal(sel)
+}
+
+func (a *App) setReasoning(level string) {
+	if a.busyWithLocalShell() {
+		return
+	}
+	sessionID := a.sessionID
+	levels := append([]string(nil), a.reasoningLevels()...)
+	a.reasoningMu.Lock()
+	previous := a.reasoningTail
+	done := make(chan struct{})
+	a.reasoningTail = done
+	a.reasoningMu.Unlock()
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		if previous != nil {
+			<-previous
+		}
+		defer close(done)
+		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+			SessionID: sessionID, ConfigID: "reasoning", Value: level,
+		}); err != nil {
+			message := "reasoning: " + err.Error()
+			if len(levels) > 0 {
+				message += "; Valid levels: " + strings.Join(levels, ", ")
+			}
+			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: message})
+		}
+	}()
 }
 
 func (a *App) toggleExpanded() {
@@ -900,6 +1155,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 			return fmt.Errorf("session/new: %w", err)
 		}
 		a.adoptSession(newRes.SessionID, newRes.Modes, newRes.ConfigOptions)
+		a.applyInitialModel(newRes)
 		go a.mgr.HandleSessionReady(newRes.SessionID)
 		return nil
 	}
@@ -937,6 +1193,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 					return fmt.Errorf("session/new: %w", err)
 				}
 				a.adoptSession(newRes.SessionID, newRes.Modes, newRes.ConfigOptions)
+				a.applyInitialModel(newRes)
 				go a.mgr.HandleSessionReady(newRes.SessionID)
 				return nil
 			}
@@ -1021,6 +1278,8 @@ func (a *App) onEditorChange(string) {
 }
 
 func (a *App) resetTranscript() {
+	a.remoteTurnActive, a.remoteActivityRevision = false, 0
+	a.queue.Reset()
 	a.chat.Clear()
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
@@ -1028,7 +1287,6 @@ func (a *App) resetTranscript() {
 	a.toolFullCache = map[string]string{}
 	a.toolFullPending = map[string]bool{}
 	a.curAssistant = nil
-	a.curMemory = nil
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 }
@@ -1071,6 +1329,7 @@ func (a *App) startNewSessionWorker(old string) {
 			_ = a.Sender().SendSessionUpdate(old, statusErr{msg: "new session: " + err.Error(), always: true})
 			return
 		}
+		a.applyInitialModel(res)
 		if old != "" && old != res.SessionID {
 			a.mgr.ForgetLiveSession(old)
 		}
@@ -1090,15 +1349,36 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	var items []tui.AutocompleteItem
 	items = append(items,
 		tui.AutocompleteItem{Value: "model", Label: "model", Description: "Select model (opens selector UI)"},
+		tui.AutocompleteItem{Value: "reasoning", Label: "reasoning", Description: "Select reasoning level (opens selector UI)"},
 		tui.AutocompleteItem{Value: "mode", Label: "mode", Description: "Switch between agent and plan mode"},
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
+		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
+		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
+		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read FoxxyCode's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit foxxycode"},
 	)
-	items = append(items, a.slashServer...)
+	// The settings commands come from the manager's registry, like the
+	// server's rows; a server row never shadows a console command.
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		seen[it.Value] = true
+	}
+	for _, c := range session.SettingsCommands() {
+		if len(a.slashServer) == 0 && !seen[c.Name] {
+			items = append(items, tui.AutocompleteItem{Value: c.Name, Label: c.Name, Description: c.Description})
+			seen[c.Name] = true
+		}
+	}
+	for _, it := range a.slashServer {
+		if !seen[it.Value] {
+			items = append(items, it)
+			seen[it.Value] = true
+		}
+	}
 	return items
 }
 
@@ -1122,6 +1402,9 @@ func (a *App) handlePaste(body []byte) {
 	}
 	if qm, ok := a.modal.(*questionModal); ok {
 		qm.InsertPaste(string(body))
+	}
+	if dm, ok := a.modal.(*docsModal); ok {
+		dm.InsertPaste(string(body))
 	}
 }
 

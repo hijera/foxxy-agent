@@ -1,0 +1,381 @@
+{
+  "meta": {
+    "landing": {
+      "title": "FoxxyCode — AI coding agent for VS Code, JetBrains IDEs and the desktop",
+      "description": "FoxxyCode is an open-source coding agent with native VS Code and JetBrains plugins, a Windows desktop app and a web UI. Bring your own models. A fork of coddy-agent."
+    },
+    "compare": {
+      "title": "FoxxyCode vs other agent harnesses — 2026 comparison",
+      "description": "FoxxyCode, Coddy and 23 other agent harnesses and IDE agents side by side: delivery, surfaces, extensibility, context and trust, IDE and desktop."
+    },
+    "changelog": {
+      "title": "FoxxyCode changelog — recent plugin releases",
+      "description": "What changed in the recent releases of the FoxxyCode plugins for VS Code and JetBrains IDEs."
+    }
+  },
+  "nav": {
+    "home": "FoxxyCode home",
+    "features": "Features",
+    "install": "Install",
+    "demos": "Demo",
+    "compare": "Compare",
+    "changelog": "Changelog",
+    "docs": "Docs",
+    "github": "GitHub",
+    "menu": "Menu",
+    "language": "Language",
+    "toLight": "Switch to the light theme",
+    "toDark": "Switch to the dark theme",
+    "latestRelease": "Latest release {version}"
+  },
+  "hero": {
+    "title": "A coding agent that lives",
+    "titleAccent": "in your IDE and on your desktop",
+    "lead": "FoxxyCode brings a full agent into VS Code, JetBrains IDEs and a native Windows window: chat, plans, inline diffs you accept or reject in the editor, the IDE's open files and terminal in context, a browser the agent can drive, and a Russian or English interface. One Go binary underneath, your own API keys or local models.",
+    "chips": ["/vscode", "/jetbrains", "/desktop", "/inline-diffs", "/ide-context", "/browser-tool", "/svn", "/ru-en"],
+    "primary": "Download",
+    "secondary": "See what it adds over coddy",
+    "basedOn": "A fork of [coddy-agent](https://github.com/coddy-project/coddy-agent) by the Coddy project, MIT"
+  },
+  "install": {
+    "eyebrow": "Downloads",
+    "title": "Pick your surface",
+    "lead": "Every merge into main is a release. The links below always point at the newest build of each package.",
+    "download": "Download",
+    "version": "Version {version}",
+    "unavailable": "Not in the latest releases — see all releases",
+    "copy": "Copy",
+    "copied": "Copied",
+    "other": "Linux, macOS, .deb, .rpm, Homebrew and Docker",
+    "otherCta": "All releases",
+    "cards": {
+      "vscode": {
+        "title": "VS Code",
+        "tag": "Extension",
+        "text": "The whole agent in a VS Code panel, with the binary for every OS bundled inside the VSIX.",
+        "steps": ["Download the `.vsix`.", "In the Command Palette run **Extensions: Install from VSIX…** and pick the file."]
+      },
+      "intellij": {
+        "title": "JetBrains IDEs",
+        "tag": "Plugin",
+        "text": "IntelliJ IDEA, PyCharm, WebStorm, GoLand, PhpStorm and other IDEs from 2022.2 on. Updates itself from the plugin repository.",
+        "steps": [
+          "Open **Settings → Plugins → ⚙ → Manage Plugin Repositories** and add the address below.",
+          "Search the **Marketplace** tab for **FoxxyCode** and install it. Or install the `.zip` from disk."
+        ],
+        "repository": "Plugin repository"
+      },
+      "desktop": {
+        "title": "Desktop",
+        "tag": "Windows x64",
+        "text": "A native WebView2 window around the same UI: notifications, a first-run tour, projects opened as folders.",
+        "steps": ["Download and unzip.", "Run `foxxycode-desktop.exe`."]
+      },
+      "cliWindows": {
+        "title": "Windows console",
+        "tag": ".exe",
+        "text": "`foxxycode.exe` for the terminal: the console UI, the web UI with `foxxycode http`, ACP for other editors.",
+        "steps": ["Download and unzip somewhere on your `PATH`.", "Run `foxxycode`, or `foxxycode http` for the web UI."]
+      }
+    }
+  },
+  "demos": {
+    "title": "See it in action",
+    "lead": "Real screenshots of the current builds.",
+    "tabs": {
+      "intellij": "JetBrains",
+      "vscode": "VS Code",
+      "desktop": "Desktop",
+      "web": "Web UI"
+    },
+    "captions": {
+      "intellij": "The tool window in a JetBrains IDE: the same chat, plans and settings as everywhere, next to your code.",
+      "vscode": "The VS Code panel. Agent edits open in the real editor with Accept and Reject.",
+      "desktop": "The Windows desktop app: a native window with notifications when the agent needs you.",
+      "web": "The web UI served by `foxxycode http`, the surface both plugins and the desktop app embed."
+    },
+    "missing": "No screenshot of this view yet."
+  },
+  "about": {
+    "title": "What FoxxyCode is",
+    "paragraphs": [
+      "FoxxyCode is a fork of [coddy-agent](https://github.com/coddy-project/coddy-agent), a general-purpose agent harness in one static Go binary. It keeps everything upstream has — the ReAct loop, sessions, MCP, rules, skills, subagents, hooks, the scheduler, memory, the swarm — and follows upstream closely.",
+      "What the fork adds is the part you touch every day: plugins that make the agent a native citizen of VS Code and JetBrains IDEs, a desktop window for Windows, and agent capabilities that matter inside a real project — inline diff review, the IDE's context, SVN, a browser tool, document export, and a complete Russian interface."
+    ]
+  },
+  "features": {
+    "title": "What the fork adds",
+    "lead": "Everything below exists in FoxxyCode and not in upstream coddy-agent. The full list, with links to the code, is in the documentation.",
+    "more": "Full list in the docs",
+    "groups": [
+      {
+        "id": "ide",
+        "title": "IDE and desktop",
+        "items": [
+          {
+            "title": "VS Code and JetBrains plugins",
+            "text": "One agent process per project, started by the plugin with the binary it bundles. The panel follows the IDE's theme and language.",
+            "doc": "docs/surfaces/editors.md"
+          },
+          {
+            "title": "Inline diffs in the editor",
+            "text": "Each file the agent edits opens with green and red lines and Accept, Reject, Revert or Show diff, instead of a separate diff pane.",
+            "doc": "editors/vscode/README.md"
+          },
+          {
+            "title": "The IDE's context in the prompt",
+            "text": "Open tabs and the active file, readable `.vscode` and `.idea` project settings, and the terminal output reach the model; `@terminal` quotes it explicitly.",
+            "doc": "docs/getting-started/foxxycode-and-coddy.md"
+          },
+          {
+            "title": "Drag a file into the chat",
+            "text": "Dropping a file from the project tree adds a short `@` mention, while the model gets the full relative path.",
+            "doc": "docs/getting-started/foxxycode-and-coddy.md"
+          },
+          {
+            "title": "Native desktop window",
+            "text": "`foxxycode-desktop.exe` hosts the UI in WebView2: no browser tab, no console windows flashing over it.",
+            "doc": "docs/getting-started/foxxycode-and-coddy.md"
+          },
+          {
+            "title": "Notifications, tour and folders",
+            "text": "Toasts and a chime when a permission prompt or a plan waits for you, a guided first-run tour, and projects opened as folders.",
+            "doc": "docs/getting-started/foxxycode-and-coddy.md"
+          }
+        ]
+      },
+      {
+        "id": "agent",
+        "title": "Agent capabilities",
+        "items": [
+          {
+            "title": "Interactive browser tool",
+            "text": "The agent opens pages in real Chrome, clicks, fills and scrolls, and sees screenshots — or page text when the model has no vision.",
+            "doc": "docs/features/browser-tool.md"
+          },
+          {
+            "title": "Subversion on a par with git",
+            "text": "An SVN working copy gets its own branch and revision chip and a set of `svn_*` tools the agent drives directly.",
+            "doc": "docs/reference/config.md"
+          },
+          {
+            "title": "Export to PDF, DOCX, HTML and JSON",
+            "text": "A session becomes a real document: tables, highlighted code, task lists and the images of the session.",
+            "doc": "docs/features/session-export.md"
+          },
+          {
+            "title": "Debug mode and diagnostics",
+            "text": "A `debug` profile that investigates the root cause before proposing a fix, and an opt-in trace of every request to the model.",
+            "doc": "docs/operate/debugging.md"
+          },
+          {
+            "title": "Automatic compaction",
+            "text": "Long conversations are summarized to stay inside the context window, on by default.",
+            "doc": "docs/features/compaction.md"
+          },
+          {
+            "title": "MCP behind a self-signed certificate",
+            "text": "A per-server switch to ignore certificate errors, so an internal MCP server is reachable at all.",
+            "doc": "docs/features/mcp.md"
+          }
+        ]
+      },
+      {
+        "id": "windows",
+        "title": "Windows and localization",
+        "items": [
+          {
+            "title": "Windows hardened",
+            "text": "Child processes without console windows, honest process termination, Cyrillic SVN output decoded correctly, a running turn rejoined after a reload.",
+            "doc": "docs/getting-started/foxxycode-and-coddy.md"
+          },
+          {
+            "title": "Russian interface, settings included",
+            "text": "The whole UI in Russian or English, including the generated settings form, switched in Appearance.",
+            "doc": "docs/surfaces/web-ui.md"
+          },
+          {
+            "title": "Vision detected from the catalog",
+            "text": "Whether a model accepts images is filled in from the provider's catalog instead of silently staying off.",
+            "doc": "docs/getting-started/foxxycode-and-coddy.md"
+          }
+        ]
+      }
+    ],
+    "inherited": {
+      "title": "Inherited from coddy-agent",
+      "text": "The harness underneath: one static Go binary, the terminal console, ACP for Zed and other editors, the OpenAI-compatible HTTP API, MCP, rules and `AGENTS.md`, skills, subagents, hooks, background tasks, the cron scheduler, long-term memory, the swarm relay and a Telegram gateway.",
+      "site": "coddy.dev",
+      "repo": "coddy-agent on GitHub"
+    }
+  },
+  "compareTeaser": {
+    "title": "How FoxxyCode compares",
+    "lead": "Twenty-five harnesses and IDE agents side by side, Coddy among them: what they are written in, where you can talk to them, how you extend them, what they do with a long session, what stops them, and how they live in an IDE.",
+    "points": [
+      "In this set, FoxxyCode is the only open harness that ships as a single static binary and also has native VS Code and JetBrains plugins and a desktop app.",
+      "It keeps everything Coddy carries in that binary — the web UI, the scheduler, memory, the swarm and a messenger gateway.",
+      "Where it loses: no kernel sandbox, no LSP, and file checkpoints only through the IDE's inline diffs."
+    ],
+    "cta": "Read the full comparison"
+  },
+  "faq": {
+    "title": "Questions",
+    "items": [
+      {
+        "q": "How is FoxxyCode related to Coddy?",
+        "a": "FoxxyCode is a fork of [coddy-agent](https://github.com/coddy-project/coddy-agent), MIT-licensed like upstream. It regularly ports upstream changes and adds IDE plugins, the desktop app and the capabilities listed above. If you want the agent in a container, a terminal or Telegram without the IDE story, upstream Coddy at [coddy.dev](https://coddy.dev) may be all you need."
+      },
+      {
+        "q": "Which IDEs are supported?",
+        "a": "VS Code 1.75 or newer, and JetBrains IDEs on the IntelliJ platform from 2022.2 on: IntelliJ IDEA, PyCharm, WebStorm, GoLand, PhpStorm, Rider and the rest. Other editors can host the agent over ACP with `foxxycode acp`."
+      },
+      {
+        "q": "Is the plugin on the VS Code Marketplace or JetBrains Marketplace?",
+        "a": "Not yet. The VS Code extension installs from the `.vsix`. The JetBrains plugin comes from its own plugin repository, so after you add the address once the IDE installs and updates it like any marketplace plugin."
+      },
+      {
+        "q": "Which models does it work with?",
+        "a": "Any OpenAI-compatible API plus Anthropic: OpenAI, Anthropic, Ollama, llama.cpp, vLLM, NeuralDeep or your own gateway, always with your keys. With a local model no prompt leaves your machine."
+      },
+      {
+        "q": "Is the desktop app available for macOS or Linux?",
+        "a": "The desktop window is Windows-only for now. On macOS and Linux use the plugins, the web UI (`foxxycode http`) or the console; builds for both are on the releases page."
+      },
+      {
+        "q": "Do I need to install Go or Node?",
+        "a": "No. Every package ships a prebuilt binary. Go, Node and a JDK are only needed to build the plugins from source."
+      }
+    ]
+  },
+  "footer": {
+    "tagline": "FoxxyCode — an MIT-licensed fork of coddy-agent.",
+    "project": "Project",
+    "source": "Source on GitHub",
+    "releases": "Releases",
+    "docs": "Documentation",
+    "issues": "Report an issue",
+    "upstream": "Upstream",
+    "coddySite": "coddy.dev",
+    "coddyRepo": "coddy-agent on GitHub",
+    "pages": "Pages",
+    "home": "Home",
+    "compare": "Compare",
+    "changelog": "Changelog"
+  },
+  "changelog": {
+    "eyebrow": "Changelog",
+    "title": "What changed in the plugins",
+    "lead": "The last {count} releases that changed something you can see in the VS Code or JetBrains plugin. Releases not listed here did not change the plugins.",
+    "releases": "Older releases and every package on GitHub",
+    "both": "Both plugins",
+    "intellij": "JetBrains",
+    "vscode": "VS Code",
+    "releaseLink": "Release {version}",
+    "untranslated": "This entry has not been translated yet; the Russian text is shown.",
+    "empty": "No change notes were available when this page was built."
+  },
+  "compare": {
+    "eyebrow": "Comparison",
+    "title": "FoxxyCode vs the 2026 agent harnesses",
+    "lead": "Twenty-five harnesses and IDE agents side by side: what they are written in, where you can talk to them, how you extend them, what happens to a long session, what stops them from running something you did not ask for, and how they fit into an IDE. FoxxyCode is one row among them, and so is Coddy, the project it forks.",
+    "compiled": "Compiled in September 2026. FoxxyCode was read from its own source at 0.2.93. The twenty rows shared with the [Coddy comparison](https://coddy.dev/compare/) start from that page and were checked against each project's documentation, which updated several of them; FoxxyCode, Kilo Code, Roo Code, Continue and Cursor were added from their own documentation. Sources are at the bottom.",
+    "glanceTitle": "FoxxyCode at a glance",
+    "glance": [
+      { "value": "2 IDE plugins", "label": "VS Code and JetBrains, both native, both with inline diffs" },
+      { "value": "6 surfaces", "label": "IDE, desktop, web UI, terminal, ACP, Telegram" },
+      { "value": "1 binary", "label": "static Go, bundled in every plugin" },
+      { "value": "RU + EN", "label": "the whole interface in both languages" }
+    ],
+    "camps": {
+      "title": "How the field splits",
+      "paragraphs": [
+        "**Lab agents** — Claude Code, Codex CLI, Antigravity, Grok Build — come from the model vendors and set the conventions everyone else adopts: `AGENTS.md`, MCP, skills.",
+        "**Open harnesses** — Coddy, OpenCode, Pi, OMP, DeepSeek Harness, Goose, Aider, OpenHands, Crush, Reasonix, CodeWhale — compete on features, mostly in the terminal.",
+        "**IDE agents** — Cline, Kilo Code, Roo Code, Continue, Cursor, Koda — live in the editor, where the diff you accept is the unit of work.",
+        "**Personal assistants** — OpenClaw, Hermes Agent, Drift — build the gateway first and attach the model to it.",
+        "FoxxyCode sits between the open harnesses and the IDE agents: Coddy's harness, delivered through the IDE and the desktop."
+      ]
+    },
+    "legend": {
+      "title": "Reading the tables",
+      "yes": "yes",
+      "partial": "partly",
+      "no": "no",
+      "unknown": "no data",
+      "na": "n/a",
+      "note": "Cells read “no data” where a project does not document the answer; a guess would be worse than an honest gap. Tables scroll sideways on narrow screens."
+    },
+    "harness": "Harness",
+    "upstreamBadge": "upstream",
+    "youAreHere": "this project",
+    "verdict": {
+      "title": "Where FoxxyCode wins, where it lags",
+      "strengths": "Strengths",
+      "gaps": "Gaps",
+      "strengthItems": [
+        {
+          "title": "A harness inside the IDE, not a separate product",
+          "text": "Cline, Kilo Code and Continue started as IDE extensions. FoxxyCode puts a full harness — scheduler, memory, swarm, hooks, subagents — behind the same panel, and the session you start in the IDE opens in the web UI or the terminal."
+        },
+        {
+          "title": "Both big IDE families, one agent",
+          "text": "The VS Code extension and the JetBrains plugin host the same UI and the same binary, so settings, sessions and skills are shared rather than reimplemented per editor."
+        },
+        {
+          "title": "Review in the editor",
+          "text": "Agent edits arrive as inline diffs with accept, reject and revert in both IDEs, as in Cline or Kilo Code, but the harness behind them also runs in a terminal, a browser or a container."
+        },
+        {
+          "title": "Windows as a first-class platform",
+          "text": "A native desktop window, no console flashes, Cyrillic-safe SVN output. Most harnesses treat Windows as an afterthought."
+        },
+        {
+          "title": "A Russian interface",
+          "text": "The UI, the settings form and the plugin change notes exist in Russian as well as English."
+        }
+      ],
+      "gapItems": [
+        {
+          "title": "No kernel-level sandbox",
+          "text": "Protection comes from the permission gate, the modes and, when you want it, a container. Codex CLI enforces Landlock, seccomp and Seatbelt in the process."
+        },
+        {
+          "title": "No LSP",
+          "text": "The agent reads files as text; OpenCode and OMP wire a language server into every edit."
+        },
+        {
+          "title": "No marketplace listing",
+          "text": "Cline, Kilo Code and Continue install from the VS Code and JetBrains marketplaces in one click; FoxxyCode needs a `.vsix` or a plugin repository address."
+        },
+        {
+          "title": "Desktop on Windows only",
+          "text": "Cline, Goose, Claude Code and Koda have desktop apps on more systems."
+        },
+        {
+          "title": "A small community",
+          "text": "Orders of magnitude fewer users than the popular IDE agents, so fewer shared skills and fewer eyes on edge cases."
+        }
+      ]
+    },
+    "pick": {
+      "title": "When to pick which",
+      "paragraphs": [
+        "**Pick FoxxyCode** when you want one agent in VS Code, a JetBrains IDE and a desktop window at once, with your own models, sessions that move between those surfaces, inline review of every edit, and an interface in Russian.",
+        "**Pick Coddy** when the agent should live in a container, a terminal or Telegram and the IDE plugins are not the point — it is the same harness without the fork's additions.",
+        "**Pick something else** when a marketplace install and a large community matter most (Cline, Kilo Code), when you want an AI-first editor rather than a plugin (Cursor), or when unfamiliar code must run under a kernel sandbox (Codex CLI)."
+      ]
+    },
+    "sources": {
+      "title": "Method and sources",
+      "text": "FoxxyCode was read from its repository at 0.2.93: the README, `docs/getting-started/foxxycode-and-coddy.md`, the plugin sources under `editors/`. Rows shared with the Coddy comparison follow [coddy.dev/compare](https://coddy.dev/compare/) as of September 2026. The added rows come from each project's own documentation.",
+      "fix": "Spotted something wrong or out of date about your project? [Open an issue](https://github.com/hijera/foxxy-agent/issues) and the row gets fixed."
+    },
+    "cta": {
+      "title": "Try the row you just read about",
+      "text": "Install the plugin for your IDE or the desktop app, bring your own key or point it at a local model.",
+      "install": "Downloads",
+      "source": "Source on GitHub"
+    }
+  }
+}

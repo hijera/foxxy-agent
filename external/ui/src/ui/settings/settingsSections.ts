@@ -10,10 +10,11 @@ export type SectionKind =
   | "mcp"
   | "subagents"
   | "appearance"
-  | "general";
+  | "general"
+  | "sessions";
 
 export type SectionDescriptor = {
-  /** Unique id: a config key, or a synthetic id ("system", "appearance", "general"). */
+  /** Unique id: a config key, or a synthetic id ("system", "appearance", "general", "sessions_manager"). */
   id: string;
   /** Tab label. */
   label: string;
@@ -30,21 +31,22 @@ export type SectionDescriptor = {
 
 /**
  * Config keys never shown as their own schema tab. `ui` (ui.locale) is edited
- * by the curated language picker in the synthetic General tab; a raw schema
+ * by the language picker in the Appearance tab; a raw schema
  * form for it would be a duplicate control. The key still round-trips through
  * the footer Save because the whole config doc is PUT back unchanged.
  */
 const HIDDEN_KEYS = ["ui"];
 
-/** Config keys folded into the single "System" tab (rarely edited). */
-export const SYSTEM_KEYS = [
-  "scheduler",
-  "prompts",
-  "instructions",
-  "logger",
-  "sessions",
-  "gateways",
-];
+/**
+ * Config keys folded into the single "Prompts" tab (rarely edited), which
+ * closes the list of schema tabs. The scheduler, the logger and the gateways
+ * are features of their own and have tabs; the `sessions` section belongs to
+ * the Sessions tab.
+ */
+export const SYSTEM_KEYS = ["prompts", "instructions"];
+
+/** The config section the Sessions tab edits above its table. */
+export const SESSIONS_CONFIG_KEY = "sessions";
 
 /** Array sections shown as master–detail lists, with the field used as the row label. */
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
@@ -53,7 +55,7 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 };
 
 /**
- * Section ids that have a curated i18n blurb (`settings.sectionDesc.<id>`) for
+ * Section ids that have a curated i18n blurb (`settings.section.<id>.desc`) for
  * the mobile tile grid. Schema `description` strings are full sentences (or
  * missing), so these short 3–5 word summaries keep the tiles readable; unmapped
  * keys fall back to the schema description.
@@ -61,9 +63,11 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 const SECTION_DESC_IDS = new Set([
   "general",
   "appearance",
+  "sessions_manager",
   "providers",
   "models",
   "agent",
+  "compaction",
   "autocomplete",
   "tools",
   "subagents",
@@ -71,44 +75,100 @@ const SECTION_DESC_IDS = new Set([
   "mcp_servers",
   "skills",
   "memory",
+  "title",
+  "browser",
+  "vcs",
+  "debug",
+  "scheduler",
+  "logger",
+  "gateways",
   "system",
 ]);
+
+/**
+ * i18n keys for known section labels (`settings.section.<id>.label`). The
+ * schema `title` is written as a form heading and reads as a sentence, which
+ * does not fit the tab rail or the 2-wide mobile tile grid; these curated
+ * short forms do. Unknown schema sections keep their server-provided title.
+ */
+const SECTION_LABEL_KEYS: Record<string, string> = {
+  general: "settings.section.general.label",
+  appearance: "settings.section.appearance.label",
+  sessions_manager: "settings.section.sessions_manager.label",
+  providers: "settings.section.providers.label",
+  models: "settings.section.models.label",
+  agent: "settings.section.agent.label",
+  compaction: "settings.section.compaction.label",
+  autocomplete: "settings.section.autocomplete.label",
+  tools: "settings.section.tools.label",
+  subagents: "settings.section.subagents.label",
+  hooks: "settings.section.hooks.label",
+  mcp_servers: "settings.section.mcp_servers.label",
+  skills: "settings.section.skills.label",
+  memory: "settings.section.memory.label",
+  title: "settings.section.title.label",
+  browser: "settings.section.browser.label",
+  vcs: "settings.section.vcs.label",
+  debug: "settings.section.debug.label",
+  scheduler: "settings.section.scheduler.label",
+  logger: "settings.section.logger.label",
+  gateways: "settings.section.gateways.label",
+  system: "settings.section.system.label",
+};
 
 /** Resolve a tile blurb: curated i18n summary first, then the schema description. */
 function descFor(id: string, sub?: JsonSchema): string | undefined {
   if (SECTION_DESC_IDS.has(id)) {
-    return t(`settings.sectionDesc.${id}`);
+    return t(`settings.section.${id}.desc`);
   }
   return tSchemaText(sub?.description) || undefined;
+}
+
+/** Resolve a section label: curated short i18n form first, then the schema title. */
+function labelFor(id: string, sub?: JsonSchema): string {
+  const key = SECTION_LABEL_KEYS[id];
+  return key ? t(key) : tSchemaText(sub?.title) || id;
 }
 
 /**
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
  * `x-foxxycode-property-order` and each property's `title`), except that the rarely
- * edited tail keys are folded into a single "System" tab and two synthetic tabs
- * lead the list: "General" (the UI language picker, the default tab) and
- * "Appearance" (the client-side theme picker). Both are present even when no
- * schema is available.
+ * edited tail keys are folded into a single "Prompts" tab and three synthetic
+ * tabs lead the list: "General" (the default tab),
+ * "Appearance" (theme and language) and "Sessions" (the stored
+ * history as a table). All three are present even when no schema is available.
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
 ): SectionDescriptor[] {
   const general: SectionDescriptor = {
     id: "general",
-    label: t("settings.section.general"),
+    label: labelFor("general"),
     description: descFor("general"),
     kind: "general",
   };
   const appearance: SectionDescriptor = {
     id: "appearance",
-    label: t("settings.section.appearance"),
+    label: labelFor("appearance"),
     description: descFor("appearance"),
     kind: "appearance",
   };
 
+  // The stored history: this tab reads and prunes session bundles over
+  // /foxxycode/sessions, and once the schema is in it also edits the `sessions`
+  // config section (where the bundles are stored) above the table. Its id is
+  // sessions_manager because `sessions` is that config key.
+  const sessionsManager: SectionDescriptor = {
+    id: "sessions_manager",
+    label: labelFor("sessions_manager"),
+    description: descFor("sessions_manager"),
+    kind: "sessions",
+    schemaKey: SESSIONS_CONFIG_KEY,
+  };
+
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [general, appearance];
+    return [general, appearance, sessionsManager];
   }
 
   const props = schema.properties;
@@ -119,7 +179,7 @@ export function deriveSettingsSections(
 
   const out: SectionDescriptor[] = [];
   const seen = new Set<string>();
-  let systemEmitted = false;
+  let system: SectionDescriptor | null = null;
 
   const emit = (key: string) => {
     const sub = props[key];
@@ -127,23 +187,23 @@ export function deriveSettingsSections(
       return;
     }
     seen.add(key);
+    if (key === SESSIONS_CONFIG_KEY) {
+      return;
+    }
     if (SYSTEM_KEYS.includes(key)) {
-      if (!systemEmitted) {
-        out.push({
-          id: "system",
-          label: t("settings.section.system"),
-          description: descFor("system"),
-          kind: "group",
-          childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
-        });
-        systemEmitted = true;
-      }
+      system ??= {
+        id: "system",
+        label: labelFor("system"),
+        description: descFor("system"),
+        kind: "group",
+        childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
+      };
       return;
     }
     if (key === "skills") {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "skills",
         schemaKey: key,
@@ -153,7 +213,7 @@ export function deriveSettingsSections(
     if (key === "mcp_servers") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "mcp",
         schemaKey: key,
@@ -166,7 +226,7 @@ export function deriveSettingsSections(
     if (key === "subagents") {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "subagents",
         schemaKey: key,
@@ -176,7 +236,7 @@ export function deriveSettingsSections(
     if (key in ARRAY_LABEL_FIELDS) {
       out.push({
         id: key,
-        label: tSchemaText(sub.title) || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "array",
         schemaKey: key,
@@ -186,7 +246,7 @@ export function deriveSettingsSections(
     }
     out.push({
       id: key,
-      label: tSchemaText(sub.title) || key,
+      label: labelFor(key, sub),
       description: descFor(key, sub),
       kind: "object",
       schemaKey: key,
@@ -201,5 +261,8 @@ export function deriveSettingsSections(
     emit(key);
   }
 
-  return [general, appearance, ...out];
+  if (system) {
+    out.push(system);
+  }
+  return [general, appearance, sessionsManager, ...out];
 }

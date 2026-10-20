@@ -22,15 +22,17 @@ func ListCatalog(cwd string, f *Factory, systems []Source) error {
 // auto rule with no patterns and no directory scope) and what activates it.
 func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error {
 	if f == nil {
-		f = DefaultFactory()
+		f = DefaultFactory("")
 	}
 	rules, err := f.Discover(cwd, systems)
 	if err != nil {
 		return err
 	}
 	if len(rules) == 0 {
-		_, err := fmt.Fprintln(w, "No rules found.")
-		return err
+		if _, err := fmt.Fprintln(w, "No rules found."); err != nil {
+			return err
+		}
+		return renderAgentsNote(w, systems)
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(w)
@@ -66,7 +68,39 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 	style.Format.Header = text.FormatUpper
 	t.SetStyle(style)
 	t.Render()
-	_, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), cwd)
+	if _, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), catalogRoots(cwd, f, rules)); err != nil {
+		return err
+	}
+	return renderAgentsNote(w, systems)
+}
+
+// catalogRoots names where the listed rules came from. The workspace alone,
+// unless the operator's own folder contributed a row - then it is named too,
+// so a rule nobody can find in the checkout is not a mystery.
+func catalogRoots(cwd string, f *Factory, listed []*Rule) string {
+	for _, r := range listed {
+		if r.Source != SourceUser {
+			continue
+		}
+		for _, p := range f.Providers() {
+			if p.ID() == SourceUser {
+				return cwd + " and " + p.RulesRoot()
+			}
+		}
+	}
+	return cwd
+}
+
+// agentsOnDemandNote tells a reader of the catalog why no nested document
+// appears in it: the listing would have to walk the whole workspace to find
+// them, and a session never does.
+const agentsOnDemandNote = "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand, from the folders a tool enters (the root pair is the project docs preamble)."
+
+func renderAgentsNote(w io.Writer, systems []Source) error {
+	if !AgentsOnDemand(systems) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, agentsOnDemandNote)
 	return err
 }
 

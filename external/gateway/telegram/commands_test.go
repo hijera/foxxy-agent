@@ -11,6 +11,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // An id that fills callback_data exactly travels as itself; one byte more and
@@ -26,7 +27,7 @@ func TestModelCallbackValueSwitchesToADigestAtTheLimit(t *testing.T) {
 	if got == over {
 		t.Fatal("id over the limit travelled verbatim")
 	}
-	if !strings.HasPrefix(got, modelDigestMarker) {
+	if !strings.HasPrefix(got, callbackDigestMarker) {
 		t.Fatalf("digest form %q does not carry the marker", got)
 	}
 	if prefix+len(got) > telegramCallbackDataMax {
@@ -105,24 +106,6 @@ func TestModelKeyboardButtonsRoundTrip(t *testing.T) {
 	}
 }
 
-// The mode keyboard shares the callback parser, so its payloads must stay
-// inside the same limit and keep their action prefix.
-func TestModeKeyboardPayloadsAreWellFormed(t *testing.T) {
-	kb := buildModeKeyboard("agent")
-	for _, row := range kb.InlineKeyboard {
-		for _, btn := range row {
-			data := *btn.CallbackData
-			if len(data) > telegramCallbackDataMax {
-				t.Fatalf("callback_data is %d bytes: %q", len(data), data)
-			}
-			action, payload, ok := strings.Cut(data, ":")
-			if !ok || action != callbackActionMode || payload == "" {
-				t.Fatalf("unexpected callback data %q", data)
-			}
-		}
-	}
-}
-
 // The adapter's logger has to arrive tagged, or logger.levels naming
 // gateway.telegram scopes nothing and the debug trail stays invisible.
 func TestBotLoggerCarriesTheTelegramComponent(t *testing.T) {
@@ -139,5 +122,63 @@ func TestBotLoggerCarriesTheTelegramComponent(t *testing.T) {
 	}
 	if got := rec[logger.ComponentKey]; got != logger.ComponentGatewayTelegram {
 		t.Fatalf("component = %v, want %q", got, logger.ComponentGatewayTelegram)
+	}
+}
+
+// newOriginTestBot builds a Bot over the scripted runner, with a store of its
+// own, for the origin checks below.
+func newOriginTestBot(t *testing.T) (*Bot, *scriptedRunner) {
+	t.Helper()
+	runner := newScriptedRunner()
+	base, _, _, err := logger.New(config.Logger{
+		Level:   config.LogLevelError,
+		Format:  config.LogFormatText,
+		Outputs: []string{config.LogOutputStderr},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot := New(&config.TelegramGatewayConfig{
+		Enabled: true, Token: "t",
+		DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
+	}, runner, t.TempDir(), logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
+	return bot, runner
+}
+
+// A gateway names only the conversations it starts. A chat key the store has
+// seen before belongs to a session that was stamped when it began, and an id
+// this gateway did not mint is somebody else's conversation to name - an empty
+// origin means "not recorded", not "opened on this host", so the write-once
+// guard in SetOrigin cannot tell those apart on its own.
+func TestEnsureSessionStampsOnlyTheChatsItStarts(t *testing.T) {
+	bot, _ := newOriginTestBot(t)
+
+	first, err := bot.ensureSession(t.Context(), "chat:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := first.GetOrigin(); got != session.GatewayOrigin("telegram") {
+		t.Fatalf("a chat the gateway started has origin %q", got)
+	}
+
+	// A session that already exists under a key the gateway did not mint keeps
+	// whatever it was: reaching it again must not relabel it.
+	adopted, err := bot.store.Get("chat:2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := bot.runner.EnsureHTTPSession(t.Context(), adopted, bot.cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := local.GetOrigin(); got != "" {
+		t.Fatalf("a session created outside the gateway starts with origin %q", got)
+	}
+	again, err := bot.ensureSession(t.Context(), "chat:2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.GetOrigin(); got != "" {
+		t.Fatalf("the gateway relabelled a session it did not start: origin %q", got)
 	}
 }

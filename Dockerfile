@@ -8,7 +8,20 @@ WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY external/ui/ ./
-COPY docs/assets/foxxycode-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+# What the SPA build needs from outside external/ui, at /docs/assets because every
+# path above /ui collapses to /: the favicons scripts-sync-to-go.mjs copies into
+# the go:embed set, then the two wordmarks src/ui/auth/SignInScreen.tsx imports
+# (it says there why out of docs/assets and not through the src/assets symlinks)
+# and Vite inlines into the bundle. Those two were missing, so `npm run build:go`
+# stopped at [UNRESOLVED_IMPORT] and 0.2.94 to 0.3.1 published no image.
+# TestDockerBuildContextHoldsWhatTheSPAImports now fails on an import that leaves
+# external/ui without a copy here.
+COPY docs/assets/foxxycode-favicon.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+# A glob rather than a list: COPY carries the src/assets symlinks over as
+# links, so every target has to exist at the same path inside the image.
+# This covers every mark and wordmark the SPA links today, and the next one
+# nobody remembers to add here (TestDockerfileStagesEverySymlinkedAsset).
+COPY docs/assets/foxxycode-logo-*.svg /docs/assets/
 RUN npm run build:go
 
 
@@ -35,7 +48,7 @@ ENV GOARCH=${TARGETARCH}
 ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
-COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /src/external/ui/
+COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
 
 RUN mkdir -p /out \
 	/out/ssl-certs \

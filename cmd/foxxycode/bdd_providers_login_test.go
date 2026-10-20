@@ -14,10 +14,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/proxytest"
 )
 
 const (
@@ -35,6 +38,8 @@ const (
 
 type loginFlowState struct {
 	hub         *httptest.Server
+	hubCalls    atomic.Int32
+	proxy       *proxytest.Proxy
 	home        string
 	stdout      string
 	runErr      error
@@ -56,6 +61,7 @@ func (s *loginFlowState) reset() error {
 		return err
 	}
 	s.home = home
+	s.hubCalls.Store(0)
 	s.stdout = ""
 	s.runErr = nil
 	s.opened = nil
@@ -81,6 +87,10 @@ func (s *loginFlowState) close() {
 	if s.hub != nil {
 		s.hub.Close()
 		s.hub = nil
+	}
+	if s.proxy != nil {
+		s.proxy.Close()
+		s.proxy = nil
 	}
 	if s.home != "" {
 		_ = os.RemoveAll(s.home)
@@ -149,8 +159,30 @@ func (s *loginFlowState) standInHub() error {
 			},
 		})
 	})
-	s.hub = httptest.NewServer(mux)
+	s.hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.hubCalls.Add(1)
+		mux.ServeHTTP(w, r)
+	}))
 	return os.Setenv(llm.EnvNeuralDeepHubURL, s.hub.URL)
+}
+
+func (s *loginFlowState) providerNamesAProxy() error {
+	s.proxy = proxytest.New()
+	body := "providers:\n  - name: neuraldeep\n    type: neuraldeep\n    proxy: " + s.proxy.URL() + "\n"
+	return os.WriteFile(filepath.Join(s.home, "config.yaml"), []byte(body), 0o644)
+}
+
+func (s *loginFlowState) loopbackHubBypassedProxy() error {
+	if s.runErr != nil {
+		return fmt.Errorf("sign-in failed: %w", s.runErr)
+	}
+	if carried := s.proxy.Carried(); len(carried) != 0 {
+		return fmt.Errorf("loopback hub requests passed through proxy: %v", carried)
+	}
+	if got := s.hubCalls.Load(); got < 4 {
+		return fmt.Errorf("hub answered %d calls, want the device flow and catalog", got)
+	}
+	return nil
 }
 
 func (s *loginFlowState) noLocalBrowser() error {
@@ -350,6 +382,8 @@ func initializeLoginFlowScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a stand-in NeuralDeep hub that serves both sign-in flows$`, s.standInHub)
 	sc.Step(`^this machine has no local browser$`, s.noLocalBrowser)
+	sc.Step(`^the neuraldeep provider in config\.yaml names a proxy of its own$`, s.providerNamesAProxy)
+	sc.Step(`^the local hub was reached directly without using that proxy$`, s.loopbackHubBypassedProxy)
 	sc.Step(`^this machine has a local browser$`, s.aLocalBrowser)
 	sc.Step(`^I run the terminal sign-in to NeuralDeep$`, s.runSignIn)
 	sc.Step(`^I run the terminal sign-in to NeuralDeep with --browser$`, s.runSignInBrowser)

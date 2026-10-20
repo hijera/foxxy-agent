@@ -147,9 +147,9 @@ jobs:
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
               # The macOS archives are what the Homebrew cask installs, so the
-              # man page and the completions travel beside the binary. Every
-              # consumer that wants only the executable - `foxxycode update`, the
-              # install script - takes it out by name and ignores the rest.
+              # man page and the completions travel beside the binary. The
+              # install script and `foxxycode update` take all four out by name,
+              # so a member added here is invisible to them until they ask.
               cp packaging/man/foxxycode.1 "$bindir/foxxycode.1"
               cp packaging/completions/foxxycode.bash "$bindir/foxxycode.bash"
               cp packaging/completions/foxxycode.zsh "$bindir/foxxycode.zsh"
@@ -186,10 +186,10 @@ jobs:
           # the release, and shipping a package whose binary differs from the
           # archive of the same tag would be worse than slow.
           for arch in amd64 arm64; do
-            scripts/build-packages.sh \r
-              --version "${VERSION}" \r
-              --arch "$arch" \r
-              --out "$DIST" \r
+            scripts/build-packages.sh \
+              --version "${VERSION}" \
+              --arch "$arch" \
+              --out "$DIST" \
               --binary "$DIST/_staging/foxxycode_${VERSION}_linux_${arch}/foxxycode"
           done
 
@@ -203,13 +203,15 @@ jobs:
           (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip foxxycode-desktop_*.zip foxxycode_*.deb foxxycode_*.rpm > SHA256SUMS)
           ls -la "$DIST"
 
+      # No generate_release_notes here: the IntelliJ and VS Code jobs attach to the same release at
+      # the same time, and notes generated in this job were lost whenever their draft came first.
+      # release-notes.yaml writes them after all of these jobs.
       - name: Upload assets to GitHub Release
         if: steps.gate.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.git_tag.outputs.tag }}
           name: ${{ steps.git_tag.outputs.tag }}
-          generate_release_notes: true
           files: |
             dist/*
         env:

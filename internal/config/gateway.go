@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 )
@@ -11,6 +10,12 @@ import (
 // when gateways.telegram.token is left empty (so the token can live in .env instead
 // of config.yaml). Mirrors the provider api_key → NAME_API_KEY convention.
 const TelegramBotTokenEnvVar = "TELEGRAM_BOT_TOKEN"
+
+// TelegramAPIBaseEnv overrides the Bot API origin (default https://api.telegram.org)
+// for the Telegram gateway and for the --dry-run probe alike: a self-hosted Bot
+// API server, or the offline stand cmd/tgfake. The value is an origin such as
+// "http://127.0.0.1:18790"; a trailing slash is tolerated.
+const TelegramAPIBaseEnv = "FOXXYCODE_TELEGRAM_API_BASE"
 
 // GatewayConfig is the root config block for all messenger gateways (built with -tags gateway or gateway.telegram).
 type GatewayConfig struct {
@@ -40,11 +45,11 @@ const (
 
 // TelegramGatewayConfig configures the Telegram bot adapter.
 type TelegramGatewayConfig struct {
-	Enabled bool   `yaml:"enabled"`
+	Enabled bool   `yaml:"enable"`
 	Token   string `yaml:"token"`
 
-	// Proxy is an optional outbound proxy for Telegram API requests.
-	// Supported schemes: http, https, socks5, socks5h.
+	// Proxy selects inherit (including an empty value), none, or an outbound
+	// HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram API requests.
 	// Example: "socks5h://127.0.0.1:1080" or "http://proxy.example.com:3128"
 	Proxy string `yaml:"proxy"`
 
@@ -88,7 +93,7 @@ type TelegramChatConfig struct {
 // Normalize trims whitespace in string fields.
 func (t *TelegramGatewayConfig) Normalize() {
 	t.Token = strings.TrimSpace(t.Token)
-	t.Proxy = strings.TrimSpace(t.Proxy)
+	t.Proxy = normalizeProxySetting(t.Proxy)
 	t.DefaultAccess = AccessLevel(strings.TrimSpace(string(t.DefaultAccess)))
 	t.DefaultIsolation = IsolationMode(strings.TrimSpace(string(t.DefaultIsolation)))
 }
@@ -120,16 +125,8 @@ func (t *TelegramGatewayConfig) Validate() error {
 	if !t.Enabled {
 		return nil
 	}
-	if t.Proxy != "" {
-		u, err := url.Parse(t.Proxy)
-		if err != nil {
-			return fmt.Errorf("gateways.telegram.proxy: invalid URL: %w", err)
-		}
-		switch strings.ToLower(u.Scheme) {
-		case "http", "https", "socks5", "socks5h":
-		default:
-			return fmt.Errorf("gateways.telegram.proxy: unsupported scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
-		}
+	if err := validateProxySetting(t.Proxy); err != nil {
+		return fmt.Errorf("gateways.telegram.%w", err)
 	}
 	return nil
 }

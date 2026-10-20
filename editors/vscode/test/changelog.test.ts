@@ -10,30 +10,48 @@ const root = path.resolve(__dirname, "..");
 const changelogPath = path.join(root, "CHANGELOG.md");
 const text = fs.readFileSync(changelogPath, "utf8");
 const lines = text.split(/\r?\n/);
+// The English twin is read by the project website only; VS Code keeps showing CHANGELOG.md.
+const changelogEnPath = path.join(root, "CHANGELOG.en.md");
+const textEn = fs.readFileSync(changelogEnPath, "utf8");
 
 const HEADING = /^##\s+(\d+\.\d+\.\d+)\s*[—-]\s*(\d{4}-\d{2}-\d{2})\s*$/;
 const UNRELEASED = /^##\s+Unreleased\s*[—-]\s*(\d{4}-\d{2}-\d{2})\s*$/;
+const ENTRY_TITLE = /^\*\*.+\*\*\s*$/;
 
 interface Section {
   line: number;
   version: string; // "Unreleased" or X.Y.Z
+  date: string;
   body: string[];
 }
 
-function sections(): Section[] {
+function sections(source: string = text): Section[] {
+  const sourceLines = source.split(/\r?\n/);
   const out: Section[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    let version: string | null = null;
-    if (HEADING.test(trimmed)) version = trimmed.match(HEADING)![1];
-    else if (UNRELEASED.test(trimmed)) version = "Unreleased";
-    if (version !== null) {
-      out.push({ line: i + 1, version, body: [] });
+  for (let i = 0; i < sourceLines.length; i++) {
+    const trimmed = sourceLines[i].trim();
+    const released = trimmed.match(HEADING);
+    const unreleased = trimmed.match(UNRELEASED);
+    if (released) {
+      out.push({ line: i + 1, version: released[1], date: released[2], body: [] });
+    } else if (unreleased) {
+      out.push({ line: i + 1, version: "Unreleased", date: unreleased[1], body: [] });
     } else if (out.length > 0) {
-      out[out.length - 1].body.push(lines[i]);
+      out[out.length - 1].body.push(sourceLines[i]);
     }
   }
   return out;
+}
+
+const entryTitles = (s: Section): number => s.body.filter((l) => ENTRY_TITLE.test(l.trim())).length;
+
+function preambleLines(source: string): string[] {
+  return source
+    .slice(0, source.search(/^##\s/m))
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
 }
 
 function compareSemver(a: string, b: string): number {
@@ -57,12 +75,7 @@ describe("CHANGELOG.md", () => {
   it("shows users nothing but the notes: no authoring instructions before the first section", () => {
     // VS Code renders the whole file in the Changelog tab (IntelliJ only renders the
     // sections), so process notes for authors must stay in an HTML comment or in the rules.
-    const preamble = text
-      .slice(0, text.search(/^##\s/m))
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l !== "");
+    const preamble = preambleLines(text);
     expect(preamble, "only the `# title` line may precede the first section").toEqual(
       preamble.filter((l) => l.startsWith("# ")),
     );
@@ -109,6 +122,57 @@ describe("CHANGELOG.md", () => {
   });
 });
 
+describe("CHANGELOG.en.md", () => {
+  const ru = sections();
+  const en = sections(textEn);
+
+  it("has at least one section and only a `# title` before it", () => {
+    expect(en.length, "no `## X.Y.Z — YYYY-MM-DD` sections").toBeGreaterThan(0);
+    const preamble = preambleLines(textEn);
+    expect(preamble.length).toBeLessThanOrEqual(1);
+    expect(preamble.every((l) => l.startsWith("# "))).toBe(true);
+  });
+
+  it("follows the Russian headings from the top down", () => {
+    // The twin may stop earlier (older releases were never translated) but never runs ahead
+    // of CHANGELOG.md or drifts from it: section i carries the same version and date.
+    expect(en.length, "the twin has more sections than CHANGELOG.md").toBeLessThanOrEqual(ru.length);
+    for (let i = 0; i < en.length && i < ru.length; i++) {
+      expect(
+        `${en[i].version} — ${en[i].date}`,
+        `CHANGELOG.en.md:${en[i].line} pairs with CHANGELOG.md:${ru[i].line}; add, rename or date the section in both files`,
+      ).toBe(`${ru[i].version} — ${ru[i].date}`);
+    }
+  });
+
+  it("translates every entry of a paired section", () => {
+    for (let i = 0; i < en.length && i < ru.length; i++) {
+      expect(entryTitles(en[i]), `${en[i].version}: number of **Title.** entries`).toBe(entryTitles(ru[i]));
+    }
+  });
+
+  it("is written in English, outside code and quotes", () => {
+    for (const s of en) {
+      const body = s.body.join("\n").trim();
+      expect(body.length, `${s.version}: empty or stub section`).toBeGreaterThanOrEqual(40);
+      expect(/\bTBD\b/i.test(body), `${s.version}: stub entry`).toBe(false);
+      const prose = body
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/`[^`\n]*`/g, "")
+        .replace(/«[^»]*»|“[^”]*”|"[^"\n]*"/g, "");
+      expect(hasCyrillic(prose), `${s.version}: Russian text left outside code and quotes`).toBe(false);
+    }
+  });
+
+  it("has no merge-conflict markers", () => {
+    textEn.split(/\r?\n/).forEach((line, i) => {
+      for (const marker of ["<<<<<<<", "=======", ">>>>>>>"]) {
+        expect(line.startsWith(marker), `line ${i + 1}: conflict marker ${marker}`).toBe(false);
+      }
+    });
+  });
+});
+
 describe("stamp-changelog.mjs", () => {
   const sample = "# Title\n\n## Unreleased — 2026-09-07\n\n**Что-то.**\nТекст.\n\n## 0.2.50 — 2026-09-06\n\nСтарое.\n";
 
@@ -149,6 +213,12 @@ describe("packaging", () => {
     const ignored = vscodeignore.split(/\r?\n/).map((l) => l.trim());
     expect(ignored).not.toContain("CHANGELOG.md");
     expect(ignored).toContain("CHANGELOG.md.vsce.bak");
+  });
+
+  it("keeps the English twin out of the VSIX", () => {
+    // vsce packs every file that .vscodeignore does not name; the twin is for the website.
+    const ignored = vscodeignore.split(/\r?\n/).map((l) => l.trim());
+    expect(ignored).toContain("CHANGELOG.en.md");
   });
 
   it("stamps the Unreleased section in both VSIX packaging targets", () => {

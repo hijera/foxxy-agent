@@ -4,6 +4,8 @@ import {
   buildPermissionToolPreview,
   buildToolCallPreview,
   permissionPromptToolName,
+  toolCallTargetIsPath,
+  toolCallTargetRange,
   toolCallTargetText,
 } from "./permissionToolPreview";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
@@ -45,7 +47,7 @@ function payload(
   };
 }
 
-test("uses the concrete Coddy tool name instead of the generic ACP kind", () => {
+test("uses the concrete FoxxyCode tool name instead of the generic ACP kind", () => {
   expect(permissionPromptToolName(payload("apply_patch", {}))).toBe(
     "apply_patch",
   );
@@ -60,7 +62,7 @@ test("builds a command preview", () => {
     title: "Run this command?",
     header: "Shell",
     meta: ["timeout 45s"],
-    kind: "code",
+    kind: "shell",
     text: "npm test",
   });
 });
@@ -184,7 +186,7 @@ test("edit shows unchanged lines around the replacement as diff context", () => 
   ]);
 });
 
-test("builds readable transcript previews for read-only Coddy tools", () => {
+test("builds readable transcript previews for read-only FoxxyCode tools", () => {
   expect(
     buildToolCallPreview({
       title: "read",
@@ -212,6 +214,33 @@ test("builds readable transcript previews for read-only Coddy tools", () => {
     kind: "code",
     text: "permission-preview",
   });
+});
+
+test("toolCallTargetIsPath tells a path apart from a command, a pattern or a name", () => {
+  // Only a path may be respelt against the session directory; rewriting a command
+  // or a url would change what the row claims the call did.
+  for (const context of [
+    { title: "read", argsText: '{"path":"/repo/a/b.ts"}' },
+    { title: "write", argsText: '{"file_path":"/repo/a/b.ts"}' },
+    { title: "edit", argsText: '{"filePath":"/repo/a/b.ts"}' },
+    { title: "mv", argsText: '{"src":"/repo/a.ts","dst":"/repo/b.ts"}' },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(true);
+  }
+
+  for (const context of [
+    { title: "run_command", argsText: '{"command":"/usr/bin/make docs"}' },
+    { title: "grep", argsText: '{"pattern":"/etc/hosts"}' },
+    { title: "glob", argsText: '{"pattern":"**/*.go"}' },
+    { title: "webfetch", argsText: '{"url":"https://foxxycode.dev/"}' },
+    { title: "load_skill", argsText: '{"name":"rpa-bugfix"}' },
+    { title: "spawn_agent", argsText: '{"agent":"explore"}' },
+    // A documentation page is named like a path but lives in the binary.
+    { title: "foxxycode_docs_read", argsText: '{"page":"features/mentions"}' },
+    { title: "read", argsText: "" },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(false);
+  }
 });
 
 test("toolCallTargetText picks the identifying argument per tool", () => {
@@ -243,6 +272,51 @@ test("toolCallTargetText returns empty without usable arguments", () => {
   expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "{}" })).toBe("");
   expect(
+    toolCallTargetText({ title: "websearch", argsText: '{"query":"go slog"}' }),
+  ).toBe("go slog");
+  expect(
+    toolCallTargetText({ title: "foxxycode_docs_search", argsText: '{"query":"telegram proxy"}' }),
+  ).toBe("telegram proxy");
+  expect(
+    toolCallTargetText({
+      title: "foxxycode_docs_read",
+      argsText: '{"page":"features/mentions#completion","offset":40}',
+    }),
+  ).toBe("features/mentions#completion");
+  expect(
+    toolCallTargetText({
+      title: "mv",
+      argsText: '{"src":"a.ts","dst":"b.ts"}',
+    }),
+  ).toBe("a.ts");
+  expect(
+    toolCallTargetText({
+      title: "webfetch",
+      argsText: '{"url":"https://x.dev"}',
+    }),
+  ).toBe("https://x.dev");
+});
+
+test("an http_request names its method and address, never a path", () => {
+  const context = {
+    title: "http_request",
+    argsText:
+      '{"method":"patch","url":"https://api.x.dev/items/7","body_file":"src/a.json"}',
+  };
+  expect(toolCallTargetText(context)).toBe("PATCH https://api.x.dev/items/7");
+  expect(
+    toolCallTargetText({
+      title: "http_request",
+      argsText: '{"url":"http://localhost:8080/health"}',
+    }),
+  ).toBe("http://localhost:8080/health");
+  expect(buildToolCallPreview(context).title).toBe("Send this HTTP request?");
+});
+
+test("toolCallTargetText stays empty when there is nothing to name", () => {
+  // A question carries its prompt, not a target; a call whose arguments have not
+  // streamed in yet has to render as a bare verb rather than as "undefined".
+  expect(
     toolCallTargetText({
       title: "spawn_agent",
       argsText: '{"agent":"reviewer","prompt":"review the diff"}',
@@ -253,7 +327,123 @@ test("toolCallTargetText returns empty without usable arguments", () => {
   ).toBe("");
 });
 
-test("builds a distinct preview for the plan-to-agent transition", () => {
+// A read that takes part of a file says which part, in the spelling of a
+// mention (1-based and inclusive, like @path:120-180), so the collapsed row
+// tells two pages of the same file apart.
+test("toolCallTargetRange spells the lines a read takes", () => {
+  const read = (args: Record<string, unknown>) =>
+    toolCallTargetRange({ title: "read", argsText: JSON.stringify({ path: "a.go", ...args }) });
+  expect(read({ offset: 120, limit: 61 })).toBe(":120-180");
+  // One line is still a range a mention can hold.
+  expect(read({ offset: 120, limit: 1 })).toBe(":120-120");
+  // The start defaults to the first line.
+  expect(read({ limit: 40 })).toBe(":1-40");
+  // Without a limit the read runs to the end of the file.
+  expect(read({ offset: 120 })).toBe(":120-");
+  // The whole file reads as it always did.
+  expect(read({})).toBe("");
+  expect(read({ offset: 1 })).toBe("");
+  expect(read({ offset: 0, limit: 0 })).toBe("");
+  // Values the tool would not take as a line number name no range.
+  expect(read({ offset: -5, limit: 10 })).toBe(":1-10");
+  expect(read({ offset: "120", limit: 2.5 })).toBe("");
+  // The tool refuses a call whose line numbers are not whole: no range at all,
+  // rather than one the call never had.
+  expect(read({ offset: 120, limit: 2.5 })).toBe("");
+  expect(read({ offset: 1.5 })).toBe("");
+  expect(toolCallTargetRange({ title: "read", argsText: "not json" })).toBe("");
+  // A listing has no lines: the tool ignores offset and limit on a directory,
+  // and the row names it the way its label does.
+  expect(read({ path: "internal/", offset: 10, limit: 20 })).toBe("");
+  expect(read({ recursive: true, limit: 20 })).toBe("");
+});
+
+test("only a file read carries a line range", () => {
+  // keep_result pages a tool result and foxxycode_docs_read a documentation
+  // section: an offset there is not a line of the file the row names.
+  expect(
+    toolCallTargetRange({
+      title: "foxxycode_docs_read",
+      argsText: '{"page":"features/mentions","offset":40}',
+    }),
+  ).toBe("");
+  expect(
+    toolCallTargetRange({
+      title: "keep_result",
+      argsText: '{"tool_call_id":"call_1","offset":10,"limit":20}',
+    }),
+  ).toBe("");
+  // The path itself stays the target: the live status line reads it alone.
+  expect(
+    toolCallTargetText({ title: "read", argsText: '{"path":"a.go","offset":3,"limit":2}' }),
+  ).toBe("a.go");
+});
+
+// An MCP server names its own arguments, so a call taking none of the names a
+// built-in tool uses showed nothing at all beside the label.
+test("an MCP call falls back to its first argument that reads as a label", () => {
+  expect(
+    toolCallTargetText({
+      title: "playwright__browser_click",
+      argsText: '{"element":"  Search button  ","ref":"e12"}',
+    }),
+  ).toBe("Search button");
+  // A known argument still wins, so a navigate keeps reading as its address.
+  expect(
+    toolCallTargetText({
+      title: "mcp__playwright__browser_navigate",
+      argsText: '{"url":"https://example.dev/a"}',
+    }),
+  ).toBe("https://example.dev/a");
+  // A body is not a label: a multi-line or overlong value is skipped, and the next
+  // argument that fits is taken.
+  expect(
+    toolCallTargetText({
+      title: "github__create_issue",
+      argsText: JSON.stringify({
+        body: "line one\nline two",
+        title: "Crash on start",
+      }),
+    }),
+  ).toBe("Crash on start");
+  expect(
+    toolCallTargetText({
+      title: "github__create_issue",
+      argsText: JSON.stringify({ body: "x".repeat(200) }),
+    }),
+  ).toBe("");
+  // Nothing but a string is a label, and neither is an empty one.
+  expect(
+    toolCallTargetText({
+      title: "server__tool",
+      argsText: '{"count":3,"flag":true,"blank":"   ","subject":"ok"}',
+    }),
+  ).toBe("ok");
+  // An MCP path argument is still a path, so the row may respell it.
+  expect(
+    toolCallTargetIsPath({
+      title: "files__read_file",
+      argsText: '{"path":"a/b.ts"}',
+    }),
+  ).toBe(true);
+});
+
+// The fallback is for tools whose arguments FoxxyCode does not define. A built-in one
+// that reaches the same branch keeps naming the argument it is documented to take,
+// so a half-written write never shows the file body instead of its path.
+test("a tool outside the catalogue keeps only its known arguments", () => {
+  expect(
+    toolCallTargetText({ title: "something_new", argsText: '{"foo":"bar"}' }),
+  ).toBe("");
+  expect(
+    toolCallTargetText({
+      title: "write",
+      argsText: '{"content":"package main"}',
+    }),
+  ).toBe("");
+});
+
+test("toolCallTargetText accepts the Run: prefix and the Arguments: envelope", () => {
   expect(
     buildToolCallPreview({ title: "plan_exit", argsText: "{}" }),
   ).toMatchObject({
@@ -269,7 +459,189 @@ test("localizes the plan-to-agent transition preview", () => {
   setLocale("ru");
 
   expect(buildToolCallPreview({ title: "plan_exit" })).toMatchObject({
-    header: "Агентский режим",
+    header: "Агентный режим",
     kind: "plan_exit",
   });
+});
+
+test("a call with no arguments renders as an action card, never as `{}`", () => {
+  const preview = buildToolCallPreview(
+    { title: "foxxycode_todo_plan_archive", argsText: "{}" },
+    "{}",
+  );
+  expect(preview).toMatchObject({
+    toolName: "foxxycode_todo_plan_archive",
+    header: "archiving the plan",
+    meta: [],
+    copyText: "",
+    kind: "action",
+  });
+});
+
+test("the action card names a no-argument tool the way its row does", () => {
+  // An MCP call has nowhere else to say which server ran it.
+  expect(
+    buildToolCallPreview({ title: "mcp__github__list_repos" }, ""),
+  ).toMatchObject({
+    header: "calling list_repos on the MCP server github",
+    kind: "action",
+  });
+  expect(
+    buildToolCallPreview({ title: "something_new" }, ""),
+  ).toMatchObject({ header: "something_new", kind: "action" });
+});
+
+test("localizes the action card", () => {
+  setLocale("ru");
+  expect(
+    buildToolCallPreview({ title: "foxxycode_todo_plan_archive" }, "{}"),
+  ).toMatchObject({ header: "архивирую план", kind: "action" });
+});
+
+test("arguments that are not an empty object keep the readable fallback", () => {
+  expect(
+    buildToolCallPreview({ title: "keep_result" }, "raw tool detail"),
+  ).toMatchObject({ kind: "code", text: "raw tool detail" });
+});
+
+test("a shell call is its own preview kind so the command can carry a prompt", () => {
+  expect(
+    buildToolCallPreview({
+      title: "run_command",
+      argsText: JSON.stringify({ command: "npm test", timeout_seconds: 45 }),
+    }),
+  ).toMatchObject({
+    header: "Shell",
+    meta: ["timeout 45s"],
+    copyText: "npm test",
+    kind: "shell",
+    text: "npm test",
+  });
+  expect(
+    buildToolCallPreview({
+      title: "ssh_run_command",
+      argsText: JSON.stringify({ command: "uptime" }),
+    }),
+  ).toMatchObject({ header: "SSH shell", kind: "shell", text: "uptime" });
+});
+
+test("load_skill previews the skill it pulls in, not its JSON arguments", () => {
+  expect(
+    buildToolCallPreview({
+      title: "load_skill",
+      argsText: JSON.stringify({ name: "/code-review" }),
+    }),
+  ).toMatchObject({
+    toolName: "load_skill",
+    header: "code-review",
+    copyText: "code-review",
+    kind: "path",
+  });
+});
+
+test("the `Arguments:` envelope of an empty object is still an action card", () => {
+  expect(
+    buildToolCallPreview(
+      { title: "foxxycode_todo_plan_read", argsText: "Arguments: {}" },
+      "Arguments: {}",
+    ),
+  ).toMatchObject({ header: "reading the plan", kind: "action" });
+});
+
+test("an empty object is empty however it is spelled, but broken JSON is not", () => {
+  expect(
+    buildToolCallPreview({ title: "plan_list", argsText: "{ }" }, "{ }"),
+  ).toMatchObject({ kind: "action" });
+  expect(
+    buildToolCallPreview({ title: "plan_list", argsText: "{\n}" }, "{\n}"),
+  ).toMatchObject({ kind: "action" });
+  // A truncated history preview still has something to show, so it stays a body.
+  expect(
+    buildToolCallPreview(
+      { title: "mcp__ops__deploy", argsText: '{"target":"pro' },
+      '{"target":"pro',
+    ),
+  ).toMatchObject({ kind: "code", text: '{"target":"pro' });
+});
+
+// The config family read as bare verbs: "changing the config" with nothing beside
+// it, while every neighbouring row names what it touched. A dotted config path is
+// also not a filesystem path, so it must never be respelt against the session
+// directory.
+test("config calls name the key or the command they act on", () => {
+  expect(
+    toolCallTargetText({
+      title: "config_get",
+      argsText: '{"path":"scheduler.enable"}',
+    }),
+  ).toBe("scheduler.enable");
+  expect(
+    toolCallTargetText({
+      title: "config_set",
+      argsText: '{"commands":["set scheduler.enable=true"]}',
+    }),
+  ).toBe("set scheduler.enable=true");
+  expect(
+    toolCallTargetText({
+      title: "config_set",
+      argsText:
+        '{"commands":["set scheduler.enable=true","set agent.max_turns=20"]}',
+    }),
+  ).toBe("set scheduler.enable=true, set agent.max_turns=20");
+  expect(
+    toolCallTargetText({
+      title: "config_revert",
+      argsText: '{"path":"scheduler.enable"}',
+    }),
+  ).toBe("scheduler.enable");
+  // config_commit, config_changes and config_rollback take no arguments at all.
+  expect(toolCallTargetText({ title: "config_commit", argsText: "{}" })).toBe("");
+
+  for (const context of [
+    { title: "config_get", argsText: '{"path":"scheduler.enable"}' },
+    { title: "config_set", argsText: '{"commands":["set a.b=1"]}' },
+    { title: "config_revert", argsText: '{"path":"skills.dirs.0"}' },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(false);
+  }
+});
+
+// The config family used to fall through to the generic branch and print its own
+// arguments back as a JSON object, next to a row that named nothing at all.
+test("config calls preview the key or the staged commands, not their JSON", () => {
+  expect(
+    buildToolCallPreview({
+      title: "config_get",
+      argsText: JSON.stringify({ path: "scheduler.enable" }),
+    }),
+  ).toMatchObject({
+    header: "scheduler.enable",
+    meta: [],
+    kind: "path",
+  });
+
+  expect(
+    buildToolCallPreview({
+      title: "config_revert",
+      argsText: JSON.stringify({ path: "skills.dirs.0" }),
+    }),
+  ).toMatchObject({ header: "skills.dirs.0", kind: "path" });
+
+  expect(
+    buildToolCallPreview({
+      title: "config_set",
+      argsText: JSON.stringify({
+        commands: ["set scheduler.enable=true", "set agent.max_turns=20"],
+      }),
+    }),
+  ).toMatchObject({
+    header: "",
+    kind: "code",
+    text: "set scheduler.enable=true\nset agent.max_turns=20",
+  });
+
+  // config_commit and its no-argument siblings keep naming the action instead.
+  expect(
+    buildToolCallPreview({ title: "config_commit", argsText: "{}" }),
+  ).toMatchObject({ kind: "action" });
 });

@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
@@ -30,7 +31,7 @@ func runGateway(args []string) error {
 	gwCWD := fs.String("cwd", "", "default session working directory")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root directory")
 	logLevel := fs.String("log-level", "", "debug|info|warn|error")
-	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enable=true)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of gateway:\n")
 		fs.PrintDefaults()
@@ -60,7 +61,7 @@ func runGateway(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if !cfg.Gateways.Telegram.Enabled {
-		return fmt.Errorf("no gateway enabled; set gateways.telegram.enabled: true in config")
+		return fmt.Errorf("no gateway enabled; set gateways.telegram.enable: true in config")
 	}
 
 	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{Level: strings.TrimSpace(*logLevel)})
@@ -71,7 +72,8 @@ func runGateway(args []string) error {
 	}
 	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
 	llm.SetDebugLogger(log)
-	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
+	llm.ApplyDebugConfig(cfg.Debug)
+	netx.LogSystemProxy(log)
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting gateway", "version", version.Get())

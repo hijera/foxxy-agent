@@ -1,13 +1,16 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
 import type { PermissionResolvedState } from "./permissionTypes";
+import type { TurnOverride } from "./sessionSettings";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -16,17 +19,33 @@ import { ChatHeader } from "./ChatHeader";
 import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
-import { MessageList } from "../messages/MessageList";
+import type { QueuedMessage } from "./Composer";
+import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
-import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
+import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
+import type { TurnProgress } from "./turnProgress";
 import { useT } from "../i18n/I18nProvider";
+import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
 import {
   subscribeShellStack,
   snapshotShellStack,
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
+import {
+  documentScrollBottom,
+  keyboardInset,
+  documentTranscriptMetrics,
+  easeTranscriptJump,
+  elementScrollBottom,
+  elementTranscriptMetrics,
+  isTranscriptAtBottom,
+  transcriptJumpDurationMs,
+} from "./transcriptScrollPosition";
+import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
   title: string;
@@ -40,6 +59,17 @@ export function ChatScreen(props: {
   /** Export the session transcript as a document. Hidden until an assistant answer exists. */
   onExportSession?: (format: ExportFormat) => void;
   exportBusy?: boolean;
+  /** Prompts before `items[0]` in the history (the server's index of the
+   *  first prompt here), when the client holds only the end of a long one. */
+  userMsgIndexBase?: number;
+  /** The server holds history above `items[0]` (issue #338). */
+  transcriptHasOlder?: boolean;
+  /** The read of the page above `items[0]`. */
+  olderTranscriptLoad?: "idle" | "loading" | "error";
+  onLoadOlderTranscript?: () => void;
+  /** Whether the reader sits at the newest message, with the newest rows on
+   *  screen: the moment what was read of older history can be let go. */
+  onReaderAtTailChange?: (atTail: boolean) => void;
   draft: string;
   tokenUsage: TokenUsage | null;
   /** Account usage behind the selected model's provider: the pill and the banner. */
@@ -61,13 +91,32 @@ export function ChatScreen(props: {
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
+  /** The session's permission mode chip and the settings armed for the next
+   *  turns (chat/sessionSettings.ts); passed through to the composer. */
+  permissionMode?: string;
+  configuredPermissionMode?: string;
+  onPermissionModeChange?: ((mode: string) => void) | undefined;
+  settingsOverrides?: TurnOverride[];
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
   /** Pass-through to Composer: captured paste-chip literals (see Composer). */
   onPasteChipCaptured?: (key: string, literal: string) => void;
+  /** The files attached in the composer, when the caller owns them: a send the
+   *  server never took puts them back (App.tsx, streamResponses). */
+  attachedFiles?: File[];
+  onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
+  /** `/docs [page or words]` typed in the composer opens the documentation reader. */
+  onDocsCommand?: (arg: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
+  turnActive?: boolean | undefined;
   onStop?: () => void;
+  /** Follow-ups waiting for the running turn to read them (the message queue). */
+  queuedMessages?: QueuedMessage[];
+  /** Add the draft to that queue instead of starting a turn. */
+  onQueue?: (text: string) => void;
+  /** Take one queued follow-up back before the agent reads it. */
+  onCancelQueued?: (id: string) => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
@@ -85,18 +134,27 @@ export function ChatScreen(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   editingFiles?: { name: string; mimeType: string }[];
-  onBranchSwitch?: (sessionId: string) => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  /** Every background task of this chat, for the opener under the transcript. */
+  /** Every background task of this chat, for the header control and the live line. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** The Tasks panel is showing, for the header control's expanded state. */
+  backgroundTasksOpen?: boolean;
+  onCloseBackgroundTasks?: () => void;
+  /** Re-read the task rows: a background subagent's prompt was answered here. */
+  onBackgroundTasksChanged?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -110,6 +168,11 @@ export function ChatScreen(props: {
   onSvnFolderToggle?: () => void;
   /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
   subagentTranscript?: SubagentTranscriptMeta | null;
+  /** True when the conversation on screen is archived: the composer gives way to the notice that offers to take it back out. */
+  sessionArchived?: boolean;
+  onUnarchiveSession?: () => void;
+  /** True while that request is in flight. */
+  unarchiving?: boolean;
   /** Opens another session in this tab (the parent chat from the notice). */
   onOpenSession?: (sessionId: string) => void;
 }) {
@@ -117,21 +180,47 @@ export function ChatScreen(props: {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   // Hero and docked are two branches of one ternary, so the composer unmounts on
   // the transition. Attachments live here to survive it.
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  // The transcript window (issue #338) lives in TranscriptList; the screen
+  // asks it whether the newest rows are rendered and to put them back.
+  const transcriptRef = useRef<TranscriptListHandle | null>(null);
+  const transcriptAttached = () => transcriptRef.current?.attached ?? true;
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
+  // One count for the live line and the header control.
+  const runningTasks = useMemo(
+    () => countRunningTasks(props.backgroundTasks ?? []),
+    [props.backgroundTasks],
+  );
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
+  const prevPermissionsForScrollRef = useRef(new Set<string>());
   // The scroll-tail reserve is written straight to this element, never held as
   // state: see the effect below for why React must stay out of this loop.
   const chatStackRef = useRef<HTMLDivElement | null>(null);
   const composerReserveRef = useRef(0);
+  const followReserveRef = useRef(() => {});
+  // The jump owns the scroll position while it travels; a frame id says so.
+  const jumpFrameRef = useRef<number | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // Shared by hero and docked composers so disabled files survive the first text turn.
+  const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
+  const attachedFiles = props.attachedFiles ?? localAttachedFiles;
+  const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
   const mobileDocScroll = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
   );
+  const readerAtTailRef = useRef<boolean | null>(null);
+  const onReaderAtTailChangeRef = useRef(props.onReaderAtTailChange);
+  onReaderAtTailChangeRef.current = props.onReaderAtTailChange;
+  const reportReaderAtTail = useCallback((atBottom: boolean) => {
+    const atTail = atBottom && (transcriptRef.current?.attached ?? true);
+    if (readerAtTailRef.current === atTail) return;
+    readerAtTailRef.current = atTail;
+    onReaderAtTailChangeRef.current?.(atTail);
+  }, []);
 
   useLayoutEffect(() => {
     if (isEmpty) return;
@@ -141,11 +230,12 @@ export function ChatScreen(props: {
     const measure = () => Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
     // The reserve is the height of `.chat-scroll-tail` inside the scroll
     // container. Writing it from inside the ResizeObserver callback relayouts
-    // the transcript in the same delivery loop, and with content-visibility
-    // rows that resizes the observed host again before the loop settles:
-    // JCEF (Chromium 104) then raises "ResizeObserver loop limit exceeded"
-    // on every transcript open. So the write waits for the next frame and an
-    // unchanged value is skipped, and the loop cannot feed itself.
+    // the transcript in the same delivery loop, and when the rows still used
+    // content-visibility that resized the observed host again before the loop
+    // settled: JCEF (Chromium 104) raised "ResizeObserver loop limit exceeded"
+    // on every transcript open. The rows lay out plainly now, but the write
+    // still waits for the next frame and an unchanged value is still skipped,
+    // so the loop cannot feed itself whatever the rows do.
     //
     // It is written to the element rather than held as state, which is the
     // other half of the same problem. A setState here does not write the DOM
@@ -160,6 +250,7 @@ export function ChatScreen(props: {
       if (!stack || composerReserveRef.current === next) return;
       composerReserveRef.current = next;
       stack.style.setProperty("--chat-composer-reserve", `${next}px`);
+      followReserveRef.current();
     };
     write(measure());
     let frame = 0;
@@ -187,43 +278,205 @@ export function ChatScreen(props: {
     // the token line can cause, so there is nothing to restart for.
   }, [isEmpty]);
 
+  // Whichever surface scrolls, it is read and written through these three, so
+  // the follow, the button and the jump never disagree about where the end is.
+  const transcriptScrollBottom = useCallback((): number => {
+    if (mobileDocScroll) return documentScrollBottom(window);
+    const el = messagesRef.current;
+    return el ? elementScrollBottom(el) : 0;
+  }, [mobileDocScroll]);
+
+  const readTranscriptScrollTop = useCallback((): number => {
+    if (mobileDocScroll) return window.scrollY;
+    return messagesRef.current?.scrollTop ?? 0;
+  }, [mobileDocScroll]);
+
+  const writeTranscriptScrollTop = useCallback(
+    (top: number) => {
+      if (mobileDocScroll) {
+        window.scrollTo({ top, left: 0, behavior: "auto" });
+        return;
+      }
+      const el = messagesRef.current;
+      if (el) el.scrollTop = top;
+    },
+    [mobileDocScroll],
+  );
+
+  const cancelTranscriptJump = useCallback((): boolean => {
+    if (jumpFrameRef.current === null) return false;
+    cancelAnimationFrame(jumpFrameRef.current);
+    jumpFrameRef.current = null;
+    return true;
+  }, []);
+
+  // One reading of the scrollport drives both behaviours: the transcript
+  // follows new output while it sits in the bottom band, and the jump button
+  // appears exactly when it stops following.
+  const syncTranscriptPosition = useCallback(() => {
+    // A jump owns the position while it travels. Reading it mid-flight would
+    // put the button back on screen for every frame above the band.
+    if (jumpFrameRef.current !== null) return;
+    let atBottom: boolean;
+    if (mobileDocScroll) {
+      atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
+    } else {
+      const el = messagesRef.current;
+      if (!el) return;
+      atBottom = isTranscriptAtBottom(elementTranscriptMetrics(el));
+    }
+    // A window cut short of the newest rows is not at the newest message,
+    // wherever its own end is.
+    const atNewest = atBottom && transcriptAttached();
+    stickToBottomRef.current = atNewest;
+    setShowScrollToBottom(!atNewest);
+    reportReaderAtTail(atBottom);
+  }, [mobileDocScroll, reportReaderAtTail]);
+
+  const jumpToNewestMessage = useCallback(() => {
+    cancelTranscriptJump();
+    // Reading far up, the newest rows are not rendered: put them back and land
+    // on them at once rather than travel through history that is not there.
+    const transcript = transcriptRef.current;
+    if (transcript && !transcript.attached) {
+      stickToBottomRef.current = true;
+      setShowScrollToBottom(false);
+      transcript.attachToTail(() => {
+        writeTranscriptScrollTop(transcriptScrollBottom());
+        syncTranscriptPosition();
+      });
+      return;
+    }
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    const from = readTranscriptScrollTop();
+    const to = transcriptScrollBottom();
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (to <= from) {
+      // Already at the newest message, or past where this measure puts it: a
+      // "jump" to the smaller offset would take the reader back up the page.
+      syncTranscriptPosition();
+      return;
+    }
+    if (reduceMotion) {
+      writeTranscriptScrollTop(to);
+      return;
+    }
+    const duration = transcriptJumpDurationMs(to - from);
+    const started = performance.now();
+    const step = (now: number) => {
+      const progress = (now - started) / duration;
+      // The end is re-read every frame: a streaming turn keeps moving it down,
+      // and the travel should land on where the transcript is now. It never
+      // turns back up past where the jump started.
+      const end = Math.max(transcriptScrollBottom(), from);
+      writeTranscriptScrollTop(
+        from + (end - from) * easeTranscriptJump(progress),
+      );
+      if (progress < 1) {
+        jumpFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+      jumpFrameRef.current = null;
+      syncTranscriptPosition();
+    };
+    jumpFrameRef.current = requestAnimationFrame(step);
+  }, [
+    cancelTranscriptJump,
+    readTranscriptScrollTop,
+    syncTranscriptPosition,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
+
+  // The reader reaching for the wheel, a finger or the scrollbar always wins
+  // over a jump still in the air.
+  useEffect(() => {
+    const takeOver = () => {
+      if (cancelTranscriptJump()) syncTranscriptPosition();
+    };
+    const passive = { passive: true } as const;
+    window.addEventListener("wheel", takeOver, passive);
+    window.addEventListener("touchstart", takeOver, passive);
+    window.addEventListener("mousedown", takeOver, passive);
+    return () => {
+      window.removeEventListener("wheel", takeOver);
+      window.removeEventListener("touchstart", takeOver);
+      window.removeEventListener("mousedown", takeOver);
+    };
+  }, [cancelTranscriptJump, syncTranscriptPosition]);
+
+  useEffect(() => {
+    return () => {
+      cancelTranscriptJump();
+    };
+  }, [cancelTranscriptJump]);
+
   useEffect(() => {
     if (isEmpty) return;
     const prev = prevItemsForScrollRef.current;
     prevItemsForScrollRef.current = props.items;
-    if (!transcriptItemsAffectAutoScroll(prev, props.items)) {
+    // Polling replaces task rows even when nothing changed. Only a newly
+    // waiting call should follow the reader, never an elapsed-time update.
+    const permissions = new Set(
+      (props.backgroundTasks ?? [])
+        .filter(isAwaitingPermission)
+        .map((task) =>
+          JSON.stringify([
+            task.id,
+            task.pending_permission?.sessionId,
+            task.pending_permission?.toolCall.toolCallId,
+          ]),
+        ),
+    );
+    const newPermission = [...permissions].some(
+      (key) => !prevPermissionsForScrollRef.current.has(key),
+    );
+    prevPermissionsForScrollRef.current = permissions;
+    if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
       return;
     }
-    if (!stickToBottomRef.current) return;
+    // A jump already chases the end of a growing transcript; a hard scroll here
+    // would fight its travel frame by frame.
+    if (jumpFrameRef.current !== null) return;
+    // Content grew under a reader who scrolled away: leave them where they are
+    // and re-read the position, which is what reveals the button mid-stream.
+    if (!stickToBottomRef.current) {
+      syncTranscriptPosition();
+      return;
+    }
+    const follow = () => {
+      writeTranscriptScrollTop(transcriptScrollBottom());
+      syncTranscriptPosition();
+    };
     if (mobileDocScroll) {
-      const run = () => {
-        const top = Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight,
-        );
-        window.scrollTo({ top, left: 0, behavior: "auto" });
-      };
-      requestAnimationFrame(() => requestAnimationFrame(run));
+      // The document takes its new height after layout, not on this tick.
+      requestAnimationFrame(() => requestAnimationFrame(follow));
       return;
     }
-    const el = messagesRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [props.items, isEmpty, mobileDocScroll]);
+    follow();
+  }, [
+    props.items,
+    props.backgroundTasks,
+    isEmpty,
+    mobileDocScroll,
+    syncTranscriptPosition,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
+
+  // The reserve is written outside React to avoid a ResizeObserver loop in
+  // JCEF. Follow its next layout only while the reader stays at the tail.
+  followReserveRef.current = () => {
+    if (isEmpty || !stickToBottomRef.current || jumpFrameRef.current !== null) return;
+    writeTranscriptScrollTop(transcriptScrollBottom());
+  };
 
   useEffect(() => {
     if (isEmpty) return;
-    const onScroll = () => {
-      if (mobileDocScroll) {
-        const doc = document.documentElement;
-        const dist = doc.scrollHeight - window.scrollY - window.innerHeight;
-        stickToBottomRef.current = dist < 80;
-      } else {
-        const el = messagesRef.current;
-        if (!el) return;
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        stickToBottomRef.current = dist < 80;
-      }
-    };
+    const onScroll = () => syncTranscriptPosition();
     if (mobileDocScroll) {
       window.addEventListener("scroll", onScroll, { passive: true });
       return () => window.removeEventListener("scroll", onScroll);
@@ -231,16 +484,107 @@ export function ChatScreen(props: {
     const el = messagesRef.current;
     el?.addEventListener("scroll", onScroll, { passive: true });
     return () => el?.removeEventListener("scroll", onScroll);
-  }, [isEmpty, mobileDocScroll]);
+  }, [isEmpty, mobileDocScroll, syncTranscriptPosition]);
+
+  // On the stacked shell the composer block is fixed to the bottom of the
+  // layout viewport, which an overlaying on-screen keyboard covers (iOS Safari
+  // ignores interactive-widget=resizes-content): the block rode under the
+  // keyboard, scroll-to-bottom button included. --foxxycode-keyboard-inset lifts it
+  // by what the keyboard hides (styles.css), and the reader's position is read
+  // again, since the keyboard changes how much of the transcript is in view.
+  useEffect(() => {
+    if (!mobileDocScroll) return undefined;
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const root = document.documentElement;
+    const apply = () => {
+      root.style.setProperty("--foxxycode-keyboard-inset", `${keyboardInset(window)}px`);
+      if (!isEmpty) syncTranscriptPosition();
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      root.style.removeProperty("--foxxycode-keyboard-inset");
+    };
+  }, [isEmpty, mobileDocScroll, syncTranscriptPosition]);
 
   // A child session is read-only on the server (409 on any prompt), so the
   // notice takes the composer's slot in both the hero and the docked layout.
+  // An archived conversation takes the same slot for a different reason: the
+  // server would accept the prompt, and accepting it would quietly undo the
+  // operator's own "not now".
   const readOnlyNotice = props.subagentTranscript ? (
     <SubagentReadOnlyNotice
       meta={props.subagentTranscript}
       {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
     />
+  ) : props.sessionArchived ? (
+    <ArchivedSessionNotice
+      onUnarchive={() => props.onUnarchiveSession?.()}
+      {...(props.unarchiving ? { busy: true } : {})}
+    />
   ) : null;
+
+  const messageListProps: Omit<
+    MessageListProps,
+    "items" | "renderStart" | "renderEnd"
+  > = {
+    ...(props.userMsgIndexBase
+      ? { userMsgIndexBase: props.userMsgIndexBase }
+      : {}),
+    sessionId: props.sessionId,
+    generating: props.generating === true,
+    ...(props.pathRoots !== undefined ? { pathRoots: props.pathRoots } : {}),
+    ...(props.turnProgress ? { turnProgress: props.turnProgress } : {}),
+    ...(runningTasks > 0 ? { runningTasks } : {}),
+    ...(props.onOpenBackgroundTasks
+      ? { onOpenTasks: props.onOpenBackgroundTasks }
+      : {}),
+    turnActive: props.turnActive,
+    ...(props.workspaceCtx?.path ? { workspacePath: props.workspaceCtx.path } : {}),
+    ...(props.onOpenSession ? { onOpenSubagentTranscript: props.onOpenSession } : {}),
+    ...(props.onFetchToolCallFull
+      ? { onFetchToolCallFull: props.onFetchToolCallFull }
+      : {}),
+    ...(props.onQuestionPromptResolved
+      ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
+      : {}),
+    ...(props.onPermissionPromptResolved
+      ? {
+          onPermissionPromptResolved: props.onPermissionPromptResolved,
+        }
+      : {}),
+    ...(props.onPlanDocumentExpanded
+      ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }
+      : {}),
+    ...(props.onPlanDocumentRun
+      ? { onPlanDocumentRun: props.onPlanDocumentRun }
+      : {}),
+    ...(props.onPlanDocumentDiscard
+      ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
+      : {}),
+    ...(props.onEdit ? { onEdit: props.onEdit } : {}),
+    ...(props.knownSkillNames
+      ? { knownSkillNames: props.knownSkillNames }
+      : {}),
+    ...(props.backgroundTasksByToolCallId
+      ? {
+          backgroundTasksByToolCallId: props.backgroundTasksByToolCallId,
+        }
+      : {}),
+    ...(props.backgroundNowMs !== undefined
+      ? { backgroundNowMs: props.backgroundNowMs }
+      : {}),
+    ...(props.onOpenBackgroundTask
+      ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+      : {}),
+    ...(props.onStopBackgroundTask
+      ? { onStopBackgroundTask: props.onStopBackgroundTask }
+      : {}),
+  };
 
   const mainClassName = [
     "main",
@@ -365,14 +709,38 @@ export function ChatScreen(props: {
                     }
                   : {})}
                 onModeChange={props.onModeChange}
+                {...(props.permissionMode !== undefined
+                  ? { permissionMode: props.permissionMode }
+                  : {})}
+                {...(props.configuredPermissionMode !== undefined
+                  ? { configuredPermissionMode: props.configuredPermissionMode }
+                  : {})}
+                {...(props.onPermissionModeChange
+                  ? { onPermissionModeChange: props.onPermissionModeChange }
+                  : {})}
+                {...(props.settingsOverrides
+                  ? { settingsOverrides: props.settingsOverrides }
+                  : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
                 {...(props.onPasteChipCaptured
                   ? { onPasteChipCaptured: props.onPasteChipCaptured }
                   : {})}
-                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                {...(props.onContextRingOpen
+                  ? { onContextRingOpen: props.onContextRingOpen }
+                  : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
+                  : {})}
+                {...(props.onQueue
+                  ? {
+                      queuedMessages: props.queuedMessages ?? [],
+                      onQueue: props.onQueue,
+                      ...(props.onCancelQueued
+                        ? { onCancelQueued: props.onCancelQueued }
+                        : {}),
+                    }
                   : {})}
                 {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
                 {...(props.onWorkspacePickFolder
@@ -419,69 +787,50 @@ export function ChatScreen(props: {
                         ),
                       }
                     : {})}
+                  {...(props.onOpenBackgroundTasks
+                    ? {
+                        tasks: props.backgroundTasks ?? [],
+                        // The header control is where the panel was opened
+                        // from, so a second click puts it away again.
+                        onOpenTasks:
+                          props.backgroundTasksOpen === true &&
+                          props.onCloseBackgroundTasks
+                            ? props.onCloseBackgroundTasks
+                            : props.onOpenBackgroundTasks,
+                        tasksOpen: props.backgroundTasksOpen === true,
+                      }
+                    : {})}
                 />
               </div>
             </div>
-            <div className="messages-inner">
-              <MessageList
-                items={props.items}
-                sessionId={props.sessionId}
-                generating={props.generating === true}
-                {...(props.workspaceCtx?.path
-                  ? { workspacePath: props.workspaceCtx.path }
-                  : {})}
-                {...(props.onOpenSession
-                  ? { onOpenSubagentTranscript: props.onOpenSession }
-                  : {})}
-                {...(props.onFetchToolCallFull
-                  ? { onFetchToolCallFull: props.onFetchToolCallFull }
-                  : {})}
-                {...(props.onQuestionPromptResolved
-                  ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
-                  : {})}
-                {...(props.onPermissionPromptResolved
-                  ? {
-                      onPermissionPromptResolved:
-                        props.onPermissionPromptResolved,
-                    }
-                  : {})}
-                {...(props.onPlanDocumentExpanded
-                  ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }
-                  : {})}
-                {...(props.onPlanDocumentRun
-                  ? { onPlanDocumentRun: props.onPlanDocumentRun }
-                  : {})}
-                {...(props.onPlanDocumentDiscard
-                  ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
-                  : {})}
-                {...(props.onEdit ? { onEdit: props.onEdit } : {})}
-                {...(props.onBranchSwitch
-                  ? { onBranchSwitch: props.onBranchSwitch }
-                  : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
-                {...(props.backgroundTasksByToolCallId
-                  ? {
-                      backgroundTasksByToolCallId:
-                        props.backgroundTasksByToolCallId,
-                    }
-                  : {})}
-                {...(props.backgroundNowMs !== undefined
-                  ? { backgroundNowMs: props.backgroundNowMs }
-                  : {})}
-                {...(props.onOpenBackgroundTask
-                  ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
-                  : {})}
-                {...(props.onStopBackgroundTask
-                  ? { onStopBackgroundTask: props.onStopBackgroundTask }
-                  : {})}
-              />
-              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
-                <BackgroundTasksChip
-                  tasks={props.backgroundTasks}
-                  onOpen={props.onOpenBackgroundTasks}
-                />
-              ) : null}
-            </div>
+            <TranscriptList
+              items={props.items}
+              sessionId={props.sessionId}
+              scrollerRef={messagesRef}
+              docScroll={mobileDocScroll}
+              stickToBottomRef={stickToBottomRef}
+              hasOlder={props.transcriptHasOlder === true}
+              olderLoad={props.olderTranscriptLoad ?? "idle"}
+              onLoadOlder={() => props.onLoadOlderTranscript?.()}
+              handleRef={transcriptRef}
+              // The window reaching or leaving the newest rows changes what
+              // "at the newest message" means for the same scroll position.
+              onAttachedChange={() => {
+                if (!isEmpty) syncTranscriptPosition();
+              }}
+              messageList={messageListProps}
+              tailWaits={(props.backgroundTasks ?? []).some(
+                isAwaitingPermission,
+              )}
+              tail={
+                props.backgroundTasks ? (
+                  <SubagentPermissionCards
+                    tasks={props.backgroundTasks}
+                    onAnswered={() => props.onBackgroundTasksChanged?.()}
+                  />
+                ) : null
+              }
+            />
             <div className="chat-scroll-tail" aria-hidden />
           </div>
 
@@ -489,6 +838,10 @@ export function ChatScreen(props: {
               the marker class replaces :has(), unsupported in JCEF Chromium 104 */}
           <div className="chat-bottom chat-bottom--docked">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              <ScrollToBottomButton
+                visible={showScrollToBottom}
+                onClick={jumpToNewestMessage}
+              />
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}
@@ -542,14 +895,41 @@ export function ChatScreen(props: {
                       }
                     : {})}
                   onModeChange={props.onModeChange}
+                  {...(props.permissionMode !== undefined
+                    ? { permissionMode: props.permissionMode }
+                    : {})}
+                  {...(props.configuredPermissionMode !== undefined
+                    ? {
+                        configuredPermissionMode:
+                          props.configuredPermissionMode,
+                      }
+                    : {})}
+                  {...(props.onPermissionModeChange
+                    ? { onPermissionModeChange: props.onPermissionModeChange }
+                    : {})}
+                  {...(props.settingsOverrides
+                    ? { settingsOverrides: props.settingsOverrides }
+                    : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
                   {...(props.onPasteChipCaptured
                     ? { onPasteChipCaptured: props.onPasteChipCaptured }
                     : {})}
-                  {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                  {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                  {...(props.onContextRingOpen
+                    ? { onContextRingOpen: props.onContextRingOpen }
+                    : {})}
                   {...(props.generating === true && props.onStop !== undefined
                     ? { generating: true, onStop: props.onStop }
+                    : {})}
+                  {...(props.onQueue
+                    ? {
+                        queuedMessages: props.queuedMessages ?? [],
+                        onQueue: props.onQueue,
+                        ...(props.onCancelQueued
+                          ? { onCancelQueued: props.onCancelQueued }
+                          : {}),
+                      }
                     : {})}
                   {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
                   {...(props.editingFiles && props.editingFiles.length > 0

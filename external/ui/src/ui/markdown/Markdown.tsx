@@ -14,6 +14,28 @@ import {
   type ReactNode,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { docsHrefFromFoxxyCodeLink } from "../scheduler/hashRoute";
+import { remarkDocMentions } from "./remarkDocMentions";
+
+/**
+ * rehype-highlight builds a new highlighter each time its attacher runs - every
+ * grammar registered again, and compiled again the first time a block uses it -
+ * and react-markdown runs the attachers on every render of every Markdown block.
+ * One transformer, built on first use, serves them all: opening a long chat
+ * spent a fifth of its first frame here (issue #338).
+ */
+let highlightTransformer: ReturnType<typeof rehypeHighlight> | undefined;
+function rehypeHighlightShared() {
+  highlightTransformer ??= rehypeHighlight(syntaxHighlightOptions);
+  return highlightTransformer;
+}
+const REMARK_PLUGINS = [remarkGfm, remarkDocMentions];
+const REHYPE_PLUGINS = [rehypeHighlightShared];
+
+/** A video file where Markdown has an image: the documentation embeds its
+ *  recordings this way, fetched from GitHub when they play. */
+const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
 
 type CodeProps = {
   className?: string | undefined;
@@ -31,6 +53,12 @@ type AProps = {
   // absent, so both fields have to admit an explicit undefined.
   href?: string | undefined;
   children?: unknown;
+};
+
+type ImgProps = {
+  src?: string | undefined;
+  alt?: string | undefined;
+  title?: string | undefined;
 };
 
 function normalizeText(children: unknown): string {
@@ -58,32 +86,6 @@ function copyTextToClipboard(text: string): Promise<void> {
     document.execCommand("copy");
     document.body.removeChild(ta);
   });
-}
-
-function CopyButton(props: { text: string }) {
-  const { t } = useT();
-  const [copied, setCopied] = useState(false);
-
-  const onCopy = useCallback(async () => {
-    try {
-      await copyTextToClipboard(props.text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 900);
-    } catch {
-      setCopied(false);
-    }
-  }, [props.text]);
-
-  return (
-    <button
-      type="button"
-      className="md-copy"
-      onClick={() => void onCopy()}
-      aria-label={t("messages.copyCode")}
-    >
-      {copied ? t("messages.copied") : t("messages.copy")}
-    </button>
-  );
 }
 
 function InlineCode(props: { className?: string; children?: unknown }) {
@@ -152,7 +154,7 @@ function MarkdownPre(props: PreProps) {
   return (
     <MarkdownPreContext.Provider value={true}>
       <div className="md-code">
-        <CopyButton text={txt.replace(/\n$/, "")} />
+        <CodeBlockCopyButton textToCopy={txt.replace(/\n$/, "")} />
         <pre>{props.children as any}</pre>
       </div>
     </MarkdownPreContext.Provider>
@@ -183,6 +185,16 @@ function MarkdownBase(props: { text: string }) {
             </span>
           );
         }
+        // A page of the built-in documentation, as pages link to each other
+        // and as the agent quotes them: open it in the reader.
+        const docsHref = docsHrefFromFoxxyCodeLink(href);
+        if (docsHref) {
+          return (
+            <a href={docsHref} className="md-docs-link">
+              {p.children as any}
+            </a>
+          );
+        }
         const external = /^https?:\/\//i.test(href);
         return (
           <a
@@ -195,12 +207,31 @@ function MarkdownBase(props: { text: string }) {
           </a>
         );
       },
+      img: (p: ImgProps) =>
+        p.src && VIDEO_SRC.test(p.src) ? (
+          <video
+            className="md-video"
+            // #t=0.1 shows a first frame before it plays, not a black box.
+            src={p.src.includes("#") ? p.src : `${p.src}#t=0.1`}
+            controls
+            preload="metadata"
+            playsInline
+            aria-label={p.alt || undefined}
+          />
+        ) : (
+          <img
+            src={p.src}
+            alt={p.alt || ""}
+            {...(p.title ? { title: p.title } : {})}
+            loading="lazy"
+          />
+        ),
     }),
     [],
   );
 
   const urlTransform = useCallback((url: string) => {
-    if (url.startsWith("foxxycode-skill:")) {
+    if (url.startsWith("foxxycode-skill:") || url.startsWith("foxxycode:")) {
       return url;
     }
     // react-markdown's defaultUrlTransform takes the url alone; the key and node
@@ -211,8 +242,8 @@ function MarkdownBase(props: { text: string }) {
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, syntaxHighlightOptions]]}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
         components={components}
         urlTransform={urlTransform}
       >

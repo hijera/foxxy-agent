@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -63,13 +64,21 @@ func turnEventFrame(ev session.TurnEvent) []byte {
 		"phase":     string(ev.Phase),
 		"at":        ev.At.UTC().Format(time.RFC3339Nano),
 	}
+	name := "turn_started"
+	switch ev.Phase {
+	case session.TurnPhaseEnded:
+		name = "turn_ended"
+	case session.TurnPhaseWoken:
+		// The turn holding the session was started by finished background
+		// tasks. The tasks travel with it: a client that follows only its own
+		// turns decides from this frame whether the turn is worth following.
+		name = "background_wake"
+		payload["object"] = "foxxycode.background_wake"
+		payload["tasks"] = session.BackgroundWakeUpdate(ev.Wake).Tasks
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil
-	}
-	name := "turn_started"
-	if ev.Phase == session.TurnPhaseEnded {
-		name = "turn_ended"
 	}
 	frame := make([]byte, 0, len(body)+len(name)+16)
 	frame = append(frame, "event: "...)
@@ -86,6 +95,74 @@ func (s *Server) publishTurnEvent(ev session.TurnEvent) {
 		return
 	}
 	if frame := turnEventFrame(ev); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
+// messageQueueFrame renders a session's message queue as one SSE frame.
+//
+// Unlike the turn edges, this one carries its payload: the queue is small, it
+// is what every client renders, and a client told only that "something changed"
+// would have to fetch the session it may not even have open.
+func messageQueueFrame(u acp.MessageQueueUpdate) []byte {
+	if u.Messages == nil {
+		u.Messages = []acp.QueuedMessage{}
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "foxxycode.message_queue",
+		"sessionId": u.SessionID,
+		"messages":  u.Messages,
+		"version":   u.Version,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+32)
+	frame = append(frame, "event: message_queue\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishMessageQueueEvent is the Manager observer this server registers in New.
+// It is called on the goroutine that changed the queue, so it only renders a
+// frame and hands it to the hub, whose sends are non-blocking.
+func (s *Server) publishMessageQueueEvent(u acp.MessageQueueUpdate) {
+	if s.events == nil {
+		return
+	}
+	if frame := messageQueueFrame(u); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
+// sessionSettingsFrame renders a change of a session's settings as one SSE
+// frame: the whole snapshot with its version, what changed and who asked.
+func sessionSettingsFrame(u acp.SessionSettingsUpdate) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "foxxycode.session_settings",
+		"sessionId": u.Settings.SessionID,
+		"settings":  u.Settings,
+		"notice":    u.Notice,
+		"source":    u.Source,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+32)
+	frame = append(frame, "event: session_settings\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishSessionSettingsEvent is the Manager observer this server registers
+// in New; like the queue observer it only renders and hands off.
+func (s *Server) publishSessionSettingsEvent(u acp.SessionSettingsUpdate) {
+	if s.events == nil {
+		return
+	}
+	if frame := sessionSettingsFrame(u); frame != nil {
 		s.events.publish(frame)
 	}
 }
@@ -120,6 +197,36 @@ func (s *Server) publishConfigReloaded() {
 		return
 	}
 	if frame := configReloadedFrame(time.Now()); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
+// sessionRewoundFrame renders an in-place history truncation as one SSE frame.
+func sessionRewoundFrame(sessionID string, messagesRev uint64) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":      "foxxycode.session_rewound",
+		"sessionId":   sessionID,
+		"messagesRev": messagesRev,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+40)
+	frame = append(frame, "event: session_rewound\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishSessionRewound tells every events subscriber that a session's history
+// was truncated in place, so a watcher of that session refetches its
+// transcript instead of keeping a tail that no longer exists. foxxycodeRewind is
+// its only caller.
+func (s *Server) publishSessionRewound(sessionID string, messagesRev uint64) {
+	if s.events == nil {
+		return
+	}
+	if frame := sessionRewoundFrame(sessionID, messagesRev); frame != nil {
 		s.events.publish(frame)
 	}
 }

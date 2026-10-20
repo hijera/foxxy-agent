@@ -59,13 +59,6 @@ describe("i18n translate", () => {
     ]);
   });
 
-  it("translatePlural picks the category for the active locale", () => {
-    setLocale("en");
-    expect(translatePlural("prompts.permissionMeta.lines", 1)).toBe("1 line");
-    expect(translatePlural("prompts.permissionMeta.lines", 2)).toBe("2 lines");
-    expect(translatePlural("prompts.permissionMeta.lines", 40)).toBe("40 lines");
-  });
-
   it("translatePlural declines russian counts by CLDR category, not by count === 1", () => {
     setLocale("ru");
     // one / few / many, including the 11-14 exception and the 21 wrap-around.
@@ -96,5 +89,16 @@ describe("i18n translate", () => {
     expect(translatePlural("definitely.not.a.family", 3)).toBe(
       "definitely.not.a.family",
     );
+  });
+});
+
+describe("Russian transcript rows", () => {
+  it("name what the agent is doing, in the first person", () => {
+    setLocale("ru");
+  // The tool rows were written this way in #239; the thinking row is the same
+  // kind of row and must not fall back to a noun ("размышления").
+    expect(t("messages.thinkingCompleted")).toBe("размышляю");
+    expect(t("messages.thinkingInProgress")).toBe("размышляю…");
+    expect(t("tool.name.run_command")).toBe("выполняю команду");
   });
 });

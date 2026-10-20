@@ -50,8 +50,9 @@ test("turn events are reported per session", async () => {
   expect(ended).toEqual(["sess_a"]);
 });
 
-test("the ready and keepalive frames are ignored", async () => {
+test("ready requests reconciliation while keepalive frames remain ignored", async () => {
   const seen: string[] = [];
+  const ready = vi.fn();
   const ctl = new AbortController();
   const fetchImpl = vi.fn(async () => {
     ctl.abort();
@@ -63,12 +64,14 @@ test("the ready and keepalive frames are ignored", async () => {
   await subscribeServerEvents({
     onTurnStarted: (sid) => seen.push(sid),
     onTurnEnded: (sid) => seen.push(sid),
+    onReady: ready,
     signal: ctl.signal,
     fetchImpl: fetchImpl as unknown as typeof fetch,
     sleep: async () => {},
   });
 
   expect(seen).toEqual([]);
+  expect(ready).toHaveBeenCalledTimes(1);
 });
 
 // The stream is an optimisation: the caller keeps a poll running while it is down, so it
@@ -165,6 +168,54 @@ test("provider_usage frames reach their handler with the session that caused the
   expect(seen).toEqual([{ sid: "sess_a", used: 42 }]);
 });
 
+// A session is shared: this stream is how a tab that is not reading any turn's
+// own stream learns that someone else queued a follow-up onto it.
+test("a message_queue frame reaches its handler with the session and the version", async () => {
+  const seen: Array<{ sid: string; texts: string[]; version: number }> = [];
+  const ctl = new AbortController();
+  const frame =
+    `event: message_queue\ndata: ${JSON.stringify({
+      object: "foxxycode.message_queue",
+      sessionId: "sess_shared",
+      messages: [
+        { id: "q_1", text: "check the Windows path too", createdAt: "2026-09-14T00:00:00Z" },
+        { id: "q_2", text: "and skip the integration suite" },
+      ],
+      version: 4,
+    })}\n\n`;
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"foxxycode.events_ready"}\n\n` +
+        frame +
+        `event: message_queue\ndata: {"broken":true}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onMessageQueue: (sid, queue) => {
+      seen.push({
+        sid,
+        texts: queue.messages.map((m) => m.text),
+        version: queue.version,
+      });
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(seen).toEqual([
+    {
+      sid: "sess_shared",
+      texts: ["check the Windows path too", "and skip the integration suite"],
+      version: 4,
+    },
+  ]);
+});
+
 test("a config reload tells the client to re-read what the config decides", async () => {
   let reloads = 0;
   const ctl = new AbortController();
@@ -218,4 +269,44 @@ test("a config reload without a handler is not an error", async () => {
   });
 
   expect(ended).toEqual(["sess_z"]);
+});
+
+// A background subagent asks after its parent turn ended, so nothing streams the
+// prompt into the chat: the event names the parent session, and the chat that is
+// that session re-reads its task rows, where the prompt waits.
+test("a background subagent's prompt names the chat it belongs to", async () => {
+  const parents: string[] = [];
+  const ctl = new AbortController();
+  const frame = (phase: string, extra: Record<string, unknown> = {}) =>
+    `event: subagent_permission
+data: ${JSON.stringify({
+      object: "foxxycode.subagent_permission",
+      phase,
+      childSessionId: "sess_child",
+      toolCallId: "call_1",
+      ...extra,
+    })}
+
+`;
+  const fetchImpl = vi.fn(async () => {
+    ctl.abort();
+    return responseOf(
+      frame("asked", { parentSessionId: "sess_parent" }) +
+        frame("settled", { parentSessionId: "sess_parent" }) +
+        frame("asked"),
+    );
+  });
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSubagentPermission: (sid) => parents.push(sid),
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  // Asked and settled both change what the chat shows; a frame naming no parent
+  // belongs to no chat.
+  expect(parents).toEqual(["sess_parent", "sess_parent"]);
 });

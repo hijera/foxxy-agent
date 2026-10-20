@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-// SkillsAutoDiscoveryFlagName is the CLI flag (on `foxxycode acp` / `foxxycode http`)
-// that overrides skills.auto_discovery.
+// SkillsAutoDiscoveryFlagName is the CLI flag (on `foxxycode cli`, `foxxycode acp`
+// and `foxxycode serve`; `foxxycode http` does not take it) that overrides
+// skills.auto_discovery.
 const SkillsAutoDiscoveryFlagName = "skills-auto-discovery"
 
 // ApplySkillsAutoDiscoveryFlag overrides skills.auto_discovery only when the
@@ -26,6 +27,14 @@ func ApplySkillsAutoDiscoveryFlag(fs *flag.FlagSet, cfg *Config, val *bool) {
 		}
 	})
 }
+
+// SystemSkillsSource is the marketplace FoxxyCode is born with: the catalogue that
+// publishes the skills of the standard delivery plus the rest of the same
+// collection. It is not a default that gets written into skills.sources - it
+// sits beside that list, which is why no surface offers to remove it and why a
+// config file never has to be edited to have it. Only an address: nothing is
+// fetched from it until `foxxycode skills sync` asks.
+const SystemSkillsSource = "EvilFreelancer/rpa-skills"
 
 // Skills is the YAML skills section (key skills).
 type Skills struct {
@@ -51,7 +60,9 @@ func (c *Skills) ManagedDir(foxxycodeHome string) string {
 	return expandSkillsHome("~/.foxxycode/skills")
 }
 
-// ApplyDefaults fills empty Dirs during config load.
+// ApplyDefaults fills empty Dirs during config load. Sources stays exactly as
+// the file has it: the marketplace of the standard delivery is a system source
+// (SystemSkillsSource), listed beside this key rather than inside it.
 func (c *Skills) ApplyDefaults(foxxycodeHome string, expandFOXXYCODEHome func(string) string) {
 	if c.AutoDiscovery == nil {
 		v := true

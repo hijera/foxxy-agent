@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -36,7 +36,8 @@ LDFLAGS := -X github.com/hijera/foxxycode-agent/internal/version.Version=$(VERSI
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/foxxycode
+GOEXE := $(shell go env GOEXE)
+BINARY := $(BUILD_DIR)/foxxycode$(GOEXE)
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory cli browser gateway swarm
@@ -56,12 +57,29 @@ endif
 DESKTOP_TAGS := http ui scheduler memory desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
-# Regenerate the Windows app icon resource from the source PNG. Run manually when
-# foxxycode2-Photoroom.png changes; the generated .syso is committed so routine
-# builds don't need this step. cmd/foxxycode/rsrc_windows_amd64.syso is auto-linked
-# by every windows/amd64 go build (desktop shell and CLI) as the .exe file icon.
-icon:
-	go run internal/desktop/icon/gen.go foxxycode2-Photoroom.png build/foxxycode.ico
+# ---- Brand assets ----
+#
+# Everything the product is recognised by - the favicons, the social preview,
+# the editor plugin icons and the Windows executable icon - is rendered from one
+# vector, docs/assets/foxxycode-logo-glyph.svg. Both targets need a local Chrome
+# (the generator rasterises through chromedp) and are run by hand: the output is
+# committed, so an ordinary build and CI never see this step.
+#
+# `brand` also rewrites docs/assets/brand.lock.json, which internal/brand's test
+# reads. Editing a brand vector without re-running this fails `make test`, which
+# is how the social preview kept the upstream product's name for months.
+#
+# The fox itself is traced from docs/assets/brand/foxxycode-mark-1024.png by
+# scripts/brand/trace.py; that step is only needed when the artwork changes.
+# See docs/contributing/brand.md.
+brand:
+	go run scripts/brand/gen.go
+
+# icon adds the Windows executable resource on top: rsrc wraps build/foxxycode.ico
+# (written by `brand`) into cmd/foxxycode/rsrc_windows_amd64.syso, which every
+# windows/amd64 go build links as the .exe file icon and internal/desktop shows
+# on the WebView2 window.
+icon: brand
 	go run github.com/akavel/rsrc -arch amd64 -ico build/foxxycode.ico -o cmd/foxxycode/rsrc_windows_amd64.syso
 
 build-desktop: ui-build
@@ -75,8 +93,10 @@ build-desktop: ui-build
 # current directory on Windows npm, so it fails at the repo root with a confusing
 # "Could not read package.json" pointing at a file that was never meant to exist.
 # Changing directory works the same way on every platform.
-ui-build:
+ui-deps:
 	cd external/ui && npm install --no-fund --no-audit
+
+ui-build: ui-deps
 	cd external/ui && npm run build:go
 
 # Run the SPA's own unit suite (vitest, 1000+ tests) and type-check it. Neither
@@ -88,6 +108,10 @@ ui-test:
 	cd external/ui && npm install --no-fund --no-audit
 	cd external/ui && npm run typecheck
 	cd external/ui && npm test
+
+ui-typecheck:
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run typecheck
 
 # Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -113,7 +137,7 @@ install:
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/foxxycode
+	cp $(BINARY) $(INSTALL_DIR)/foxxycode$(GOEXE)
 	cp packaging/man/foxxycode.1 $(MAN_DIR)/foxxycode.1
 	@echo "Installed to $(INSTALL_DIR)/foxxycode and $(MAN_DIR)/foxxycode.1"
 
@@ -133,7 +157,7 @@ install:
 # `brew-formula` renders the Homebrew formula (packaging/homebrew/foxxycode-formula.rb.tmpl)
 # for the source archive of a release - that is the artefact homebrew/core takes,
 # because Homebrew wants open-source command-line software built from source.
-# `brew-check` is the preflight for that submission. See docs/homebrew.md.
+# `brew-check` is the preflight for that submission. See docs/getting-started/homebrew.md.
 PKG_ARCHS ?= $(shell go env GOARCH)
 PKG_TAGS ?= $(FULL_TAGS)
 DIST_DIR ?= dist
@@ -159,35 +183,154 @@ brew-formula:
 brew-check:
 	scripts/check-homebrew-submission.sh --version "$(VERSION)"
 
+# Documentation. docs/README.md (the hub), docs/llms.txt, docs/llms-full.txt, the
+# field tables of docs/reference/config.md, the help screens of docs/reference/cli.md
+# and the inventory of docs/assets/INDEX.md are generated by internal/docsgen from
+# docs/nav.yaml, the embedded config schema and the --help output of a full-tag
+# binary. docs-check regenerates into memory and fails on drift, on a page missing
+# from nav.yaml, on a broken relative link or anchor, and on an asset nothing uses.
+#
+# $(BINARY) carries Go's executable suffix (GOEXE), so on Windows the help
+# screens are read from build/foxxycode.exe directly.
+
+docs:
+	$(MAKE) build TAGS="$(FULL_TAGS)"
+	go run ./cmd/docsgen -write -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
+
+docs-check:
+	$(MAKE) build TAGS="$(FULL_TAGS)"
+	go run ./cmd/docsgen -foxxycode $(BINARY) -tags "$(FULL_TAGS_CSV)"
+
+# docs-fast regenerates everything but the CLI reference, so a machine without
+# Node (the ui tag needs the SPA build) can still refresh the hub, the llms
+# files, the config tables and the assets inventory.
+docs-fast:
+	go run ./cmd/docsgen -write -skip-cli
+
+# ---- Website (site/, published on GitHub Pages together with docs/) ----
+# site-check is what CI runs on every pull request: the release and changelog data are baked
+# from a fixture (no network) in strict mode, so an untranslated changelog entry fails here.
+# site bakes the live data the way the Website workflow does and assembles the Pages artifact
+# in site/_site. See docs/contributing/website.md.
+SITE_NPM_CI := cd site && npm ci --no-fund --no-audit
+
+site-check:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs --offline test/fixtures/releases.json --strict
+	cd site && npm run typecheck && npm test && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+site:
+	$(SITE_NPM_CI)
+	cd site && node scripts/build-data.mjs && npm run build
+	go run ./cmd/docsgen -publish -skip-cli
+	cd site && node scripts/assemble.mjs --docs ../docs --dist dist --out _site
+
+# The skills FoxxyCode carries inside its binary (internal/skills/bundled). Those
+# that live in their own repositories are vendored rather than fetched at
+# runtime: skills-vendor refreshes the copies from the upstreams named in
+# scripts/bundled-skills.json, skills-vendor-check reports drift without
+# writing. Needs jq, git and network.
+skills-vendor:
+	scripts/vendor-bundled-skills.sh
+
+skills-vendor-check:
+	scripts/vendor-bundled-skills.sh --check
+
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:
 	node --test .opencode/tests/project-rules.test.js
 
-# Run all tests.
-test: test-opencode-rules
+# ---- Config schema ----
+#
+# The schema lives at internal/config/config.schema.json, because that is the
+# only place go:embed can reach it from: the binary validates config.yaml
+# against it for `foxxycode -t`. Editors resolve it from
+# https://hijera.github.io/foxxy-agent/config.schema.json, the modeline
+# FoxxyCode writes into every config it saves, and GitHub Pages serves this
+# repository's docs/ folder - so docs/config.schema.json must stay a
+# byte-for-byte copy. `site-schema` republishes it; `site-schema-check` reports
+# drift without writing, and internal/config/docs_schema_test.go fails on it too.
+#
+# Do not publish a rename or a removal ahead of the release that understands it:
+# the schema sets "additionalProperties": false, so the new file marks the old
+# key as an error in every config already on disk. Adding an optional key is
+# safe to publish immediately.
+site-schema:
+	@cp internal/config/config.schema.json docs/config.schema.json
+	@echo "Published internal/config/config.schema.json -> docs/config.schema.json"
+
+site-schema-check:
+	@if cmp -s internal/config/config.schema.json docs/config.schema.json; then 		echo "config schema: docs/ copy is in sync"; 	else 		echo "config schema: docs/config.schema.json has drifted; run 'make site-schema'" >&2; 		exit 1; 	fi
+
+# ---- Tests ----
+#
+# Two speeds. `make test` is the express run: the UI assets, the SPA suite, then
+# one `go test` over the whole tree with every optional module compiled in
+# (FULL_TAGS, what the shipped binary contains). Run it locally before a push.
+# `make test-matrix` walks every tag combination in TEST_TAG_SETS - the lean
+# untagged build with its stubs, single tags, pairs, the shipped set - and is
+# what CI runs on every pull request, one job per combination
+# (.github/workflows/tests-on-pr.yaml reads the list through print-test-tag-sets,
+# so this variable is the only place it is written down). Locally, reach for a
+# single combination instead: go test -tags=<set> ./...
+empty :=
+space := $(empty) $(empty)
+comma := ,
+FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
+
+# Every tagged combination the tree is tested under, comma-joined. The untagged
+# build is implied and always runs first; the last entry must stay FULL_TAGS_CSV
+# so the express run and the matrix agree on what "everything" means. A ui entry
+# needs the embedded assets, so ui-build precedes the matrix and the CI job
+# builds them only for those entries.
+TEST_TAG_SETS := \
+	memory \
+	cli \
+	cli,scheduler,memory \
+	http,cli \
+	http \
+	http,memory \
+	browser \
+	scheduler \
+	scheduler,memory \
+	gateway \
+	swarm \
+	http,swarm \
+	http,gateway,scheduler,memory \
+	http,ui \
+	http,ui,memory \
+	http,scheduler \
+	http,scheduler,memory \
+	http,scheduler,ui \
+	http,scheduler,ui,memory \
+	$(FULL_TAGS_CSV)
+
+# Express run: the whole tree once, with every optional module compiled in.
+# ui-test is the SPA suite (vitest); it rides along because the express run is
+# the one gate a change is expected to pass before it leaves this machine.
+test: test-opencode-rules ui-build ui-test
+	go test -tags=$(FULL_TAGS_CSV) ./...
+
+# Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run it
+# locally only when a build-tag boundary moved and one combination is not enough.
+test-matrix: test-opencode-rules ui-build
 	go test ./...
-	go test -tags=memory ./...
-	go test -tags=cli ./...
-	go test -tags=cli,scheduler,memory ./...
-	go test -tags=http,cli ./...
-	go test -tags=http ./...
-	go test -tags=http,memory ./...
-	go test -tags=browser ./...
-	go test -tags=scheduler ./...
-	go test -tags=scheduler,memory ./...
-	go test -tags=gateway ./...
-	go test -tags=swarm ./...
-	go test -tags=http,swarm ./...
-	go test -tags=http,gateway,scheduler,memory ./...
-	$(MAKE) ui-build
-	$(MAKE) ui-test
-	go test -tags=http,ui ./...
-	go test -tags=http,ui,memory ./...
-	go test -tags=http,scheduler ./...
-	go test -tags=http,scheduler,memory ./...
-	go test -tags=http,scheduler,ui ./...
-	go test -tags=http,scheduler,ui,memory ./...
-	go test -tags=http,ui,scheduler,memory,cli,browser,gateway,swarm ./...
+	@set -e; for tags in $(TEST_TAG_SETS); do \
+		echo "go test -tags=$$tags ./..."; \
+		go test -tags=$$tags ./...; \
+	done
+
+# The matrix as a JSON array for the CI workflow: [""] for the untagged build,
+# then every entry of TEST_TAG_SETS.
+# The race detector checks the full non-UI tag set; UI only embeds assets.
+# CI runs this target on every pull request.
+test-race:
+	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+
+print-test-tag-sets:
+	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -225,60 +368,49 @@ check-windows:
 clean:
 	rm -rf $(BUILD_DIR)
 
-# Tag sets the linter must cover. A build tag hides whole files from the linter,
-# so anything not listed here is never linted: for a long time only the untagged
-# and cli passes ran, which left external/httpserver, external/memory and
-# external/scheduler - the bulk of external/ - unchecked. Keep this in sync with
-# the TAGS list at the top of this file whenever a new optional tag lands.
-#
-# The combinations compile every file at least once rather than enumerating the
-# power set: http,scheduler,memory covers the optional server surfaces together,
-# browser covers the chromedp tool, cli covers the TUI, gateway covers the
-# messenger bots (gateway.telegram is a subset of gateway), swarm covers the
-# relay. The ui tag lives in
-# lint-ui because it embeds a bundle that only exists after ui-build, and
-# desktop lives in lint-windows because it is //go:build desktop && windows.
-LINT_TAG_SETS := cli browser gateway swarm http,scheduler,memory,gateway,swarm
+# The untagged, all-but-ui and full-tag passes cover the stubs, the files that
+# exist only without the embedded SPA, and the shipped UI surface. Keep these
+# derived from FULL_TAGS so a new optional module enters the gate automatically.
+LINT_TAGS_NO_UI := $(filter-out ui,$(FULL_TAGS))
+LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
+
+print-full-tags:
+	@printf '%s\n' "$(FULL_TAGS_CSV)"
+
+print-lint-tags-no-ui:
+	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"
 
 # Fail on every finding rather than golangci-lint's default caps
 # (max-issues-per-linter=50, max-same-issues=3), which silently hid most of a
 # backlog of identical errcheck hits behind the first three of each kind.
 LINT_FLAGS := --max-issues-per-linter 0 --max-same-issues 0
 
-# Run the linter (requires golangci-lint): the untagged pass plus one pass per
-# tag set above. Needs no npm - run `make lint-ui` for the embedded-SPA pass.
-lint:
+# Run the linter over all Go surfaces and type-check the SPA.
+lint: ui-build
 	golangci-lint run $(LINT_FLAGS) ./...
-	@for t in $(LINT_TAG_SETS); do \
-		echo "==> golangci-lint --build-tags $$t"; \
-		golangci-lint run $(LINT_FLAGS) --build-tags "$$t" ./... || exit 1; \
-	done
+	golangci-lint run $(LINT_FLAGS) --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+	$(MAKE) ui-typecheck
 
-# Lint the http+ui surface (spa_embed_ui.go and friends). Separate from lint
-# because the ui tag go:embeds external/ui/dist, which is gitignored and only
-# exists after ui-build - so this target needs Node, and plain `make lint` does not.
+# Lint the http+ui surface (spa_embed_ui.go and friends) on its own when only
+# that pass is needed. Both this target and lint build the embedded SPA first.
 lint-ui: ui-build
-	golangci-lint run $(LINT_FLAGS) --build-tags http,scheduler,memory,ui ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
 
 # Run the linter against the Windows build, which lint above never compiles.
-# desktop is Windows-only (//go:build desktop && windows), so this is the only
-# pass that ever sees internal/desktop; it compiles without the ui tag, so no
-# bundle is needed here either.
-LINT_TAG_SETS_WINDOWS := $(LINT_TAG_SETS) desktop,http,scheduler,memory
-
-lint-windows:
+# desktop is Windows-only, so the last pass adds it explicitly.
+lint-windows: ui-build
 	GOOS=windows golangci-lint run $(LINT_FLAGS) ./...
-	@for t in $(LINT_TAG_SETS_WINDOWS); do \
-		echo "==> GOOS=windows golangci-lint --build-tags $$t"; \
-		GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags "$$t" ./... || exit 1; \
-	done
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags $(FULL_TAGS_CSV) ./...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags desktop,$(FULL_TAGS_CSV) ./...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify
 hooks:
 	git config core.hooksPath .githooks
 	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
-	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
+	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full|matrix; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
 
 # ---- Editor plugins ----
 # Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.

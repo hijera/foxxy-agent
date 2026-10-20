@@ -24,7 +24,3 @@
 {{.Memory}}
 
 {{end}}
-
-## Current UTC time
-
-{{.UTCNow}}

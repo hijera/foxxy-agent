@@ -3,10 +3,10 @@ package config
 import "flag"
 
 // DebugFlagName is the CLI flag (on `foxxycode acp` / `http` / `gateway` / `desktop`)
-// that forces debug.enabled=true in this process.
+// that forces debug.enable=true in this process.
 const DebugFlagName = "debug"
 
-// ApplyDebugFlag forces debug.enabled=true only when the -debug flag was explicitly
+// ApplyDebugFlag forces debug.enable=true only when the -debug flag was explicitly
 // provided on fs; otherwise the config value is left untouched. Mirrors
 // ApplyPlanNoSelfRunFlag so a default-false flag never silently disables a
 // config-enabled debug layer.
@@ -31,7 +31,7 @@ func ApplyDebugFlag(fs *flag.FlagSet, cfg *Config, val *bool) {
 // place via a slog.LevelVar, without rebuilding the logger).
 type Debug struct {
 	// Enabled turns the whole diagnostics layer on.
-	Enabled bool `yaml:"enabled" json:"enabled"`
+	Enabled bool `yaml:"enable" json:"enable"`
 
 	// CaptureLLM gates raw LLM HTTP request/response logging. It is a pointer so
 	// an unset value (the default) means "follow Enabled" rather than false: when

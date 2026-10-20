@@ -116,8 +116,9 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthGet(w http.ResponseWriter, r *ht
 	}
 	// ?api_base= is the endpoint picked in the form. A value that names no
 	// NeuralDeep endpoint counts as omitted: the answer then describes the
-	// saved row (which itself falls back to the default deployment, like
-	// requests do) rather than failing the status read.
+	// resolved row (which itself falls back to the default deployment, like
+	// requests do; a row still saved as another type has no endpoint here)
+	// rather than failing the status read.
 	apiBase, _ := llm.NormalizeNeuralDeepAPIBase(r.URL.Query().Get("api_base"))
 	resp, err := s.neuralDeepAuthStatus(name, provider, apiBase)
 	if err != nil {
@@ -144,16 +145,19 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthDelete(w http.ResponseWriter, r 
 		if hub == "" {
 			hub = s.neuralDeepHubFor(provider.APIBase)
 		}
-		client, _ := llm.HTTPClientForOptionalProxy(provider.Proxy)
-		revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		_ = llm.RevokeNeuralDeepKey(revokeCtx, hub, key, client)
-		cancel()
+		// The revoke goes the row's own way or not at all: a default client
+		// would take the route the row's proxy setting ruled out.
+		if client, err := llm.HTTPClientForProviderProxy(provider.Proxy); err == nil {
+			revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			_ = llm.RevokeNeuralDeepKey(revokeCtx, hub, key, client)
+			cancel()
+		}
 	}
 	if err := llm.RemoveNeuralDeepAuth(path); err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "could not remove NeuralDeep credentials")
 		return
 	}
-	s.dropProviderUsage(name)
+	s.dropProviderUsage(name, "neuraldeep")
 	resp, err := s.neuralDeepAuthStatus(name, provider, "")
 	if err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, err.Error())
@@ -163,11 +167,14 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthDelete(w http.ResponseWriter, r 
 }
 
 func (s *Server) foxxycodeProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r *http.Request) {
+	if !requireJSONRequest(w, r) {
+		return
+	}
 	name, provider, ok := s.resolveNeuralDeepAuthProvider(w, r.PathValue("name"))
 	if !ok {
 		return
 	}
-	client, err := llm.HTTPClientForOptionalProxy(provider.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -178,7 +185,7 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthDevicePost(w http.ResponseWriter
 		return
 	}
 	hub := s.neuralDeepHubFor(apiBase)
-	label := neuralDeepHTTPDeviceLabel()
+	label := llm.NeuralDeepDeviceLabel(name)
 	loginID := newCodexAuthLoginID()
 	// The wait outlives this request but not the server: Drain cancels it.
 	waitCtx, cancel := context.WithCancel(context.Background())
@@ -281,33 +288,12 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthDeviceGet(w http.ResponseWriter,
 	writeCodexAuthJSON(w, http.StatusOK, response)
 }
 
-// resolveNeuralDeepAuthProvider accepts saved providers and valid unsaved
-// names, so a provider added in the settings form can sign in before the
-// document is saved (same convention as codex). A saved row of another type is
-// accepted too: the form may have just retyped it to neuraldeep, and the
-// widget mounts on that unsaved change. The credential file is keyed by name
-// alone, so the status, sign-in and sign-out all mean the same thing whether
-// or not the type has been saved yet; the row's own api_key / api_key_command
-// still decide the reported source.
+// resolveNeuralDeepAuthProvider accepts saved neuraldeep providers, valid
+// unsaved names and saved rows the settings form is switching to neuraldeep,
+// so a row can sign in before the document is saved (same convention as
+// codex, see resolveSignInProvider).
 func (s *Server) resolveNeuralDeepAuthProvider(w http.ResponseWriter, rawName string) (string, config.ProviderConfig, bool) {
-	c := s.activeCfg()
-	if c == nil || strings.TrimSpace(c.Paths.Home) == "" {
-		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config home unavailable")
-		return "", config.ProviderConfig{}, false
-	}
-	name := strings.TrimSpace(rawName)
-	probe := config.ProviderConfig{Name: name, Type: "neuraldeep"}
-	probe.Normalize()
-	if err := probe.Validate(); err != nil {
-		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, err.Error())
-		return "", config.ProviderConfig{}, false
-	}
-	if saved := c.FindProvider(name); saved != nil {
-		row := *saved
-		row.Type = "neuraldeep"
-		return name, row, true
-	}
-	return name, probe, true
+	return s.resolveSignInProvider(w, rawName, "neuraldeep")
 }
 
 // persistNeuralDeepLogin stores the key a device login minted and marks the
@@ -327,16 +313,31 @@ func (s *Server) persistNeuralDeepLogin(ctx context.Context, attempt *codexAuthL
 	attempt.Status = "completed"
 	attempt.Connected = true
 	// A new key is another account as far as the usage cache is concerned.
-	s.dropProviderUsage(attempt.ProviderName)
+	s.dropProviderUsage(attempt.ProviderName, "neuraldeep")
 	return nil
 }
 
 // dropProviderUsage forgets the cached account usage of a provider after a
-// credential changed (login, logout), including a sticky rejected-key mark.
-func (s *Server) dropProviderUsage(name string) {
-	if s.mgr != nil && strings.TrimSpace(name) != "" {
+// credential of providerType changed (login, logout), including a sticky
+// rejected-key mark.
+func (s *Server) dropProviderUsage(name, providerType string) {
+	if s.mgr != nil && strings.TrimSpace(name) != "" && signInOwnsProviderUsage(s.activeCfg(), name, providerType) {
 		s.mgr.DropProviderUsage(name)
 	}
+}
+
+// signInOwnsProviderUsage reports whether a credential change of
+// providerType concerns the cached usage of the row named name: it does when
+// the row is saved with that type or not saved at all. A row still saved as
+// another type is one the settings form is switching; the credential that
+// changed is not the one its cache describes, and the usage fingerprint
+// catches the new type once the row is saved.
+func signInOwnsProviderUsage(c *config.Config, name, providerType string) bool {
+	if c == nil {
+		return true
+	}
+	saved := c.FindProvider(name)
+	return saved == nil || saved.Type == providerType
 }
 
 // neuralDeepDeviceStartEndpoint settles which deployment a device sign-in is
@@ -365,12 +366,4 @@ func neuralDeepDeviceStartEndpoint(r *http.Request, provider config.ProviderConf
 			strings.TrimSpace(body.APIBase), strings.Join(llm.NeuralDeepAPIBases(), ", "))
 	}
 	return base, nil
-}
-
-func neuralDeepHTTPDeviceLabel() string {
-	host, err := os.Hostname()
-	if err != nil || strings.TrimSpace(host) == "" {
-		return "foxxycode"
-	}
-	return "foxxycode @ " + host
 }

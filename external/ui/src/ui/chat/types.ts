@@ -1,6 +1,7 @@
 import type { FoxxyCodePermissionPayload, PermissionResolvedState } from "./permissionTypes";
 import type { FoxxyCodeQuestionPayload, QuestionResolvedState } from "./questionTypes";
 import type { TodoPlanEntry } from "./todoToolPreview";
+import type { BackgroundWakeTask } from "./backgroundWake";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -43,6 +44,12 @@ export type TranscriptItem =
       content: string;
       /** RFC3339 UTC from server created_at or client clock when sending. */
       createdAtUtc?: string;
+      /**
+       * A follow-up from the message queue that the running turn read, rather than
+       * the prompt a turn started from (server messages with queued=true, and the
+       * `user_message` event of the turn stream).
+       */
+      queued?: boolean;
       /** Inline file attachments sent with this message. */
       files?: {
         name: string;
@@ -50,7 +57,26 @@ export type TranscriptItem =
         sizeBytes?: number;
         /** Thumbnail source: a local blob URL until the backend publishes a durable one. */
         previewUrl?: string;
+        /**
+         * The full-size asset the preview card opens enlarged. Server-only:
+         * absent while the row is optimistic, on a message sent before the
+         * route existed, and once the asset has left the session bundle.
+         */
+        url?: string;
       }[];
+    }
+  | {
+      /**
+       * The first message of a turn nobody typed: background tasks the model
+       * started with notify_on_finish ended and the server woke the agent. It
+       * opens a turn like a user message and renders nothing - the turn reads
+       * as the agent carrying on - built from the `background_wake` frame live
+       * and from the message's `background_wake` field after a reload.
+       */
+      id: string;
+      type: "background_wake";
+      tasks: BackgroundWakeTask[];
+      createdAtUtc?: string;
     }
   | {
       id: string;
@@ -104,40 +130,18 @@ export type TranscriptItem =
     }
   | {
       id: string;
-      type: "branch_nav";
-      /** 0-based index of the user message that this nav is attached to. */
-      userMessageIndex: number;
-      /** 0-based index of the branch currently being viewed. */
-      currentIndex: number;
-      total: number;
-      sessions: Array<{ sessionId: string; preview?: string }>;
-    }
-  | {
-      id: string;
-      type: "memory_copilot";
-      memoryRowId: string;
-      userTurnIndex: number;
-      /** Single before-main-agent memory pass (preferred). Legacy rows may omit this. */
-      memoryStatus?: "idle" | "in_progress" | "completed";
-      memoryText?: string;
-      recallStatus: "idle" | "in_progress" | "completed";
-      persistStatus: "idle" | "in_progress" | "completed";
-      recallText: string;
-      recallReasoning: string;
-      persistText: string;
-      persistReasoning: string;
-      recallDurationMs?: number;
-      persistDurationMs?: number;
-      /** Wall clock from memory phase start until completed (live until then). */
-      memoryWallStartedAtMs?: number;
-      /** When main-model thinking rows appear while recall/persist SSE is still marked busy, cap the live wall-clock label at this elapsed ms so it does not keep climbing beside thinking (see freezeMemoryWallWhenThinkingAfterRecall). */
-      memoryWallLiveCapMs?: number;
-      memoryWallDurationMs?: number;
-      persistSaved?: boolean;
-      persistRelativePath?: string;
-      persistTitle?: string;
-      /** Markdown body written when PersistSaved (from server, may be truncated). */
-      persistSavedBody?: string;
-      /** scope:relative paths read via foxxycode_memory_read during recall. */
-      recallReadPaths?: string[];
+      /**
+       * The memory subagent run of the turn, from the `memory_run` events:
+       * nothing renders it, the live status line reads it while it runs. The
+       * run's record is the Tasks drawer and the child transcript it names.
+       */
+      type: "memory_run";
+      status: "started" | "finished" | "skipped";
+      taskId?: string;
+      childSessionId?: string;
+      startedAtMs?: number;
+      taskStatus?: string;
+      durationMs?: number;
+      delivered?: boolean;
+      reason?: string;
     };

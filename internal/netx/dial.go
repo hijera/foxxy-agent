@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/proxy"
 )
 
@@ -88,9 +87,9 @@ func (o Options) DialFunc() (func(ctx context.Context, network, addr string) (ne
 			return dialThrough(ctx, base, envProxy, network, addr, o)
 		}, nil
 	}
-	u, err := url.Parse(raw)
+	u, err := ParseProxyURL(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid proxy url %q: %w", raw, err)
+		return nil, err
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "socks5", "socks5h":
@@ -145,7 +144,7 @@ func (o Options) Transport() (*http.Transport, error) {
 		}
 		tr.DialContext = dial
 	} else {
-		tr.Proxy = http.ProxyFromEnvironment
+		tr.Proxy = EnvironmentProxyFunc()
 		tr.DialContext = (&net.Dialer{Timeout: o.dialTimeout(), KeepAlive: 30 * time.Second}).DialContext
 	}
 	return tr, nil
@@ -247,8 +246,8 @@ func proxyFromEnvironment(addr, scheme string) (*url.URL, error) {
 		scheme = "https"
 	}
 	target := &url.URL{Scheme: scheme, Host: addr, Path: "/"}
-	cfg := httpproxy.FromEnvironment()
-	return cfg.ProxyFunc()(target)
+	r, err := EnvironmentProxyResolver()(target)
+	return r.Proxy, err
 }
 
 // dialThrough reaches addr through whatever kind of proxy the URL names.

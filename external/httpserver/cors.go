@@ -17,7 +17,8 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 					h.Set("Access-Control-Allow-Origin", allow)
 					h.Add("Vary", "Origin")
 					h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-					h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-FoxxyCode-Session-ID")
+					h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-FoxxyCode-Session-ID, Idempotency-Key")
+					h.Set("Access-Control-Expose-Headers", "X-FoxxyCode-Session-ID, Idempotency-Replayed")
 					h.Set("Access-Control-Max-Age", "600")
 				}
 			}

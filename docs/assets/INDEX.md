@@ -1,168 +1,262 @@
-# UI reference images
+# Assets index
 
-This folder contains reference screenshots used to align the embedded UI with the target design.
+`docs/assets` holds what the documentation embeds and nothing else: the screenshots the pages show and the brand files the README, `DESIGN.md` and the Docker image use. `make docs-check` lists every file here with the pages that reference it and fails on a file nothing references, so an asset is either used or deleted.
 
-## Navbar (RPA-style references, May 2026)
+## What belongs here
 
-Implementation note: **FoxxyCode does not render a circle or logo glyph** before the **FoxxyCode agent** brand in the embedded SPA. SVG logos under **`foxxycode-logo-*.svg`** are for README, **`logo-preview.html`**, and favicon (**`foxxycode-favicon.svg`** aliases **`foxxycode-logo-mark-flat.svg`**, same asset as [foxxycode.dev](https://foxxycode.dev/) **`assets/foxxycode-favicon.svg`**). Raster favicons **`favicon-32.png`**, **`favicon.ico`**, **`apple-touch-icon.png`** ship with the embedded SPA at the site root. **`foxxycode-logo-mark-icon.svg`** is square full-bleed plate fill with no rim stroke or corner radius; **`foxxycode-logo-mark-icon-2048.png`** is a 2048×2048 raster export; **`foxxycode-logo-social.svg`** (1280×640) is the GitHub repository social preview with wordmark and tagline, with **`foxxycode-logo-social-1280x640.png`** and **`foxxycode-logo-social-640x320.png`** raster exports; **`foxxycode-logo-mark.svg`** adds halo filters. Some references still show a circle, treat it as layout inspiration only.
+- An image that a page under `docs/`, the README, `DESIGN.md` or `CONTRIBUTING.md` embeds, or that the `Dockerfile` copies into the image.
+- One folder per feature or page when a page needs more than a couple of images; one-off images stay at the top level with a descriptive kebab-case name that says what is shown and, for UI captures, the theme and the width: `settings-usage-panel-dark-1280.png`.
+- PNG for screenshots, SVG for logos. Keep a screenshot under 1 MB and crop to the surface that matters.
 
-- `ref-navbar-narrow-tooltips-accent.png` - narrow vertical rail, tooltips right, purple hover on icon
-- `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (FoxxyCode uses History + GitHub + API, not News or Projects)
-- `ref-navbar-wide-with-labels.png` - wide rail with text labels next to items
+Screenshots taken as evidence for a pull request do not belong here: push them to the orphan `screenshots` branch and link the raw file from the pull request. Before and after pairs of a fix are pull request material; the documentation keeps only the after state, and only when a page shows it. Earlier pull requests of this fork committed their evidence here; those files left with the documentation restructure, and the links in the old pull request descriptions still resolve because they name the commit.
 
-## Playwright MCP (verification, May 2026)
+## Capture recipes
 
-Captured from local `vite` + `foxxycode http` with `FOXXYCODE_UI_BACKEND`.
+**Web UI.** `make build TAGS="http ui scheduler memory cli browser gateway swarm"`, then `foxxycode http` (or `foxxycode serve`) on a disposable `FOXXYCODE_HOME` at a presentable path, and a headless Chrome driven by chromedp or Playwright: 1280 wide in the Dark theme as the default, 390 wide and Light when the page discusses them, browser locale `en-US`. Hash navigation does not reload the bundle, so reload after switching routes. Never capture the provider detail pane: it renders `api_key` values in full; the provider list (names only) is safe. Issue and pull request numbers do not belong in file names; name the surface and the state.
 
-- `pw-navbar-1440-narrow.png` - desktop under 1920px width, narrow rail (no widen toggle), no burger
-- `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
-- `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **FoxxyCode agent** text-only brand, full-width rows icon plus label
-- `pw-navbar-1920-github-hover.png` - wide rail, hover on **GitHub** row (label plus icon pick up accent)
-- `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
-- `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
+**Console.** The pty capture scripts under `examples/cli/` drive `foxxycode cli`, emulate the screen with pyte and render PNGs through headless Chromium without a provider (`examples/cli/capture_usage.py` for the usage footer); run them on Linux or in WSL. See [Console](../surfaces/console.md).
 
-## Full HD tour (README, May 2026)
+## Brand
 
-Captured at **1920×1080** via Playwright MCP (`vite` + `foxxycode http`, `FOXXYCODE_UI_BACKEND`).
+The mark is an orange fox head with `{/}` on its forehead. **Nothing here is drawn by hand**: `foxxycode-logo-glyph.svg` is the fox traced from the raster master `brand/foxxycode-mark-1024.png`, and every other brand file is generated from that one vector by `make brand`, which also writes `brand.lock.json` - the hashes a test in `internal/brand` checks, so an export can no longer go stale behind its source. Edit the glyph or a composition's markup, never a generated raster. [Brand assets](../contributing/brand.md) has the whole chain.
 
-- `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
-- `screenshot-fullhd-chat.png` - active session transcript (`#/s/...`)
-- `screenshot-fullhd-history.png` - History drawer on a session (`#/s/...?history=1`)
-- `screenshot-fullhd-scheduler.png` - scheduler list plus job editor (`#/scheduler/jobs/nightly-docs`)
-- `screenshot-fullhd-settings.png` - settings drawer (`#/settings`)
+`foxxycode-logo-wordmark.svg`, `foxxycode-logo-wordmark-light.svg`, `foxxycode-logo-mark.svg` (with halo filters), `foxxycode-logo-mark-flat.svg` (the mark on the dark plate), `foxxycode-logo-mark-icon.svg` (square, full-bleed plate, no rim), `foxxycode-logo-mark-light.svg`, `foxxycode-favicon.svg` (the browser tab icon, the one file whose plate follows `prefers-color-scheme` - a tab strip is light or dark by the reader's setting and no theme reaches it), `foxxycode-logo-social.svg` with its PNG exports `foxxycode-logo-social-1280x640.png` and `foxxycode-logo-social-640x320.png` (a social preview). The `Dockerfile` copies `foxxycode-favicon.svg`, `favicon-32.png`, `favicon.ico` and `apple-touch-icon.png` into the image for the embedded SPA, plus both wordmarks, which `external/ui/src/ui/auth/SignInScreen.tsx` imports from here and Vite inlines into the bundle - the image build fails without them. `external/ui/src/logo-preview.html` shows the marks side by side. The embedded SPA renders the **FoxxyCode agent** wordmark as text and no logo glyph.
 
-## Primary
+## Inventory
 
-- `ref-home-1.png` - landing page with collapsed left rail and centered composer
-- `ref-home-composer.png` - expanded left menu and composer action area
-- `ref-chat.png` - in chat view with floating composer and left rail
-- `ref-wide-1.png` - wide desktop layout with expanded left nav and sessions list
-- `ref-wide-2.png` - wide desktop layout variant
-- `ref-wide-3.png` - wide desktop layout with session context menu
+Generated by `make docs`. "Used by" lists the files that reference the asset.
 
-## Mobile
+<!-- docsgen:assets:start -->
+121 files, 21.6 MB in total.
 
-- `ref-image-098475fd-f1e8-4722-9975-67890f85a2c8.png` - mobile rail states and expanded menu
+### docs/assets
 
-## ConfirmDialog (verification)
+| File | Size | Used by |
+|------|------|---------|
+| `apple-touch-icon.png` | 25 KB | Dockerfile, docs/assets/INDEX.md |
+| `background-tasks-header-opener-dark-1280.png` | 398 KB | docs/features/background-tasks.md |
+| `brand.lock.json` | 5 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+| `command-tools-open-dark-1280.png` | 334 KB | docs/surfaces/web-ui.md |
+| `confirm-delete-chat-dark-1280.png` | 290 KB | docs/surfaces/web-ui.md |
+| `favicon-32.png` | 1 KB | Dockerfile, docs/contributing/brand.md, docs/assets/INDEX.md |
+| `favicon.ico` | 2 KB | Dockerfile, docs/assets/INDEX.md |
+| `foxxycode-favicon.svg` | 11 KB | Dockerfile, docs/contributing/brand.md, docs/assets/INDEX.md |
+| `foxxycode-logo-glyph.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark-flat.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark-icon.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark-light.svg` | 9 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-mark.svg` | 10 KB | docs/contributing/brand.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `foxxycode-logo-social-1280x640.png` | 350 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+| `foxxycode-logo-social-640x320.png` | 112 KB | docs/assets/INDEX.md |
+| `foxxycode-logo-social.svg` | 11 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
+| `foxxycode-logo-wordmark-light.svg` | 10 KB | external/ui/src/logo-preview.html, external/ui/src/ui/auth/SignInScreen.tsx, docs/assets/INDEX.md |
+| `foxxycode-logo-wordmark.svg` | 10 KB | DESIGN.md, docs/contributing/brand.md, docs/surfaces/web-ui.md, external/ui/src/logo-preview.html, external/ui/src/ui/auth/SignInScreen.tsx, docs/assets/INDEX.md |
+| `foxxycode1.png` | 96 KB | README.md, README.en.md |
+| `nav-rail-wide-1920.png` | 288 KB | docs/surfaces/web-ui.md |
+| `nav-topbar-mobile-390.png` | 100 KB | docs/surfaces/web-ui.md |
+| `reasoning-levels-dark-1280.png` | 275 KB | docs/surfaces/web-ui.md |
+| `ref-navbar-narrow-tooltips-accent.png` | 16 KB | DESIGN.md |
+| `scheduler-tool-cards-dark-1280.png` | 273 KB | docs/surfaces/web-ui.md |
+| `screenshot-console-models.png` | 70 KB | docs/surfaces/console.md |
+| `screenshot-console-start.png` | 45 KB | docs/surfaces/console.md |
+| `screenshot-fullhd-settings-hooks.png` | 288 KB | docs/surfaces/web-ui.md |
+| `screenshot-fullhd-tasks.png` | 492 KB | docs/surfaces/web-ui.md |
+| `screenshot-hooks-notice-dark.png` | 281 KB | docs/features/hooks.md, docs/operate/security.md, docs/surfaces/web-ui.md |
+| `screenshot-hooks-notice-light.png` | 204 KB | docs/features/hooks.md |
+| `scroll-to-bottom-visible-dark-1280.png` | 325 KB | docs/surfaces/web-ui.md |
+| `sessions-history-filters-dark-1280.png` | 182 KB | docs/surfaces/web-ui.md |
+| `sessions-history-grouping-dark-1280.png` | 173 KB | docs/surfaces/web-ui.md |
+| `sessions-history-pinned-dark-1280.png` | 174 KB | docs/surfaces/web-ui.md |
+| `sessions-history-row-menu-dark-1280.png` | 177 KB | docs/surfaces/web-ui.md |
+| `sessions-history-tag-editor-dark-1280.png` | 179 KB | docs/surfaces/web-ui.md |
+| `sessions-management-table-dark-1280.png` | 161 KB | DESIGN.md, docs/surfaces/web-ui.md |
+| `settings-field-hint-dark-1280.png` | 159 KB | docs/surfaces/web-ui.md |
+| `settings-model-form-context-window-dark-1280.png` | 159 KB | docs/surfaces/web-ui.md |
+| `settings-model-stream-toggle-dark-1280.png` | 161 KB | docs/surfaces/web-ui.md |
+| `settings-provider-models-dark-1280.png` | 153 KB | docs/surfaces/web-ui.md |
+| `settings-provider-proxy-dark-1280.png` | 217 KB | docs/surfaces/web-ui.md |
+| `tgfake-chat-dark-1280.png` | 142 KB | docs/surfaces/gateway.md |
+| `transcript-earlier-loading-dark-1280.png` | 272 KB | docs/surfaces/web-ui.md |
+| `turn-progress-live-line-dark-1280.png` | 371 KB | docs/surfaces/web-ui.md |
+| `webui-sign-in-dark-1280.png` | 23 KB | docs/surfaces/web-ui.md |
 
-Captures of the shared confirmation dialog that replaced the native `confirm()`.
-Ported from upstream with the wave `0f2dbf1 → fa7ecf1`, so they show that build's
-English UI rather than a FoxxyCode capture; the fork's own run is the source of
-truth for how the dialog reads in Russian.
+### docs/assets/background-tasks
 
-- `pw-confirm-delete-chat-1280-{dark,light}.png` - delete a persisted chat
-- `pw-confirm-delete-chat-390-dark.png` - the same at the narrow breakpoint
-- `pw-confirm-delete-draft-1280-dark.png` - delete a client-side draft
-- `pw-confirm-escape-{before,after}-1280-dark.png` - Escape cancels the dialog without collapsing the drawer underneath
-- `pw-confirm-history-before-1280-dark.png` - the sessions list the dialog returns to
-- `pw-confirm-scheduler-before-1280-dark.png` - the scheduler job sheet before deleting
-- `pw-confirm-scheduler-delete-1280-{dark,light}.png` - delete a scheduler job
+| File | Size | Used by |
+|------|------|---------|
+| `background-tasks-wake-bell-dark-1280.png` | 255 KB | docs/features/background-tasks.md |
 
-## Upstream wave fa7ecf1 -> 12897ba (PR #34)
+### docs/assets/brand
 
-Captured from a headless Chrome against a real `-tags "http ui"` build; the
-`-before-` frames come from a second build at `origin/main`, so each pair is a
-readable visual diff. The UI is Russian because that is what the host locale
-resolves to.
+| File | Size | Used by |
+|------|------|---------|
+| `foxxycode-mark-1024.png` | 276 KB | docs/contributing/brand.md, docs/assets/INDEX.md |
 
-- `pr-34-appearance-{before,after}-1280-{dark,light}.png` - the language select lands under the theme grid
-- `pr-34-appearance-{before,after}-390-dark.png` - the same at the narrow breakpoint
-- `pr-34-general-{before,after}-1280-dark.png` - language leaves the General tab; send mode and status line stay
-- `pr-34-composer-attachment-1280-{dark,light}.png` - a pasted image as a chip with a live thumbnail
-- `pr-34-composer-attachment-390-dark.png` - the same at the narrow breakpoint
-- `pr-34-composer-attach-refused-1280-dark.png` - the paste refused by a model without `multimodal: true`
-- `pr-34-bubble-thumbnail-1280-{dark,light}.png` - the sent bubble carrying the persisted thumbnail
+### docs/assets/built-in-docs
 
-## Model vision flag (PR #37)
+| File | Size | Used by |
+|------|------|---------|
+| `reader-page-dark-1280.png` | 169 KB | DESIGN.md, docs/features/built-in-docs.md, docs/surfaces/web-ui.md |
+| `reader-search-dark-1280.png` | 205 KB | docs/features/built-in-docs.md |
 
-Captured from a headless Chrome against a real `-tags "http ui"` build serving a
-stub catalog that publishes both advertised shapes (`capabilities.vision` and
-`modalities.input`); the `-before-` frames come from a second build at `d66a8d3`,
-so each pair is a readable visual diff. English unless the name says `ru`.
+### docs/assets/cli-tui
 
-- `pr-37-settings-{before,after}-1280-dropdown.png` - Fetch models badges the entries that accept images
-- `pr-37-settings-{before,after}-1280-vision-picked.png` - picking a vision model ticks Multimodal and explains why
-- `pr-37-settings-{before,after}-1280-textonly-picked.png` - picking a text-only model clears it again
-- `pr-37-settings-{before,after}-390-dropdown.png` - the same list at the narrow breakpoint
-- `pr-37-settings-{before,after}-1280-ru-vision-picked.png` - the Russian strings for the same edit
-- `pr-37-onboarding-{before,after}-1280-dropdown.png` - the provider picker's model list, badged the same way
-- `pr-37-onboarding-{before,after}-1280-vision-picked.png` - the hint naming the flag the config will be saved with
-- `pr-37-onboarding-{before,after}-1280-textonly-picked.png` - the same for a model the catalog lists as text-only
-- `pr-37-onboarding-{before,after}-390-dropdown.png` - the dialog at the narrow breakpoint
-- `pr-37-onboarding-{before,after}-1280-ru-vision-picked.png` - the Russian strings for the same pick
+| File | Size | Used by |
+|------|------|---------|
+| `09-usage-footer.png` | 156 KB | docs/surfaces/console.md |
+| `10-usage-warning.png` | 233 KB | docs/surfaces/console.md |
+| `11-usage-blocked.png` | 233 KB | docs/surfaces/console.md |
+| `12-usage-resuming.png` | 239 KB | docs/surfaces/console.md |
+| `13-subagent-delegation.png` | 178 KB | docs/surfaces/console.md |
+| `14-turn-progress.png` | 200 KB | docs/surfaces/console.md |
+| `15-tasks-overlay.png` | 237 KB | docs/features/background-tasks.md, docs/surfaces/console.md |
+| `16-tasks-output.png` | 229 KB | docs/surfaces/console.md |
+| `17-tasks-wake.png` | 202 KB | docs/surfaces/console.md |
+| `18-mention-list.png` | 130 KB | docs/features/mentions.md, docs/surfaces/console.md |
+| `19-docs-search.png` | 376 KB | docs/features/built-in-docs.md, docs/surfaces/console.md |
+| `20-docs-page.png` | 298 KB | docs/features/built-in-docs.md |
 
-## Upstream wave 7123d25a -> 2c0872c4 (PR #56)
+### docs/assets/compaction
 
-Captured from a headless Chrome (chromedp) against the live `-tags "http ui cli memory"`
-build on `neuraldeep`, so the transcripts show real subagent and todo tool calls. Dark is
-the default theme; light frames cover the surfaces that gained colours.
+| File | Size | Used by |
+|------|------|---------|
+| `compact-row-running-dark-1280.png` | 311 KB | docs/features/compaction.md |
+| `context-window-after-dark-1280.png` | 279 KB | docs/features/compaction.md |
+| `context-window-after-dark-390.png` | 123 KB | docs/features/compaction.md |
+| `context-window-before-dark-1280.png` | 280 KB | docs/features/compaction.md |
+| `context-window-before-dark-390.png` | 124 KB | docs/features/compaction.md |
 
-- `pr-56-tasks-agent-row-1280-{dark,light}.png` - Tasks panel: an `agent general` row with the «Агент» badge, `spawn_agent` call expanded with its CDATA report
-- `pr-56-tasks-agent-detail-1280-dark.png` - task detail with the subagent name and «Открыть транскрипт»
-- `pr-56-subagent-readonly-1280-{dark,light}.png` - a child `sub_…` transcript: read-only notice in place of the composer, «Открыть родительский чат»
-- `pr-56-settings-subagents-1280-{dark,light}.png` - Settings → Субагенты (enable switch, definition dirs, project trust policy)
-- `pr-56-settings-providers-neuraldeep-1280-dark.png` - NeuralDeep provider card with the API endpoint select
+### docs/assets/editors
 
-## Subagent trust in the IDE (2026-09-07)
+| File | Size | Used by |
+|------|------|---------|
+| `intellij-directory-mention-dark-1400.png` | 101 KB | docs/surfaces/editors.md |
 
-Captured from the bundled SPA (`make build TAGS="http ui"`) against a stub model, with an
-unapproved project definition in `<ws>/.foxxycode/agents/reviewer.md` and a user-scope
-`writer` in the FoxxyCode home. Named by feature rather than by PR number, which is not
-knowable while the PR is open.
+### docs/assets/http-requests
 
-- `subagents-trust-settings-1280-{dark,light}.png`, `subagents-trust-settings-390-dark.png` - Settings → Субагенты: the generated form plus the definition catalog, the amber shield on the project row, and the disclosure of what a receipt would cover
-- `subagents-trust-chat-refused-1280-{dark,light}.png`, `subagents-trust-chat-refused-390-dark.png` - a refused `spawn_agent` row with the approval notice, «Одобрить» and «Открыть настройки субагентов»
-- `subagents-trust-spawn-running-1280-dark.png` - a foreground spawn in flight: the row's chip names the agent and ticks, and the actions row offers «Открыть транскрипт субагента»
-- `subagents-trust-tasks-permission-1280-{dark,light}.png`, `subagents-trust-tasks-permission-390-dark.png` - a detached subagent's permission prompt on its task card, with the tasks chip in the amber «ждёт вашего ответа» state
-- `pr-56-settings-models-reasoning-{before,after}-1280-dark.png` - «Получить уровни ризонинга» before the fetch and with `low/medium/high` written back
-- `pr-56-settings-skills-switchfield-1280-dark.png`, `pr-56-settings-tools-switchfield-1280-dark.png` - boolean settings on the shared SwitchField
-- `pr-56-todo-preview-1280-{dark,light}.png` - `foxxycode_todo_item_update` calls rendered as localized todo cards
-## Batch uploads
+| File | Size | Used by |
+|------|------|---------|
+| `http-request-answer-dark-1280.png` | 251 KB | docs/features/http-requests.md |
+| `http-request-permission-dark-1280.png` | 253 KB | docs/features/http-requests.md |
 
-Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
+### docs/assets/memory
 
-## Todo tool card without a plan snapshot (September 2026)
+| File | Size | Used by |
+|------|------|---------|
+| `memory-child-transcript-dark-1280.png` | 247 KB | docs/features/memory.md |
+| `memory-settings-dark-1280.png` | 171 KB | docs/features/memory.md |
+| `memory-tasks-detail-dark-1280.png` | 284 KB | docs/features/memory.md |
+| `memory-tasks-running-dark-1280.png` | 247 KB | docs/features/memory.md |
 
-Captured from headless Chrome at 1280×1000 (dark, RU) against two live `http,ui` builds: `before` is the pre-fix `main` (0.2.51), `after` this branch. Two persisted fixture sessions carry the same transcript (`foxxycode_todo_plan_replace` + `foxxycode_todo_item_update`); one has the plan snapshot in `tool_calls/<id>/meta.json`, the other does not (what a write race, a failed enrichment, a session branch, or a pre-snapshot session leaves on disk).
+### docs/assets/mentions
 
-- `pr-todo-card-nosnapshot-{before,after}-1280-dark.png` - no snapshot on disk: before, both rows degrade to the generic tool card (raw JSON args + «Результат / updated item 1»); after, the plan is rebuilt from the call arguments (the list from the `markdown`, the item as «Пункт 2 · В работе»)
-- `pr-todo-card-snapshot-{before,after}-1280-dark.png` - snapshot on disk: byte-identical, the existing card is untouched
+| File | Size | Used by |
+|------|------|---------|
+| `mentions-new-chat-open-dark-1280.png` | 200 KB | docs/features/mentions.md |
+| `mentions-new-chat-open-dark-390.png` | 47 KB | docs/features/mentions.md |
+| `mentions-picker-dark-1280.png` | 241 KB | docs/features/mentions.md |
+| `mentions-session-dark-1280.png` | 262 KB | docs/features/mentions.md |
+| `mentions-short-window-dark-1280.png` | 106 KB | docs/features/mentions.md |
 
-## Onboarding gate fix (September 2026)
+### docs/assets/message-queue
 
-Captured from headless Chrome at 1280×860 (dark, `?lang=ru`) against two live `http,ui` builds: `before` is the pre-fix `main`, `after` this branch. Config: a keyed `neuraldeep` agent provider plus a keyless `openai` row; the flow retypes `openai` to NeuralDeep in Settings and saves.
+| File | Size | Used by |
+|------|------|---------|
+| `message-queue-console-dark.png` | 33 KB | docs/features/message-queue.md |
+| `message-queue-draft-armed-dark-1280.png` | 259 KB | docs/features/message-queue.md |
+| `message-queue-two-waiting-dark-1280.png` | 258 KB | docs/features/message-queue.md |
+| `stop-queue-cancel-failed-dark-1280.png` | 263 KB | docs/surfaces/web-ui.md |
 
-- `pr-onboarding-settings-load-{before,after}-1280-dark.png` - Settings on page load: before, the provider picker already covers it; after, no picker
-- `pr-onboarding-retyped-unsaved-{before,after}-1280-dark.png` - the `openai` row retyped to NeuralDeep, not saved: before, the sign-in block shows «provider is not a NeuralDeep provider»; after, the Sign In button alone
-- `pr-onboarding-after-save-{before,after}-1280-dark.png` - right after Save: before, the picker reopens over Settings; after, the saved banner and the sign-in block stay
-- `pr-onboarding-home-reload-{before,after}-1280-dark.png` - the start screen after a reload: before, the picker; after, the composer
+### docs/assets/proxy
 
-## VS Code embed id (September 2026)
+| File | Size | Used by |
+|------|------|---------|
+| `proxy-editor-open-dark-1280.png` | 154 KB | docs/operate/proxy.md |
+| `proxy-field-masked-dark-1280.png` | 194 KB | docs/operate/proxy.md |
 
-Captured from headless Chrome (dark, `?lang=ru`) against the Vite dev server on this branch. The VS Code extension used to load the SPA with `?embed=intellij`; it now sends `?embed=vscode`, and the flat composer chrome is keyed on both ids, so `before` and `after` must look the same.
+### docs/assets/scheduler
 
-- `pr-vscode-embed-before-intellij-id-{1280,390}-dark.png` - the start screen with `?embed=intellij` (what the extension sent before)
-- `pr-vscode-embed-after-vscode-id-{1280,390}-dark.png` - the same screen with `?embed=vscode` (what it sends now): flat 6px composer, no glass halo, identical to the intellij id
-- `pr-vscode-embed-plain-browser-1280-dark.png` - no embed id, for contrast: the browser keeps the rounded glass composer
+| File | Size | Used by |
+|------|------|---------|
+| `run-transcript-readonly-dark-1280.png` | 226 KB | docs/operate/scheduler.md |
+| `runs-detail-finished-dark-1280.png` | 144 KB | docs/operate/scheduler.md |
+| `runs-panel-running-dark-1280.png` | 133 KB | docs/operate/scheduler.md |
 
-## Parked turn status row (September 2026)
+### docs/assets/session-rewind
 
-Captured from headless Chrome at 1280x800 against the Vite dev server, driven by a stub
-OpenAI endpoint that streams the opening of an answer and then goes quiet without closing
-the stream - the mid-answer stall the guard exists for.
+| File | Size | Used by |
+|------|------|---------|
+| `archived-open-dark-1280.png` | 105 KB | docs/surfaces/web-ui.md |
+| `failed-send-draft-dark-1280.png` | 164 KB | docs/surfaces/web-ui.md |
+| `rewind-edit-dark-1280.png` | 94 KB | docs/surfaces/web-ui.md |
 
-- `pr-parked-turn-before-1280-dark.png` - what the operator used to see: the answer frozen
-  mid-sentence and nothing else, because the row the live status renders in is hidden for as
-  long as a bubble counts as streaming
-- `pr-parked-turn-after-1280-{dark,light}.png` - the same moment with the status row under the
-  frozen answer: «Провайдер не отвечает — повторяю запрос» and a counter that keeps climbing
+### docs/assets/session-settings
 
-## Session mode/model sync (September 2026)
+| File | Size | Used by |
+|------|------|---------|
+| `session-settings-composer-bypass-dark-1280.png` | 237 KB | docs/features/session-settings.md, docs/surfaces/web-ui.md |
+| `session-settings-console-footer-dark.png` | 119 KB | docs/features/session-settings.md, docs/surfaces/console.md |
+| `session-settings-permission-dialog-dark-1280.png` | 226 KB | docs/features/session-settings.md |
+| `session-settings-slash-menu-dark-1280.png` | 240 KB | docs/features/session-settings.md |
 
-Captured from headless Chrome (dark, ru) against a `make build TAGS="http ui"` binary backed by a stub OpenAI model, so the turns cost nothing and the model reliably calls `plan_exit`. Both runs use identical sessions stored on disk as `mode: plan`, `selectedModelId: kimi-k2.6`.
+### docs/assets/skills
 
-- `mode-sync-before-reload-{1280,390}.png` - a session stored in `plan`, reopened: the composer drops to **Агент** because the SPA never read the session's `mode`
-- `mode-sync-after-reload-{1280,390}.png` - the same session on this branch: the pill comes back as **План**
-- `mode-sync-before-planexit-1280.png` - after the model called `plan_exit`, the backend is in `agent` while the pill still says **План**; the next turn would post `plan` and drag the session back
-- `mode-sync-after-planexit-1280.png` - the same turn on this branch: the `event: mode` frame flips the pill to **Агент**, matching the session
+| File | Size | Used by |
+|------|------|---------|
+| `skills-system-source-dark-1280.png` | 146 KB | docs/features/skills.md |
+
+### docs/assets/subagents
+
+| File | Size | Used by |
+|------|------|---------|
+| `chat-permissions-spaced-dark-1280.png` | 50 KB | docs/features/subagents.md, docs/surfaces/web-ui.md |
+| `child-transcript-readonly-dark.png` | 240 KB | docs/features/subagents.md |
+| `settings-subagents-catalog-dark-1280.png` | 191 KB | docs/surfaces/web-ui.md |
+| `spawn-agent-card-dark-1280.png` | 62 KB | docs/features/subagents.md |
+| `tasks-detail-agent-finished-dark.png` | 278 KB | docs/features/subagents.md |
+| `tasks-panel-agent-running-dark.png` | 238 KB | docs/contributing/documentation.md, docs/features/subagents.md |
+
+### docs/assets/svn-tools/after
+
+| File | Size | Used by |
+|------|------|---------|
+| `svn-tools-dark-1280.png` | 338 KB | DESIGN.md |
+| `svn-tools-light-390.png` | 236 KB | DESIGN.md |
+
+### docs/assets/svn-tools/before
+
+| File | Size | Used by |
+|------|------|---------|
+| `svn-tools-dark-1280.png` | 83 KB | DESIGN.md |
+
+### docs/assets/upstream-port
+
+| File | Size | Used by |
+|------|------|---------|
+| `chat-activity-dark-1280.png` | 254 KB | docs/surfaces/web-ui.md |
+| `compact-model-picker-open-dark-1280.png` | 251 KB | docs/surfaces/web-ui.md |
+| `compaction-model-open-dark-1280.png` | 169 KB | docs/surfaces/web-ui.md |
+| `image-viewer-dark-1280.png` | 202 KB | docs/surfaces/web-ui.md |
+| `phone-chat-dark-390.png` | 111 KB | docs/surfaces/web-ui.md |
+| `preview-server-task-dark-1280.png` | 232 KB | docs/features/preview-server.md |
+| `tasks-dark-1280.png` | 230 KB | docs/surfaces/web-ui.md |
+| `tool-progress-collapsed-dark-1280.png` | 31 KB | docs/surfaces/console.md |
+| `tool-progress-expanded-dark-1280.png` | 51 KB | docs/surfaces/console.md |
+
+### docs/assets/web-search
+
+| File | Size | Used by |
+|------|------|---------|
+| `web-search-row-open-dark-1280.png` | 265 KB | docs/features/web-search.md |
+
+### docs/assets/web-ui
+
+| File | Size | Used by |
+|------|------|---------|
+| `mcp-summary-fitted-dark-1280.png` | 243 KB | docs/surfaces/web-ui.md |
+| `question-pending-dark-1280.png` | 196 KB | docs/surfaces/web-ui.md |
+| `tool-mcp-cards-dark-1280.png` | 249 KB | docs/surfaces/web-ui.md |
+| `tool-structured-cards-dark-1280.png` | 256 KB | docs/surfaces/web-ui.md |
+| `tool-structured-cards-dark-390.png` | 127 KB | docs/surfaces/web-ui.md |
+| `tool-structured-documents-dark-1280.png` | 250 KB | docs/surfaces/web-ui.md |
+<!-- docsgen:assets:end -->

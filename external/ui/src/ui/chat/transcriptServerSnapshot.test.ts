@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
+  preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
+  transcriptItemsLooselyEqual,
 } from "./transcriptServerSnapshot";
 import type { TranscriptItem } from "./types";
 
-const u = (id: string, text: string): TranscriptItem => ({
+// The user-message variant on its own, so a test can spread a row and add
+// `files` without the literal being checked against every other row kind.
+type UserMessageItem = Extract<TranscriptItem, { type: "user_message" }>;
+
+const u = (id: string, text: string): UserMessageItem => ({
   id,
   type: "user_message",
   content: text,
@@ -151,3 +158,132 @@ describe("keepLocalTranscriptIfServerEmpty", () => {
   });
 });
 
+describe("preserveUserMessageFiles", () => {
+  it("prefers persisted server thumbnails over optimistic blob URLs", () => {
+    const server: TranscriptItem[] = [
+      {
+        ...u("server", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "/foxxycode/sessions/sess_a/assets/photo.png/thumbnail",
+        }],
+      },
+    ];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "blob:optimistic-photo",
+        }],
+      },
+    ];
+    expect(preserveUserMessageFiles(server, local)).toEqual(server);
+  });
+
+  it("keeps optimistic files while the server snapshot has no file metadata", () => {
+    const server = [u("server", "hello")];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "blob:optimistic-photo",
+        }],
+      },
+    ];
+    expect(preserveUserMessageFiles(server, local)[0]).toMatchObject({
+      files: local[0]!.type === "user_message" ? local[0]!.files : undefined,
+    });
+  });
+
+  it("revokes an optimistic blob after the persisted thumbnail arrives", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const server: TranscriptItem[] = [
+        {
+          ...u("server", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "/foxxycode/sessions/sess_a/assets/photo.png/thumbnail",
+          }],
+        },
+      ];
+      const local: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          }],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(server, local);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:optimistic-photo");
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+
+  it("does not revoke a blob that is still only an optimistic local tail", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const optimistic: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          }],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(optimistic, optimistic);
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+});
+
+
+it("a wake from the stream and the same wake from the transcript are one row", () => {
+  const live: TranscriptItem = { id: "wake-7", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] };
+  const stored: TranscriptItem = {
+    id: "wake_2",
+    type: "background_wake",
+    tasks: [{ id: "bg_3", status: "failed", exitCode: 2 }],
+    createdAtUtc: "2026-09-18T12:00:00Z",
+  };
+  const other: TranscriptItem = { id: "wake_3", type: "background_wake", tasks: [{ id: "bg_4", status: "failed" }] };
+  expect(transcriptItemsLooselyEqual(stored, live)).toBe(true);
+  expect(transcriptItemsLooselyEqual(other, live)).toBe(false);
+});
+
+it("a notice the server wrote mid-turn does not drop the answer still streaming", () => {
+  const user = { id: "u_1", type: "user_message", content: "Please check the build" } as TranscriptItem;
+  const tool = { id: "tc_1", type: "tool_call", toolCallId: "call_1", title: "run_command", status: "completed" } as unknown as TranscriptItem;
+  const live = { id: "a_live", type: "assistant_message", content: "The build check", streaming: true } as TranscriptItem;
+  const notice = {
+    id: "ulog_1",
+    type: "system_notice",
+    level: "info",
+    message: "Permission mode: bypass for this session",
+  } as TranscriptItem;
+  // The permission answer persisted the notice before the answer was saved.
+  const merged = mergeTranscriptPreferLocalSuffix([user, tool, notice], [user, tool, live]);
+  expect(merged.map((it) => it.id)).toEqual(["u_1", "tc_1", "a_live", "ulog_1"]);
+  // Once both are saved, the server's rows win and the notice stays once.
+  const saved = { id: "as_1", type: "assistant_message", content: "The build check passed." } as TranscriptItem;
+  const later = mergeTranscriptPreferLocalSuffix([user, tool, saved, notice], merged);
+  expect(later.map((it) => it.type)).toEqual(["user_message", "tool_call", "assistant_message", "system_notice"]);
+});

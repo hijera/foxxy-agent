@@ -5,6 +5,7 @@ import {
   formatRub,
   summarizeUsage,
   usagePercent,
+  usageProviderTitle,
   usagePlanLabel,
   usageWindowLabelKey,
   type ProviderUsage,
@@ -14,7 +15,7 @@ import {
 /**
  * The account usage block of the context popover, the way Claude Desktop
  * lists its plan limits under the context window: one meter per metered
- * window (the session, the week, the day when it is above zero) with the
+ * window (NeuralDeep omits the day while it is at zero) with the
  * reset time and the percent used, the wallet below, and a note for the
  * states that change what the user can do (a hit limit, a rejected key, a
  * model on the provider's unlimited option, a turn waiting for the reset,
@@ -31,7 +32,7 @@ export function UsageSection(props: {
   if (summary.kind === "none") return null;
   const now = props.now ?? new Date();
   const u = props.usage as ProviderUsage;
-  const brand = u.providerType === "neuraldeep" ? "NeuralDeep" : u.provider;
+  const title = usageProviderTitle(u);
   const windowName = (w: UsageWindow) => {
     const key = usageWindowLabelKey(w);
     return key ? t(key) : w.label || w.id;
@@ -40,6 +41,10 @@ export function UsageSection(props: {
   let note = "";
   let noteTone: "" | "warn" | "error" = "";
   switch (summary.kind) {
+    case "unavailable":
+      note = t("usage.unavailable");
+      noteTone = summary.failed ? "warn" : "";
+      break;
     case "unauthorized":
       note = t("usage.keyRejected", { provider: summary.provider });
       noteTone = "warn";
@@ -52,13 +57,17 @@ export function UsageSection(props: {
       if (u.resuming) {
         noteTone = "warn";
         note = u.retryAt
-          ? t("usage.resumingAt", { time: formatResetTime(u.retryAt, now, locale) })
+          ? t("usage.resumingAt", {
+              time: formatResetTime(u.retryAt, now, locale),
+            })
           : t("usage.resuming");
         break;
       }
       switch (summary.block) {
         case "rate":
-          note = t("usage.rateLimited", { retry: formatDurationSec(summary.retryInSec ?? 0) });
+          note = t("usage.rateLimited", {
+            retry: formatDurationSec(summary.retryInSec ?? 0),
+          });
           break;
         case "key":
           note = t("usage.keyBlocked");
@@ -71,7 +80,9 @@ export function UsageSection(props: {
           break;
         default:
           note = summary.retryAt
-            ? t("usage.limitReachedResets", { time: formatResetTime(summary.retryAt, now, locale) })
+            ? t("usage.limitReachedResets", {
+                time: formatResetTime(summary.retryAt, now, locale),
+              })
             : t("usage.limitReached");
       }
       break;
@@ -81,7 +92,13 @@ export function UsageSection(props: {
   }
 
   const rows = (u.windows ?? []).filter(
-    (w) => !(w.id === "day" && usagePercent(w.usedPercent) === 0 && !w.exhausted),
+    (w) =>
+      !(
+        u.providerType === "neuraldeep" &&
+        w.id === "day" &&
+        usagePercent(w.usedPercent) === 0 &&
+        !w.exhausted
+      ),
   );
   // Each meter keeps its own tone: a block colours the exhausted window
   // red, the others stay where their percent puts them.
@@ -92,14 +109,21 @@ export function UsageSection(props: {
   };
 
   return (
-    <div className="context-usage" data-testid="context-usage" data-kind={summary.kind}>
+    <div
+      className="context-usage"
+      data-testid="context-usage"
+      data-kind={summary.kind}
+    >
       <div className="context-usage-head">
         <span className="context-usage-title">
-          {u.plan ? `${brand} · ${usagePlanLabel(u.plan)}` : brand}
+          {u.plan ? `${title} · ${usagePlanLabel(u.plan)}` : title}
         </span>
         {note ? (
           <span
-            className={["context-usage-note", noteTone ? `context-usage-note--${noteTone}` : ""]
+            className={[
+              "context-usage-note",
+              noteTone ? `context-usage-note--${noteTone}` : "",
+            ]
               .filter(Boolean)
               .join(" ")}
             data-testid="context-usage-note"
@@ -114,12 +138,18 @@ export function UsageSection(props: {
             const pct = usagePercent(w.usedPercent);
             const tone = rowTone(w);
             return (
-              <li key={w.id} data-testid={`context-usage-row-${w.id}`} data-tone={tone}>
+              <li
+                key={w.id}
+                data-testid={`context-usage-row-${w.id}`}
+                data-tone={tone}
+              >
                 <div className="context-usage-row-head">
                   <span className="context-usage-label">{windowName(w)}</span>
                   <span className="context-usage-meta">
                     {w.resetsAt
-                      ? t("usage.resets", { time: formatResetTime(w.resetsAt, now, locale) })
+                      ? t("usage.resets", {
+                          time: formatResetTime(w.resetsAt, now, locale),
+                        })
                       : ""}
                     <span className="context-usage-pct">{pct}%</span>
                   </span>
@@ -129,7 +159,10 @@ export function UsageSection(props: {
                   role="img"
                   aria-label={`${windowName(w)} ${pct}%`}
                 >
-                  <div className="context-usage-fill" style={{ width: `${Math.min(100, pct)}%` }} />
+                  <div
+                    className="context-usage-fill"
+                    style={{ width: `${Math.min(100, pct)}%` }}
+                  />
                 </div>
               </li>
             );

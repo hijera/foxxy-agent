@@ -15,9 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -202,36 +200,7 @@ func SaveNeuralDeepAuth(path, apiKey, hub, client, keyName string) error {
 	}
 	neuralDeepAuthMu.Lock()
 	defer neuralDeepAuthMu.Unlock()
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".neuraldeep-auth-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if runtime.GOOS == "windows" {
-		// Windows rename-over-existing is not reliable across filesystems and
-		// AV interference; the repo convention (scheduler storage) removes
-		// the destination first. Safe here: the mutex serializes writers.
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return os.Rename(tmpName, path)
+	return writePrivateFileAtomic(path, data)
 }
 
 func loadNeuralDeepAuth(path string) (*neuralDeepAuthFile, error) {
@@ -929,4 +898,19 @@ func LogNeuralDeepAuthNotices(log *slog.Logger, cfg *config.Config) {
 		}
 		log.Info("neuraldeep credential", "provider", n.Provider, "detail", n.Message)
 	}
+}
+
+// NeuralDeepDeviceLabel is the label a device login asks the hub to give its
+// key: "foxxycode @ <host>", plus the provider row in parentheses unless the row
+// is the conventional "neuraldeep". The hub dashboard and /usage show it, so
+// two rows of the type signed in from one machine are told apart.
+func NeuralDeepDeviceLabel(providerName string) string {
+	label := "foxxycode"
+	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		label = "foxxycode @ " + host
+	}
+	if name := strings.TrimSpace(providerName); name != "" && name != "neuraldeep" {
+		label += " (" + name + ")"
+	}
+	return label
 }

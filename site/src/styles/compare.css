@@ -1,0 +1,321 @@
+.compare-head .compiled {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.subhead {
+  margin: 36px 0 14px;
+  font-size: 1.35rem;
+}
+
+.glance {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 860px) {
+  .glance {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.glance li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+}
+
+.glance strong {
+  color: var(--accent-text);
+  font-size: 1.3rem;
+}
+
+.glance span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.compare-prose {
+  max-width: 860px;
+  color: var(--text-2);
+}
+
+.legend ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend p {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--unknown);
+}
+
+.dot-yes {
+  background: var(--yes);
+}
+
+.dot-partial {
+  background: var(--partial);
+}
+
+.dot-no {
+  background: var(--no);
+}
+
+.dot-unknown,
+.dot-na {
+  background: transparent;
+  border: 1.5px solid var(--unknown);
+}
+
+.compare-table-section {
+  padding-block: 28px;
+}
+
+.table-title {
+  font-size: 1.3rem;
+}
+
+.table-lead {
+  margin: 6px 0 14px;
+  color: var(--muted);
+}
+
+.table-scroll {
+  /* Positioned, so the visually hidden verdict labels inside cells stay in this scroller. */
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.compare-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.86rem;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.compare-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.compare-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.compare-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 150px;
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.compare-table thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.compare-table tbody th a {
+  color: var(--text);
+}
+
+.compare-table tbody th .tag {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.tag-muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.harness-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 400;
+}
+
+.compare-table tr.row-self > * {
+  background-color: var(--self-row);
+}
+
+.compare-table tr.row-self th {
+  background: linear-gradient(var(--self-row), var(--self-row)), var(--surface);
+}
+
+.cell {
+  color: var(--text-2);
+}
+
+.cell-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.cell .dot {
+  margin-top: 0.42em;
+}
+
+.cell-unknown .cell-text,
+.cell-na .cell-text {
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.verdict {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .verdict {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.verdict-col {
+  padding: 22px 24px;
+}
+
+.verdict-col h3 {
+  margin-bottom: 14px;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.verdict-yes h3 {
+  color: var(--yes);
+}
+
+.verdict-no h3 {
+  color: var(--no);
+}
+
+.verdict-col dl {
+  margin: 0;
+}
+
+.verdict-col dl > div + div {
+  margin-top: 14px;
+}
+
+.verdict-col dt {
+  font-weight: 700;
+}
+
+.verdict-col dd {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: 0.93rem;
+}
+
+.compare-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 40px;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--surface);
+}
+
+.compare-cta h2 {
+  margin-bottom: 6px;
+  font-size: 1.25rem;
+}
+
+.compare-cta p {
+  color: var(--text-2);
+}
+
+.compare-cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .compare-table {
+    min-width: 760px;
+    font-size: 0.8rem;
+  }
+
+  .compare-table tbody th {
+    min-width: 112px;
+  }
+}
+
+.sources ul {
+  columns: 2;
+  column-gap: 28px;
+}
+
+@media (max-width: 600px) {
+  .sources ul {
+    columns: 1;
+  }
+}
+
+.sources li {
+  break-inside: avoid;
+}

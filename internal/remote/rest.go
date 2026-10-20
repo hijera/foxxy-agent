@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // restTimeout bounds plain REST calls; streaming requests manage their own
@@ -23,11 +24,16 @@ const restTimeout = 30 * time.Second
 type errorEnvelope struct {
 	Error struct {
 		Message string `json:"message"`
+		// Code is the machine-readable reason some routes carry (the message
+		// queue does), so a client branches on it instead of on prose.
+		Code string `json:"code"`
 	} `json:"error"`
 }
 
 // apiError carries the HTTP status so callers can branch on 404 vs failure.
 type apiError struct {
+	// code is the error envelope's machine-readable reason, when it had one.
+	code    string
 	status  int
 	message string
 }
@@ -65,7 +71,7 @@ func (h *Handler) remoteError(res *http.Response, body []byte) error {
 	}
 	var env errorEnvelope
 	if json.Unmarshal(body, &env) == nil && strings.TrimSpace(env.Error.Message) != "" {
-		return &apiError{status: res.StatusCode, message: "remote foxxycode: " + env.Error.Message}
+		return &apiError{status: res.StatusCode, code: strings.TrimSpace(env.Error.Code), message: "remote foxxycode: " + env.Error.Message}
 	}
 	msg := strings.TrimSpace(string(body))
 	if len(msg) > 200 {
@@ -131,6 +137,38 @@ func (h *Handler) postJSON(ctx context.Context, path string, in interface{}, out
 	return json.Unmarshal(body, out)
 }
 
+// deleteJSON performs DELETE path and decodes the answer into out (may be nil).
+func (h *Handler) deleteJSON(ctx context.Context, path string, out interface{}) error {
+	ctx, cancel := context.WithTimeout(ctx, restTimeout)
+	defer cancel()
+	req, err := h.newRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	res, err := h.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("remote foxxycode %s: %w", h.opts.BaseURL, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+		return h.remoteError(res, body)
+	}
+	if out == nil || len(body) == 0 {
+		return nil
+	}
+	return json.Unmarshal(body, out)
+}
+
+// queueErrorCode returns the machine-readable reason a remote refusal carried.
+func queueErrorCode(err error) string {
+	var ae *apiError
+	if errors.As(err, &ae) {
+		return ae.code
+	}
+	return ""
+}
+
 // patchJSON performs PATCH path with the given body.
 func (h *Handler) patchJSON(ctx context.Context, path string, in interface{}) error {
 	ctx, cancel := context.WithTimeout(ctx, restTimeout)
@@ -163,11 +201,12 @@ type modelRow struct {
 	Multimodal       bool     `json:"multimodal,omitempty"`
 	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	// Default marks the row the server runs a session that selected no model on.
+	Default bool `json:"default,omitempty"`
 }
 
 type modelsResponse struct {
-	Data              []modelRow `json:"data"`
-	DefaultAgentModel string     `json:"default_agent_model"`
+	Data []modelRow `json:"data"`
 }
 
 // ensureModels fetches the remote model catalog once. It doubles as the
@@ -185,6 +224,7 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 	}
 	var models []remoteModel
 	var profiles []string
+	defModel := ""
 	for _, row := range res.Data {
 		if row.OwnedBy == "foxxycode" {
 			// A session profile (agent, plan, docs, ...), not a selectable backend.
@@ -193,12 +233,23 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 			profiles = append(profiles, row.ID)
 			continue
 		}
-		models = append(models, remoteModel{ID: row.ID, OwnedBy: row.OwnedBy, Multimodal: row.Multimodal})
+		if row.Default && defModel == "" {
+			defModel = row.ID
+		}
+		models = append(models, remoteModel{
+			ID:               row.ID,
+			OwnedBy:          row.OwnedBy,
+			Multimodal:       row.Multimodal,
+			ReasoningLevels:  row.ReasoningLevels,
+			ReasoningDefault: row.ReasoningDefault,
+		})
 	}
 	h.mu.Lock()
 	h.profiles = profiles
 	h.models = models
-	h.defModel = res.DefaultAgentModel
+	// A server that marks no row (agent.model empty, or an older server)
+	// leaves the first backend as the best guess.
+	h.defModel = defModel
 	if h.defModel == "" && len(models) > 0 {
 		h.defModel = models[0].ID
 	}
@@ -218,10 +269,15 @@ type sessionListResponse struct {
 	NextCursor string `json:"nextCursor,omitempty"`
 }
 
-func (h *Handler) listSessions(ctx context.Context, cursor string) (*sessionListResponse, error) {
+// listSessions reads one page of the server's session list; a non-empty cwd
+// narrows it to that workspace, the way ACP session/list does.
+func (h *Handler) listSessions(ctx context.Context, cursor, cwd string) (*sessionListResponse, error) {
 	q := url.Values{"limit": {"100"}}
 	if cursor != "" {
 		q.Set("cursor", cursor)
+	}
+	if cwd != "" {
+		q.Set("cwd", cwd)
 	}
 	var res sessionListResponse
 	if err := h.getJSON(ctx, "/foxxycode/sessions?"+q.Encode(), &res); err != nil {
@@ -243,13 +299,21 @@ type messageRow struct {
 		} `json:"function"`
 	} `json:"tool_calls,omitempty"`
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// BackgroundWake marks the first message of a turn a finished background
+	// task started; it is replayed as the wake, not as a user message.
+	BackgroundWake *llm.BackgroundWake `json:"background_wake,omitempty"`
 }
 
 type messagesResponse struct {
-	Messages        []messageRow `json:"messages"`
-	SelectedModelID string       `json:"selectedModelId,omitempty"`
-	Model           string       `json:"model,omitempty"`
-	Mode            string       `json:"mode,omitempty"`
+	Messages []messageRow `json:"messages"`
+	// MessagesRev is the revision of the history these messages were read at:
+	// a follower of the session's running turn passes it back as since_rev,
+	// so the relay leaves out what the transcript already holds.
+	MessagesRev       uint64 `json:"messagesRev"`
+	SelectedModelID   string `json:"selectedModelId,omitempty"`
+	SelectedReasoning string `json:"selectedReasoning,omitempty"`
+	Model             string `json:"model,omitempty"`
+	Mode              string `json:"mode,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {
@@ -267,6 +331,12 @@ func (h *Handler) cancelSession(ctx context.Context, id string) error {
 func (h *Handler) patchSelectedModel(ctx context.Context, id, model string) error {
 	return h.patchJSON(ctx, "/foxxycode/sessions/"+url.PathEscape(id), map[string]interface{}{
 		"selectedModelId": model,
+	})
+}
+
+func (h *Handler) patchSelectedReasoning(ctx context.Context, id, reasoning string) error {
+	return h.patchJSON(ctx, "/foxxycode/sessions/"+url.PathEscape(id), map[string]interface{}{
+		"selectedReasoning": reasoning,
 	})
 }
 

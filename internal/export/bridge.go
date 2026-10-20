@@ -84,6 +84,7 @@ func documentHeaderMarkdown(doc ExportDocument) string {
 	rows := [][2]string{
 		{"Workspace", s.CWD},
 		{"Git branch", s.GitBranch},
+		{"SVN branch", s.SVNBranch},
 		{"Model", s.Model},
 		{"Started", s.StartedAt},
 	}

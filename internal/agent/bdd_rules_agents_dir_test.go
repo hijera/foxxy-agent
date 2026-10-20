@@ -127,7 +127,7 @@ func (s *agentsDirRulesFeatureState) operatorListsCatalog() error {
 		return fmt.Errorf("no project prepared")
 	}
 	var buf bytes.Buffer
-	if err := rules.RenderCatalog(&buf, s.cwd, rules.DefaultFactory(), nil); err != nil {
+	if err := rules.RenderCatalog(&buf, s.cwd, rules.DefaultFactory(""), nil); err != nil {
 		return err
 	}
 	s.catalog = buf.String()
@@ -188,7 +188,10 @@ func (s *agentsDirRulesFeatureState) run(prompt string, provider llm.Provider, s
 		return fmt.Errorf("no agent prepared")
 	}
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
-	stop, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: prompt}})
+	// The manager resolves a prompt's mentions before the agent runs it
+	// (session.Manager.ResolvePromptMentions); the suite does the same.
+	blocks := (*session.Manager)(nil).ResolvePromptMentions(context.Background(), s.st, []acp.ContentBlock{{Type: "text", Text: prompt}}, session.MentionScope{})
+	stop, err := s.ag.Run(context.Background(), blocks)
 	if err != nil {
 		return fmt.Errorf("run failed: %w", err)
 	}
@@ -227,6 +230,22 @@ func (s *agentsDirRulesFeatureState) systemPrompt(n int) (string, error) {
 		return "", fmt.Errorf("request %d does not start with a system message", n)
 	}
 	return msgs[0].Content, nil
+}
+
+// wholeRequest returns everything the nth request says to the model. A rule or
+// a nested AGENTS.md a tool call pulled in mid-turn arrives in the turn context
+// block after the history, not in the frozen system message, so what matters
+// here is that the model was told, not where (turn_context.go).
+func (s *agentsDirRulesFeatureState) wholeRequest(n int) (string, error) {
+	if n >= len(s.seen) {
+		return "", fmt.Errorf("request %d was never made (%d total)", n, len(s.seen))
+	}
+	var b strings.Builder
+	for _, m := range s.seen[n] {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
 }
 
 var bddQuotedTokenRE = regexp.MustCompile(`"([^"]+)"`)
@@ -280,12 +299,34 @@ func (s *agentsDirRulesFeatureState) firstRequestCarriesNone(tail string) error 
 	return nil
 }
 
+// userMessageCarries checks the last user message of the last request: a
+// rule the user named rides there, in the message that named it.
+func (s *agentsDirRulesFeatureState) userMessageCarries(tail string) error {
+	if len(s.seen) == 0 {
+		return fmt.Errorf("no request was made")
+	}
+	msgs := s.seen[len(s.seen)-1]
+	var user string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleUser && !strings.HasPrefix(msgs[i].Content, turnContextOpenTag) {
+			user = msgs[i].Content
+			break
+		}
+	}
+	for _, tok := range quotedTokens(tail) {
+		if !strings.Contains(user, tok) {
+			return fmt.Errorf("the user's message is missing %s:\n%s", tok, user)
+		}
+	}
+	return nil
+}
+
 func (s *agentsDirRulesFeatureState) requestsAfterReadCarry(tail string) error {
 	if len(s.seen) < 2 {
 		return fmt.Errorf("expected a request after the read, got %d request(s)", len(s.seen))
 	}
 	for n := 1; n < len(s.seen); n++ {
-		sp, err := s.systemPrompt(n)
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}
@@ -319,6 +360,8 @@ func initializeAgentsDirRulesScenario(sc *godog.ScenarioContext) {
 	// cannot match them and every step has exactly one definition.
 	sc.Step(`^the request carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.lastRequestCarries)
 	sc.Step(`^the request carries neither (.+)$`, s.lastRequestCarriesNone)
+	sc.Step(`^the system prompt carries neither (.+)$`, s.lastRequestCarriesNone)
+	sc.Step(`^the user's message carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.userMessageCarries)
 	sc.Step(`^the first request carries neither (.+)$`, s.firstRequestCarriesNone)
 	sc.Step(`^every request after the read carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.requestsAfterReadCarry)
 }

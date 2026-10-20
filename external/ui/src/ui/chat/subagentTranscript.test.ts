@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  isSubagentSessionId,
-  parseSubagentTranscriptMeta,
-} from "./subagentTranscript";
+import { parseSubagentTranscriptMeta } from "./subagentTranscript";
 
 describe("parseSubagentTranscriptMeta", () => {
   test("an ordinary session carries no marker", () => {
@@ -42,17 +39,38 @@ describe("parseSubagentTranscriptMeta", () => {
       }),
     ).toEqual({ parentSessionId: "", name: "", taskId: "" });
   });
-});
 
-describe("isSubagentSessionId", () => {
-  test.each([
-    ["sub_0a1b2c", true],
-    [" sub_ABCDEF ", true],
-    ["s_123", false],
-    ["sub_", false],
-    ["sub_xyz", false],
-    ["", false],
-  ])("%j -> %s", (id, want) => {
-    expect(isSubagentSessionId(id)).toBe(want);
+  test("reads the scheduler origin of a run", () => {
+    expect(
+      parseSubagentTranscriptMeta({
+        subagent: {
+          parentSessionId: "sess_job",
+          name: "nightly",
+          taskId: "bg_2",
+          scheduler: { jobId: " nightly ", trigger: "cron" },
+        },
+        readOnly: true,
+      }),
+    ).toEqual({
+      parentSessionId: "sess_job",
+      name: "nightly",
+      taskId: "bg_2",
+      scheduler: { jobId: "nightly", trigger: "cron" },
+    });
+  });
+
+  test("the session of a scheduler job is read-only and names its job", () => {
+    expect(
+      parseSubagentTranscriptMeta({
+        readOnly: true,
+        schedulerJob: { jobId: "nightly" },
+      }),
+    ).toEqual({
+      parentSessionId: "",
+      name: "",
+      taskId: "",
+      scheduler: { jobId: "nightly", trigger: "" },
+      jobSession: true,
+    });
   });
 });

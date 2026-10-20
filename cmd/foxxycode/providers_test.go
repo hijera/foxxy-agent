@@ -335,3 +335,141 @@ func TestProvidersLoginDeviceIsAcceptedForCompatibility(t *testing.T) {
 		t.Fatalf("a failed login must store nothing (stat err = %v)", statErr)
 	}
 }
+
+// TestProviderAimWarningOnlyForAnOpenAIProviderThatCannotAuthenticate covers the
+// shapes the warning must stay quiet about. The happy paths are in
+// features/provider_diagnostics.feature; these are the edges around them.
+func TestProviderAimWarningOnlyForAnOpenAIProviderThatCannotAuthenticate(t *testing.T) {
+	cases := []struct {
+		name string
+		prov config.ProviderConfig
+		env  string
+		warn bool
+	}{
+		{name: "no api_base and no credential", prov: config.ProviderConfig{Name: "p", Type: "openai"}, warn: true},
+		{name: "an api_base of its own", prov: config.ProviderConfig{Name: "p", Type: "openai", APIBase: "https://proxy.example/v1"}},
+		{name: "a key in config", prov: config.ProviderConfig{Name: "p", Type: "openai", APIKey: "sk-x"}},
+		{name: "a key command", prov: config.ProviderConfig{Name: "p", Type: "openai", APIKeyCommand: "pass show openai"}},
+		{name: "a key in the environment", prov: config.ProviderConfig{Name: "p", Type: "openai"}, env: "sk-from-env"},
+		{name: "another backend entirely", prov: config.ProviderConfig{Name: "p", Type: "anthropic"}},
+		{name: "an OAuth backend", prov: config.ProviderConfig{Name: "p", Type: "codex"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.ProviderAPIKeyEnvVarName(tc.prov.Name), tc.env)
+			got := providerAimWarning(&tc.prov)
+			if tc.warn && got == "" {
+				t.Fatal("want a warning, got none")
+			}
+			if !tc.warn && got != "" {
+				t.Fatalf("want no warning, got %q", got)
+			}
+		})
+	}
+}
+
+// --devin-cli must not publish the Devin CLI account's catalog while a
+// FoxxyCode-managed login, which wins at every request, belongs to another.
+func TestDevinCLILoginRefusesWhenAManagedLoginWins(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(llm.EnvDevinCLICredentials, filepath.Join(home, "credentials.toml"))
+	if err := os.WriteFile(filepath.Join(home, "credentials.toml"), []byte("windsurf_api_key = \"devin-session-token$cli\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authPath := config.DevinAuthPath(home, "devin")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"session_token":"devin-session-token$managed"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runProviders([]string{"login", "devin", "--devin-cli", "--home", home})
+	if err == nil || !strings.Contains(err.Error(), "providers logout devin") {
+		t.Fatalf("err = %v, want a refusal that names the logout", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml was written despite the refusal (stat err %v)", statErr)
+	}
+}
+
+func TestDevinCLIFlagIsRefusedForOtherTypes(t *testing.T) {
+	home := t.TempDir()
+	err := runProviders([]string{"login", "codex", "--devin-cli", "--home", home})
+	if err == nil || !strings.Contains(err.Error(), "--devin-cli applies to devin providers only") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestProvidersListKeepsTheCodexCLILoginToOneRow: with two codex rows the
+// Codex CLI login serves the row named codex; the list says the other row is
+// not connected and why, instead of showing it on that account.
+func TestProvidersListKeepsTheCodexCLILoginToOneRow(t *testing.T) {
+	home := t.TempDir()
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"at","refresh_token":"rt","account_id":"acct-cli"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	cfg.Providers = []config.ProviderConfig{{Name: "codex", Type: "codex"}, {Name: "codex-work", Type: "codex"}}
+	joined := strings.Join(providersListLines(cfg), "\n")
+	var codexLine, workLine string
+	for _, line := range strings.Split(joined, "\n") {
+		switch {
+		case strings.Contains(line, "codex-work"):
+			workLine = line
+		case strings.Contains(line, "codex"):
+			codexLine = line
+		}
+	}
+	if !strings.Contains(codexLine, "Codex CLI login") || !strings.Contains(codexLine, "acct-cli") {
+		t.Errorf("codex line = %q, want it on the Codex CLI login", codexLine)
+	}
+	if !strings.Contains(workLine, "not connected") || !strings.Contains(workLine, `the row "codex" only`) || strings.Contains(workLine, "acct-cli") {
+		t.Errorf("codex-work line = %q, want not connected, naming the row the CLI login serves", workLine)
+	}
+}
+
+// TestDevinCLIFlagServesOneRow: --devin-cli ties a row to the Devin CLI login,
+// which is one account and serves one row, so a second devin row is refused.
+func TestDevinCLIFlagServesOneRow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(llm.EnvDevinCLICredentials, filepath.Join(home, "credentials.toml"))
+	if err := os.WriteFile(filepath.Join(home, "credentials.toml"), []byte("windsurf_api_key = \"devin-session-token$cli\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("providers:\n  - name: devin\n    type: devin\n  - name: devin-2\n    type: devin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runProviders([]string{"login", "devin-2", "--devin-cli", "--home", home})
+	if err == nil || !strings.Contains(err.Error(), `the row "devin" only`) || !strings.Contains(err.Error(), "providers login devin-2") {
+		t.Fatalf("err = %v, want a refusal naming the row the Devin CLI login serves", err)
+	}
+}
+
+// TestProvidersLoginTypeCreatesAProfile: --type names the type of a row
+// config.yaml does not list yet, so a second profile of a type is created by
+// signing it in; a row the config lists keeps its own type.
+func TestProvidersLoginTypeCreatesAProfile(t *testing.T) {
+	cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}, {Name: "mine", Type: "openai"}}}
+	prov, err := resolveLoginProvider(cfg, "codex-work", "codex")
+	if err != nil || prov.Name != "codex-work" || prov.Type != "codex" {
+		t.Fatalf("--type codex for a new row: %+v %v", prov, err)
+	}
+	if _, err := resolveLoginProvider(cfg, "codex-work", ""); err == nil || !strings.Contains(err.Error(), "--type") {
+		t.Fatalf("a new row without --type: err = %v, want a hint at --type", err)
+	}
+	if _, err := resolveLoginProvider(cfg, "mine", "codex"); err == nil || !strings.Contains(err.Error(), `type "openai"`) {
+		t.Fatalf("--type against a listed row of another type: err = %v", err)
+	}
+	if _, err := resolveLoginProvider(cfg, "x", "openai"); err == nil || !strings.Contains(err.Error(), "neuraldeep, codex and devin") {
+		t.Fatalf("--type of a plain-key type: err = %v", err)
+	}
+	if prov, err := resolveLoginProvider(cfg, "codex", "codex"); err != nil || prov != &cfg.Providers[0] {
+		t.Fatalf("--type matching a listed row: %+v %v", prov, err)
+	}
+	if prov, err := resolveLoginProvider(&config.Config{}, "devin", ""); err != nil || prov.Type != "devin" {
+		t.Fatalf("a conventional name still needs no --type: %+v %v", prov, err)
+	}
+}

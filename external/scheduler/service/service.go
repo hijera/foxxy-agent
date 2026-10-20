@@ -5,11 +5,9 @@ package schedservice
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
@@ -22,13 +20,6 @@ type Service struct {
 
 func NewService(cfg *config.Config, log *slog.Logger, processCWD string) *Service {
 	return &Service{Cfg: cfg, Log: log, ProcessCWD: processCWD}
-}
-
-func (o *Service) slog() *slog.Logger {
-	if o == nil || o.Log == nil {
-		return slog.Default()
-	}
-	return o.Log
 }
 
 func (o *Service) requireEnabled() error {
@@ -51,11 +42,4 @@ func (o *Service) jobAbsPath(jobID string) (string, error) {
 		return "", fmt.Errorf("scheduler.dir is empty")
 	}
 	return filepath.Join(filepath.Clean(roots[0]), jobID+".md"), nil
-}
-
-func lockOrTracked(abs string) bool {
-	if _, err := os.Stat(storage.LockPath(abs)); err == nil {
-		return true
-	}
-	return IsTrackedJob(abs)
 }

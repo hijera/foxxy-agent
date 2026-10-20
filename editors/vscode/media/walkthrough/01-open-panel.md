@@ -2,7 +2,7 @@
 
 The **foxxycode** agent binary is bundled with this extension — no download or install step.
 
-![FoxxyCode activity bar icon](../foxxycode.svg)
+![FoxxyCode activity bar icon](../foxxycode-color.svg)
 
 ## Find the panel
 

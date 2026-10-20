@@ -115,6 +115,16 @@ export function WorkspaceFolderModal(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.open, props.startPath]);
 
+  // WebKit can chain wheel gestures to the document despite containment on
+  // the list. Keep the page still until the modal closes.
+  useEffect(() => {
+    if (!props.open) return;
+    const root = document.documentElement;
+    const overflow = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => { root.style.overflow = overflow; };
+  }, [props.open]);
+
   if (!props.open) {
     return null;
   }

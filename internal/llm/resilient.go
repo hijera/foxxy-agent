@@ -17,10 +17,12 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
+
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 const (
-	defaultLLMRetryMax      = 3
+	defaultLLMRetryMax      = config.AgentDefaultLLMRetryMax
 	defaultLLMRetryBase     = time.Second
 	defaultLLMRetryMaxDelay = 60 * time.Second
 )
@@ -66,9 +68,6 @@ func (o ResilientOptions) withDefaults() ResilientOptions {
 	if out.RetryMaxDelay <= 0 {
 		out.RetryMaxDelay = defaultLLMRetryMaxDelay
 	}
-	if out.Logger == nil {
-		out.Logger = slog.Default()
-	}
 	return out
 }
 
@@ -100,11 +99,25 @@ func wrapResilient(inner Provider, opts ResilientOptions) Provider {
 	return &resilientProvider{inner: inner, opts: opts.withDefaults()}
 }
 
+// log is where the wrapper's verdicts go: the logger the caller passed, else the
+// process logger the entry points installed with SetDebugLogger. Resolved per
+// call rather than at wrap time, and never slog.Default(): nothing installs the
+// process logger as the default, so those lines went to stderr, which the
+// editor plugins and the desktop app discard.
+func (p *resilientProvider) log() *slog.Logger {
+	if p.opts.Logger != nil {
+		return p.opts.Logger
+	}
+	return debugLogger()
+}
+
 // Unwrap exposes the wrapped provider so optional interfaces (RawCompleter) can
 // be reached through the resilience layer.
 func (p *resilientProvider) Unwrap() Provider { return p.inner }
 
 func (p *resilientProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	ctx, finish := startDiagnosticCall(ctx, "complete")
+	defer finish()
 	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
 		return p.inner.Complete(ctx, messages, tools)
 	})
@@ -119,6 +132,10 @@ func (p *resilientProvider) Complete(ctx context.Context, messages []Message, to
 }
 
 func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+	ctx, finish := startDiagnosticCall(ctx, "stream")
+	defer finish()
+	started := time.Now()
+	var first sync.Once
 	// Only a request the endpoint refused outright can be safely re-issued: once a
 	// delta has reached the caller, replaying the turn would duplicate output.
 	// Atomic because a transport is free to deliver chunks from its own goroutine.
@@ -126,6 +143,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	guarded := func(c StreamChunk) {
 		if c.TextDelta != "" || c.ReasoningDelta != "" || c.ToolCall != nil {
 			emitted.Store(true)
+			first.Do(func() { diagnosticEvent(ctx, "llm.first_chunk", "elapsed_ms", time.Since(started).Milliseconds()) })
 		}
 		if onChunk != nil {
 			onChunk(c)
@@ -148,7 +166,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 // turn survives, but the model is answering without having seen the picture, and
 // that is worth a line in the log.
 func (p *resilientProvider) logVisionFallback(ctx context.Context, err error) {
-	p.opts.Logger.WarnContext(ctx, "endpoint rejected image input; retrying without images",
+	p.log().WarnContext(ctx, "endpoint rejected image input; retrying without images",
 		"error", err)
 }
 
@@ -159,6 +177,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 	// this call's own sleeps are in the elapsed time already, so counting
 	// the live ledger would book them twice.
 	spentBefore := p.ledgerSpent()
+	allowance := retryAllowanceFrom(ctx)
 	for attempt := 0; attempt <= p.opts.RetryMax; attempt++ {
 		// Inside the loop so llm_min_interval_ms paces retry attempts too, not
 		// only fresh calls: the pause stacks with the retry delay below, and
@@ -169,45 +188,80 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		attemptStart := time.Now()
+		diagnosticEvent(ctx, "llm.attempt.start", "attempt", attempt+1)
+		allowance.recordAttempt(attempt > 0)
 		resp, err := fn(ctx)
+		diagnosticEvent(ctx, "llm.attempt.end", "attempt", attempt+1, "elapsed_ms", time.Since(attemptStart).Milliseconds(), "status", httpStatusFromError(err), "failed", err != nil)
 		p.markCallFinished()
 		if err == nil {
 			return resp, nil
 		}
 		lastErr = err
 		if ctx.Err() != nil || !isRetryableLLMError(err) {
+			// Every call that ends here was otherwise silent in the log: the
+			// reason tells a guard's or a user's cancel from an error the
+			// provider made final.
+			reason := "not retryable"
+			if ctx.Err() != nil {
+				reason = "context ended: " + ctx.Err().Error()
+				if cause := context.Cause(ctx); cause != nil && cause != ctx.Err() {
+					reason += " (" + cause.Error() + ")"
+				}
+			}
+			p.log().DebugContext(ctx, "LLM request failed; not retrying",
+				"attempt", attempt+1,
+				"took", time.Since(attemptStart).Round(time.Millisecond),
+				"reason", reason,
+				"error", err,
+			)
 			return resp, err
 		}
 		// After the retryable gate, so a 429 that arrived mid-stream (never
 		// retryable once text was emitted) is never re-issued; before the
 		// attempt gate, so retries disabled still fail typed.
 		elapsed := time.Since(start)
-		if reset := p.quotaReset(err, attempt, elapsed, spentBefore); reset != nil {
+		retriesLeft := p.opts.RetryMax - attempt
+		if allowance != nil {
+			retriesLeft = min(retriesLeft, allowance.Snapshot().Remaining)
+		}
+		if reset := p.quotaReset(err, retriesLeft, elapsed, spentBefore); reset != nil {
 			return nil, reset
 		}
-		if attempt >= p.opts.RetryMax {
+		if retriesLeft == 0 {
+			p.log().WarnContext(ctx, "LLM request failed; retries exhausted",
+				"attempts", attempt+1,
+				"took", time.Since(attemptStart).Round(time.Millisecond),
+				"total", time.Since(start).Round(time.Millisecond),
+				"error", err,
+			)
 			return resp, err
 		}
 		delay := retryDelayForError(err, attempt, p.opts.RetryBase, p.opts.RetryMaxDelay)
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
-		p.opts.Logger.WarnContext(ctx, "LLM request failed; retrying",
+		diagnosticEvent(ctx, "llm.retry.wait", "next_attempt", attempt+2, "delay_ms", delay.Milliseconds(), "status", httpStatusFromError(err))
+		p.log().WarnContext(ctx, "LLM request failed; retrying",
 			"attempt", attempt+1,
 			"next_attempt", attempt+2,
 			"max_attempts", p.opts.RetryMax+1,
 			"delay", delay,
+			"took", time.Since(attemptStart).Round(time.Millisecond),
 			"error", err,
 		)
 		onLimit := httpStatusFromError(err) == 429
 		bounded := p.opts.RetryBudgetSet || p.opts.CallBudget > 0
-		if onLimit && bounded && delay > p.retryBudget(attempt, elapsed, spentBefore) {
+		if onLimit && bounded && delay > p.retryBudget(retriesLeft, elapsed, spentBefore) {
 			// A 429 that named no pause takes the ordinary backoff only
 			// while the caller's bounds allow, the call's own as much as
 			// the unit of work's; past them the call ends with the
 			// provider's own error rather than sleeping into the caller's
 			// timer. No reset is invented for it: the typed error, and the
 			// countdown built on it, stand for a moment the provider named.
+			return resp, err
+		}
+		if !allowance.TakeRetry() {
 			return resp, err
 		}
 		sleepStart := time.Now()
@@ -241,7 +295,7 @@ func (p *resilientProvider) chargeLimitSleep(onLimit bool, d time.Duration) {
 
 // quotaReset turns a 429 whose server-named pause (Retry-After, "Limit
 // resets at", "retry in Ns") exceeds what the remaining retries could wait
-// into a QuotaResetError. The loop still has RetryMax-attempt waits of at
+// into a QuotaResetError. The loop still has retriesLeft waits of at
 // most RetryMaxDelay each (none with retries disabled), and the caller may
 // cap the total with RetryBudget (the agent passes its first-token timeout,
 // which would cut a longer sleep anyway, and the wait's maximum when the
@@ -251,12 +305,12 @@ func (p *resilientProvider) chargeLimitSleep(onLimit bool, d time.Duration) {
 // once, after this one request. A 429 that names no pause is never turned
 // into a reset: its backoff is bounded by the budget in callWithRetry and
 // the call ends with the provider's own error.
-func (p *resilientProvider) quotaReset(err error, attempt int, elapsed, spentBefore time.Duration) *QuotaResetError {
+func (p *resilientProvider) quotaReset(err error, retriesLeft int, elapsed, spentBefore time.Duration) *QuotaResetError {
 	if httpStatusFromError(err) != 429 {
 		return nil
 	}
 	d, named := serverRetryDelay(err)
-	if !named || d <= p.retryBudget(attempt, elapsed, spentBefore) {
+	if !named || d <= p.retryBudget(retriesLeft, elapsed, spentBefore) {
 		return nil
 	}
 	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Cause: err}
@@ -274,12 +328,8 @@ const retryBudgetHeadroom = 5 * time.Second
 // is what the ledger held before this call). Each bound keeps headroom for
 // the request after the pause (a quarter of a small budget, five seconds
 // of a large one), so that request is not cut by the caller's timer.
-func (p *resilientProvider) retryBudget(attempt int, elapsed, spentBefore time.Duration) time.Duration {
-	waits := p.opts.RetryMax - attempt
-	if waits < 0 {
-		waits = 0
-	}
-	budget := p.opts.RetryMaxDelay * time.Duration(waits)
+func (p *resilientProvider) retryBudget(retriesLeft int, elapsed, spentBefore time.Duration) time.Duration {
+	budget := p.opts.RetryMaxDelay * time.Duration(max(0, retriesLeft))
 	if p.opts.CallBudget > 0 {
 		if left := p.opts.CallBudget - elapsed - budgetHeadroom(p.opts.CallBudget); left < budget {
 			budget = left
@@ -322,6 +372,7 @@ func (p *resilientProvider) waitMinInterval(ctx context.Context) error {
 	if wait <= 0 {
 		return nil
 	}
+	diagnosticEvent(ctx, "llm.pacing.wait", "delay_ms", wait.Milliseconds())
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
@@ -469,7 +520,17 @@ func isRetryableLLMError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	// Ahead of the deadline gate: a dial that ran out of time matches
+	// context.DeadlineExceeded just like the caller's own timer does, and
+	// the caller's timer is already ruled out by the ctx.Err() check in
+	// callWithRetry before this classification runs.
+	if isDialFailure(err) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	var reset *QuotaResetError
@@ -489,6 +550,16 @@ func isRetryableLLMError(err error) bool {
 		// Same emitted contract for transport failures mid-stream; a fresh
 		// one falls through to normal classification of its cause.
 		return false
+	}
+	var stalled *streamStalledError
+	if errors.As(err, &stalled) {
+		// A stall before any delta reached the caller (after one, the wrapper
+		// above already refused): the server took the request and never
+		// answered it, the same wager as a connection cut before output.
+		// Upstream 1.1.47's rule; the fork's guard sits outside this wrapper
+		// (stream_idle_guard.go), so it only fires for a stall another layer
+		// reports.
+		return true
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
@@ -515,18 +586,58 @@ func isTransientTransportError(err error) bool {
 	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) {
 		return true
 	}
+	// Winsock reports the same failures under its own numbers, which the
+	// portable constants above do not match on Windows: a reset arrives as
+	// "wsarecv: An existing connection was forcibly closed by the remote host".
+	// An abort (10053) is how Windows reports a connection its own network
+	// stack dropped - a VPN or a proxy going away - the connection, not the
+	// request, died.
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case wsaeconnreset, wsaeconnaborted, wsaeconnrefused:
+			return true
+		}
+	}
 	s := err.Error()
 	for _, needle := range []string{
-		"http2: stream error",
+		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):
+		// net/http prints it as "stream error: stream ID N; CODE; received
+		// from peer", with no "http2:" prefix (upstream 1.1.47). The
+		// connection lives on; the one request on that stream died.
+		"stream error: stream ID",
 		"http2: server sent GOAWAY",
+		// The HTTP/2 health check (proxy_http_client.go) closed a connection that
+		// stopped answering: the request died with it, a new connection will not.
+		"http2: client connection lost",
 		"connection reset by peer",
 		"unexpected EOF",
+		// The connection opened but the server never finished the handshake,
+		// so the request itself was never sent.
+		"net/http: TLS handshake timeout",
 	} {
 		if strings.Contains(s, needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// isDialFailure reports a connection that was never established: a dial
+// that timed out or found no route, or a name lookup that failed for the
+// moment. The request did not leave the client, so repeating it cannot
+// duplicate work. A name that does not resolve at all is configuration, not
+// a network hiccup. Callers rule out a canceled context first.
+func isDialFailure(err error) bool {
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "dial" {
+		return false
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) && dns.IsNotFound {
+		return false
+	}
+	return true
 }
 
 func httpStatusFromError(err error) int {
@@ -552,6 +663,12 @@ func httpStatusFromError(err error) int {
 	var ant *anthropic.Error
 	if errors.As(err, &ant) && ant.StatusCode > 0 {
 		return ant.StatusCode
+	}
+	var dev *devinAPIError
+	if errors.As(err, &dev) {
+		// Authoritative like the typed stream error above: the server's
+		// message may hold digits of its own (a trace ID).
+		return dev.status
 	}
 	s := err.Error()
 	for _, code := range []int{429, 408, 500, 502, 503, 504} {

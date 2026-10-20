@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # checks.sh — the project's commit-time gate. By default it runs the linter
-# only (quick); the full test matrix is slow, so tests are opt-in here and
-# belong in CI / before push. Invoked by .githooks/pre-commit; also runnable
-# by hand. Exits non-zero when a requested check fails.
+# only (quick); tests are opt-in here - the express run belongs before the
+# push, the per-combination tag matrix in CI. Invoked by .githooks/pre-commit;
+# also runnable by hand. Exits non-zero when a requested check fails.
 #
 # Knobs (env vars) so the gate has one shared policy:
 #
-#   FOXXYCODE_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint)
+#   FOXXYCODE_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint over every build, then the SPA type check)
 #
-#   FOXXYCODE_HOOK_TESTS  off|fast|full    (default: off) additionally run tests:
-#       off   no tests (lint only — the quick default)
-#       fast  go test ./...            quick base-tag unit tests (~seconds)
-#       full  make test                every build-tag combo + UI (minutes)
+#   FOXXYCODE_HOOK_TESTS  off|fast|full|matrix  (default: off) additionally run tests:
+#       off     no tests (lint only — the quick default)
+#       fast    go test ./...          quick base-tag unit tests (~seconds)
+#       full    make test              express run: UI + every tag once (minutes)
+#       matrix  make test-matrix       every build-tag combination (what CI runs)
+#
+#   FOXXYCODE_HOOK_DOCS   0|1              (default: 1)   when the commit touches the documentation
+#                                      (docs/, README.md, README.en.md, AGENTS.md, DESIGN.md, CONTRIBUTING.md,
+#                                      the config schema), check the generated pages, the
+#                                      links and the assets with `go run ./cmd/docsgen -skip-cli`
+#                                      (the CLI reference needs a full-tag build and is left
+#                                      to `make docs-check` in CI)
 #
 #   FOXXYCODE_HOOK_SKIP   1                bypass the whole gate (prints a warning)
 #
@@ -60,16 +68,31 @@ if [ "$lint" = "1" ]; then
   fi
 fi
 
-# --- tests (opt-in; off by default because the full matrix is slow) ---
+# --- tests (opt-in; off by default because even the express run takes minutes) ---
 case "$tests" in
   off)  : ;;
   fast) log "tests: go test ./..." ; go test ./... || status=1 ;;
   full) log "tests: make test"     ; make test     || status=1 ;;
-  *)    log "unknown FOXXYCODE_HOOK_TESTS='$tests' (want off|fast|full)" ; exit 2 ;;
+  matrix) log "tests: make test-matrix" ; make test-matrix || status=1 ;;
+  *)    log "unknown FOXXYCODE_HOOK_TESTS='$tests' (want off|fast|full|matrix)" ; exit 2 ;;
 esac
 
+# --- documentation (when the commit touches it) ---
+docs="${FOXXYCODE_HOOK_DOCS:-1}"
+docs_ran=0
+if [ "$docs" = "1" ]; then
+  # grep without -q: under pipefail an early exit would fail the pipeline
+  # through git's SIGPIPE and skip the check.
+  if git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null \
+       | grep -E '^(docs/|README\.md$|README\.en\.md$|AGENTS\.md$|DESIGN\.md$|CONTRIBUTING\.md$|internal/config/config\.schema\.json$|internal/docsgen/|cmd/docsgen/)' >/dev/null; then
+    docs_ran=1
+    log "docs: go run ./cmd/docsgen -skip-cli (nav, links, assets, generated pages)"
+    go run ./cmd/docsgen -skip-cli || { status=1; log "docs: run 'make docs' to regenerate, then re-stage"; }
+  fi
+fi
+
 if [ "$status" -eq 0 ]; then
-  log "PASS (lint=$lint, tests=$tests)"
+  log "PASS (lint=$lint, tests=$tests, docs=$docs_ran)"
 else
   log "FAIL — fix the reported issues before committing (bypass once: git commit --no-verify)."
 fi

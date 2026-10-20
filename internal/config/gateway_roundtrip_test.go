@@ -29,7 +29,7 @@ agent:
   model: "openai/gpt-4o"
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "secret-token"
     rich_messages: true
     proxy: "socks5h://127.0.0.1:1080"
@@ -126,7 +126,7 @@ func TestUISchema_HasTelegramGatewayFields(t *testing.T) {
 	if !ok {
 		t.Fatal("telegram has no properties")
 	}
-	for _, key := range []string{"enabled", "token", "rich_messages", "admins", "default_access", "default_isolation", "user_groups", "chats"} {
+	for _, key := range []string{"enable", "token", "rich_messages", "admins", "default_access", "default_isolation", "user_groups", "chats"} {
 		if _, ok := tgProps[key].(map[string]interface{}); !ok {
 			t.Fatalf("telegram schema missing property %q", key)
 		}

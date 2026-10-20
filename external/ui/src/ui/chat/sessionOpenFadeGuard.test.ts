@@ -35,7 +35,7 @@ test("restoring a session from the stream shadow cancels the pending fade", () =
 });
 
 test("painting a fetched transcript cancels the pending fade", () => {
-  const before = precedingSource("setItems(withBranches);");
+  const before = precedingSource("setItems(finalItems);");
   expect(before).toContain("clearTimeout(fadeOutTimerRef.current)");
   expect(before).toContain("setSessionFadingOut(false)");
 });

@@ -4,6 +4,7 @@
 # "model_notes" is also optional: it renders only when a variant supplies
 # model_notes_<variant> (per-model guidance, e.g. gpt-oss-20b/gpt-oss-120b profiles).
 header
+capabilities
 subagent_role
 notes
 model_notes
@@ -13,6 +14,7 @@ code_quality
 file_ops
 read_search
 shell_cmds
+git_worktrees
 background_cmds
 web_research
 subagents

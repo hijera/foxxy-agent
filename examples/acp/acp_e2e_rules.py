@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""ACP e2e: project rules glob stickiness, @mention-only rules, bundled /generate-rules catalog.
+"""ACP e2e: project rules glob stickiness, @mention-only rules, bundled /rpa-gen-rules catalog.
 
 Copies ``examples/rules_fixture/.foxxycode/rules`` into the session work dir, then:
 
-1. ``available_commands_update`` (written after the ``session/new`` response) includes ``generate-rules``.
+1. ``available_commands_update`` (written after the ``session/new`` response) includes ``rpa-gen-rules``.
 2. Glob rule activates with a Go file resource block; assistant includes ``RULE_GLOB_TOKEN:e2e-glob``.
 3. Mention-only rule via ``@mention_demo`` includes ``RULE_MENTION_TOKEN:e2e-mention``.
 """
@@ -22,7 +22,7 @@ from typing import Any
 
 GLOB_TOKEN = "RULE_GLOB_TOKEN:e2e-glob"
 MENTION_TOKEN = "RULE_MENTION_TOKEN:e2e-mention"
-BUNDLED_SLASH = "generate-rules"
+BUNDLED_SLASH = "rpa-gen-rules"
 
 
 def jd(obj: dict[str, Any]) -> str:
@@ -132,7 +132,7 @@ def wait_for_session_update(
 
     FoxxyCode writes ``available_commands_update`` only after the ``session/new`` (or
     ``session/load``) response is on the wire, so the catalog is never part of that
-    call's backlog (see ``docs/acp-protocol.md``). Returns every line read, the
+    call's backlog (see ``docs/reference/acp-protocol.md``). Returns every line read, the
     matching notification last, so callers can fold it into the earlier backlog.
     """
     assert proc.stdout is not None

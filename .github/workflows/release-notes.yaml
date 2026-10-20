@@ -1,0 +1,76 @@
+# Write "What's Changed" into a GitHub Release that has no description yet.
+#
+# The notes live here, in one job that runs after the builds, rather than in any of the jobs
+# that attach assets to the release:
+#
+#   - Those jobs (Release binaries, IntelliJ plugin, VS Code extension) attach to the same release
+#     at the same moment. softprops/action-gh-release starts each of them from a draft of its own
+#     and keeps the earliest one, deleting the rest, so notes generated inside one of those jobs
+#     survived only when that job's draft won. 0.2.87 and 0.2.91 lost the race and shipped with
+#     an empty description.
+#   - A build that fails never gets as far as its notes: 0.2.70-0.2.79 had none.
+#
+# A release that already has a description (a rebuilt tag, notes edited by hand) is left alone.
+# internal/update/release_notes_workflow_test.go runs the step script against a fake gh, and
+# checks that "Tag release on merge" waits for every job that attaches to the release.
+#
+# Triggers:
+#   - workflow_call from "Tag release on merge", after the build jobs, whatever their outcome
+#   - workflow_dispatch: fill in one release by hand, e.g. for a manually pushed tag
+
+name: Release notes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: SemVer tag of the release to describe (X.Y.Z)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: SemVer tag of the release to describe (X.Y.Z)
+        required: true
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  notes:
+    name: Write the release notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # edit the release description
+
+    steps:
+      # No checkout: gh talks to the API only, so this also works for a tag whose tree predates
+      # this workflow.
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match X.Y.Z (got ${TAG})." >&2
+            exit 1
+          fi
+          if ! body="$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)"; then
+            echo "There is no release ${TAG} to write notes into." >&2
+            exit 1
+          fi
+          if [ -n "$body" ]; then
+            echo "Release ${TAG} already has a description; leaving it alone."
+            exit 0
+          fi
+          # The same notes GitHub writes when a release is created with "Generate release notes":
+          # the pull requests merged since the previous release.
+          notes="${RUNNER_TEMP}/release-notes.md"
+          gh api --method POST "repos/${REPO}/releases/generate-notes" -f tag_name="$TAG" --jq .body > "$notes"
+          gh release edit "$TAG" --repo "$REPO" --notes-file "$notes"
+          echo "Wrote the notes of ${TAG}:"
+          cat "$notes"

@@ -19,16 +19,18 @@ type recordingRunner struct {
 	mu           sync.Mutex
 	instructions []string
 	sessions     []string
+	wakes        []Wake
 	block        chan struct{}
 }
 
-func (r *recordingRunner) run(_ context.Context, sessionID, instruction string) error {
+func (r *recordingRunner) run(_ context.Context, wake Wake) error {
 	if r.block != nil {
 		<-r.block
 	}
 	r.mu.Lock()
-	r.sessions = append(r.sessions, sessionID)
-	r.instructions = append(r.instructions, instruction)
+	r.sessions = append(r.sessions, wake.SessionID)
+	r.instructions = append(r.instructions, wake.Instruction())
+	r.wakes = append(r.wakes, wake)
 	r.mu.Unlock()
 	return nil
 }
@@ -73,7 +75,7 @@ func TestWakerOnlyRunsForTasksThatAskedForIt(t *testing.T) {
 	runner := &recordingRunner{}
 	w := NewBackgroundWaker(slog.Default(), runner.run)
 
-	// Neither of these should wake anything: one did not opt in, the other is
+	// Neither of these should wake anything: one explicitly disabled it, the other is
 	// still running.
 	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusSucceeded, false))
 	running := finished("bg_2", "s1", bgtask.StatusRunning, true)
@@ -168,7 +170,7 @@ func TestWakerDoesNotWakeWhileTheProcessIsShuttingDown(t *testing.T) {
 }
 
 func TestAttachReplacesAPreviousWakerInsteadOfStacking(t *testing.T) {
-	pool := bgtask.NewWithRunner(bgtask.Config{}, nil)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
 
 	first := &recordingRunner{}
 	NewBackgroundWaker(slog.Default(), first.run).Attach(pool)
@@ -183,7 +185,13 @@ func TestAttachReplacesAPreviousWakerInsteadOfStacking(t *testing.T) {
 	w := NewBackgroundWaker(slog.Default(), third.run)
 	w.Attach(pool)
 
-	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusSucceeded, true))
+	snap, err := pool.Start(bgtask.Spec{SessionID: "s1", Command: "echo done", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Wait(context.Background(), "s1", snap.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
 	waitForCalls(t, third, 1)
 
 	if sessions, _ := first.calls(); len(sessions) != 0 {
@@ -191,6 +199,27 @@ func TestAttachReplacesAPreviousWakerInsteadOfStacking(t *testing.T) {
 	}
 	if sessions, _ := second.calls(); len(sessions) != 0 {
 		t.Fatalf("the replaced waker still ran %d turns", len(sessions))
+	}
+}
+
+func TestWakerSkipsAResultCollectedBeforeTheNextTurn(t *testing.T) {
+	runner := &recordingRunner{}
+	w := NewBackgroundWaker(slog.Default(), runner.run)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+	w.Attach(pool)
+	snap, err := pool.Start(bgtask.Spec{SessionID: "s1", Command: "echo done", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Wait(context.Background(), "s1", snap.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AcknowledgeResult("s1", snap.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(wakeSettleDelay + 300*time.Millisecond)
+	if sessions, _ := runner.calls(); len(sessions) != 0 {
+		t.Fatalf("collected result started %d redundant turns", len(sessions))
 	}
 }
 
@@ -241,7 +270,8 @@ type busyRunner struct {
 	fail     error
 }
 
-func (r *busyRunner) run(_ context.Context, _, instruction string) error {
+func (r *busyRunner) run(_ context.Context, wake Wake) error {
+	instruction := wake.Instruction()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.attempts++
@@ -385,5 +415,62 @@ func TestWakeGivesUpOnASessionThatStaysBusy(t *testing.T) {
 	}
 	if before == 0 {
 		t.Fatal("the waker never attempted a turn at all")
+	}
+}
+
+// The waker hands the surface the whole batch, not only the text: the surface
+// needs the tasks to mark the turn's first message and to tell its clients what
+// woke the agent.
+func TestWakerHandsTheSurfaceTheTasksOfTheBatch(t *testing.T) {
+	runner := &recordingRunner{}
+	w := NewBackgroundWaker(slog.Default(), runner.run)
+	failedTask := finished("bg_3", "s1", bgtask.StatusFailed, true)
+	w.OnSnapshot(failedTask)
+	waitForCalls(t, runner, 1)
+
+	runner.mu.Lock()
+	wake := runner.wakes[0]
+	runner.mu.Unlock()
+	if wake.SessionID != "s1" || len(wake.Tasks) != 1 || wake.Tasks[0].ID != "bg_3" {
+		t.Fatalf("wake = %+v, want session s1 with bg_3", wake)
+	}
+	params, opts := wake.PromptParams(), wake.RunOpts()
+	if params.SessionID != "s1" || len(params.Prompt) != 1 || params.Prompt[0].Text != wake.Instruction() {
+		t.Fatalf("prompt params = %+v", params)
+	}
+	if opts == nil || !opts.SkipUsagePublish || opts.BackgroundWake == nil || len(opts.BackgroundWake.Tasks) != 1 {
+		t.Fatalf("run opts = %+v, want the wake marker and no usage refresh", opts)
+	}
+}
+
+func TestWakeRecordNamesEachTaskWithItsOutcome(t *testing.T) {
+	start := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	end := start.Add(90 * time.Second)
+	code := 2
+	agentEnd := start.Add(45 * time.Second)
+	wake := Wake{SessionID: "s1", Tasks: []bgtask.Snapshot{
+		{ID: "bg_3", SessionID: "s1", Kind: bgtask.KindCommand, Label: "make test", Command: "make test",
+			Status: bgtask.StatusFailed, ExitCode: &code, Error: "exit status 2", StartedAt: start, FinishedAt: &end},
+		{ID: "bg_4", SessionID: "s1", Kind: bgtask.KindAgent, Label: "agent reviewer: check the diff",
+			Status: bgtask.StatusSucceeded, StartedAt: start, FinishedAt: &agentEnd,
+			Agent: &bgtask.AgentInfo{Name: "reviewer", SessionID: "sess_child"}},
+	}}
+	rec := wake.Record(end)
+	if len(rec.Tasks) != 2 {
+		t.Fatalf("record = %+v", rec)
+	}
+	cmd, run := rec.Tasks[0], rec.Tasks[1]
+	if cmd.ID != "bg_3" || cmd.Kind != "command" || cmd.Label != "make test" || cmd.Status != "failed" ||
+		cmd.ExitCode == nil || *cmd.ExitCode != 2 || cmd.DurationMs != 90_000 || cmd.Error != "exit status 2" {
+		t.Fatalf("command task = %+v", cmd)
+	}
+	if run.ID != "bg_4" || run.Kind != "agent" || run.Agent != "reviewer" || run.Status != "succeeded" || run.DurationMs != 45_000 {
+		t.Fatalf("agent task = %+v", run)
+	}
+	// The record owns its exit code: a later change to the snapshot's must
+	// not reach the transcript.
+	code = 9
+	if *cmd.ExitCode != 2 {
+		t.Fatal("the record shares the snapshot's exit code")
 	}
 }

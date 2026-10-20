@@ -2,6 +2,7 @@
 # "notes" and "model_notes" are optional (variant-supplied); model_notes_<variant>
 # carries per-model guidance such as the gpt-oss-20b/gpt-oss-120b profiles.
 header
+capabilities
 notes
 model_notes
 intent

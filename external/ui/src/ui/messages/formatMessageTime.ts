@@ -1,5 +1,22 @@
 import { getLocale } from "../i18n/i18n";
 
+// Building an Intl.DateTimeFormat costs far more than formatting with one, and
+// every transcript row formats its time twice: the formatters are made once.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function formatter(
+  key: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const locale = getLocale();
+  const cacheKey = `${locale}:${key}`;
+  let f = formatters.get(cacheKey);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, options);
+    formatters.set(cacheKey, f);
+  }
+  return f;
+}
+
 function parseUtcMs(isoUtc: string): number | null {
   const ms = Date.parse(isoUtc);
   return Number.isFinite(ms) ? ms : null;
@@ -11,7 +28,7 @@ export function formatUtcForLocalDisplay(isoUtc: string): string {
   if (ms === null) {
     return "";
   }
-  return new Intl.DateTimeFormat(getLocale(), {
+  return formatter("display", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(ms));
@@ -23,7 +40,7 @@ export function formatUtcToLocalHM(isoUtc: string): string {
   if (ms === null) {
     return "";
   }
-  return new Intl.DateTimeFormat(getLocale(), {
+  return formatter("hm", {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(ms));
@@ -38,7 +55,7 @@ export function formatUtcToLocalFullDetail(isoUtc: string): string {
   if (ms === null) {
     return "";
   }
-  return new Intl.DateTimeFormat(getLocale(), {
+  return formatter("detail", {
     year: "numeric",
     month: "short",
     day: "numeric",

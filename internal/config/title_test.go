@@ -24,7 +24,7 @@ func TestTitleExplicitDisablePreserved(t *testing.T) {
 	c := config.TitleConfig{Enabled: &off}
 	c.ApplyDefaults()
 	if c.TitleEnabled() {
-		t.Error("explicit title.enabled=false must be preserved")
+		t.Error("explicit title.enable=false must be preserved")
 	}
 }
 

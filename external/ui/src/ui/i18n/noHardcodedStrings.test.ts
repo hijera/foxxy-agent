@@ -40,6 +40,13 @@ const SCANNED_ATTRS = [
   "ariaLabel",
 ];
 
+/**
+ * State setters whose argument is rendered as a status or error line. A literal handed straight to
+ * one of them reaches the screen without t(), and neither the JSX-text nor the attribute check sees
+ * it: the Skills tab shipped "Installed demo." to Russian users that way.
+ */
+const MESSAGE_SETTERS = ["setError", "setStatus", "setMessage"];
+
 function tsxFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -113,12 +120,34 @@ function findings(): string[] {
         hits.push(`${rel}:${lineOf(source, m.index)} ${attr}="${value}"`);
       }
     }
+
+    // A quoted or template literal passed to a message setter, either as the whole argument or as
+    // the fallback after `||` (the server's message first, local text second). Interpolations are
+    // dropped before the prose test, so `Failed to ${action}` still reads as "Failed to".
+    for (const setter of MESSAGE_SETTERS) {
+      for (const m of source.matchAll(
+        new RegExp(
+          `\\b${setter}\\(\\s*(?:[^;\\n]*?\\|\\|\\s*)?(["'\`])((?:(?!\\1)[^\\\\]|\\\\.)*)\\1`,
+          "g",
+        ),
+      )) {
+        const text = (m[2] ?? "")
+          .replace(/\$\{[^}]*\}/g, " ")
+          .replace(/\s+/g, " ")
+          .replace(/ ([.,!?…])/g, "$1")
+          .trim();
+        if (!text || ALLOWED_TEXT.has(text) || !looksLikeEnglishProse(text)) {
+          continue;
+        }
+        hits.push(`${rel}:${lineOf(source, m.index)} ${setter}(): ${text}`);
+      }
+    }
   }
   return hits.sort();
 }
 
 describe("no hardcoded user-visible strings", () => {
-  it("routes JSX text and label attributes through t()", () => {
+  it("routes JSX text, label attributes and status/error messages through t()", () => {
     expect(findings()).toEqual([]);
   });
 

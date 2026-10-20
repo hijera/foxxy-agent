@@ -7,6 +7,47 @@
       "additionalProperties": false,
       "description": "Defaults for the main agent loop (model id and safety caps).",
       "properties": {
+        "llm_continue": {
+          "default": true,
+          "description": "When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why.",
+          "title": "Continue a cut answer",
+          "type": "boolean"
+        },
+        "llm_continue_error_delays_ms": {
+          "default": [
+            5000,
+            20000
+          ],
+          "description": "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Continuation delays after an error ms",
+          "type": "array"
+        },
+        "llm_continue_max": {
+          "default": 3,
+          "description": "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).",
+          "title": "Continuation limit",
+          "type": "integer"
+        },
+        "llm_continue_retry_after_max_ms": {
+          "default": 120000,
+          "description": "Longest pause a provider may ask for (Retry-After) before a cut answer is carried on (an explicit 0 ignores Retry-After).",
+          "title": "Longest Retry-After ms",
+          "type": "integer"
+        },
+        "llm_continue_stall_delays_ms": {
+          "default": [
+            0
+          ],
+          "description": "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Continuation delays ms",
+          "type": "array"
+        },
         "llm_first_token_timeout_ms": {
           "default": 90000,
           "description": "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
@@ -25,8 +66,8 @@
           "type": "integer"
         },
         "llm_retry_max": {
-          "default": 3,
-          "description": "Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries).",
+          "default": 10,
+          "description": "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
           "title": "LLM retry max",
           "type": "integer"
         },
@@ -55,10 +96,10 @@
           "title": "Retry budget ms",
           "type": "integer"
         },
-        "llm_stall_timeout_ms": {
+        "llm_stream_idle_timeout_ms": {
           "default": 300000,
-          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).",
-          "title": "LLM stall timeout ms",
+          "description": "How long a streamed LLM call that has already delivered something may deliver nothing more before the stream is cut as stalled; the partial answer is kept. Keep-alive comments do not count as delivery (an explicit 0 disables the guard).",
+          "title": "LLM stream idle timeout ms",
           "type": "integer"
         },
         "loop_guard": {
@@ -101,15 +142,8 @@
           "title": "Loop tool repeat limit",
           "type": "integer"
         },
-        "max_tokens_per_turn": {
-          "default": 200000,
-          "description": "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
-          "title": "Max tokens per turn",
-          "type": "integer"
-        },
         "max_turns": {
-          "default": 30,
-          "description": "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.",
+          "description": "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.",
           "title": "Max turns",
           "type": "integer"
         },
@@ -131,20 +165,24 @@
           "type": "integer"
         }
       },
-      "title": "ReAct agent",
+      "title": "ReAct loop",
       "type": "object",
       "x-foxxycode-property-order": [
         "model",
         "max_turns",
-        "max_tokens_per_turn",
         "llm_retry_max",
         "llm_retry_base_ms",
         "llm_min_interval_ms",
         "llm_first_token_timeout_ms",
-        "llm_stall_timeout_ms",
+        "llm_stream_idle_timeout_ms",
         "llm_stall_retry",
         "llm_stall_retry_delays_ms",
         "llm_stall_retry_max_wait_ms",
+        "llm_continue",
+        "llm_continue_max",
+        "llm_continue_stall_delays_ms",
+        "llm_continue_error_delays_ms",
+        "llm_continue_retry_after_max_ms",
         "loop_guard",
         "loop_tool_repeat_limit",
         "loop_stream_repeat_cycles",
@@ -165,7 +203,7 @@
           "title": "Debounce ms",
           "type": "integer"
         },
-        "enabled": {
+        "enable": {
           "default": false,
           "description": "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
           "title": "Enabled",
@@ -242,7 +280,7 @@
       "title": "Autocomplete",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "mode",
         "trigger",
@@ -260,7 +298,7 @@
       "additionalProperties": false,
       "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
       "properties": {
-        "enabled": {
+        "enable": {
           "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
           "title": "Enabled",
           "type": "boolean"
@@ -292,7 +330,7 @@
       "title": "Browser tool",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "headless",
         "screenshots",
         "executable_path",
@@ -304,7 +342,7 @@
       "additionalProperties": false,
       "description": "Summarize older turns when the conversation approaches the model context window.",
       "properties": {
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Turns on auto-compaction; only fires near the context window.",
           "title": "Enabled",
@@ -312,7 +350,7 @@
         },
         "engine": {
           "default": "coddy",
-          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
           "enum": [
             "coddy",
             "opencode"
@@ -320,9 +358,18 @@
           "title": "Compaction engine",
           "type": "string"
         },
+        "fallback_models": {
+          "default": [],
+          "description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback summarizer models",
+          "type": "array"
+        },
         "keep_recent_turns": {
           "default": 2,
-          "description": "Most recent user turns preserved verbatim (default 2).",
+          "description": "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.",
           "title": "Keep recent turns",
           "type": "integer"
         },
@@ -341,7 +388,7 @@
           "additionalProperties": false,
           "description": "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
           "properties": {
-            "enabled": {
+            "enable": {
               "description": "Master switch for result eviction. Defaults to true.",
               "title": "Enabled",
               "type": "boolean"
@@ -355,19 +402,25 @@
               "description": "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
               "title": "Min result bytes",
               "type": "integer"
+            },
+            "start_percent": {
+              "description": "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds.",
+              "title": "Start at (%)",
+              "type": "integer"
             }
           },
           "title": "Read/grep result eviction",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "keep_recent",
-            "min_result_bytes"
+            "min_result_bytes",
+            "start_percent"
           ]
         },
         "threshold_percent": {
           "default": 80,
-          "description": "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).",
+          "description": "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).",
           "title": "Threshold percent",
           "type": "integer"
         }
@@ -376,8 +429,9 @@
       "type": "object",
       "x-foxxycode-property-order": [
         "engine",
-        "enabled",
+        "enable",
         "model",
+        "fallback_models",
         "threshold_percent",
         "keep_recent_turns",
         "max_tokens",
@@ -393,7 +447,7 @@
           "title": "Capture LLM bodies",
           "type": "boolean"
         },
-        "enabled": {
+        "enable": {
           "default": false,
           "description": "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).",
           "title": "Enabled",
@@ -403,7 +457,7 @@
       "title": "Debug",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "capture_llm"
       ]
     },
@@ -481,15 +535,16 @@
               "title": "Default isolation",
               "type": "string"
             },
-            "enabled": {
+            "enable": {
               "description": "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
               "title": "Enabled",
               "type": "boolean"
             },
             "proxy": {
-              "description": "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
-              "title": "Proxy",
-              "type": "string"
+              "description": "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.",
+              "title": "Proxy URL",
+              "type": "string",
+              "x-foxxycode-proxy-url": true
             },
             "rich_messages": {
               "default": true,
@@ -539,7 +594,7 @@
           "title": "Telegram",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "token",
             "rich_messages",
             "proxy",
@@ -567,7 +622,7 @@
           "title": "Default timeout (s)",
           "type": "integer"
         },
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Load and run hooks at all (default true).",
           "title": "Enabled",
@@ -614,7 +669,7 @@
       "title": "Hooks",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "files",
         "project_trust",
         "default_timeout_seconds",
@@ -628,9 +683,10 @@
       "properties": {
         "files": {
           "default": [
-            "AGENTS.md"
+            "AGENTS.md",
+            "DESIGN.md"
           ],
-          "description": "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].",
+          "description": "Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to [\"AGENTS.md\", \"DESIGN.md\"]; the agent home has its own pair, read ahead of this list whenever it exists.",
           "items": {
             "type": "string"
           },
@@ -850,12 +906,22 @@
     },
     "memory": {
       "additionalProperties": false,
-      "description": "Optional memory copilot (requires memory build tag and provider).",
+      "description": "Optional memory subagent (requires the memory build tag and a provider).",
       "properties": {
+        "additional_prompt": {
+          "description": "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.",
+          "title": "Additional instructions",
+          "type": "string"
+        },
+        "additional_prompt_max_chars": {
+          "description": "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap.",
+          "title": "Additional instructions cap (characters)",
+          "type": "integer"
+        },
         "copilot_max_tokens": {
           "default": 4096,
-          "description": "Completion token cap for memory copilot calls.",
-          "title": "Copilot max tokens",
+          "description": "Completion token cap for the memory model's calls.",
+          "title": "Max tokens per call",
           "type": "integer"
         },
         "dir": {
@@ -863,10 +929,25 @@
           "title": "Memory root",
           "type": "string"
         },
-        "enabled": {
-          "description": "Turns on the memory copilot for eligible builds.",
+        "enable": {
+          "description": "Runs the memory subagent on every user turn (memory build tag).",
           "title": "Enabled",
           "type": "boolean"
+        },
+        "fallback_models": {
+          "default": [],
+          "description": "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback memory models",
+          "type": "array"
+        },
+        "keep_runs": {
+          "default": 20,
+          "description": "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20).",
+          "title": "Runs kept per session",
+          "type": "integer"
         },
         "max_search_hits": {
           "default": 8,
@@ -875,33 +956,51 @@
           "type": "integer"
         },
         "model": {
-          "description": "Logical model override for memory LLM calls; empty uses agent model.",
+          "description": "Logical model the memory subagent runs on; empty uses the session's model.",
           "title": "Memory model",
           "type": "string"
         },
         "persist_max_turns": {
           "default": 12,
-          "description": "Bounds persist-side LLM rounds in the memory loop.",
+          "description": "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two.",
           "title": "Persist max turns",
           "type": "integer"
         },
         "recall_max_turns": {
           "default": 6,
-          "description": "Bounds recall-side LLM rounds in the memory loop.",
+          "description": "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two.",
           "title": "Recall max turns",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "description": "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300).",
+          "title": "Run timeout (seconds)",
+          "type": "integer"
+        },
+        "wait_seconds": {
+          "default": 20,
+          "description": "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
+          "title": "Wait for the report (seconds)",
           "type": "integer"
         }
       },
-      "title": "Long-term memory",
+      "title": "Memory copilot",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
+        "fallback_models",
         "dir",
+        "wait_seconds",
+        "timeout_seconds",
+        "keep_runs",
         "recall_max_turns",
         "persist_max_turns",
         "copilot_max_tokens",
-        "max_search_hits"
+        "max_search_hits",
+        "additional_prompt",
+        "additional_prompt_max_chars"
       ]
     },
     "models": {
@@ -917,8 +1016,8 @@
         "additionalProperties": false,
         "properties": {
           "max_context_tokens": {
-            "description": "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.",
-            "title": "Max context tokens (UI hint)",
+            "description": "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
+            "title": "Context window (tokens)",
             "type": "integer"
           },
           "max_tokens": {
@@ -1007,7 +1106,7 @@
           "additionalProperties": false,
           "description": "Select a system prompt tuned to the active model family (falls back to the shared prompt).",
           "properties": {
-            "enabled": {
+            "enable": {
               "default": true,
               "description": "Use a per-family prompt file (agent.\u003cfamily\u003e.md) when available.",
               "title": "Enabled",
@@ -1017,7 +1116,7 @@
           "title": "Per-provider prompts",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled"
+            "enable"
           ]
         },
         "plan_prompt": {
@@ -1049,12 +1148,12 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.",
+            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.",
             "title": "API base URL",
             "type": "string"
           },
           "api_key": {
-            "description": "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
+            "description": "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
             "title": "API key",
             "type": "string",
             "x-foxxycode-provider-api-key-env-placeholder": true,
@@ -1067,15 +1166,16 @@
           },
           "name": {
             "default": "openai",
-            "description": "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
+            "description": "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
             "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$",
-            "title": "Provider name",
+            "title": "Provider id",
             "type": "string"
           },
           "proxy": {
-            "description": "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none.",
-            "title": "HTTP or SOCKS proxy",
-            "type": "string"
+            "description": "Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.",
+            "title": "Proxy URL",
+            "type": "string",
+            "x-foxxycode-proxy-url": true
           },
           "timeout_ms": {
             "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
@@ -1089,14 +1189,15 @@
               "openai",
               "anthropic",
               "neuraldeep",
-              "codex"
+              "codex",
+              "devin"
             ],
             "title": "Provider type",
             "type": "string"
           },
           "usage_limits_panel": {
             "default": true,
-            "description": "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+            "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
             "title": "Usage limits panel",
             "type": "boolean"
           }
@@ -1111,6 +1212,7 @@
           "type",
           "api_base",
           "api_key",
+          "api_key_command",
           "proxy",
           "timeout_ms",
           "usage_limits_panel"
@@ -1121,7 +1223,7 @@
     },
     "scheduler": {
       "additionalProperties": false,
-      "description": "Cron-style scheduled jobs (requires scheduler build tag).",
+      "description": "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
       "properties": {
         "dir": {
           "default": "${FOXXYCODE_HOME}/scheduler",
@@ -1129,34 +1231,34 @@
           "title": "Jobs directory",
           "type": "string"
         },
-        "enabled": {
+        "enable": {
           "description": "When true, this process may run the scheduler daemon and REST.",
           "title": "Enabled",
           "type": "boolean"
         },
         "max_queue": {
           "default": 10,
-          "description": "Maximum concurrent scheduled agent runs.",
+          "description": "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.",
           "title": "Max queue",
           "type": "integer"
         },
         "retain_sessions": {
           "default": 5,
-          "description": "How many completed scheduler session folders to keep per job id.",
-          "title": "Retain sessions",
+          "description": "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes.",
+          "title": "Retain runs",
           "type": "integer"
         },
         "timeout": {
           "default": "30m",
-          "description": "Per-job wall-clock limit, e.g. 30m or 1h30m.",
-          "title": "Job timeout",
+          "description": "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds).",
+          "title": "Run timeout",
           "type": "string"
         }
       },
       "title": "Scheduler",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "dir",
         "max_queue",
         "timeout",
@@ -1204,7 +1306,7 @@
         },
         "sources": {
           "default": [],
-          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.",
           "items": {
             "type": "string"
           },
@@ -1243,7 +1345,7 @@
           "title": "Definition directories",
           "type": "array"
         },
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
           "title": "Enabled",
@@ -1281,7 +1383,7 @@
       "title": "Subagents",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "dirs",
         "project_trust",
         "max_concurrent",
@@ -1294,7 +1396,7 @@
       "additionalProperties": false,
       "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
       "properties": {
-        "enabled": {
+        "enable": {
           "default": true,
           "description": "Turns on backend auto-title generation for all clients.",
           "title": "Enabled",
@@ -1315,7 +1417,7 @@
       "title": "Automatic session title",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "model",
         "max_tokens"
       ]
@@ -1333,7 +1435,7 @@
               "title": "Default timeout (s)",
               "type": "integer"
             },
-            "enabled": {
+            "enable": {
               "description": "Offer the background option on run_command and the background task tools (default true).",
               "title": "Enabled",
               "type": "boolean"
@@ -1357,7 +1459,7 @@
           "title": "Background tasks",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "max_concurrent",
             "default_timeout_seconds",
             "max_timeout_seconds",
@@ -1372,6 +1474,26 @@
           },
           "title": "Command allowlist",
           "type": "array"
+        },
+        "http_request": {
+          "additionalProperties": false,
+          "description": "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+          "properties": {
+            "allowlist": {
+              "default": [],
+              "description": "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowlist",
+              "type": "array"
+            }
+          },
+          "title": "HTTP requests",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "allowlist"
+          ]
         },
         "output_limits": {
           "additionalProperties": false,
@@ -1458,6 +1580,103 @@
           "description": "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.",
           "title": "Forbid the model from running the plan itself",
           "type": "boolean"
+        },
+        "preview_server": {
+          "additionalProperties": false,
+          "description": "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.",
+          "properties": {
+            "enable": {
+              "description": "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "host": {
+              "description": "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.",
+              "title": "Bind host",
+              "type": "string"
+            },
+            "public_host": {
+              "description": "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
+              "title": "Public host",
+              "type": "string"
+            }
+          },
+          "title": "Preview server",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enable",
+            "host",
+            "public_host"
+          ]
+        },
+        "websearch": {
+          "additionalProperties": false,
+          "description": "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
+          "properties": {
+            "brave_api_key": {
+              "description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.foxxycode/.env.",
+              "title": "Brave Search API key",
+              "type": "string"
+            },
+            "cache_ttl_seconds": {
+              "description": "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).",
+              "title": "Cache TTL (s)",
+              "type": "integer"
+            },
+            "engine_timeout_seconds": {
+              "description": "Seconds one engine may take before it is reported as unavailable (default 8).",
+              "title": "Engine timeout (s)",
+              "type": "integer"
+            },
+            "engines": {
+              "default": [],
+              "description": "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.",
+              "items": {
+                "enum": [
+                  "brave",
+                  "bing",
+                  "ddg",
+                  "google",
+                  "searxng"
+                ],
+                "type": "string"
+              },
+              "title": "Engines",
+              "type": "array"
+            },
+            "max_concurrent_engines": {
+              "description": "How many engines are asked at once (default 4).",
+              "title": "Max concurrent engines",
+              "type": "integer"
+            },
+            "searxng_url": {
+              "description": "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.",
+              "title": "SearXNG URL",
+              "type": "string"
+            },
+            "snippet_chars": {
+              "description": "Maximum characters of one result description (default 320).",
+              "title": "Snippet length",
+              "type": "integer"
+            },
+            "total_timeout_seconds": {
+              "description": "Seconds the whole search may take, however many engines it asks (default 20).",
+              "title": "Total timeout (s)",
+              "type": "integer"
+            }
+          },
+          "title": "Web search",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "engines",
+            "engine_timeout_seconds",
+            "total_timeout_seconds",
+            "max_concurrent_engines",
+            "snippet_chars",
+            "cache_ttl_seconds",
+            "searxng_url",
+            "brave_api_key"
+          ]
         }
       },
       "title": "Tools and permissions",
@@ -1468,14 +1687,22 @@
         "permission_timeout_seconds",
         "plan_no_self_run",
         "output_limits",
-        "background"
+        "background",
+        "preview_server",
+        "websearch",
+        "http_request"
       ]
     },
     "ui": {
       "additionalProperties": false,
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "properties": {
-        "enabled": {
+        "effects": {
+          "description": "Show the web UI's visual effects: the long-lived animations and the translucent frosted-glass panels (off, the panels turn opaque in their own colour). Written by the switch in Settings \u003e Appearance and shared by every client. Unset means each client's default: off in the IntelliJ panel, which renders off-screen and copies every frame into the IDE (that slows the IDE down, especially without a GPU), on everywhere else.",
+          "title": "Animations and translucency",
+          "type": "boolean"
+        },
+        "enable": {
           "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.",
           "title": "Serve the SPA",
           "type": "boolean"
@@ -1510,10 +1737,11 @@
       "title": "UI",
       "type": "object",
       "x-foxxycode-property-order": [
-        "enabled",
+        "enable",
         "locale",
         "send_mode",
-        "status_line"
+        "status_line",
+        "effects"
       ]
     },
     "vcs": {
@@ -1535,7 +1763,7 @@
               "title": "List repository branches",
               "type": "boolean"
             },
-            "enabled": {
+            "enable": {
               "default": true,
               "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
               "title": "Enabled",
@@ -1551,7 +1779,7 @@
           "title": "Subversion",
           "type": "object",
           "x-foxxycode-property-order": [
-            "enabled",
+            "enable",
             "binary",
             "timeout_seconds",
             "branch_lookup"
@@ -1571,23 +1799,23 @@
     "providers",
     "models",
     "agent",
+    "compaction",
+    "memory",
     "autocomplete",
+    "title",
     "tools",
-    "subagents",
-    "hooks",
     "mcp_servers",
     "skills",
-    "memory",
-    "compaction",
-    "title",
-    "scheduler",
-    "prompts",
-    "instructions",
-    "logger",
-    "sessions",
-    "gateways",
+    "subagents",
+    "hooks",
     "browser",
     "vcs",
+    "scheduler",
+    "gateways",
+    "logger",
+    "sessions",
+    "prompts",
+    "instructions",
     "ui",
     "debug"
   ]

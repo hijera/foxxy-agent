@@ -273,7 +273,7 @@ func TestBuiltinsHaveTheDocumentedShape(t *testing.T) {
 	if len(general.Tools) != 0 {
 		t.Fatalf("general inherits the parent's tools, got allowlist %v", general.Tools)
 	}
-	want := []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "load_skill", "background_list", "background_output", "background_wait"}
+	want := []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "load_skill", "foxxycode_docs_search", "foxxycode_docs_read", "background_list", "background_output", "background_wait"}
 	if strings.Join(explore.Tools, ",") != strings.Join(want, ",") {
 		t.Fatalf("explore tools = %v, want %v", explore.Tools, want)
 	}
@@ -552,6 +552,17 @@ func TestCatalogAndPromptBlockHideHiddenDefinitions(t *testing.T) {
 	}
 }
 
+// The parent reads in the catalog that a detached run wakes it by default, so
+// it can end its turn instead of waiting on a child it started.
+func TestPromptBlockSaysDetachedRunsWakeTheParent(t *testing.T) {
+	block := PromptBlock([]CatalogEntry{{Name: "general", Description: "General helper"}})
+	for _, want := range []string{"wake you", "by default", "background_stop"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("prompt block lacks %q:\n%s", want, block)
+		}
+	}
+}
+
 // An approval surface decides on the bounds, not on the name: the catalog has
 // to carry what the definition declares about the child's reach. The role body
 // itself never travels - only its size - because a client would render it
@@ -598,6 +609,15 @@ func TestCatalogCarriesTheDeclaredBounds(t *testing.T) {
 	for _, absent := range []string{"tools", "disallowed_tools", "permission_mode", "timeout_seconds", "max_turns", "background", "role_bytes"} {
 		if strings.Contains(encoded, `"`+absent+`"`) {
 			t.Fatalf("a definition declaring no %s must not serialise one: %s", absent, encoded)
+		}
+	}
+
+	// The entry owns its slices: a caller editing what it was handed must not
+	// reach back into the immutable definition.
+	reviewer.Tools[0] = "run_command"
+	for _, d := range defs {
+		if d.Name == "reviewer" && d.Tools[0] != "read" {
+			t.Fatalf("editing a catalog entry changed the definition: %v", d.Tools)
 		}
 	}
 }

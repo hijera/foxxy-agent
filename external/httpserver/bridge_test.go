@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -250,6 +252,9 @@ func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
 	for time.Now().Before(deadline) && !strings.Contains(out.String(), "event: permission") {
 		time.Sleep(2 * time.Millisecond)
 	}
+	if !strings.Contains(out.String(), "event: permission") {
+		t.Fatal("a relayed prompt must still be forwarded as a permission event")
+	}
 	if session.PendingPermissionHeld(dir) {
 		t.Fatal("a relayed prompt must not write pending_permission.json")
 	}
@@ -276,10 +281,58 @@ func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
 	if !session.PendingPermissionHeld(dir) {
 		t.Fatal("the parent's own prompt must be recorded")
 	}
+	// The record is written only once the wait is registered, so an answer
+	// posted the moment it appears always lands.
 	if !CompletePermissionAnswer("s1", "own-1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {
 		t.Fatal("CompletePermissionAnswer failed")
 	}
 	<-done
+}
+
+// The record is how clients that are not reading the stream learn a prompt
+// exists, so it may only appear once the wait is registered: an answer that
+// finds no wait is reported as handled by the resume path and then dropped,
+// because the live turn still holds the session. Answering from inside the
+// write, the earliest instant anyone could read the record, checks that
+// ordering outright instead of racing it.
+func TestRequestPermissionRegistersTheWaitBeforeWritingTheRecord(t *testing.T) {
+	dir := t.TempDir()
+	sender := NewSender(&config.Config{}, &syncBuffer{}, true, "agent-model")
+	sender.SetSessionDir(dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wrote, answered bool
+	write := writePendingPermission
+	writePendingPermission = func(sessionDir string, params acp.PermissionRequestParams, toolName, argsJSON string) error {
+		err := write(sessionDir, params, toolName, argsJSON)
+		wrote = true
+		answered = CompletePermissionAnswer(params.SessionID, params.ToolCall.ToolCallID, &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+		if !answered {
+			// Nothing else will answer: end the prompt so the test reports
+			// instead of hanging.
+			cancel()
+		}
+		return err
+	}
+	defer func() { writePendingPermission = write }()
+
+	got, err := sender.RequestPermission(ctx, acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "early-1", Title: "Run: run_command", Status: "pending"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wrote {
+		t.Fatal("the parent's own prompt must be recorded")
+	}
+	if !answered {
+		t.Fatal("an answer posted as pending_permission.json was written found no wait: the record went out before the prompt was listening")
+	}
+	if got == nil || got.OptionID != "allow" {
+		t.Fatalf("answer = %#v, want the allow posted off the record", got)
+	}
 }
 
 func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
@@ -348,5 +401,369 @@ func TestRequestPermissionClearsTheRecordWhenTheContextEnds(t *testing.T) {
 	}
 	if session.PendingPermissionHeld(dir) {
 		t.Fatal("a prompt ended by context cancellation left pending_permission.json behind")
+	}
+	if permissionWaitRegistered("s1", "tc-1") {
+		t.Fatal("a prompt ended by context cancellation left its wait registered")
+	}
+}
+
+// A prompt whose permission event cannot be written returns at once, and the
+// agent finishes the tool call with a denial. That early return ends the gate
+// like every other way out, so it must leave neither the wait nor the record
+// behind - for the parent's own prompt and for a relayed one alike.
+func TestRequestPermissionLeavesNothingBehindWhenTheEventCannotBeWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		title string
+		mode  string
+	}{
+		{name: "own prompt", title: "Run: run_command"},
+		{name: "relayed prompt", title: "[subagent explore] Run: run_command", mode: config.PermModeAsk},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sender := NewSender(&config.Config{}, failingResponseWriter{httptest.NewRecorder()}, true, "agent-model")
+			sender.SetSessionDir(dir)
+			_, err := sender.RequestPermission(context.Background(), acp.PermissionRequestParams{
+				SessionID:               "s1",
+				ToolCall:                acp.PermissionToolCall{ToolCallID: "unsent-1", Title: tc.title, Status: "pending"},
+				EffectivePermissionMode: tc.mode,
+			})
+			if err == nil {
+				t.Fatal("a permission event that cannot be written must fail the request")
+			}
+			if permissionWaitRegistered("s1", "unsent-1") {
+				t.Fatal("the wait outlived a prompt that never reached the stream")
+			}
+			if session.PendingPermissionHeld(dir) {
+				t.Fatal("pending_permission.json outlived a prompt that never reached the stream")
+			}
+		})
+	}
+}
+
+// permissionWaitRegistered reports whether a prompt is listening for this answer.
+func permissionWaitRegistered(sessionID, toolCallID string) bool {
+	permissionWaitsMu.Lock()
+	defer permissionWaitsMu.Unlock()
+	_, ok := permissionWaits[permissionWaitKey{sessionID: sessionID, toolCallID: toolCallID}]
+	return ok
+}
+
+// The strict OpenAI view on POST /v1/chat/completions (openai_stream.go). The
+// happy path is features/openai_stream_compat.feature; these are the boundaries a
+// third-party parser meets: split writes, an empty turn, an error frame, a turn
+// cut by its budget, and what the relay behind the tee keeps seeing.
+
+// openAIFilterFrames runs raw bridge bytes through the filter and returns the
+// frames the client received.
+func openAIFilterFrames(t *testing.T, includeUsage bool, writes ...string) []string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	f := newOpenAIStreamFilter(rec, "local/m", includeUsage)
+	for _, w := range writes {
+		if _, err := f.Write([]byte(w)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var frames []string
+	for _, fr := range strings.Split(rec.Body.String(), "\n\n") {
+		if fr != "" {
+			frames = append(frames, fr)
+		}
+	}
+	return frames
+}
+
+func TestOpenAIStreamFilter_FramesSurviveArbitraryWriteBoundaries(t *testing.T) {
+	chunk := `data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[{"index":0,"delta":{"content":"Hi"}}]}` + "\n\n"
+	whole := chunk + "event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":3,\"outputTokens\":2,\"totalTokens\":5}\n\n" + "data: [DONE]\n\n"
+	// Feed it a byte at a time: no write boundary may leak a half frame or split a
+	// named event from its data line.
+	var writes []string
+	for i := range whole {
+		writes = append(writes, whole[i:i+1])
+	}
+	frames := openAIFilterFrames(t, false, writes...)
+	want := []string{
+		`data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		`data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		": token_usage",
+		`data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		"data: [DONE]",
+	}
+	if len(frames) != len(want) {
+		t.Fatalf("got %d frames, want %d:\n%s", len(frames), len(want), strings.Join(frames, "\n"))
+	}
+	for i := range want {
+		if frames[i] != want[i] {
+			t.Fatalf("frame %d:\n got %s\nwant %s", i, frames[i], want[i])
+		}
+	}
+}
+
+func TestOpenAIStreamFilter_EmptyTurnStillFinishesOneChoice(t *testing.T) {
+	// A turn that produced no text must not leave the client with "no choices":
+	// the message is opened and finished all the same.
+	frames := openAIFilterFrames(t, false, "event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"local/m\"}}\n\n", "data: [DONE]\n\n")
+	if len(frames) != 4 {
+		t.Fatalf("got %d frames, want the meta comment, role, finish and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
+	}
+	if !strings.Contains(frames[1], `"role":"assistant"`) {
+		t.Fatalf("the message must be opened: %s", frames[1])
+	}
+	if !strings.Contains(frames[2], `"finish_reason":"stop"`) {
+		t.Fatalf("the choice must be finished: %s", frames[2])
+	}
+	if frames[3] != "data: [DONE]" {
+		t.Fatalf("last frame = %s", frames[3])
+	}
+}
+
+func TestOpenAIStreamFilter_BudgetStopReasonBecomesLength(t *testing.T) {
+	for stop, want := range map[string]string{
+		"end_turn":   "stop",
+		"cancelled":  "stop",
+		"max_turns":  "length",
+		"max_tokens": "length",
+		"":           "stop",
+	} {
+		meta := "event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"local/m\",\"stop_reason\":\"" + stop + "\"}}\n\n"
+		frames := openAIFilterFrames(t, false, meta, "data: [DONE]\n\n")
+		finish := frames[len(frames)-2]
+		if !strings.Contains(finish, `"finish_reason":"`+want+`"`) {
+			t.Fatalf("stop_reason %q: finish frame = %s, want %s", stop, finish, want)
+		}
+	}
+}
+
+func TestOpenAIStreamFilter_UsageChunkFollowsTheFinishedChoice(t *testing.T) {
+	frames := openAIFilterFrames(t, true,
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42}\n\n",
+		"data: [DONE]\n\n")
+	if len(frames) != 5 {
+		t.Fatalf("got %d frames, want the usage comment, role, finish, usage and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
+	}
+	usage := frames[3]
+	if !strings.Contains(usage, `"choices":[]`) || !strings.Contains(usage, `"usage":{"completion_tokens":12,"prompt_tokens":30,"total_tokens":42}`) {
+		t.Fatalf("usage frame = %s", usage)
+	}
+	// Without the request flag the same turn ends without a usage frame.
+	frames = openAIFilterFrames(t, false,
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42}\n\n",
+		"data: [DONE]\n\n")
+	for _, fr := range frames {
+		if strings.Contains(fr, `"usage"`) {
+			t.Fatalf("usage frame sent without include_usage: %s", fr)
+		}
+	}
+}
+
+func TestOpenAIStreamFilter_ErrorFrameAndKeepaliveReachTheClient(t *testing.T) {
+	frames := openAIFilterFrames(t, false, ": keepalive\n\n", "data: {\"error\":{\"message\":\"boom\"}}\n\n")
+	want := []string{": keepalive", `data: {"error":{"message":"boom"}}`}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames = %q, want %q", frames, want)
+	}
+}
+
+func TestOpenAIStreamFilter_NothingFollowsDone(t *testing.T) {
+	frames := openAIFilterFrames(t, false, "data: [DONE]\n\n",
+		`data: {"choices":[{"index":0,"delta":{"content":"late"}}]}`+"\n\n")
+	if frames[len(frames)-1] != "data: [DONE]" {
+		t.Fatalf("frames after [DONE]: %s", strings.Join(frames, "\n"))
+	}
+}
+
+func TestOpenAIStreamFilter_RelayBehindTheTeeKeepsTheFoxxyCodeStream(t *testing.T) {
+	// The filter is the client's view only: a relay teed off the same sender must
+	// still receive every named event, as the SPA watching the turn expects.
+	client := httptest.NewRecorder()
+	relay := newComposerStreamRelay()
+	tee := &teeSSEWriter{ResponseWriter: newOpenAIStreamFilter(client, "agent", false), relay: relay}
+	sender := NewSender(&config.Config{}, tee, true, "agent")
+	if err := sender.SendSessionUpdate("s", acp.TokenUsageUpdate{SessionUpdate: acp.UpdateTypeTokenUsage, InputTokens: 1, OutputTokens: 1, TotalTokens: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.SendSessionUpdate("s", acp.MessageChunkUpdate{
+		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "Hi"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.FinishStreamWithMetadata(map[string]string{"model": "local/m", "stop_reason": "end_turn"}); err != nil {
+		t.Fatal(err)
+	}
+	relay.mu.Lock()
+	var relayed strings.Builder
+	for _, fr := range relay.frames {
+		relayed.Write(fr.data)
+	}
+	relay.mu.Unlock()
+	if got := relayed.String(); !strings.Contains(got, "event: token_usage") || !strings.Contains(got, "event: foxxycode_meta") {
+		t.Fatalf("relay lost foxxycode's named events:\n%s", got)
+	}
+	if got := client.Body.String(); strings.Contains(got, "event:") || !strings.Contains(got, `"finish_reason":"stop"`) {
+		t.Fatalf("client did not get the strict view:\n%s", got)
+	}
+}
+
+func TestOpenAIStreamFilter_AForwardedFinishIsTheOnlyFinish(t *testing.T) {
+	// The bridge never finishes a choice itself; should a chunk ever arrive
+	// already finished, the completion ends there and [DONE] adds no second finish.
+	frames := openAIFilterFrames(t, false,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":"stop"}]}`+"\n\n",
+		"data: [DONE]\n\n")
+	finished := 0
+	for _, fr := range frames {
+		if strings.Contains(fr, `"finish_reason":"stop"`) {
+			finished++
+		}
+	}
+	if finished != 1 {
+		t.Fatalf("%d finishing frames, want one:\n%s", finished, strings.Join(frames, "\n"))
+	}
+}
+
+func TestOpenAIStreamFilter_AFrameWithoutAChoiceIsNotAChunk(t *testing.T) {
+	// Empty choices is the shape of a provider's usage frame; the client's usage
+	// frame is the filter's own, so such a frame neither opens the message nor
+	// reaches the client.
+	frames := openAIFilterFrames(t, false,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`+"\n\n",
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m"}`+"\n\n",
+		"data: [DONE]\n\n")
+	for _, fr := range frames {
+		if strings.Contains(fr, `"usage"`) || strings.Contains(fr, `"choices":[]`) {
+			t.Fatalf("a frame without a choice reached the client: %s", fr)
+		}
+	}
+	if len(frames) != 3 {
+		t.Fatalf("got %d frames, want role, finish and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
+	}
+}
+
+func TestOpenAIStreamFilter_AnErrorEndsTheTurnWithoutAFinishedChoice(t *testing.T) {
+	// The agent path writes an error frame and then [DONE]; a finished choice
+	// after the error would read as a successful answer to an OpenAI client.
+	frames := openAIFilterFrames(t, true,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[{"index":0,"delta":{"content":"Hi"}}]}`+"\n\n",
+		`data: {"error":{"message":"boom"}}`+"\n\n",
+		"data: [DONE]\n\n")
+	want := []string{
+		`data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		`data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		`data: {"error":{"message":"boom"}}`,
+		"data: [DONE]",
+	}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames:\n%s\nwant:\n%s", strings.Join(frames, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// failingResponseWriter fails every write, the way a client that hung up does.
+type failingResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (failingResponseWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestOpenAIStreamFilter_AFailedWriteReportsTheBytesItTookAndClosesTheStream(t *testing.T) {
+	f := newOpenAIStreamFilter(failingResponseWriter{httptest.NewRecorder()}, "local/m", false)
+	frame := []byte(`data: {"choices":[{"index":0,"delta":{"content":"Hi"}}]}` + "\n\n")
+	n, err := f.Write(frame)
+	if err == nil {
+		t.Fatal("a failed emission must surface as an error")
+	}
+	if n != len(frame) {
+		t.Fatalf("Write reported %d bytes, want the %d it consumed", n, len(frame))
+	}
+	// The stream is closed: a later frame is swallowed rather than retried.
+	if n, err := f.Write([]byte("data: [DONE]\n\n")); err != nil || n != len("data: [DONE]\n\n") {
+		t.Fatalf("after a failure Write = (%d, %v), want the bytes accepted silently", n, err)
+	}
+}
+
+func TestOpenAIStreamFilter_ASwallowedEventKeepsTheSocketBusy(t *testing.T) {
+	// The bridge's idle keepalive counts a named event as traffic, so a tool
+	// phase announcing progress never looks idle to it; the client, which no
+	// longer sees those frames, gets a comment for each so its socket carries
+	// exactly the traffic the turn produces.
+	frames := openAIFilterFrames(t, false,
+		"event: tool_call\ndata: {\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\"}\n\n",
+		"event: tool_call_update\ndata: {\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"in_progress\"}\n\n")
+	want := []string{": tool_call", ": tool_call_update"}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames = %q, want %q", frames, want)
+	}
+}
+
+func TestOpenAIStreamFilter_NothingButDoneFollowsAnError(t *testing.T) {
+	frames := openAIFilterFrames(t, false,
+		`data: {"error":{"message":"boom"}}`+"\n\n",
+		`data: {"choices":[{"index":0,"delta":{"content":"late"}}]}`+"\n\n",
+		"event: foxxycode_meta\ndata: {\"metadata\":{\"model\":\"local/m\"}}\n\n",
+		"data: [DONE]\n\n")
+	want := []string{`data: {"error":{"message":"boom"}}`, "data: [DONE]"}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames = %q, want %q", frames, want)
+	}
+}
+
+func TestOpenAIStreamFilter_CRLFFramesAreCutAllTheSame(t *testing.T) {
+	whole := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"
+	// Split inside the CRLF pairs, the worst case for a byte-wise fold.
+	writes := []string{whole[:len(whole)-3], whole[len(whole)-3 : len(whole)-2], whole[len(whole)-2:]}
+	frames := openAIFilterFrames(t, false, writes...)
+	if len(frames) != 4 || frames[3] != "data: [DONE]" || !strings.Contains(frames[1], `"content":"Hi"`) {
+		t.Fatalf("frames:\n%s", strings.Join(frames, "\n"))
+	}
+}
+
+func TestOpenAIFinishReasonMapsEveryStopVocabulary(t *testing.T) {
+	// The ACP reasons of an agent turn, the providers' reasons of a direct
+	// completion, and OpenAI's own words when an adapter passes them through.
+	for stop, want := range map[string]string{
+		"end_turn": "stop", "cancelled": "stop", "agent_refused": "stop", "": "stop",
+		"max_tokens": "length", "max_turns": "length", "length": "length",
+		"tool_use": "tool_calls", "tool_calls": "tool_calls",
+		"content_filter": "content_filter",
+	} {
+		if got := openAIFinishReason(stop); got != want {
+			t.Fatalf("openAIFinishReason(%q) = %q, want %q", stop, got, want)
+		}
+	}
+}
+
+func TestSender_TurnProgressIsANamedEventAndInvisibleToOpenAIClients(t *testing.T) {
+	update := acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     "2026-09-18T10:00:00Z",
+		ElapsedMs:     45210,
+		OutputTokens:  433,
+		Estimated:     true,
+	}
+
+	foxxycode := httptest.NewRecorder()
+	if err := NewSender(&config.Config{}, foxxycode, true, "agent").SendSessionUpdate("s", update); err != nil {
+		t.Fatal(err)
+	}
+	got := foxxycode.Body.String()
+	for _, want := range []string{"event: turn_progress\n", `"sessionUpdate":"turn_progress"`, `"startedAt":"2026-09-18T10:00:00Z"`,
+		`"elapsedMs":45210`, `"outputTokens":433`, `"estimated":true`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("foxxycode stream is missing %q:\n%s", want, got)
+		}
+	}
+
+	// A third-party OpenAI client parses the stream literally: the progress of
+	// a turn must reach it as a comment, like every other named event.
+	strict := httptest.NewRecorder()
+	sender := NewSender(&config.Config{}, newOpenAIStreamFilter(strict, "agent", false), true, "agent")
+	if err := sender.SendSessionUpdate("s", update); err != nil {
+		t.Fatal(err)
+	}
+	if body := strict.Body.String(); strings.Contains(body, "event:") || strings.Contains(body, "outputTokens") {
+		t.Fatalf("the strict OpenAI view leaked the progress event:\n%s", body)
 	}
 }
