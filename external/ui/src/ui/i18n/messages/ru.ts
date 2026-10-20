@@ -476,8 +476,12 @@ export const messagesRu: Record<string, string> = {
   "settings.statusLine.off": "Скрывать",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
   "onboarding.provider.neuraldeep.description":
-    "Российский AI-хаб — модели через api.neuraldeep.ru",
-  "onboarding.openHub": "Открыть hub.neuraldeep.ru",
+    "AI-хаб — neuraldeep.ru или neuraldeep.tech",
+  "onboarding.neuralDeepAuth.fieldLabel": "или войдите в NeuralDeep",
+  "onboarding.neuralDeepAuth.description":
+    "Ключ вводить не обязательно: войдите под учёткой хаба NeuralDeep, и хаб выдаст персональный ключ для FoxxyCode. Модель по умолчанию бесплатного тарифа уже подставлена ниже, а пикер моделей подтянет каталог вашего тарифа с этим входом.",
+  "onboarding.neuralDeepDomain": "Домен NeuralDeep",
+  "onboarding.openHub": "Открыть {domain}",
   "onboarding.title": "Выберите провайдера",
   "onboarding.lead":
     "Подключите LLM-бэкенд, чтобы начать общение. Другие провайдеры можно добавить позже в настройках.",
