@@ -127,7 +127,12 @@ class BrowserPanelUiTest {
             Thread.sleep(1500)
             chat.eval("(function(){location.hash='#/s/$sessionId';return 'nav'})()")
             waitFor(Duration.ofSeconds(30), Duration.ofMillis(500), "the transcript's tool rows to render") {
-                (chat.eval("document.querySelectorAll('#messages details').length").toIntOrNull() ?: 0) >= 10
+                // The transcript window deliberately keeps only a few tool rows in the DOM.
+                chat.eval(
+                    "(function(){var m=document.getElementById('messages');return !!m&&" +
+                        "m.innerText.indexOf('Line 59 carries the marker.')>=0&&" +
+                        "m.querySelectorAll('details[data-testid^=tool-details-]').length>0;})()"
+                ) == "true"
             }
             // Let the layout settle through a few more frames before judging.
             Thread.sleep(1500)
@@ -178,7 +183,11 @@ class BrowserPanelUiTest {
             Thread.sleep(1500)
             chat.eval("(function(){location.hash='#/s/$sessionId';return 'nav'})()")
             waitFor(Duration.ofSeconds(30), Duration.ofMillis(500), "the MCP rows to render") {
-                (chat.eval("document.querySelectorAll('#messages details').length").toIntOrNull() ?: 0) >= 10
+                chat.eval(
+                    "(function(){var m=document.getElementById('messages');return !!m&&" +
+                        "m.innerText.indexOf('Line 59 carries the marker.')>=0&&" +
+                        "m.querySelectorAll('details[data-testid^=tool-details-]').length>0;})()"
+                ) == "true"
             }
             assertTrue(
                 "a long MCP label widened the page",

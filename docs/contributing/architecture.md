@@ -59,6 +59,36 @@ That coding-agent surface is **a productized profile on top of the harness**, no
                                     └───────────────────────┘
 ```
 
+### Fork feature boundaries
+
+Three untagged packages own the domain logic used by the agent, CLI and optional
+HTTP surface. Their behavior can be exercised without starting an HTTP server:
+
+| Package | Responsibility | Integration boundary |
+| --- | --- | --- |
+| `internal/svn` | Configured SVN discovery, branch operations, tool classification, explicit mode contributions and read-result invalidation | `internal/tools/svn` constructs callable tools; the agent retains approval and eviction; HTTP retains session locks, relocation and catalog reloads |
+| `internal/idehost` | Editor/terminal prompt annotations, `.idea`/`.vscode` project context and host event fan-out | Snapshot stores remain in `ideenv`/`ideterm`; the agent requests context annotations; `ide_routes.go` registers HTTP adapters and SSE encodes events |
+| `internal/autocomplete` | Completion text rules, provider construction, FIM/chat fallback, cancellation/timeouts, statistics and bounded related-file excerpts | A zero-value `Service` receives per-request provider, related-file and display-path dependencies; HTTP handles JSON and status/Retry-After mapping |
+
+SVN replay policies are independent of whether the client is installed or the
+tools are currently enabled. Mutation approval is distinct from invalidating
+old file reads: `svn_add` and `svn_commit` do not rewrite those files. Workspace
+operations return a destination or reload effect rather than operating on a
+session manager. IDE event hubs and autocomplete services own their state;
+creating another instance does not share subscriptions or model fallback memory.
+
+These boundaries preserve routes, configuration keys and tool names. They do
+not introduce build tags or change restricted-mode or child-tool permissions.
+Domain rules belong in these packages; protocol and session lifecycle decisions
+remain in their adapters. Run the independent package tests with:
+
+```bash
+go test ./internal/svn ./internal/idehost ./internal/autocomplete
+```
+
+Then run the existing agent and HTTP feature suites for their integration.
+
+
 ## Component Descriptions
 
 ### ACP Server Layer (`internal/acp`)

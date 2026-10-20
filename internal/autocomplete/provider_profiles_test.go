@@ -1,6 +1,4 @@
-//go:build http
-
-package httpserver
+package autocomplete
 
 import (
 	"testing"
@@ -20,7 +18,7 @@ func TestAutocompleteKeepsProviderProfileCLILoginIsolation(t *testing.T) {
 	}{{"codex/gpt-5", false}, {"work/gpt-5", true}} {
 		t.Run(tc.model, func(t *testing.T) {
 			var got llm.ProviderInput
-			s := &Server{agentProviderFactory: func(in llm.ProviderInput) (llm.Provider, error) { got = in; return nil, nil }}
+			s := &runner{agentProviderFactory: func(in llm.ProviderInput) (llm.Provider, error) { got = in; return nil, nil }}
 			_, err := s.autocompleteProvider(cfg, &config.AutocompleteConfig{Model: tc.model}, nil)
 			if err != nil {
 				t.Fatal(err)
