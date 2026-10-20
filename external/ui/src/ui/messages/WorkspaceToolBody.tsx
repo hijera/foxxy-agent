@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
 import { TodoPreview } from "../chat/PermissionPromptPreview";
@@ -29,6 +29,18 @@ function Raw({ text }: { text: string }) {
   return text ? <pre className="structured-tool-output">{text}</pre> : null;
 }
 
+/**
+ * Lines that report truncation instead of naming a file: glob's own cap and the
+ * shared output-limit marker. They stay visible as plain notes, never as rows
+ * that carry a file icon.
+ */
+function isFileListNote(line: string): boolean {
+  return (
+    line.startsWith("[output truncated:") ||
+    /^\(truncated to \d+ files\)$/.test(line)
+  );
+}
+
 function FileRows({ text }: { text: string }) {
   const { t } = useT();
   return (
@@ -36,37 +48,51 @@ function FileRows({ text }: { text: string }) {
       className="scheduler-tool-rows workspace-file-list"
       aria-label={t("workspaceTool.files")}
     >
-      {text.split(/\r?\n/).map((path, i) => (
-        <li key={i}>
-          <span aria-hidden="true" className="workspace-file-kind">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            >
-              <path
-                d={
-                  /[\\/]$/.test(path)
-                    ? "M2 4h4l2 2h6v7H2V4Z"
-                    : "M4 2h5l3 3v9H4V2Zm5 0v4h3"
-                }
-              />
-            </svg>
-          </span>
-          <code className="structured-tool-mono">{path}</code>
-        </li>
-      ))}
+      {text
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .map((line, i) =>
+          isFileListNote(line) ? (
+            <li className="scheduler-tool-muted" key={i}>
+              {line}
+            </li>
+          ) : (
+            <li key={i}>
+              <span aria-hidden="true" className="workspace-file-kind">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                >
+                  <path
+                    d={
+                      /[\\/]$/.test(line)
+                        ? "M2 4h4l2 2h6v7H2V4Z"
+                        : "M4 2h5l3 3v9H4V2Zm5 0v4h3"
+                    }
+                  />
+                </svg>
+              </span>
+              <code className="structured-tool-mono">{line}</code>
+            </li>
+          ),
+        )}
     </ul>
   );
 }
 
 function Source({ text, offset }: { text: string; offset: number }) {
   const lines = text.split("\n");
+  // The gutter widens past four digits instead of overlapping the source text.
+  const gutter = `${Math.max(4, String(offset + lines.length - 1).length)}ch`;
   return (
-    <div className="workspace-file-code">
+    <div
+      className="workspace-file-code"
+      style={{ "--workspace-gutter": gutter } as CSSProperties}
+    >
       <CodeBlockCopyButton textToCopy={text} />
       <pre className="workspace-file-source">
         {lines.map((line, index) => (

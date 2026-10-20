@@ -11110,6 +11110,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
 }
 
+/* Widen with the line count for offsets past four digits; set per card. */
+.workspace-file-code {
+  --workspace-gutter: 4ch;
+}
+
 .workspace-file-source {
   margin: 0;
   padding: 8px 36px 8px 10px;
@@ -11127,7 +11132,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .workspace-file-line {
   display: block;
   position: relative;
-  padding-left: 5ch;
+  padding-left: calc(var(--workspace-gutter) + 1ch);
   min-height: 1.5em;
 }
 
@@ -11135,7 +11140,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   content: attr(data-line);
   position: absolute;
   left: 0;
-  width: 4ch;
+  width: var(--workspace-gutter);
   color: var(--muted);
   text-align: right;
   user-select: none;

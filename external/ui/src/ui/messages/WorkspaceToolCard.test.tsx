@@ -201,6 +201,37 @@ test("directory listings use rows only when the arguments identify a directory",
   expect(within(root).getByRole("list", { name: "Files" })).toBeInTheDocument();
 });
 
+test("file lists render truncation notes as plain lines, not file rows", () => {
+  let root = show(
+    "glob",
+    { pattern: "**/*.go" },
+    "/repo/a.go\n\n(truncated to 200 files)",
+  );
+  let rows = root.querySelectorAll(".workspace-file-list li");
+  expect(rows).toHaveLength(2);
+  expect(rows[0]!.querySelector("code")?.textContent).toBe("/repo/a.go");
+  expect(rows[1]!.querySelector("code")).toBeNull();
+  expect(rows[1]!.textContent).toContain("(truncated to 200 files)");
+  cleanup();
+  root = show(
+    "read",
+    { path: "src/" },
+    "a.go\n[output truncated: showing first 1 of 3 lines (tools.output_limits.read)]",
+  );
+  rows = root.querySelectorAll(".workspace-file-list li");
+  expect(rows).toHaveLength(2);
+  expect(rows[1]!.querySelector(".workspace-file-kind")).toBeNull();
+  expect(root.textContent).toContain("[output truncated:");
+});
+
+test("the read gutter widens for line numbers past four digits", () => {
+  const root = show("read", { path: "big.go", offset: 9998 }, "a\nb\nc");
+  expect(
+    root.querySelector(".workspace-file-code")?.getAttribute("style"),
+  ).toContain("--workspace-gutter: 5ch");
+  expect(root.querySelector('[data-line="10000"]')).toBeInTheDocument();
+});
+
 test.each(["docs_write", "docs_edit", "foxxycode_todo_item_add"])(
   "%s recovers full arguments after reopening history",
   async (name) => {

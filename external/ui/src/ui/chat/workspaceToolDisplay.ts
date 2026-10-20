@@ -37,6 +37,11 @@ export function readTodoChecklist(text: string): TodoPlanEntry[] | null {
     if (!match) return null;
     let content = match[2]!;
     let status = match[1]!.toLowerCase() === "x" ? "completed" : "pending";
+    // The wire format is ambiguous by design: a non-pending, non-completed
+    // status is only a trailing " `status`" on the content, so a pending item
+    // whose text happens to end that way parses with the suffix's status and
+    // shortened content - the same reading the model itself gets from
+    // plan_read. The next plan snapshot replaces the parsed view.
     const suffix = / `((?:in_progress|failed|cancelled))`$/.exec(content);
     if (suffix && status === "pending") {
       status = suffix[1]!;

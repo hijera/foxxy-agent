@@ -551,8 +551,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
-    // A failed history fetch keeps the original preview; do not reject outside React.
-    void fetchFn(props.toolCallId).catch(() => {});
+    // A failed history fetch keeps the original preview; do not reject outside
+    // React, but leave a debug trace - the truncation is otherwise silent.
+    void fetchFn(props.toolCallId).catch((error) => {
+      console.debug("foxxycode UI: full tool arguments fetch failed", error);
+    });
   }, [
     argsTextIsCompleteJSON,
     fetchFn,
