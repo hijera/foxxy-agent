@@ -85,6 +85,9 @@ groups:
     title: Features
     summary: What the agent can do and how each capability is configured.
     pages:
+      - path: features/mini-apps.md
+        title: Mini Apps
+        summary: Distill successful sessions into reviewed workflows, verify and release versions, run them with new inputs and trust portable command profiles.
       - path: features/modes.md
         title: Operating modes
         summary: agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.

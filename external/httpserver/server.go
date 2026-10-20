@@ -101,6 +101,13 @@ type Server struct {
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
 	detachedPrompts agent.DetachedPermissionBroker
 
+	// miniAppsState is initialized lazily by the optional Mini Apps transport.
+	// It remains an any value so the lean http build does not import that tag.
+	// A struct field cannot carry a build tag, so in an http build without
+	// miniapps these two are genuinely unread — that is the design, not a leak.
+	miniAppsMu    sync.Mutex //nolint:unused // read only by the miniapps-tagged transport
+	miniAppsState any        //nolint:unused // read only by the miniapps-tagged transport
+
 	// events fans server-wide turn lifecycle events out to GET /foxxycode/events subscribers.
 	events             *serverEventsHub
 	removeTurnObserver func()
@@ -154,6 +161,7 @@ func (s *Server) Drain() {
 	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
+	s.miniAppsDrain()
 	// A memory run stopped mid-persist loses its note: running memory runs get
 	// the drain grace before the pool is closed.
 	if n := agent.MemoryRunsInFlight(); n > 0 {

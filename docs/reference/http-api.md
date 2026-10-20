@@ -254,6 +254,85 @@ ReAct execution stores a separate **`execution.json`** checkpoint per session. O
 
 LLM transport retries are allowed only before any output has been emitted. A failure after text, reasoning, or a tool call preserves the partial response, marks execution interrupted, and returns the error without silently restarting the same stream. Incomplete tool calls are not executed from the failed response.
 
+## Mini Apps REST (**`-tags=http,miniapps`**)
+
+Mini Apps distill a completed, tool-backed session into a reviewed workflow.
+The optional surface advertises itself through **`GET
+/foxxycode/capabilities`** (`capabilities.miniapps: true`). The same endpoint is
+present without the tag and reports `false`; clients must hide Mini Apps in
+that build.
+
+Authoring is asynchronous:
+
+- **`POST /foxxycode/sessions/{id}/miniapps/distill`** starts extraction and
+  returns **`202`** with a job id. The session must exist, be idle in this
+  process, and have no cross-process turn lock.
+- **`GET /foxxycode/miniapp-distillations/{job_id}`** returns persisted status;
+  **`GET .../events`** streams sequenced SSE progress through a terminal
+  **`[DONE]`** frame; **`POST .../scenario`** confirms or corrects one candidate;
+  **`POST .../cancel`** propagates cancellation.
+- Statuses include **`queued`**, **`running`**, **`waiting_for_scenario`**,
+  **`waiting_for_input`**, **`waiting_for_confirmation`**, **`succeeded`**,
+  **`failed`**, **`cancelled`**, and **`interrupted`**.
+
+Catalog and review routes:
+
+- **`GET|POST /foxxycode/miniapps`**, **`GET|PATCH
+  /foxxycode/miniapps/{id}`**, and **`GET|PUT .../{id}/draft`** manage the global
+  catalog and mutable draft. Updates require the current revision in the body
+  or **`If-Match`** and return **`409 revision_conflict`** on stale writes.
+- **`GET .../{id}/authoring/source`** returns private sanitized evidence;
+  **`POST .../authoring/patches`** proposes bounded repairs and **`POST
+  .../patches/{patch_id}/accept`** applies one explicitly against its base
+  revision.
+- **`GET .../{id}/commands`** lists the command profiles a draft depends on: the
+  declared binary, the path it resolves to when installed, whether this machine
+  trusts the profile, and the exact package-manager install commands detected
+  for it. **`POST .../{id}/commands/{name}/trust`** records the approval,
+  binding the profile content hash to the resolved binary path (editing the
+  profile or moving the binary voids it; a missing binary returns **`409
+  binary_missing`**). A run whose step uses an untrusted embedded profile parks
+  as **`waiting_for_confirmation`** with `details.kind = "command_profile"`;
+  approving that confirmation records the trust and resumes the run.
+- **`POST .../{id}/commands/{name}/install`** launches an async install of the
+  profile's binary through a package manager DETECTED for its declared
+  coordinates (winget/scoop/brew/apt/dnf); the request selects only the manager
+  id and must carry **`approved: true`** — a package name can never come from
+  the request. **`GET /foxxycode/miniapp-command-installs/{job_id}`** and
+  **`.../events`** follow the job like any other Mini App job.
+- **`POST .../{id}/assistant`** opens one editor-assistant turn. It accepts the
+  current draft, a short conversation history, and a requested change; the
+  response contains a validated proposal and a human-readable summary. The
+  proposal is never saved automatically. A supplied draft must carry the
+  **`revision`** it was taken from — omitting it returns **`400
+  revision_required`**, and a stale one returns **`409 revision_conflict`**.
+  The history is trimmed to the last 12 turns of at most 4000 characters each;
+  a request whose own message exceeds 4000 characters is rejected rather than
+  silently truncated.
+- **`POST .../{id}/validate`** and **`POST .../{id}/sanitize`** return the exact
+  release review reports. **`POST .../{id}/release`** requires
+  **`{version, approved: true, expected_revision}`**, a passing test bound to
+  that revision, and a clean sanitization report. Releases are immutable and
+  monotonically increasing semantic versions.
+- **`GET .../{id}/versions/{version}`** reads one immutable release.
+
+Execution routes:
+
+- **`POST .../{id}/test-runs`** and **`POST
+  .../{id}/versions/{version}/runs`** return **`202`** jobs. **`GET
+  /foxxycode/miniapp-runs/{run_or_job_id}`**, **`GET .../events`**, **`POST
+  .../confirmation`**, and **`POST .../cancel`** drive the persisted lifecycle.
+  A confirmation response includes the exact confirmation id and reviewed
+  message/details. **`GET /foxxycode/miniapps/{id}/runs`** returns sanitized run
+  history without server filesystem paths.
+
+All ids are portable identifiers, request bodies are bounded strict JSON, and
+operator-visible errors/events are redacted. Source evidence is never copied
+into the portable release document. The first runtime supports registered
+`tool`, configured `llm`, bounded ReAct `agent`, `confirm`, restricted `branch`,
+and exact-version `miniapp` steps; arbitrary script/command runtimes and MCP
+bundles are not part of this contract.
+
 ## Authentication & CORS
 
 Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) answer a direct loopback client without a credential, which is how the editor plugins call them, and ask everyone else for one. A browser can sign in at a form instead of carrying a token: see [Web UI sign-in](#web-ui-sign-in-optional). The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. Because EventSource cannot set an Authorization header cross-origin, the two SSE subscription routes - **`GET /foxxycode/sessions/{id}/composer-stream`** and **`GET /foxxycode/events`** - also accept **`?access_token=`**. A query string reaches access logs, proxy logs, browser history and `Referer` headers, so prefer a **stream ticket**: **`POST /foxxycode/stream-tickets`** (authenticated with the normal bearer header) returns **`{object, ticket, expiresIn, expiresAt}`**, and that ticket is accepted by the two SSE routes only, once, within 60 seconds. Set **`httpserver.stream_tickets_only: true`** to refuse the durable token in **`?access_token=`** entirely, so nothing that lands in a log stays valid.

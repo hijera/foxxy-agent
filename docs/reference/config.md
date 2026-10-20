@@ -487,6 +487,36 @@ Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, a
 |-----|------|---------|-------------|
 | `debug.enable` | boolean | false | Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, traces every LLM connection (its route through a proxy, each network step, silences and how the request ended), and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config. |
 | `debug.capture_llm` | boolean | true | Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enable; set to false to keep debug logs while suppressing large bodies. |
+
+### `commands`
+
+Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell. Distillation turns matching run_command sessions into Mini App steps over these tools.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `commands` | list of objects |  | Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell. Distillation turns matching run_command sessions into Mini App steps over these tools. |
+| `commands[].name` | string |  | Profile name (lowercase snake_case); the tool is registered as cmd_<name>. |
+| `commands[].binary` | string |  | Bare executable name resolved on PATH, or an absolute path. Batch files are refused. |
+| `commands[].description` | string |  | What the profile does, shown to the model and in the UI. |
+| `commands[].permission` | string, one of `ask`, `allow` |  | ask (default) prompts in chat like any permission-bearing tool; allow runs without a prompt and is the only level Mini Apps accept. |
+| `commands[].timeout_seconds` | integer |  | Run timeout in seconds. 0 uses the default (120); the maximum is 3600. |
+| `commands[].template` | list of strings |  | Argv template, one token per element; {param} slots substitute typed values. Executed argv-style, never through a shell. |
+| `commands[].params` | list of objects |  | Typed parameters referenced from the template. |
+| `commands[].params[].name` | string |  | Parameter name (lowercase snake_case). File params must end in _path, _file, or _dir. |
+| `commands[].params[].type` | string, one of `file`, `enum`, `int`, `flag`, `string` |  | Parameter kind. Every value that reaches the argv is constrained by construction. |
+| `commands[].params[].enum` | list of strings |  | Allowed values (enum type only). |
+| `commands[].params[].min` | integer |  | Lower bound (int type only). |
+| `commands[].params[].max` | integer |  | Upper bound (int type only). |
+| `commands[].params[].pattern` | string |  | Anchored regular expression the value must match in full (string type only). |
+| `commands[].params[].literal` | string |  | Token emitted when a flag is true (flag type only). |
+| `commands[].params[].required` | boolean |  | Only flag params may be non-required; other params are always required. |
+| `commands[].params[].description` | string |  | Human-readable parameter description shown in run forms. |
+| `commands[].install` | object |  | Package-manager coordinates offered when the binary is missing. |
+| `commands[].install.winget` | string |  | winget package id (e.g. Gyan.FFmpeg). |
+| `commands[].install.scoop` | string |  | scoop package name. |
+| `commands[].install.brew` | string |  | Homebrew formula name. |
+| `commands[].install.apt` | string |  | apt package name (install typically needs root). |
+| `commands[].install.dnf` | string |  | dnf package name (install typically needs root). |
 <!-- docsgen:config:end -->
 
 ## Notes
@@ -632,6 +662,38 @@ headers), so rewriting an approved entry asks again. Approve with `foxxycode mcp
 `POST /foxxycode/mcp/{name}/trust`, or the shield button in **Settings → MCP servers**. That tab
 also edits this policy itself (`POST /foxxycode/mcp/project-trust`), so it is not rendered as a
 separate settings section. See `docs/features/mcp.md`.
+
+### `commands`
+
+Command profiles (`[]cmdprofile.ProfileSpec`, `internal/cmdprofile/spec.go`): each entry
+registers one `cmd_<name>` tool that executes a single fixed binary with an argv template
+and typed parameters. Execution is argv-style (`exec.CommandContext`) and never passes
+through a shell, so shell metacharacters in values are plain characters. Mini Apps
+distillation rewrites matching `run_command` session steps into these tools.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | - | Lowercase snake_case; tool registers as `cmd_<name>`. Must not contain `__` or end in `_create`/`_update`/`_delete`. |
+| `binary` | string | yes | - | Bare executable name resolved on PATH, or an absolute path. Batch files (`.bat`/`.cmd`) are refused. |
+| `description` | string | no | - | Shown to the model and in the UI. |
+| `permission` | string | no | `ask` | `ask` prompts in chat like any permission-bearing tool; `allow` runs without a prompt and is the only level Mini Apps accept. |
+| `timeout_seconds` | int | no | `120` | Per-run timeout; maximum 3600. |
+| `template` | list of string | yes | - | Argv tokens; `{param}` slots substitute typed values. |
+| `params` | list | no | - | Typed parameters: `name`, `type` (`file`/`enum`/`int`/`flag`/`string`), `enum`, `min`/`max`, `pattern` (anchored, string type), `literal` (flag type), `required` (flags only), `description`. File params must be named `*_path`/`*_file`/`*_dir`. |
+| `install` | object | no | - | Package coordinates per manager: `winget`, `scoop`, `brew`, `apt`, `dnf`. Offered when the binary is missing. |
+
+```yaml
+commands:
+  - name: ffmpeg_extract_audio
+    binary: ffmpeg
+    permission: allow
+    template: ["-i", "{input_path}", "-vn", "-acodec", "{codec}", "{output_path}"]
+    params:
+      - {name: input_path, type: file}
+      - {name: codec, type: enum, enum: [libmp3lame, aac]}
+      - {name: output_path, type: file}
+    install: {winget: Gyan.FFmpeg, scoop: ffmpeg, apt: ffmpeg, brew: ffmpeg}
+```
 
 ### `tools`
 

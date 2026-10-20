@@ -55,6 +55,16 @@ The `background_*` tools are registered only while `tools.background` is enabled
 | `preview_server` | Serve a project directory on a free port and return its URL ([Preview server](../features/preview-server.md)); requires background tasks and preview_server to be enabled | `path`, `timeout_seconds` | none | agent, debug |
 | `ssh_run_command` | Run a command on a remote host over SSH, using the agent socket and then key files ([Configuration](../getting-started/configuration.md#ssh-remote-execution)) | `host`, `command`, `port`, `timeout_seconds`, `permission_rationale` | always | agent, debug |
 
+## Command profiles
+
+Each [`commands` configuration](config.md#commands) entry registers a tool with
+its own typed parameters. These tools run a fixed binary through argv without a
+shell; a missing binary returns installation guidance.
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|---|---|---|---|---|
+| `cmd_<name>` | Run one configured command profile ([Mini Apps](../features/mini-apps.md#external-commands)) | Profile-defined file, enum, integer, flag and patterned string parameters | `ask` or `allow` from the profile; Mini Apps require `allow` | agent, debug |
+
 ## Web
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |

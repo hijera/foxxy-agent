@@ -3,11 +3,12 @@
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
 #     Recommended full binary (FULL_TAGS below; what the release CLI archives ship):
-#       make build TAGS="http ui scheduler memory cli browser gateway swarm"
+#       make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
+#     miniapps        reusable workflows distilled from successful sessions (combine with http ui)
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
@@ -16,7 +17,7 @@
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
-#             make build TAGS="http ui scheduler memory"
+#             make build TAGS="http ui scheduler memory miniapps"
 #             make build TAGS=cli
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
@@ -40,7 +41,7 @@ GOEXE := $(shell go env GOEXE)
 BINARY := $(BUILD_DIR)/foxxycode$(GOEXE)
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli browser gateway swarm
+FULL_TAGS := http ui scheduler memory miniapps cli browser gateway swarm
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -54,7 +55,7 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory desktop browser
+DESKTOP_TAGS := http ui scheduler memory miniapps desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
 # ---- Brand assets ----
@@ -285,7 +286,7 @@ FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
 # so the express run and the matrix agree on what "everything" means. A ui entry
 # needs the embedded assets, so ui-build precedes the matrix and the CI job
 # builds them only for those entries.
-TEST_TAG_SETS := \
+TEST_TAG_SETS := miniapps http,miniapps http,ui,miniapps \
 	memory \
 	cli \
 	cli,scheduler,memory \
@@ -359,6 +360,8 @@ check-windows:
 	GOOS=windows go vet -tags=scheduler,memory ./...
 	GOOS=windows go vet -tags=http,scheduler ./...
 	GOOS=windows go vet -tags=http,scheduler,memory ./...
+	GOOS=windows go vet -tags=miniapps ./...
+	GOOS=windows go vet -tags=http,miniapps ./...
 	GOOS=windows go vet -tags=gateway ./...
 	GOOS=windows go vet -tags=swarm ./...
 	GOOS=windows go vet -tags=http,swarm ./...

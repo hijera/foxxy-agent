@@ -8,7 +8,38 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-16
+## Unreleased — 2026-10-20
+
+**Turn a completed task into a Mini App.**
+The web and desktop workspace distills successful tool-backed sessions into reviewed,
+versioned workflows, verifies the result on the source data, and generates a form for
+future runs. Progress, confirmations, cancellation and run history are persisted.
+The workspace remains hidden in IDE embeds.
+
+**Run external programs through command profiles.**
+A profile fixes one binary, an argument template and typed parameters. Execution uses
+argv without a shell; only profiles with allow permission run in Mini Apps. Matching
+shell commands can be distilled into portable profiles. A new machine asks for trust
+bound to the profile hash and resolved binary, and offers supported package managers
+when the binary is missing.
+
+**Mini Apps follow live settings.**
+Provider, key, model and MCP changes apply to the next step without a restart.
+
+**Release checks recognize Windows paths.**
+Local drive and network paths are rejected in portable documents alongside Unix paths.
+
+**Browser tools stay outside unattended runs.**
+The whole registered browser tool family, including screenshots, is excluded.
+
+**An assistant helps edit the workflow.**
+Ask for a change in plain language, inspect the proposed patch and apply it explicitly.
+Applying a patch invalidates the checks for the previous draft revision.
+
+**Live progress works with tokens and remote servers.**
+Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.31 — 2026-10-16
 
 **The model catalog sits with its provider.**
 Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins. Initial setup also keeps another profile off the shared CLI login.

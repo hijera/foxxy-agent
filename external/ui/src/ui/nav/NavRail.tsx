@@ -12,6 +12,7 @@ import {
   appNavHrefDocs,
   appNavHrefHistory,
   appNavHrefHome,
+  appNavHrefMiniApps,
   appNavHrefScheduler,
   appNavHrefSwarm,
   appNavHrefSettings,
@@ -89,6 +90,28 @@ function IconDocs(props: { className?: string }) {
       <circle cx="12" cy="12" r="9" />
       <path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6" />
       <path d="M12 17.2h.01" />
+    </svg>
+  );
+}
+
+function IconMiniApps(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="4" width="6" height="6" rx="1" />
+      <rect x="14" y="4" width="6" height="6" rx="1" />
+      <rect x="4" y="14" width="6" height="6" rx="1" />
+      <rect x="14" y="14" width="6" height="6" rx="1" />
     </svg>
   );
 }
@@ -244,6 +267,10 @@ export function NavRail(props: {
   showHistory?: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
+  /** When false, hide Mini Apps (binary built without miniapps HTTP routes). */
+  showMiniApps?: boolean;
+  onOpenMiniApps?: () => void;
+  miniAppsOpen?: boolean;
   onOpenScheduler: () => void;
   schedulerOpen: boolean;
   /** When false, hide Swarm (the environment is not a relay). */
@@ -288,6 +315,8 @@ export function NavRail(props: {
 
   const showHistory = props.showHistory !== false;
   const showScheduler = props.showScheduler !== false;
+  const showMiniApps = props.showMiniApps === true;
+  const miniAppsOpen = props.miniAppsOpen === true;
   // A relay shows the fleet; an ordinary agent has none to show.
   const showSwarm = props.showSwarm === true;
   const pillWide = props.canWidenRail && props.railLabelsWide;
@@ -340,6 +369,7 @@ export function NavRail(props: {
   const present: NavItemId[] = [];
   if (showHistory) present.push("history");
   if (showScheduler) present.push("scheduler");
+  if (showMiniApps) present.push("miniapps");
   if (showSwarm) present.push("swarm");
   if (props.onOpenDocs) present.push("docs");
   present.push("settings");
@@ -348,6 +378,7 @@ export function NavRail(props: {
   const inBar = (id: NavItemId) => bar.includes(id);
   const moreActive = menu.some(
     (id) =>
+      (id === "miniapps" && miniAppsOpen) ||
       (id === "scheduler" && props.schedulerOpen) ||
       (id === "docs" && props.docsOpen === true) ||
       (id === "settings" && props.settingsOpen),
@@ -538,6 +569,36 @@ export function NavRail(props: {
             </div>
           ) : null}
 
+          {inBar("miniapps") ? (
+            <div
+              className={`rail-tip-host${miniAppsOpen ? " rail-tip-host--active" : ""}`}
+            >
+              <a
+                href={appNavHrefMiniApps()}
+                className={`${navBtnCls} ${miniAppsOpen ? "is-active" : ""}`}
+                aria-label={t("nav.miniappsAriaLabel")}
+                aria-pressed={miniAppsOpen}
+                data-testid="nav-miniapps"
+                onClick={(ev) =>
+                  sameTabInAppNavClick(
+                    ev,
+                    props.onOpenMiniApps ?? (() => undefined),
+                  )
+                }
+              >
+                <IconMiniApps className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.miniapps")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !miniAppsOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.miniapps")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rail-spacer rail-spacer-between" aria-hidden />
 
           {/* Below the spacer, next to Settings: History and Scheduler are
@@ -659,6 +720,24 @@ export function NavRail(props: {
               {moreOpen ? (
                 <div className="rail-more-menu" role="menu" aria-label={t("nav.more")}>
                   {menu.map((id, i) => {
+                    if (id === "miniapps") {
+                      return (
+                        <a
+                          key="miniapps"
+                          role="menuitem"
+                          href={appNavHrefMiniApps()}
+                          className={`rail-more-item ${miniAppsOpen ? "is-active" : ""}`}
+                          data-testid="nav-more-miniapps"
+                          onClick={(ev) => {
+                            setMoreOpen(false);
+                            sameTabInAppNavClick(ev, props.onOpenMiniApps ?? (() => {}));
+                          }}
+                        >
+                          <IconMiniApps className="rail-svg" />
+                          <span>{t("nav.miniapps")}</span>
+                        </a>
+                      );
+                    }
                     if (id === "docs") {
                       return (
                         <a

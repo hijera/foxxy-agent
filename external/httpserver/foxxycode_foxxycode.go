@@ -216,6 +216,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerRewindRoute()
 	s.registerSkillsManagementRoutes()
 	s.registerMCPManagementRoutes()
+	s.registerMiniAppsRoutes()
+	s.mux.HandleFunc("GET /foxxycode/capabilities", s.foxxycodeCapabilitiesGet)
 }
 
 func (s *Server) foxxycodeSessionCancelGeneration(w http.ResponseWriter, r *http.Request) {

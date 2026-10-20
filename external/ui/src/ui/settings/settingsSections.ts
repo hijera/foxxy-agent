@@ -52,6 +52,7 @@ export const SESSIONS_CONFIG_KEY = "sessions";
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
   providers: "name",
   models: "model",
+  commands: "name",
 };
 
 /**

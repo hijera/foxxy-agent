@@ -490,6 +490,140 @@
         }
       }
     },
+    "commands": {
+      "type": "array",
+      "title": "Command profiles",
+      "description": "Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell. Distillation turns matching run_command sessions into Mini App steps over these tools.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "binary",
+          "template"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Profile name (lowercase snake_case); the tool is registered as cmd_<name>."
+          },
+          "binary": {
+            "type": "string",
+            "description": "Bare executable name resolved on PATH, or an absolute path. Batch files are refused."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the profile does, shown to the model and in the UI."
+          },
+          "permission": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "allow"
+            ],
+            "description": "ask (default) prompts in chat like any permission-bearing tool; allow runs without a prompt and is the only level Mini Apps accept."
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "description": "Run timeout in seconds. 0 uses the default (120); the maximum is 3600."
+          },
+          "template": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Argv template, one token per element; {param} slots substitute typed values. Executed argv-style, never through a shell."
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "type"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Parameter name (lowercase snake_case). File params must end in _path, _file, or _dir."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "enum",
+                    "int",
+                    "flag",
+                    "string"
+                  ],
+                  "description": "Parameter kind. Every value that reaches the argv is constrained by construction."
+                },
+                "enum": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Allowed values (enum type only)."
+                },
+                "min": {
+                  "type": "integer",
+                  "description": "Lower bound (int type only)."
+                },
+                "max": {
+                  "type": "integer",
+                  "description": "Upper bound (int type only)."
+                },
+                "pattern": {
+                  "type": "string",
+                  "description": "Anchored regular expression the value must match in full (string type only)."
+                },
+                "literal": {
+                  "type": "string",
+                  "description": "Token emitted when a flag is true (flag type only)."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Only flag params may be non-required; other params are always required."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Human-readable parameter description shown in run forms."
+                }
+              }
+            },
+            "description": "Typed parameters referenced from the template."
+          },
+          "install": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Package-manager coordinates offered when the binary is missing.",
+            "properties": {
+              "winget": {
+                "type": "string",
+                "description": "winget package id (e.g. Gyan.FFmpeg)."
+              },
+              "scoop": {
+                "type": "string",
+                "description": "scoop package name."
+              },
+              "brew": {
+                "type": "string",
+                "description": "Homebrew formula name."
+              },
+              "apt": {
+                "type": "string",
+                "description": "apt package name (install typically needs root)."
+              },
+              "dnf": {
+                "type": "string",
+                "description": "dnf package name (install typically needs root)."
+              }
+            }
+          }
+        }
+      }
+    },
     "mcp_servers": {
       "type": "array",
       "title": "MCP servers",
