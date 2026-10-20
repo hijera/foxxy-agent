@@ -68,10 +68,7 @@ func EditorNote(cwd string, snap ideenv.Snapshot) string {
 		}
 	}
 	if sel := snap.Selection; sel != nil {
-		text := sel.Text
-		if len(text) > ideEnvMaxSelectionBytes {
-			text = text[len(text)-ideEnvMaxSelectionBytes:]
-		}
+		text := tailBytes(sel.Text, ideEnvMaxSelectionBytes)
 		b.WriteString("\n\n# Selection\n")
 		fmt.Fprintf(&b, "%s:%d-%d\n", rel(sel.File), sel.StartLine, sel.EndLine)
 		b.WriteString(text)

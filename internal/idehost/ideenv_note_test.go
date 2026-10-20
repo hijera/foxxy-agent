@@ -3,6 +3,7 @@ package idehost
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/ideenv"
 )
@@ -74,6 +75,34 @@ func TestIdeEnvNoteCapsSelectionText(t *testing.T) {
 	}
 	if strings.Count(note, "z") > ideEnvMaxSelectionBytes {
 		t.Fatalf("selection text not capped: %d z's", strings.Count(note, "z"))
+	}
+}
+
+func TestIdeEnvNoteCapsSelectionTextOnRuneBoundary(t *testing.T) {
+	t.Cleanup(ideenv.Reset)
+	// Three-byte runes (U+597D) make the byte cap land mid-rune (2048 % 3 == 2),
+	// so a raw byte slice leaves a dangling partial rune at the head of the
+	// prompt block. The marker pins which end of the selection survives the cap.
+	long := strings.Repeat("好", ideEnvMaxSelectionBytes/3+100) + "\nTAIL_MARKER"
+	ideenv.Set(nil, "", &ideenv.Selection{File: "/ws/src/a.go", StartLine: 1, EndLine: 400, Text: long})
+
+	note := ideEnvNote("/ws")
+	if !utf8.ValidString(note) {
+		t.Fatalf("selection truncation split a rune: %q", note)
+	}
+	rest := note[strings.Index(note, "# Selection\n")+len("# Selection\n"):]
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[nl+1:]
+	}
+	body := strings.TrimSuffix(rest, "\n</foxxycode_ide_context>")
+	if len(body) > ideEnvMaxSelectionBytes {
+		t.Fatalf("selection text not capped: %d bytes", len(body))
+	}
+	if !strings.HasSuffix(long, body) {
+		t.Fatalf("selection text is not the tail of the selection: %q", body)
+	}
+	if !strings.Contains(body, "TAIL_MARKER") {
+		t.Fatalf("selection tail dropped: %q", body)
 	}
 }
 
