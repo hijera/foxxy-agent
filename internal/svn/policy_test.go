@@ -49,3 +49,32 @@ func TestModeContributionsDoNotGrantWrites(t *testing.T) {
 		t.Fatal("plan lost SVN inspection tools")
 	}
 }
+
+// TestToolPolicyPartitionsTheRegisteredNames pins the classification to the
+// name itself: ReadOnlyToolNames has to be exactly the non-mutating half of
+// ToolNames, and every registered name has to resolve. A policy derived from
+// positions in ToolNames rather than from the lists themselves shifts onto the
+// wrong tools as soon as the two drift, and nothing else in the tree notices.
+func TestToolPolicyPartitionsTheRegisteredNames(t *testing.T) {
+	readOnly := map[string]bool{}
+	for _, name := range svn.ReadOnlyToolNames() {
+		readOnly[name] = true
+	}
+	mutating := 0
+	for _, name := range svn.ToolNames() {
+		policy, ok := svn.ToolPolicy(name)
+		if !ok {
+			t.Fatalf("%s is registered but has no policy", name)
+		}
+		if readOnly[name] != !policy.Mutates {
+			t.Fatalf("%s: ReadOnlyToolNames says read-only=%v, policy says Mutates=%v",
+				name, readOnly[name], policy.Mutates)
+		}
+		if policy.Mutates {
+			mutating++
+		}
+	}
+	if mutating == 0 || len(readOnly) == 0 {
+		t.Fatalf("both classes must stay non-empty: readOnly=%d mutating=%d", len(readOnly), mutating)
+	}
+}

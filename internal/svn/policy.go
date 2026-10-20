@@ -19,7 +19,7 @@ func ToolPolicy(name string) (Policy, bool) {
 			return Policy{Kind: "other"}, true
 		}
 	}
-	for _, candidate := range ToolNames()[len(ReadOnlyToolNames()):] {
+	for _, candidate := range mutatingToolNames() {
 		if name == candidate {
 			return Policy{Kind: "write", Mutates: true}, true
 		}

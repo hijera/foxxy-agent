@@ -129,6 +129,9 @@ func ToolSetForMode(mode string, noSelfRun bool) ToolSet {
 			}
 			out = append(out, n)
 		}
+		// Read-only Subversion inspection lives with the tools themselves:
+		// svn.ReadOnlyToolNames carries why the planner gets them and why an
+		// unregistered name is harmless.
 		return append(out, svn.ToolsForMode(mode)...)
 	case "docs":
 		names = docsToolNames
