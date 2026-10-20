@@ -36,34 +36,11 @@ import { ProviderImportMenu } from "./ProviderImportMenu";
 import { uniqueProviderName } from "./providerTransfer";
 import { SESSIONS_CONFIG_KEY, type SectionDescriptor } from "./settingsSections";
 import { translate } from "../i18n/i18n";
-
-// The deployments a neuraldeep provider may point at, mirroring
-// neuralDeepEndpoints in internal/llm/neuraldeep_auth.go. The backend ignores
-// anything else in api_base and falls back to the first entry.
-const NEURALDEEP_API_BASE_OPTIONS = [
-  {
-    value: "https://api.neuraldeep.ru/v1",
-    labelKey: "settings.neuralDeepApiBase.optionRu",
-  },
-  {
-    value: "https://api.neuraldeep.tech/v1",
-    labelKey: "settings.neuralDeepApiBase.optionTech",
-  },
-] as const;
-const NEURALDEEP_DEFAULT_API_BASE = NEURALDEEP_API_BASE_OPTIONS[0].value;
-
-/** Canonical spelling of a stored api_base, or "" when it names no NeuralDeep endpoint. */
-function matchNeuralDeepAPIBase(value: unknown): string {
-  let want = String(value ?? "").trim();
-  while (want.endsWith("/")) {
-    want = want.slice(0, -1);
-  }
-  want = want.toLowerCase();
-  return (
-    NEURALDEEP_API_BASE_OPTIONS.find((o) => o.value.toLowerCase() === want)
-      ?.value ?? ""
-  );
-}
+import {
+  NEURALDEEP_API_BASE_OPTIONS,
+  NEURALDEEP_DEFAULT_API_BASE,
+  matchNeuralDeepAPIBase,
+} from "./neuralDeepEndpoints";
 
 type FieldOverrideContext = Parameters<FieldOverride>[0];
 

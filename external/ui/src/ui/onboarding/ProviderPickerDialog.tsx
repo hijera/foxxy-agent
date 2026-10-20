@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Combobox } from "../settings/Combobox";
 import { CodexAuthField } from "../settings/CodexAuthField";
+import {
+  NEURALDEEP_API_BASE_OPTIONS,
+  NEURALDEEP_DEFAULT_API_BASE,
+  neuralDeepHubFor,
+} from "../settings/neuralDeepEndpoints";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { ProxyUrlField } from "../settings/ProxyUrlField";
 import type { FetchedModel } from "../settings/useProviderModels";
@@ -24,11 +29,6 @@ type ProviderPreset = {
   providerName: string;
   providerType: "openai" | "anthropic" | "neuraldeep" | "codex";
   apiBase?: string;
-  /**
-   * The provider type pins its own endpoint, so apiBase is display-only: shown
-   * read-only (without /v1) and never probed or written to the config.
-   */
-  apiBaseFixed?: boolean;
   /** Whether the provider's models accept image/file inputs (models[].multimodal). */
   multimodal: boolean;
   defaultModel: string;
@@ -44,12 +44,6 @@ type ProviderPreset = {
   envKey?: string;
   website?: string;
 };
-
-/** Strip a trailing /v1 for display; the saved api_base keeps it (the OpenAI SDK
- * does not append /v1 itself). */
-function stripV1(base: string): string {
-  return base.replace(/\/v1\/?$/, "");
-}
 
 // A non-empty tuple, not a plain array: every lookup here falls back to PRESETS[0],
 // and under noUncheckedIndexedAccess a plain array would make that fallback
@@ -105,12 +99,11 @@ const PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     labelKey: "onboarding.provider.neuraldeep.label",
     descriptionKey: "onboarding.provider.neuraldeep.description",
     label: "NeuralDeep",
-    description: "Russian AI hub — models via api.neuraldeep.ru",
+    description: "AI hub — neuraldeep.ru or neuraldeep.tech",
     providerName: "neuraldeep",
     providerType: "neuraldeep",
     multimodal: true,
-    apiBase: "https://api.neuraldeep.ru/v1",
-    apiBaseFixed: true,
+    apiBase: NEURALDEEP_DEFAULT_API_BASE,
     // The Qwen 3.6 35B A3B id every tier serves (the free tier's only chat
     // model), so the saved ref resolves for a fresh sign-in and a paid key
     // alike. The name must stay lowercase: it is the provider row's own
@@ -173,16 +166,12 @@ function buildConfigBody(
   if (!keyless) {
     provider.api_key = apiKey.trim() || preset.envKey || "";
   }
-  // Presets whose provider type pins its own endpoint never write api_base: the
-  // backend would ignore it, and an editable-looking value in the saved YAML only
-  // invites confusion.
+  // NeuralDeep keeps the chosen official deployment; Codex uses its fixed backend.
   const base = apiBase.trim() || preset.apiBase || "";
-  if (preset.providerType !== "codex" && !preset.apiBaseFixed && base) {
+  if (preset.providerType !== "codex" && base) {
     provider.api_base = base;
   }
-  // The proxy applies to every provider type (including neuraldeep, whose base
-  // URL is fixed but still routed through the proxy), so it is orthogonal to
-  // apiBaseFixed. Only write it when set — an empty proxy means direct.
+  // The proxy applies independently of the selected provider endpoint.
   const proxyURL = proxy.trim();
   if (proxyURL) {
     provider.proxy = proxyURL;
@@ -236,6 +225,9 @@ export function ProviderPickerDialog(props: {
   const [selected, setSelected] = useState<ProviderPresetId>("openai");
   const [apiKey, setApiKey] = useState("");
   const [apiBase, setApiBase] = useState("");
+  const [neuralDeepApiBase, setNeuralDeepApiBase] = useState<string>(
+    NEURALDEEP_DEFAULT_API_BASE,
+  );
   const [proxy, setProxy] = useState("");
   const [modelId, setModelId] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -260,12 +252,15 @@ export function ProviderPickerDialog(props: {
     [selected],
   );
 
-  /** Base URL sent when probing the provider's model list. Presets with a fixed
-   * endpoint send nothing: the backend pins the URL from the provider type. */
-  const probeApiBase =
-    preset.apiBaseFixed || preset.providerType === "codex"
-      ? ""
+  const effectiveApiBase =
+    selected === "neuraldeep"
+      ? neuralDeepApiBase
       : apiBase.trim() || preset.apiBase || "";
+  const probeApiBase = preset.providerType === "codex" ? "" : effectiveApiBase;
+  const hubUrl =
+    selected === "neuraldeep"
+      ? neuralDeepHubFor(neuralDeepApiBase)
+      : preset.website;
 
   /** A neuraldeep probe without a typed key reads the provider's stored hub
    * login server-side, so the catalog is listed for a device-flow sign-in the
@@ -370,14 +365,23 @@ export function ProviderPickerDialog(props: {
       buildConfigBody(
         preset,
         apiKey,
-        apiBase,
+        effectiveApiBase,
         proxy,
         modelId,
         baseDoc,
         fetchedModels,
         hubCredential,
       ),
-    [preset, apiKey, apiBase, proxy, modelId, baseDoc, fetchedModels, hubCredential],
+    [
+      preset,
+      apiKey,
+      effectiveApiBase,
+      proxy,
+      modelId,
+      baseDoc,
+      fetchedModels,
+      hubCredential,
+    ],
   );
 
   /** Catalog entry behind the chosen model, when the probe listed it. */
@@ -478,10 +482,7 @@ export function ProviderPickerDialog(props: {
     return null;
   }
 
-  const showApiBase =
-    selected === "compatible" ||
-    selected === "ollama" ||
-    selected === "neuraldeep";
+  const showApiBase = selected === "compatible" || selected === "ollama";
 
   return (
     <div className="provider-picker-host" data-testid="provider-picker-dialog">
@@ -527,6 +528,30 @@ export function ProviderPickerDialog(props: {
         </div>
 
         <div className="provider-picker-form">
+          {selected === "neuraldeep" ? (
+            <label className="provider-picker-field">
+              <span>{t("onboarding.neuralDeepDomain")}</span>
+              <select
+                className="provider-picker-input"
+                value={neuralDeepApiBase}
+                onChange={(ev) => {
+                  setNeuralDeepApiBase(ev.target.value);
+                  setHubLogin(false);
+                  setTestOk(false);
+                  setError(null);
+                  resetModels();
+                }}
+                aria-label={t("onboarding.neuralDeepDomain")}
+                data-testid="provider-neuraldeep-domain"
+              >
+                {NEURALDEEP_API_BASE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {selected === "codex" ? (
             <CodexAuthField providerName={preset.providerName} />
           ) : (
@@ -557,7 +582,7 @@ export function ProviderPickerDialog(props: {
             <NeuralDeepAuthField
               providerName={preset.providerName}
               hasExplicitKey={apiKey.trim() !== ""}
-              apiBase=""
+              apiBase={neuralDeepApiBase}
               descriptionKey="onboarding.neuralDeepAuth.description"
               fieldLabelKey="onboarding.neuralDeepAuth.fieldLabel"
               onConnectedChange={setHubLogin}
@@ -567,22 +592,13 @@ export function ProviderPickerDialog(props: {
           {showApiBase ? (
             <label className="provider-picker-field">
               <span>{t("onboarding.apiBase")}</span>
-              {preset.apiBaseFixed ? (
-                <input
-                  className="provider-picker-input provider-picker-input--readonly"
-                  value={stripV1(preset.apiBase || "")}
-                  readOnly
-                  data-testid="provider-api-base"
-                />
-              ) : (
-                <input
-                  className="provider-picker-input"
-                  value={apiBase}
-                  onChange={(ev) => setApiBase(ev.target.value)}
-                  placeholder="https://api.example.com/v1"
-                  data-testid="provider-api-base"
-                />
-              )}
+              <input
+                className="provider-picker-input"
+                value={apiBase}
+                onChange={(ev) => setApiBase(ev.target.value)}
+                placeholder="https://api.example.com/v1"
+                data-testid="provider-api-base"
+              />
             </label>
           ) : null}
 
@@ -603,15 +619,15 @@ export function ProviderPickerDialog(props: {
             </span>
           </label>
 
-          {preset.website ? (
+          {hubUrl ? (
             <a
               className="provider-picker-hub-link"
-              href={preset.website}
+              href={hubUrl}
               target="_blank"
               rel="noopener noreferrer"
               data-testid="provider-hub-link"
             >
-              {t("onboarding.openHub")} ↗
+              {t("onboarding.openHub", { domain: new URL(hubUrl).host })} ↗
             </a>
           ) : null}
 

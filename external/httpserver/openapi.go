@@ -3413,7 +3413,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"type":          map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic", "neuraldeep", "codex"}},
 										"provider_name": map[string]interface{}{"type": "string", "description": "Provider name whose server-side managed credential is used. Required for type codex; for type neuraldeep it is read when api_key is empty, to list the catalog through the stored hub login; ignored otherwise."},
-										"api_base":      map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type neuraldeep and codex."},
+										"api_base":      map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type codex. For neuraldeep, only https://api.neuraldeep.ru/v1 and https://api.neuraldeep.tech/v1 are accepted; any other value uses the default deployment."},
 										"api_key":       map[string]interface{}{"type": "string"},
 										"proxy":         map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
 									},

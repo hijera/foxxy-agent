@@ -11,7 +11,7 @@
 ## Unreleased — 2026-10-20
 
 **Sign in to NeuralDeep right from onboarding.**
-The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving.
+The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving. The domain selector comes first: choose neuraldeep.ru or neuraldeep.tech, and sign-in, the model catalog and saved settings use that domain.
 
 ## 0.3.31 — 2026-10-16
 

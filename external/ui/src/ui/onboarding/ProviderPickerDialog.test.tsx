@@ -1,5 +1,6 @@
 import {
   render,
+  act,
   screen,
   fireEvent,
   waitFor,
@@ -175,7 +176,7 @@ describe("ProviderPickerDialog", () => {
         );
       }
       if (
-        url === "/foxxycode/providers/neuraldeep/neuraldeep-auth" &&
+        url.startsWith("/foxxycode/providers/neuraldeep/neuraldeep-auth?") &&
         (!init || init.method === "GET" || init.method === undefined)
       ) {
         return new Response(
@@ -194,7 +195,11 @@ describe("ProviderPickerDialog", () => {
         return new Response(
           JSON.stringify({
             login_id: "login-nd-onboarding",
-            verification_url: "https://hub.neuraldeep.ru/device",
+            verification_url: JSON.parse(
+              String(init.body || "{}"),
+            ).api_base?.includes(".tech")
+              ? "https://hub.neuraldeep.tech/device"
+              : "https://hub.neuraldeep.ru/device",
             user_code: "ND-CODE",
             status: "pending",
           }),
@@ -304,21 +309,97 @@ describe("ProviderPickerDialog", () => {
     expect(screen.getByText("GPT-4o и совместимые модели")).toBeTruthy();
   });
 
-  it("selects NeuralDeep preset with readonly api base (no /v1) and hub link", async () => {
-    renderPicker({});
-    expect(screen.getByTestId("provider-card-neuraldeep")).toBeTruthy();
+  it("offers the NeuralDeep domain before credentials and uses it for models and save", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
     fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
-    await waitFor(() => {
-      const base = screen.getByTestId("provider-api-base") as HTMLInputElement;
-      expect(base.value).toBe("https://api.neuraldeep.ru");
-      expect(base.readOnly).toBe(true);
+    const domain = screen.getByTestId(
+      "provider-neuraldeep-domain",
+    ) as HTMLSelectElement;
+    expect(domain.value).toBe("https://api.neuraldeep.ru/v1");
+    expect(Array.from(domain.options, (o) => o.value)).toEqual([
+      "https://api.neuraldeep.ru/v1",
+      "https://api.neuraldeep.tech/v1",
+    ]);
+    expect(
+      domain.compareDocumentPosition(screen.getByTestId("provider-api-key")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.change(domain, {
+      target: { value: "https://api.neuraldeep.tech/v1" },
     });
-    const hub = screen.getByTestId("provider-hub-link") as HTMLAnchorElement;
-    expect(hub.href).toContain("hub.neuraldeep.ru");
-    expect(hub.target).toBe("_blank");
+    expect(
+      (screen.getByTestId("provider-hub-link") as HTMLAnchorElement).href,
+    ).toBe("https://hub.neuraldeep.tech/");
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (c) => c[0] === "/foxxycode/providers/models-probe",
+        ),
+      ).toBe(true),
+    );
+    const probe = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/providers/models-probe",
+    );
+    expect(JSON.parse(String(probe![1]?.body)).api_base).toBe(
+      "https://api.neuraldeep.tech/v1",
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const put = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    expect(JSON.parse(String(put![1]?.body)).providers[0].api_base).toBe(
+      "https://api.neuraldeep.tech/v1",
+    );
   });
 
-  it("fetches models into the combobox and saves neuraldeep/<id> without api_base", async () => {
+  it("uses the selected NeuralDeep domain for hub sign in", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-neuraldeep-domain"), {
+      target: { value: "https://api.neuraldeep.tech/v1" },
+    });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) =>
+          String(c[0]).includes(
+            "api_base=https%3A%2F%2Fapi.neuraldeep.tech%2Fv1",
+          ),
+        ),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByTestId("neuraldeep-auth-sign-in"));
+    await screen.findByText("ND-CODE");
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://hub.neuraldeep.tech/device",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("neuraldeep-auth-field").textContent).toMatch(
+        /sk-7Hv/,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (c) =>
+            c[0] === "/foxxycode/providers/models-probe" &&
+            JSON.parse(String(c[1]?.body)).provider_name === "neuraldeep" &&
+            JSON.parse(String(c[1]?.body)).api_base ===
+              "https://api.neuraldeep.tech/v1",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("fetches models into the combobox and saves the NeuralDeep endpoint", async () => {
     const onSaved = vi.fn();
     renderPicker({ onSaved });
     fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
@@ -334,11 +415,10 @@ describe("ProviderPickerDialog", () => {
     );
     expect(probeCall).toBeTruthy();
     const probeBody = JSON.parse(String(probeCall![1]?.body));
-    // The neuraldeep provider type pins its own endpoint server-side, so the
-    // probe carries no api_base at all.
+    // Model discovery follows the same deployment as the saved provider.
     expect(probeBody).toEqual({
       type: "neuraldeep",
-      api_base: "",
+      api_base: "https://api.neuraldeep.ru/v1",
       api_key: "sk-nd",
       proxy: "",
     });
@@ -357,7 +437,7 @@ describe("ProviderPickerDialog", () => {
     );
     const body = JSON.parse(String(putCall![1]?.body));
     expect(body.providers[0].type).toBe("neuraldeep");
-    expect(body.providers[0].api_base).toBeUndefined();
+    expect(body.providers[0].api_base).toBe("https://api.neuraldeep.ru/v1");
     expect(body.models[0].model).toBe("neuraldeep/qwen-3");
     // The neuraldeep preset pins the free tier's request cap, so the context
     // ring and the compaction trigger measure against the tier's ceiling.
@@ -408,20 +488,26 @@ describe("ProviderPickerDialog", () => {
     fireEvent.change(screen.getByTestId("proxy-editor-host"), {
       target: { value: "vm-squid3.corp" },
     });
-    fireEvent.change(screen.getByTestId("proxy-editor-port"), { target: { value: "3128" } });
-    fireEvent.change(screen.getByTestId("proxy-editor-user"), { target: { value: "vlasov" } });
+    fireEvent.change(screen.getByTestId("proxy-editor-port"), {
+      target: { value: "3128" },
+    });
+    fireEvent.change(screen.getByTestId("proxy-editor-user"), {
+      target: { value: "vlasov" },
+    });
     fireEvent.change(screen.getByTestId("proxy-editor-password"), {
       target: { value: "p@ss" },
     });
     fireEvent.submit(screen.getByTestId("proxy-editor"));
 
-    expect((screen.getByTestId("provider-proxy") as HTMLInputElement).value).toBe(
-      "http://vlasov:••••••@vm-squid3.corp:3128",
-    );
+    expect(
+      (screen.getByTestId("provider-proxy") as HTMLInputElement).value,
+    ).toBe("http://vlasov:••••••@vm-squid3.corp:3128");
     fireEvent.click(screen.getByTestId("provider-fetch-models"));
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.find((c) => c[0] === "/foxxycode/providers/models-probe"),
+        fetchMock.mock.calls.find(
+          (c) => c[0] === "/foxxycode/providers/models-probe",
+        ),
       ).toBeTruthy(),
     );
     fireEvent.click(screen.getByTestId("provider-save"));
@@ -430,7 +516,9 @@ describe("ProviderPickerDialog", () => {
       (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
     );
     const body = JSON.parse(String(putCall![1]?.body));
-    expect(body.providers[0].proxy).toBe("http://vlasov:p%40ss@vm-squid3.corp:3128");
+    expect(body.providers[0].proxy).toBe(
+      "http://vlasov:p%40ss@vm-squid3.corp:3128",
+    );
   });
 
   it("omits proxy from the saved provider when left empty", async () => {
@@ -689,7 +777,7 @@ describe("ProviderPickerDialog", () => {
       expect(JSON.parse(String(probeCall![1]?.body))).toEqual({
         type: "neuraldeep",
         provider_name: "neuraldeep",
-        api_base: "",
+        api_base: "https://api.neuraldeep.ru/v1",
         api_key: "",
         proxy: "",
       });
@@ -706,6 +794,7 @@ describe("ProviderPickerDialog", () => {
     expect(body.providers[0]).toEqual({
       name: "neuraldeep",
       type: "neuraldeep",
+      api_base: "https://api.neuraldeep.ru/v1",
     });
     expect(body.models[0].model).toBe("neuraldeep/qwen3.6-35b-a3b");
     expect(body.models[0].max_context_tokens).toBe(46112);
@@ -737,5 +826,43 @@ describe("ProviderPickerDialog", () => {
     );
     const body = JSON.parse(String(putCall![1]?.body));
     expect(body.providers[0].api_key).toBe("sk-typed");
+  });
+  it("discards a late model catalog after switching NeuralDeep domains", async () => {
+    const baseFetch = fetchMock.getMockImplementation()!;
+    let release: (response: Response) => void = () => {};
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/foxxycode/providers/models-probe") {
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      }
+      return baseFetch(url, init);
+    });
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    fireEvent.change(screen.getByTestId("provider-neuraldeep-domain"), {
+      target: { value: "https://api.neuraldeep.tech/v1" },
+    });
+    await act(async () => {
+      release(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            models: [{ id: "old-deployment-model" }],
+          }),
+        ),
+      );
+    });
+    fireEvent.focus(screen.getByTestId("provider-model-id"));
+    expect(
+      screen.queryByRole("option", { name: "old-deployment-model" }),
+    ).toBeNull();
+    expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+      "Fetch models",
+    );
   });
 });

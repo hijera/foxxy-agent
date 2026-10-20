@@ -172,6 +172,11 @@ Clear the field to use the session model for summarization.
 *The first-run provider picker, NeuralDeep preset with a stored hub sign-in (Dark, 1280 px).*
 
 - The picker opens on the first run — and later only while the provider behind **`agent.model`** has no credential at all — and offers the presets: OpenAI, Anthropic, Ollama, OpenAI-compatible, NeuralDeep, Codex.
+- In the **NeuralDeep** card, **Domain** is the first field, before the API key and hub sign-in. Choose **`api.neuraldeep.ru`** (Russia, the default) or **`api.neuraldeep.tech`** (international). The selection controls the hub link and device sign-in, the model catalog probe, and the saved **`providers[].api_base`**. Changing it clears the previous catalog; a stored login issued by the other hub is flagged so it can be replaced with a sign-in for the selected domain.
+![NeuralDeep onboarding with the international domain selected](../assets/web-ui/onboarding-neuraldeep-domain-tech-dark-1280.png)
+
+*The domain selector comes before credentials; the international deployment is selected (Dark, 1280 px).*
+
 - The **NeuralDeep** preset defaults to **`neuraldeep/qwen3.6-35b-a3b`** (the id every tier serves; the free tier's only chat model) and pins **`models[].max_context_tokens: 46112`**: the free tier caps one request at 46,112 input tokens, so the context ring and the compaction trigger measure against the tier's ceiling rather than the model's native window. On a paid tier the pinned value only compacts earlier and is editable in Settings.
 - Besides the manual **API key** field, the NeuralDeep preset renders the same **Sign In with NeuralDeep** device-flow widget the settings row uses (**`NeuralDeepAuthField`**), read for the unsaved conventional **`neuraldeep`** provider name. After a completed sign-in the dialog saves the provider row **without any key** — the stored login is the credential, and writing the env reference would shadow it — and auto-probes the tier catalog through the server-side login (**`provider_name`** in the probe body, no key). A key typed afterwards still wins over the login, as in Settings.
 - The provider row is always named the lowercase conventional **`neuraldeep`**, matching the **`neuraldeep/<id>`** model refs the dialog writes, so the first chat works right after Save with no extra setup.
