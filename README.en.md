@@ -31,7 +31,7 @@
 
 - **Native desktop window (WebView2)** with desktop notifications, an audio chime, and a first-run guided tour
 - **Deep IDE integration** - open-files context (`<foxxycode_ide_context>`), terminal tracking (`@terminal`), file drag-drop mentions, project folder picker, `.vscode`/`.idea` project metadata, and native IntelliJ inline diffs
-- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model; shipped in the full builds (`browser` tag) and off by default until `browser.enable` is set - see [browser tool](docs/features/browser-tool.md)
+- **Interactive browser tool** - drives real Chrome via chromedp with keyboard input, waits, tabs, dialogs, network mocks and storage writes, and returns screenshots to the model; shipped in the full builds (`browser` tag) and off by default until `browser.enable` is set - see [browser tool](docs/features/browser-tool.md)
 - **Automatic context compaction** - auto-summarizes long conversations (on by default)
 - **Russian settings i18n** and a full `foxxyCode` rebrand of the distribution
 
@@ -201,7 +201,7 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | **`http`** | **`foxxycode http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](docs/reference/http-api.md) |
 | **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/surfaces/web-ui.md`](docs/surfaces/web-ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/operate/scheduler.md`](docs/operate/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
-| **`browser`** | Interactive browser tools (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate) driving a local Chrome/Chromium via chromedp; the model sees page screenshots (**`browser.enable`** in YAML) | [`docs/features/browser-tool.md`](docs/features/browser-tool.md) |
+| **`browser`** | Interactive browser tools (**`foxxycode_browser_*`**: navigate/click/fill/press_key/wait_for/tabs/handle_dialog/network/route/storage_set) driving a local Chrome/Chromium via chromedp; the model sees page screenshots (**`browser.enable`** in YAML) | [`docs/features/browser-tool.md`](docs/features/browser-tool.md) |
 | **`cli`** | Interactive console TUI — bare **`foxxycode`** on a terminal (or **`foxxycode cli`**): chat with streaming, tool boxes, permission modals, **`!!<command>`** to run a shell command locally that the agent never sees; **`foxxycode -c`** continues the latest session, **`foxxycode -p "..."`** runs one prompt non-interactively; **`git diff | foxxycode -p "review"`** attaches piped data and **`foxxycode -i brief.md`** reads a prompt file, **`--remote <name|host:port|url>`** (+ `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) drives a remote `foxxycode http` server — the same flags work on `foxxycode acp`. Visual design inspired by the [pi coding agent](https://github.com/badlogic/pi-mono) TUI (MIT, Mario Zechner) | [`docs/surfaces/console.md`](docs/surfaces/console.md) |
 | **`gateway.telegram`** | Telegram bot adapter — **`foxxycode gateway`** subcommand, per-user sessions, access control | [`docs/surfaces/gateway.md`](docs/surfaces/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/surfaces/gateway.md`](docs/surfaces/gateway.md) |

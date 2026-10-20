@@ -8,7 +8,19 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-16
+## Unreleased — 2026-10-20
+
+**More actions in the built-in browser.**
+The agent can press keys, wait for text to appear or disappear, switch tabs, pick
+options, answer dialogs, navigate history, upload files and check different viewport
+sizes. It can fill a form in one action, drag an element, click coordinates and find
+an element by text. The network journal exposes requests and response bodies;
+API response mocks, offline mode and writes to localStorage, sessionStorage and
+cookies help verify different application states. Unarmed dialogs are handled
+automatically and recorded in the page log.
+
+
+## 0.3.31 — 2026-10-16
 
 **The model catalog sits with its provider.**
 Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins. Initial setup also keeps another profile off the shared CLI login.

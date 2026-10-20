@@ -6,9 +6,54 @@ import (
 	"os"
 	"testing"
 
+	"github.com/chromedp/chromedp"
+
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 )
+
+// The root tab owns the browser context, while child tabs have their own
+// cancellation functions. Closing that page must leave the other tab usable,
+// and ending the session must still wait for the whole Chrome process tree.
+func TestCloseWaitsAfterRootTabClosed(t *testing.T) {
+	newTestManager(t)
+	profile := profileDirFor(t.TempDir())
+	b, err := launch(&config.BrowserConfig{Enabled: true}, profile)
+	if err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	closed := false
+	t.Cleanup(func() {
+		if !closed {
+			b.close()
+		}
+	})
+	root := b.currentID
+	id, err := b.newTab()
+	if err != nil {
+		t.Fatalf("new tab: %v", err)
+	}
+	if err := b.selectTab(id); err != nil {
+		t.Fatalf("select child tab: %v", err)
+	}
+	if err := b.closeTab(root); err != nil {
+		t.Fatalf("close root tab: %v", err)
+	}
+	var result int
+	if err := b.run(chromedp.Evaluate("1 + 1", &result)); err != nil || result != 2 {
+		t.Fatalf("child tab after root closes: result=%d, err=%v", result, err)
+	}
+	tree := platform.CaptureProcessTree(b.chromePID)
+	defer tree.Release()
+	b.close()
+	closed = true
+	if !tree.WaitExit(0) {
+		t.Error("close returned while a Chrome child process was still running")
+	}
+	if err := os.RemoveAll(profile); err != nil {
+		t.Errorf("profile is still held after closing multiple tabs: %v", err)
+	}
+}
 
 // Closing a browser has to mean Chrome and everything it spawned are gone, not
 // only the one process chromedp started. Chrome's renderers, GPU process and

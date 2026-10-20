@@ -52,7 +52,7 @@ What the agent can do and how each capability is configured.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
-- [Browser tool](features/browser-tool.md) - The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+- [Browser tool](features/browser-tool.md) - Chrome interactions, keyboard, waits, tabs, dialogs, forms, network mocks and storage, screenshots handed back to the model, the browser switch and the build tag.
 - [Devin](features/devin.md) - Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.
 - [Web search](features/web-search.md) - The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
 - [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
