@@ -231,6 +231,8 @@ Enter on a slash suggestion applies and submits in one stroke. `/export [md|html
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server.
 
+The `/usage` heading identifies the provider brand and, for a named profile, its row (for example `Codex · codex-work`).
+
 `/tasks` opens the background tasks of the session in the place of the editor
 ([Background tasks](../features/background-tasks.md#in-the-console)). The
 agent has had `background_list`, `background_output` and `background_stop`
@@ -258,8 +260,8 @@ machine the agent runs on. The list refreshes every 2.5 s while the overlay is
 open, a turn runs or a task runs, and every 15 s otherwise; between turns the
 footer keeps saying how many tasks still run.
 
-A task the agent started with `notify_on_finish` wakes it in this console
-when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+A background task the agent started wakes it in this console when it ends,
+unless the call set `notify_on_finish: false` ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
 
 **F1** opens FoxxyCode's own documentation in the place of the editor, read out of
 the binary ([Built-in documentation](../features/built-in-docs.md#the-console-help)):
@@ -583,7 +585,7 @@ the transcript, tool boxes, thinking, plan updates, token and context stats
 stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
-the remote catalog (`GET /v1/models`), `/mode` picks the agent or plan
+the remote catalog (`GET /v1/models`); a session without its own model uses the row flagged `default` by the server. From there, `/mode` picks the agent or plan
 profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
 server's session list (the local folder filter does not apply). The
 permission mode is governed by the remote server's configuration:

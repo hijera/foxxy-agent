@@ -1,3 +1,4 @@
+import { FieldLabel } from "./FieldHint";
 import { t } from "../i18n/i18n";
 import { Combobox } from "./Combobox";
 
@@ -18,10 +19,7 @@ export function ModelPicker(props: {
 
   return (
     <div className="settings-row" data-testid="model-picker">
-      <span className="settings-label">{label}</span>
-      {props.description ? (
-        <p className="settings-field-desc">{props.description}</p>
-      ) : null}
+      <FieldLabel label={label} description={props.description} />
       <Combobox
         value={value}
         onChange={onChange}

@@ -8,7 +8,7 @@ import {
 import { useT } from "../i18n/I18nProvider";
 // Module-level helpers below run outside React, so they translate through the store directly;
 // the component keeps using the hook's t(). Aliased to avoid shadowing that local binding.
-import { translate } from "../i18n/i18n";
+import { hasTranslation, translate } from "../i18n/i18n";
 import { type JsonSchema } from "./SchemaForm";
 import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
@@ -20,7 +20,7 @@ import {
   snapshotShellStack,
   subscribeShellStack,
 } from "../shellBreakpoint";
-import { setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
+import { parseAppHash, setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
 
 // The project website (site/ in the repository, published on GitHub Pages).
 const FOXXYCODE_SITE_URL = "https://hijera.github.io/foxxy-agent/";
@@ -106,6 +106,19 @@ function IconArrowLeft(props: { className?: string }) {
   );
 }
 
+/** The drawer's title while a row of a list section is open: the form it
+ * shows ("Provider settings"), the section's own name for a list without one. */
+function itemFormTitle(section: SectionDescriptor): string {
+  const key = `settings.item.${section.id}`;
+  return hasTranslation(key) ? translate(key) : section.label;
+}
+
+/** Whether the address keeps the history sidebar open (`?history=1`). */
+function historyOpenInAddress(): boolean {
+  const route = parseAppHash();
+  return "historyOpen" in route && route.historyOpen;
+}
+
 export function Settings(props: {
   onClose: () => void;
   /** Called after the config is successfully saved so the app can re-fetch model metadata. */
@@ -114,6 +127,8 @@ export function Settings(props: {
   initialSection?: string | null;
   /** Reopen the onboarding form + guided tour (shown in the Appearance tab). */
   onRestartOnboarding?: () => void;
+  /** The open row from the settings deep link. */
+  initialItem?: string | null;
   /**
    * Workspace of the viewed session. The Subagents tab lists the definitions
    * of that workspace and writes its approvals there, because a receipt is
@@ -183,6 +198,15 @@ export function Settings(props: {
     setMobileDetailId(null);
     setSettingsHash();
   }, []);
+
+  // The head is the way back, on every width. With a row of a list section
+  // open (a provider, a model) it is titled after that form and its arrow
+  // closes the form back onto the list; on the narrow shell, with no row open,
+  // it names the section and its arrow goes back to the tiles.
+  const [rowOpen, setRowOpen] = useState(false);
+  const [closeRowSignal, setCloseRowSignal] = useState(0);
+  const headSection = isMobileShell ? mobileSection : activeSection;
+  const rowTitle = rowOpen && headSection ? itemFormTitle(headSection) : null;
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -280,6 +304,30 @@ export function Settings(props: {
                 setDoc={setDoc}
                 isMobileShell={isMobileShell}
                 onRestartOnboarding={props.onRestartOnboarding}
+                // The address names a row of one section. For the render in
+                // which the tab has not caught up with a new address yet,
+                // another section must not take that name for its own (it
+                // would find no such row and rewrite the address to its list).
+                routeItem={
+                  section.id === (props.initialSection ?? "")
+                    ? (props.initialItem ?? null)
+                    : null
+                }
+                // Only the section the address names writes it back: in the
+                // render where the tab lags a new address, the old section
+                // would otherwise report its closed form and undo the jump.
+                onRouteItemChange={
+                  section.id === (props.initialSection ?? "")
+                    ? (item) =>
+                        setSettingsSectionHash(section.id, {
+                          item,
+                          historySidebar: historyOpenInAddress(),
+                        })
+                    : undefined
+                }
+                hideBackLink
+                onEditingChange={setRowOpen}
+                closeSignal={closeRowSignal}
                 workspacePath={props.workspacePath}
                 activeSessionId={props.activeSessionId}
                 onSessionsDeleted={props.onSessionsDeleted}
@@ -338,14 +386,30 @@ export function Settings(props: {
       data-variant="drawer"
     >
       <div className="sessions-head">
-        {isMobileShell && mobileSection ? (
+        {rowTitle && headSection ? (
+          <span className="settings-head-titlegroup">
+            <button
+              type="button"
+              className="settings-head-back"
+              aria-label={t("settings.array.backTo", {
+                list: headSection.label,
+              })}
+              title={t("settings.array.backTo", { list: headSection.label })}
+              data-testid="settings-head-back"
+              onClick={() => setCloseRowSignal((n) => n + 1)}
+            >
+              <IconArrowLeft />
+            </button>
+            <span className="settings-head-section">{rowTitle}</span>
+          </span>
+        ) : isMobileShell && mobileSection ? (
           <span className="settings-head-titlegroup">
             <button
               type="button"
               className="settings-head-back"
               aria-label={t("settings.backToSections")}
               title={t("settings.backToSections")}
-              data-testid="settings-mobile-back"
+              data-testid="settings-head-back"
               onClick={backToGrid}
             >
               <IconArrowLeft />
@@ -366,14 +430,17 @@ export function Settings(props: {
         </button>
       </div>
 
-      <div className="settings-lead-pane">
-        <p className="settings-lead">{t("settings.lead")}</p>
-        {loadErr ? (
-          <p className="settings-error">{t("settings.failedToLoad", { error: loadErr })}</p>
-        ) : null}
-        {error ? <p className="settings-error">{error}</p> : null}
-        {message ? <p className="settings-ok">{message}</p> : null}
-      </div>
+      {loadErr || error || message ? (
+        <div className="settings-lead-pane">
+          {loadErr ? (
+            <p className="settings-error">
+              {t("settings.failedToLoad", { error: loadErr })}
+            </p>
+          ) : null}
+          {error ? <p className="settings-error">{error}</p> : null}
+          {message ? <p className="settings-ok">{message}</p> : null}
+        </div>
+      ) : null}
 
       <div className="settings-stack">
         {isMobileShell ? (

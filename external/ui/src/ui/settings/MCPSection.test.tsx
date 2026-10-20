@@ -218,7 +218,7 @@ test("renders MCP controls and validation errors in Russian", async () => {
   render(<MCPSection />);
   await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
 
-  expect(screen.getByText("Серверы MCP", { selector: "legend" })).toBeTruthy();
+  expect(screen.getByText("Серверы MCP", { selector: ".settings-legend-line" })).toBeTruthy();
   expect(screen.getByTestId("mcp-refresh").getAttribute("aria-label")).toBe(
     "Обновить серверы MCP",
   );
@@ -429,7 +429,7 @@ test("the trust layer is localized, not English-only", async () => {
   await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
 
   expect(
-    screen.getByText("Обнаружение MCP", { selector: "legend" }),
+    screen.getByText("Обнаружение MCP", { selector: ".settings-legend-line" }),
   ).toBeTruthy();
   const picker = screen.getByTestId("mcp-project-trust");
   expect(picker.textContent).toContain("Спрашивать");

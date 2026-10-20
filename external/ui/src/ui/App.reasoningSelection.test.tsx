@@ -54,7 +54,6 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   if (path === "/foxxycode/events") return eventsStream();
   if (path === "/v1/models") {
     return json({
-      default_agent_model: MODEL,
       data: [
         { id: "agent", owned_by: "foxxycode", max_context_tokens: 128000 },
         {
@@ -75,7 +74,8 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const match = path.match(/^\/foxxycode\/sessions\/([^/]+)(.*)$/);
   if (match) {
     const sid = decodeURIComponent(match[1]!);
-    const suffix = match[2];
+    // A transcript read names its page in the query string.
+    const suffix = match[2]!.split("?")[0];
     if (suffix === "/messages") {
       return json({
         model: MODEL,

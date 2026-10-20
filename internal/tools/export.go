@@ -96,8 +96,8 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// Subversion tools: registered only when vcs.svn is enabled and a client is
 	// installed, so turning the setting off removes them from the next turn.
 	toolsvn.RegisterBuiltins(r.Register, cfg)
-	// The model's own switch between the configured models and reasoning
-	// levels: offered when there is something to switch to.
+	// Model and reasoning changes requested by the user are offered when
+	// there is something to switch to.
 	if modelSwitchOffered(cfg) {
 		r.Register(SwitchModelTool(cfg))
 	}

@@ -106,6 +106,7 @@ test("the Ignore system proxy switch saves none and brings the URL back when tur
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
@@ -135,6 +136,7 @@ test("a provider saved as none shows the switch on and follows the system proxy 
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
@@ -158,6 +160,7 @@ test("a typed proxy URL replaces the system proxy and clearing it follows the sy
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
   expect(url.value).toBe("");
@@ -184,6 +187,7 @@ test("an explicit inherit reads as the system proxy and survives a round trip th
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
@@ -206,6 +210,7 @@ test("a Codex provider keeps the proxy setting next to its ChatGPT sign in", asy
   );
   render(<Harness provider={{ name: "codex", type: "codex", proxy: "none" }} />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   expect(await screen.findByTestId("codex-auth-sign-in")).toBeInTheDocument();
   expect(
@@ -224,6 +229,7 @@ test("turning the switch off after none was pasted into the field brings back th
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
   fireEvent.change(url, { target: { value: "http://b:3128" } });
@@ -246,6 +252,7 @@ test("renaming the provider while it connects directly keeps the URL the switch 
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
 
   fireEvent.click(screen.getByRole("switch", { name: "Ignore system proxy" }));
   expect(firstProxy(doc)).toBe("none");
@@ -257,10 +264,10 @@ test("renaming the provider while it connects directly keeps the URL the switch 
 });
 
 const systemSection: SectionDescriptor = {
-  id: "system",
-  label: "System",
-  kind: "group",
-  childKeys: ["gateways"],
+  id: "gateways",
+  label: "Gateways",
+  kind: "object",
+  schemaKey: "gateways",
 };
 
 const gatewaysRootSchema: JsonSchema = {
@@ -335,7 +342,8 @@ test("the Telegram proxy has the Ignore system proxy switch too", () => {
   fireEvent.click(direct);
   expect(telegramProxy(doc)).toBe("none");
   expect(url).toBeDisabled();
-  expect(document.body.textContent).toContain("Telegram bot ignores");
+  fireEvent.mouseEnter(screen.getByRole("button", { name: "About Ignore system proxy" }));
+  expect(screen.getByRole("tooltip").textContent).toContain("Telegram bot ignores");
 
   fireEvent.click(direct);
   expect(telegramProxy(doc)).toBe("socks5h://127.0.0.1:1080");

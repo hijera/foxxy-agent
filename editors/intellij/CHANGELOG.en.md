@@ -7,10 +7,26 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-14
+## Unreleased — 2026-10-20
 
 **Sign in to NeuralDeep right from onboarding.**
 The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving.
+
+## 0.3.31 — 2026-10-16
+
+**The model catalog sits with its provider.**
+Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins. Initial setup also keeps another profile off the shared CLI login.
+
+**Long chats open faster.**
+The newest messages load first and earlier messages arrive as you scroll up. The rendered history stays bounded; message editing and returning to the current answer preserve positions in the full conversation.
+
+**Clearer tool results and settings.**
+HTTP requests, model changes, documents and structured MCP responses appear as cards. Settings are grouped by purpose, field descriptions open beside their labels, and provider or model rows support direct links. Narrow layouts fit their controls more reliably.
+
+**Continue after background work.**
+Background commands and subagents wake their parent by default when finished; explicit `notify_on_finish: false` disables the continuation. The agent changes its own model, reasoning level and compaction model only at the user's request; it may choose a subagent's model independently.
+
+## 0.3.30 — 2026-10-14
 
 **Edit the conversation in the same chat.**
 An edited message is sent in the same session: that message and the conversation after it are replaced by a new continuation. Workspace files are not rolled back.

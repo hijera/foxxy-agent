@@ -4,6 +4,7 @@
 # DiscardedPlans conditional lives at the top of the howto fragment so it stays
 # adjacent to the heading.
 header
+capabilities
 subagent_role
 notes
 model_notes
