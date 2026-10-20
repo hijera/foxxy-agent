@@ -172,7 +172,7 @@ Clear the field to use the session model for summarization.
 *The first-run provider picker, NeuralDeep preset with a stored hub sign-in (Dark, 1280 px).*
 
 - The picker opens on the first run — and later only while the provider behind **`agent.model`** has no credential at all — and offers the presets: OpenAI, Anthropic, Ollama, OpenAI-compatible, NeuralDeep, Codex.
-- In the **NeuralDeep** card, **Domain** is the first field, before the API key and hub sign-in. Choose **`api.neuraldeep.ru`** (Russia, the default) or **`api.neuraldeep.tech`** (international). The selection controls the hub link and device sign-in, the model catalog probe, and the saved **`providers[].api_base`**. Changing it clears the previous catalog; a stored login issued by the other hub is flagged so it can be replaced with a sign-in for the selected domain.
+- In the **NeuralDeep** card, **Domain** is the first field, before the API key and hub sign-in. Choose **`api.neuraldeep.ru`** (Russia, the default) or **`api.neuraldeep.tech`** (international). The selection controls the hub link and device sign-in, the model catalog probe, and the saved **`providers[].api_base`**. Changing it clears the previous catalog; a stored login issued by the other hub is flagged and is not treated as the credential for the selected domain, so it can be replaced with a sign-in for it.
 ![NeuralDeep onboarding with the international domain selected](../assets/web-ui/onboarding-neuraldeep-domain-tech-dark-1280.png)
 
 *The domain selector comes before credentials; the international deployment is selected (Dark, 1280 px).*

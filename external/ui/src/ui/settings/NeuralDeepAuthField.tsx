@@ -77,11 +77,30 @@ export function NeuralDeepAuthField(props: {
   const [login, setLogin] = useState<DeviceLogin | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A stored login only authenticates the deployment that minted it: a key
+  // issued by one hub is refused by the other, so a login whose recorded hub
+  // is not the one the picked endpoint resolves to is not a credential for
+  // this form. The parent's onConnectedChange is that decision (the onboarding
+  // picker saves a keyless row exactly while it says the login is the
+  // credential), so a mismatched login reports false here even though the
+  // status read says "connected" - the widget still shows the mismatch note.
+  const loginIsCredential = (next: AuthStatus): boolean => {
+    if (!next.connected) {
+      return false;
+    }
+    if (next.hub && next.endpoint_hub) {
+      const hub = next.hub.replace(/\/+$/, "").toLowerCase();
+      const endpointHub = next.endpoint_hub.replace(/\/+$/, "").toLowerCase();
+      return hub === endpointHub;
+    }
+    return true;
+  };
   // Every status the widget settles on reaches the parent: the onboarding
-  // picker saves a keyless provider row exactly while this says connected.
+  // picker saves a keyless provider row exactly while this says the login is
+  // the credential.
   const applyStatus = (next: AuthStatus) => {
     setStatus(next);
-    props.onConnectedChange?.(next.connected);
+    props.onConnectedChange?.(loginIsCredential(next));
   };
   // A pending login is tied to the provider it was started for, not to the
   // endpoint currently picked: switching the endpoint mid-flow keeps polling
@@ -96,7 +115,10 @@ export function NeuralDeepAuthField(props: {
       setError("");
     }
     if (!providerName) {
-      setStatus({ connected: false });
+      // Through applyStatus, like every other settled status: a row with no
+      // name has no login either, and the parent must hear that too or it
+      // keeps treating a login as the credential after the name is cleared.
+      applyStatus({ connected: false });
       return;
     }
     const controller = new AbortController();
@@ -146,19 +168,28 @@ export function NeuralDeepAuthField(props: {
         setLogin((current) => ({ ...current, ...next }));
         if (next.status === "completed") {
           // Re-read the stored status: the poll response carries no masked
-          // key, and "Signed in ()" with an empty mask reads as a bug.
+          // key, and "Signed in ()" with an empty mask reads as a bug. The
+          // whole re-read resolves after the cancelled check above (another
+          // await point per response), so the settled status is applied only
+          // if the widget is still showing this flow - a sign-in that finishes
+          // after the user picked another domain or preset must not flip the
+          // parent's "the login is the credential" switch back on.
+          let settled: AuthStatus = { connected: true, source: "oauth" };
           try {
             const statusResponse = await fetch(statusEndpoint, {
               method: "GET",
             });
             if (statusResponse.ok) {
-              applyStatus((await statusResponse.json()) as AuthStatus);
-            } else {
-              applyStatus({ connected: true, source: "oauth" });
+              settled = (await statusResponse.json()) as AuthStatus;
             }
           } catch {
-            applyStatus({ connected: true, source: "oauth" });
+            // The optimistic status stands: the login completed even if the
+            // masked-key read did not.
           }
+          if (cancelled) {
+            return;
+          }
+          applyStatus(settled);
           setLoading(false);
           return;
         }
