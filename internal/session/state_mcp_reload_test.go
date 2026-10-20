@@ -482,6 +482,9 @@ func TestDeferredMCPDialCutShortIsRetriedByTheNextTurn(t *testing.T) {
 	if !st.hasPendingMCPServers() {
 		t.Fatal("the server the first turn could not reach was dropped instead of parked")
 	}
+	// Only the failed dial needs the short deadline. The healthy retry runs
+	// a real subprocess, whose startup can exceed it under race instrumentation.
+	mcpStartTimeout = previous
 
 	// The server answers now; the next turn connects it before it runs.
 	next := *mgr.activeCfg()
@@ -706,7 +709,9 @@ func TestMCPSwitchDuringAFullReloadIsNotLost(t *testing.T) {
 // for the session's first turn.
 func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
 	previous := mcpStartTimeout
-	mcpStartTimeout = 300 * time.Millisecond
+	// Leave room for the healthy subprocess handshake under race instrumentation;
+	// only the peer that never answers should exhaust this deadline.
+	mcpStartTimeout = 3 * time.Second
 	t.Cleanup(func() { mcpStartTimeout = previous })
 	started := time.Now()
 	mgr, st, _ := newMCPToggleSession(t, map[string]config.MCPJSONServer{

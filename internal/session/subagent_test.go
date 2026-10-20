@@ -940,7 +940,16 @@ func TestDeleteSessionTreeRefusesATurnAdmittedBeforeTheMark(t *testing.T) {
 	// its recheck; it marks, cancels and waits for the turn to release.
 	deleteDone := make(chan error, 1)
 	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
-	time.Sleep(50 * time.Millisecond)
+	for deadline := time.Now().Add(10 * time.Second); !m.IsDeletingForTest(parent.ID); time.Sleep(5 * time.Millisecond) {
+		select {
+		case err := <-deleteDone:
+			t.Fatalf("the delete returned %v before marking the session", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the delete never marked the session")
+		}
+	}
 	select {
 	case err := <-deleteDone:
 		t.Fatalf("the delete returned %v while the admitted turn was still registered", err)
