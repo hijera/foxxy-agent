@@ -5,10 +5,11 @@ package httpserver
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/hijera/foxxycode-agent/internal/idehost"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/idehost"
 )
 
 type ideEvent = idehost.Event

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/hijera/foxxycode-agent/internal/export"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,9 +12,10 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/export"
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	svn "github.com/hijera/foxxycode-agent/internal/svn"
+	"github.com/hijera/foxxycode-agent/internal/svn"
 )
 
 // sessionsExportUsage is the usage line of `foxxycode sessions export`.

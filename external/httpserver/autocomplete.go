@@ -5,14 +5,15 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
-	"github.com/hijera/foxxycode-agent/internal/autocomplete"
-	"github.com/hijera/foxxycode-agent/internal/config"
-	"github.com/hijera/foxxycode-agent/internal/ideenv"
-	"github.com/hijera/foxxycode-agent/internal/llm"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/autocomplete"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/ideenv"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // foxxycodeCompletionConfigGet serves the handful of settings an editor client needs before it can
