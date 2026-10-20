@@ -11,8 +11,10 @@ notes: 'Historical decisions migrated from the local UPSTREAM_SYNC.md journal an
   (exclusive) through 75c31bcc0b726a46386b0977fee997353f62a9a1 (inclusive, tag 1.2.1): 38 constituent commits, 10
   PR merges and 6 overlapping integration merges. The latter are skipped as redundant, rather than applied twice.
   The 2026-10-14 wave covers the next 24 constituent commits through 5ed775c47789a5c9ec49cfb66c0d575730599cf8 (tag
-  1.2.10), completing the partial/deferred PR #351 records. The 2026-10-16 wave covers the next 67 commits through a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5 (tag 1.2.18). Commits after that checkpoint remain unreviewed unless
-  listed individually.'
+  1.2.10), completing the partial/deferred PR #351 records. The 2026-10-16 wave covers the next 67 commits through
+  a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5 (tag 1.2.18). The 2026-10-20 wave covers the next 45 commits through
+  24bf9b367767bb0a76193c4dac57ab03b0203365 (commit of annotated tag 1.2.27): 41 adapted constituent/PR-merge records
+  and 4 redundant integration merges skipped. Commits after that checkpoint remain unreviewed unless listed individually.'
 ports:
 - upstream_sha: 11cc5e9fb1584f3cc2e765ba5be8f5d13442453d
   status: adapted
@@ -10636,4 +10638,360 @@ ports:
   fork_commits:
   - e80acc45e6512fa6e28b96ea51ec15962e20d9e1
   reason: "Consolidated net-diff port through 1.2.18: Merge pull request #371 from coddy-project/feat/issue-363-agent-wakes. Preserves the FoxxyCode differences recorded in UPSTREAM_SYNC.md; implementation is recorded in the referenced consolidated port commit."
+  remaining: []
+- upstream_sha: f9e2665da962b1887fb49d09558f61f5f36e65ad
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs: a /name skill body rides in the message that invoked
+    it. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 25c4ea23237e925226d49c0b9a7bdd619f82eb9b
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: feat(queue): steer or defer follow-ups with attachments.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 2b1d99bc029c440d532e4b45de1730d6de6f03c4
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs: the reference and the loop steps attach a /name
+    skill body too. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 6b6a792df765ca0425fa61dd8ed89b1420c68bbf
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: feat: add MCP management command across surfaces. Adapted
+    to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered fork
+    divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 42cc5eae1e09ac96ce8a5bd2bc1df806eb8a514e
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #380 from coddy-project/docs/skill-body-in-history.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: dfb98859589adb41afef589f8f53c79b9aed5bb1
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: feat(rules): read one project rules folder and keep rules
+    out of the system prompt. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous
+    MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: a418057351ec5420bb3ff625642dfa73526ac081
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(rules): act on the cross-review of the one-folder
+    change. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and
+    registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 9a8b56baaaadc7b3f5d08022948c34861569d340
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs(rules): the comments of Rule say where a gated rule
+    goes now. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: b241cf56073c210256fd0f4173de375c7cba9a5a
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #385 from coddy-project/feat/issue-366-rules-one-folder.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 53fa43c0151a3bdb87f4caed833a1e6767dd197c
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs(workflow): comment on the issue a merge closes, in
+    the issue''s language. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous
+    MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: ea0f2682e7c1b784b0280daa780a606769d3656e
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #386 from coddy-project/docs/workflow-issue-comment-on-merge.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 0497d530ca9ba519d936dc79d768dba047676b06
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(queue): act on the review of the queue modes. Adapted
+    to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered fork
+    divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: b136cd15c59f38321d9a6c5bdd98741306168d6f
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): load message images through a remote environment.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: ae5bb6bdf8e184e8d4abf8a0cf6fc09a4d60d13c
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #381 from coddy-project/feat/issue-364-queue-modes.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 3f25653ab8e2a5afb17496b0243e965a53481ef9
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge (Merge origin/main into feat/issue-367-mcp-command); its net changes are
+    covered by the constituent records and consolidated port 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71, not applied
+    twice.
+  remaining: []
+- upstream_sha: f1c0ce640f5599139b2887a71ec5853364ddbe1e
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): MCP rows lead with the status dot and read whole
+    on a phone. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 634c24ffd23a69af2cfd2d074395c8f92964b9fa
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(mcp): act on the cross-review of the /mcp command.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: e0b2ffb37b042643f9c60497099b454f5a7cba14
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): /mcp with words after it opens the settings,
+    like the console. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 2aee1ae6b77353eba53f2804d49f90985c272e05
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(telegram): one answer per callback and no empty keyboards.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 867f59b982a2870f98a4c2064ac6f7c72e807e3e
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(telegram): answer /mcp in a group without a mention.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 1a6e552e97ef0d60785c17962f0d495c9809e7c6
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(mcp): a stored session starts its MCP servers for
+    its first turn. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 377b7c9327b0203327ffabc663687b1006490000
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): the MCP trust note wraps a long path on a phone.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 242385873eb27fcc2885ee1a81bccc1a1325d54b
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs(mcp): one-server switches, trust by fingerprint,
+    stored sessions. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 3323611d7c5a19a8290e8595d65549bf8a638ed6
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: test(cli): the /mcp pty run matches requests by their
+    prompt. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and
+    registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 38726331a6be19649de3fda9ee920817d12f5666
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(mcp): act on the second review round. Adapted to FoxxyCode
+    branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered fork divergences;
+    owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: f03b1f13bd18b97d614634c6f934be0d27a36c5d
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(session): each session keeps its settings, a switch
+    applies at the next request (#362). Adapted to FoxxyCode branding, trust gates, configurable send shortcut,
+    asynchronous MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 86bb3418a5393091c5b3ab0b615c98dea32f95b8
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(config): a settings save writes only what changed
+    (#359). Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and
+    registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: bba42ff4629ad770f7655d3b815e6467d429e694
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(settings): open from a kept copy, say a save on the
+    button (#359). Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 41a5fbf6eb9f9f08717f535ce2a967b6a66af486
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(session): a switch that lands during a full MCP reload
+    is kept. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 17aa489708ac4b3e0f98b3bcddecc342c4a7d63b
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(mcp): state files take a lock every process shares;
+    delete the declaration first. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous
+    MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 2e2b3d865064a9764e6c890937b28160408b226d
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): the MCP list says why it could not load. Adapted
+    to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered fork
+    divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 5cdd9886a87e271725023a41aa5601d83f7ca647
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: test(cli): the /mcp pty run finds a relative binary from
+    its workspace. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 5b975a26517d0ee79812a6cb5cd873ab2decdcb8
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(config): match the Windows spelling of a cleaned path
+    in the save fallback (#359). Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous
+    MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 9f223b1146ce90ec60cd156ef2a6d6fffa087774
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #387 from coddy-project/fix/issue-362-session-settings.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 367eebb74216decb4920829da228d3792d682207
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge (Merge branch 'main' into feat/issue-367-mcp-command); its net changes are
+    covered by the constituent records and consolidated port 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71, not applied
+    twice.
+  remaining: []
+- upstream_sha: 66d2d2deeae8e38d96251f864127a90677cb6db4
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #382 from coddy-project/feat/issue-367-mcp-command.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: b3320a086282e2093a2fef67536c0c0f74a07b9f
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge (Merge branch 'main' into fix/359-settings-cache-config-spelling); its net
+    changes are covered by the constituent records and consolidated port 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71,
+    not applied twice.
+  remaining: []
+- upstream_sha: 35b7254406c501e55cb88e6ef92933d599069f59
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #388 from coddy-project/fix/359-settings-cache-config-spelling.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 4391c9f4c5870df6e37b514a429845dbdd53aec7
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs(config): a save keeps values, not indentation or
+    blank lines. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle
+    and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 4b638cb6e98647bf58a05de8e96e0963b57ef9c8
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): Escape closes every screen the rail opens, Docs
+    and Settings included. Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous
+    MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 0e6bcf81714ce6b4e09720f248325c8712fc21f5
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: docs: Escape and the screens of the rail. Adapted to FoxxyCode
+    branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered fork divergences;
+    owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 3f953185171e5d9fc8d0945bb36afef9efa12899
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #391 from coddy-project/docs/config-save-layout.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 0d8a136e0292f10420a4474f566483c19e54a7ee
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: fix(ui): menus, popovers and the folder browser answer
+    Escape before the screen under them. Adapted to FoxxyCode branding, trust gates, configurable send shortcut,
+    asynchronous MCP lifecycle and registered fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: b3c19605102f1f8447f11660ed610623bd7d88c8
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge (Merge branch 'main' into fix/webui-escape-closes-rail-screens); its net
+    changes are covered by the constituent records and consolidated port 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71,
+    not applied twice.
+  remaining: []
+- upstream_sha: 24bf9b367767bb0a76193c4dac57ab03b0203365
+  status: adapted
+  fork_commits:
+  - 07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71
+  reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #392 from coddy-project/fix/webui-escape-closes-rail-screens.
+    Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
+    fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
   remaining: []
