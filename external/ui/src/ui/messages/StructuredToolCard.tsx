@@ -32,6 +32,9 @@ import { taskStatusLabel } from "../tasks/taskStatus";
 import type { BackgroundTaskStatus } from "../tasks/types";
 import { formatUtcForLocalDisplay } from "./formatMessageTime";
 import { parseMcpToolName } from "./toolDisplayName";
+import { workspaceToolNames } from "../chat/workspaceToolDisplay";
+import { WorkspaceToolBody, workspaceToolHeading } from "./WorkspaceToolBody";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
 
 /**
  * Built-in tools whose call reads better as a card than as its JSON arguments over
@@ -40,6 +43,7 @@ import { parseMcpToolName } from "./toolDisplayName";
  * was, inside the card, so a change of format loses no information.
  */
 const structuredNames = new Set([
+  ...workspaceToolNames,
   "switch_model",
   "http_request",
   "background_list",
@@ -234,6 +238,7 @@ function Card(
       {hasContent(props.children) ? (
         <div
           ref={props.bodyRef}
+          data-testid={props.bodyRef ? "tool-result-viewport" : undefined}
           className={["scheduler-tool-body", props.bodyClassName]
             .filter(Boolean)
             .join(" ")}
@@ -928,6 +933,7 @@ export const StructuredToolCard = memo(function StructuredToolCard(
     argsText?: string | undefined;
     resultText: string;
     status: string;
+    todoPlan?: TodoPlanEntry[] | undefined;
   },
 ) {
   const { t } = useT();
@@ -938,6 +944,31 @@ export const StructuredToolCard = memo(function StructuredToolCard(
   const result = props.resultText;
   const body = { bodyRef: props.bodyRef, bodyClassName: props.bodyClassName };
   const argsNode = argumentsNode(props.argsText);
+  if (workspaceToolNames.has(name)) {
+    return (
+      <Card
+        heading={workspaceToolHeading(
+          name,
+          args,
+          t(
+            name.startsWith("foxxycode_todo_")
+              ? "todoPreview.header.plan"
+              : "prompts.permissionHeader.workspace",
+          ),
+        )}
+        {...body}
+      >
+        <WorkspaceToolBody
+          name={name}
+          args={args}
+          argsText={props.argsText}
+          result={result}
+          status={props.status}
+          todoPlan={props.todoPlan}
+        />
+      </Card>
+    );
+  }
   if (name === "switch_model")
     return <ModelSwitchCard args={args} result={result} {...body} />;
   if (name === "http_request")

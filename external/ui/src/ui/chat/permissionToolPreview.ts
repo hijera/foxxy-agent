@@ -15,10 +15,7 @@ import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 import { parseLoadSkillName } from "./loadSkillDisplay";
-import {
-  parseMcpToolName,
-  toolDisplayName,
-} from "../messages/toolDisplayName";
+import { parseMcpToolName, toolDisplayName } from "../messages/toolDisplayName";
 
 export type PermissionToolCallContext = {
   title?: string | undefined;
@@ -40,6 +37,7 @@ export type PermissionToolPreview =
   | (PermissionPreviewBase & { kind: "svn"; argsText: string })
   | (PermissionPreviewBase & { kind: "browser"; argsText: string })
   | (PermissionPreviewBase & { kind: "code"; text: string })
+  | (PermissionPreviewBase & { kind: "document"; text: string })
   | (PermissionPreviewBase & { kind: "shell"; text: string })
   | (PermissionPreviewBase & { kind: "action" })
   | (PermissionPreviewBase & { kind: "path" })
@@ -241,7 +239,9 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
  * row names. Kept apart from `toolCallTargetText`, which stays the path alone for
  * the live status line and for `relativeToolTarget`.
  */
-export function toolCallTargetRange(context: PermissionToolCallContext): string {
+export function toolCallTargetRange(
+  context: PermissionToolCallContext,
+): string {
   const toolName = (
     normalizedToolName(context.title) ||
     normalizedToolName(context.kind) ||
@@ -535,7 +535,20 @@ export function buildToolCallPreview(
         normalized === "ssh_run_command"
           ? t("prompts.permissionHeader.sshShell")
           : t("prompts.permissionHeader.shell"),
-      meta: [t("prompts.permissionMeta.timeout", { seconds: timeout })],
+      meta: [
+        ...(normalized === "ssh_run_command" && stringArg(args, "host")
+          ? [
+              stringArg(args, "host"),
+              t("workspaceTool.port", {
+                port:
+                  numberArg(args, "port", 22) > 0
+                    ? numberArg(args, "port", 22)
+                    : 22,
+              }),
+            ]
+          : []),
+        t("prompts.permissionMeta.timeout", { seconds: timeout }),
+      ],
       copyText: command,
       kind: "shell",
       text: command,
@@ -636,7 +649,7 @@ export function buildToolCallPreview(
     };
   }
 
-  if (normalized === "edit") {
+  if (normalized === "edit" || normalized === "docs_edit") {
     const path = stringArg(args, "path");
     const oldString = stringArg(args, "oldString");
     const newString = stringArg(args, "newString");
@@ -657,16 +670,31 @@ export function buildToolCallPreview(
     };
   }
 
-  if (normalized === "write" || normalized === "write_file") {
+  if (
+    normalized === "write" ||
+    normalized === "write_file" ||
+    normalized === "docs_write"
+  ) {
     const path = stringArg(args, "path", "filePath");
     const content = stringArg(args, "content");
     return {
       toolName,
       title,
       header: path,
-      meta: [tp("prompts.permissionMeta.chars", content.length)],
+      meta: [
+        tp("prompts.permissionMeta.chars", content.length),
+        ...(normalized === "docs_write"
+          ? [
+              t(
+                boolArg(args, "overwrite", false)
+                  ? "workspaceTool.overwrite"
+                  : "workspaceTool.createOnly",
+              ),
+            ]
+          : []),
+      ],
       copyText: content,
-      kind: "code",
+      kind: normalized === "docs_write" ? "document" : "code",
       text: content,
     };
   }

@@ -11104,6 +11104,66 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
 }
 
+.workspace-file-code,
+.workspace-file-tree {
+  position: relative;
+  min-width: 0;
+}
+
+.workspace-file-source {
+  margin: 0;
+  padding: 8px 36px 8px 10px;
+  border-radius: 8px;
+  background: var(--foxxycode-surface-sunken);
+  color: var(--foxxycode-surface-code-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.workspace-file-line {
+  display: block;
+  position: relative;
+  padding-left: 5ch;
+  min-height: 1.5em;
+}
+
+.workspace-file-line::before {
+  content: attr(data-line);
+  position: absolute;
+  left: 0;
+  width: 4ch;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.workspace-file-list > li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.workspace-file-kind {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.workspace-search-results > li {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workspace-file-tree .structured-tool-output {
+  padding-right: 36px;
+}
+
 .structured-tool-card a {
   color: var(--foxxycode-link);
   overflow-wrap: anywhere;

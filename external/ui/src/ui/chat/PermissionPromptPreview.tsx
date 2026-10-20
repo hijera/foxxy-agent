@@ -9,6 +9,7 @@ import {
 
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { Markdown } from "../markdown/Markdown";
 import { BrowserAction, BrowserIcon } from "../messages/BrowserAction";
 import { SvnAction, SvnIcon } from "../messages/SvnAction";
 import type { ParsedDiffLine } from "../messages/parseDiff";
@@ -94,7 +95,7 @@ export function todoStatusMark(status: string): string {
   }
 }
 
-function TodoPreview({
+export function TodoPreview({
   preview,
 }: {
   preview: Extract<Preview, { kind: "todo" }>;
@@ -261,6 +262,13 @@ function PreviewBody({
   }
   if (preview.kind === "code") {
     return <pre className="permission-preview-code">{preview.text}</pre>;
+  }
+  if (preview.kind === "document") {
+    return (
+      <div className="structured-tool-document">
+        <Markdown text={preview.text} />
+      </div>
+    );
   }
   return null;
 }

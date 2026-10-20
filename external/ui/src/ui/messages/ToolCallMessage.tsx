@@ -30,6 +30,7 @@ import {
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
+import { workspaceToolNames } from "../chat/workspaceToolDisplay";
 import {
   agentTaskName,
   agentTranscriptSessionId,
@@ -375,9 +376,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const isWriteTool =
     !isPatchTool &&
     (rawNameLower === "write" ||
+      rawNameLower === "docs_write" ||
       rawNameLower === "write_file" ||
       (!props.title && kindLower === "write"));
-  const isEditTool = !isPatchTool && rawNameLower === "edit";
+  const isEditTool =
+    !isPatchTool && (rawNameLower === "edit" || rawNameLower === "docs_edit");
   /** Tools whose argument preview can be arbitrarily large and needs a capped viewport. */
   const isShellTool =
     rawNameLower === "run_command" || rawNameLower === "ssh_run_command";
@@ -538,12 +541,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
       (isSpawnAgentTool && !spawnAgent && !pendingLike) ||
-      ((isWriteTool || isEditTool || isShellTool || isBrowserTool || isSvnTool) &&
+      ((isWriteTool ||
+        isEditTool ||
+        isShellTool ||
+        isBrowserTool ||
+        isSvnTool ||
+        (detailsOpen && workspaceToolNames.has(rawNameLower))) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
-    void fetchFn(props.toolCallId);
+    // A failed history fetch keeps the original preview; do not reject outside React.
+    void fetchFn(props.toolCallId).catch(() => {});
   }, [
     argsTextIsCompleteJSON,
     fetchFn,
@@ -556,6 +565,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     spawnAgent,
     pendingLike,
     isSvnTool,
+    detailsOpen,
+    rawNameLower,
     patchContent,
     props.argsText,
     props.toolCallId,
@@ -877,7 +888,14 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             <span className="thinking-head">
               {isBrowserTool && <BrowserIcon />}
               {isSvnTool && <SvnIcon />}
-              <span className={isShellTool ? "thinking-label thinking-label--shell" : "thinking-label"} title={displayLabel}>
+              <span
+                className={
+                  isShellTool
+                    ? "thinking-label thinking-label--shell"
+                    : "thinking-label"
+                }
+                title={displayLabel}
+              >
                 {displayLabel}
               </span>
               {trailElements.length > 0 ? (
@@ -980,6 +998,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 argsText={props.argsText}
                 resultText={resultBody}
                 status={status}
+                todoPlan={props.todoPlan}
                 // A truncated answer caps the card's body, not the card: the bar
                 // naming the call stays in view while the body scrolls.
                 bodyRef={resultViewportRef}
