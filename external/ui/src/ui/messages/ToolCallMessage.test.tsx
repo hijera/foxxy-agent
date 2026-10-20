@@ -339,13 +339,15 @@ test("completed mkdir uses the rich tool preview without approval actions", () =
     container.querySelector(".permission-preview-location")?.textContent,
   ).toBe("build");
   expect(
-    container.querySelector(".permission-preview-meta")?.textContent,
+    container.querySelector(".scheduler-tool-fields")?.textContent,
   ).toContain("create parents");
   expect(container.querySelector("[aria-label='Tool arguments']")).toBeNull();
   expect(container.querySelector(".permission-prompt-actions")).toBeNull();
   expect(
-    container.querySelector(".tool-call-result-card")?.textContent,
-  ).toContain("created directory H:\\workspace\\build");
+    container.querySelector(".structured-tool-card")?.textContent,
+  ).toContain("H:\\workspace\\build");
+  expect(container.textContent).toContain("Created directory");
+  expect(container.querySelector(".tool-call-result-card")).toBeNull();
 });
 
 test("question tool names the act and omits duration from its summary row", () => {
@@ -1413,7 +1415,7 @@ test("a call with no arguments shows an action card instead of an empty JSON obj
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-empty"
-      title="foxxycode_todo_plan_archive"
+      title="custom_action"
       status="completed"
       argsText="{}"
       resultText="archived plan (3 items)"
@@ -1425,7 +1427,7 @@ test("a call with no arguments shows an action card instead of an empty JSON obj
   // Same bar chrome and same status mark as the other plan tools.
   const card = screen.getByTestId("tool-action-preview");
   expect(card).toHaveClass("permission-preview-bar--standalone");
-  expect(card).toHaveTextContent("archiving the plan");
+  expect(card).toHaveTextContent("custom_action");
   expect(card).toHaveTextContent("Done");
   expect(
     card.querySelector(".todo-tool-preview-mark--completed"),
@@ -1440,7 +1442,7 @@ test("the action card tracks the call it belongs to", () => {
   render(
     <ToolCallMessage
       toolCallId="tc-empty-run"
-      title="foxxycode_todo_plan_read"
+      title="custom_action"
       status="in_progress"
       argsText="{}"
       startedAtMs={Date.now()}

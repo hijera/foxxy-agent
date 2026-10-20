@@ -817,6 +817,30 @@ For the whole of a running turn, streaming text included, the typing dots carry 
 
 ## Tool call card (bundled SPA, current)
 
+Documentation writes and edits have the same bounded previews as file changes: `docs_write` shows the Markdown document, its path and whether overwriting is allowed; `docs_edit` shows the removed and added lines, including the replace-all option. Long previews expand inside the card. Restored calls fetch their full arguments when the history preview is cut short. An SSH command names its remote host and port beside the timeout.
+
+![Documentation previews and an SSH command in the running web UI](../assets/web-ui/workspace-docs-expanded-dark-1280.png)
+
+*A documentation write, a documentation diff and a command on a named SSH host.*
+
+All todo operations have readable cards. In addition to updating a row and replacing a plan, reading shows a checklist with its saved statuses; adding shows the new item and insertion position; moving shows one-based positions; removing shows the position and remaining count; archiving shows the number of finalized items and the archive path, or explicitly says that no archive file was written. A removal cannot show the removed text when the tool returned only its index. Unknown result formats remain visible as text.
+
+![Todo read, add, move, remove and archive cards](../assets/web-ui/workspace-todo-expanded-dark-1280.png)
+
+*Checklist operations show their contents, positions and outcomes.*
+
+`grep` separates each match's file and line from the matching source, preserving Windows drive letters and colons in the source. `glob` and explicit directory reads show file rows; `print_tree` keeps the tree's connectors and truncation notice with its depth and a copy control. A file `read` shows the exact returned source with line numbers starting at the requested offset and a copy control that copies only the source. A `read` result does not identify its kind, so a directory layout is used only when the arguments identify a directory; ambiguous output stays source text. Empty results, unknown lines and truncation markers remain visible. **More…** / **Less** keep the structured viewer and reset its scroll position on collapse.
+
+![File search, file list, tree and source cards](../assets/web-ui/workspace-files-expanded-dark-1280.png)
+
+*Workspace results retain source text and expose paths, line numbers and directory structure.*
+
+`mkdir`, `touch`, `rm`, `rmdir` and `mv` show the requested paths and options together with the actual outcome and resolved paths. A timestamp update is distinguished from creating a file, and removing a tree from removing an empty directory. Pending calls do not claim success; failed and cancelled calls keep their original error text.
+
+![File mutation outcome cards](../assets/web-ui/workspace-mutations-expanded-dark-1280.png)
+
+*Creation, timestamp updates, moves and removals report what the tool actually completed.*
+
 The scheduler tools (`foxxycode_scheduler_*`) have a card of their own instead of their JSON: the bar names the job and what happened to it (*resumed*, *run started*, *was not running*, *created*, *updated*, *deleted*), a job read or created is shown as its fields - description, schedule with its human reading, state, next run, mode, model, folder - with the instruction rendered as Markdown, the job list as one row per job and the runs of a job as one row per run with its status and duration.
 
 Every other built-in tool that answers in a known shape, and every tool of an MCP server, has a card too (`StructuredToolCard.tsx`, the parsing in `chat/structuredToolDisplay.ts`), instead of its JSON arguments over the text it wrote for the model:

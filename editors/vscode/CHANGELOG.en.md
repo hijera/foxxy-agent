@@ -8,7 +8,12 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-16
+## Unreleased — 2026-10-20
+
+**Clearer tool cards.**
+File reads, search results, directory trees, file operations and checklist changes now have dedicated cards with their results and parameters. Documents show rendered Markdown and edit diffs, while SSH commands show the destination host and port. Long results can be expanded and copied.
+
+## 0.3.31 — 2026-10-16
 
 **The model catalog sits with its provider.**
 Models load in provider settings, including before a new row is saved. Add them to the configuration from the list; catalog context windows and image support seed editable defaults. Multiple profiles of one provider keep separate sign-ins. Initial setup also keeps another profile off the shared CLI login.
