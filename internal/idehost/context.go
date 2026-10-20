@@ -10,6 +10,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/ideenv"
 	"github.com/hijera/foxxycode-agent/internal/ideterm"
+	"github.com/hijera/foxxycode-agent/internal/textutil"
 )
 
 // ideEnvMaxTabs caps how many open tabs are listed in the IDE context block to
@@ -68,7 +69,7 @@ func EditorNote(cwd string, snap ideenv.Snapshot) string {
 		}
 	}
 	if sel := snap.Selection; sel != nil {
-		text := tailBytes(sel.Text, ideEnvMaxSelectionBytes)
+		text := textutil.TailBytes(sel.Text, ideEnvMaxSelectionBytes)
 		b.WriteString("\n\n# Selection\n")
 		fmt.Fprintf(&b, "%s:%d-%d\n", rel(sel.File), sel.StartLine, sel.EndLine)
 		b.WriteString(text)
@@ -116,7 +117,7 @@ func TerminalNote(snap ideterm.Snapshot) string {
 			b.WriteString("\n$ ")
 			b.WriteString(lc)
 		}
-		if out := strings.TrimRight(tailBytes(tm.Output, terminalEnvMaxContextBytes), "\n"); out != "" {
+		if out := strings.TrimRight(textutil.TailBytes(tm.Output, terminalEnvMaxContextBytes), "\n"); out != "" {
 			b.WriteByte('\n')
 			b.WriteString(out)
 		}
@@ -210,21 +211,6 @@ func pickTerminal(ts []ideterm.Terminal, name string) *ideterm.Terminal {
 		}
 	}
 	return nil
-}
-
-// tailBytes returns the last maxBytes bytes of s (trimmed to a rune boundary)
-// when s exceeds the cap, otherwise s unchanged.
-func tailBytes(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	tail := s[len(s)-maxBytes:]
-	for i := 0; i < len(tail) && i < 4; i++ {
-		if tail[i]&0xC0 != 0x80 {
-			return tail[i:]
-		}
-	}
-	return tail
 }
 
 // ContextNotes snapshots the current host once and renders the three prompt annotations.

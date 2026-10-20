@@ -307,7 +307,9 @@ func commentLeader(language string) string {
 }
 
 // tailBytes keeps at most max bytes from the end of s, snapped forward to a line boundary when one
-// is close by, so the model never receives a half-truncated first line.
+// is close by, so the model never receives a half-truncated first line. It is not
+// textutil.TailBytes: that one only drops back to a rune boundary, while this one
+// also throws away a short leading fragment to keep the first line whole.
 func tailBytes(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s

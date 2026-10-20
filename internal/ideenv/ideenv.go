@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/textutil"
 )
 
 // maxSelectionBytes caps the stored selection text; the tail is kept,
@@ -73,24 +75,7 @@ func cleanSelection(sel *Selection) *Selection {
 	if file == "" || sel.StartLine < 1 || sel.EndLine < sel.StartLine || strings.TrimSpace(sel.Text) == "" {
 		return nil
 	}
-	return &Selection{File: file, StartLine: sel.StartLine, EndLine: sel.EndLine, Text: tailBytes(sel.Text, maxSelectionBytes)}
-}
-
-// tailBytes returns the last maxBytes bytes of s (trimmed to a rune boundary)
-// when s exceeds the cap, otherwise s unchanged. The cap is what the snapshot
-// stores, and every reader treats the text as UTF-8, so a raw byte slice is not
-// allowed to leave a partial rune at the head of the kept tail.
-func tailBytes(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	tail := s[len(s)-maxBytes:]
-	for i := 0; i < len(tail) && i < 4; i++ {
-		if tail[i]&0xC0 != 0x80 {
-			return tail[i:]
-		}
-	}
-	return tail
+	return &Selection{File: file, StartLine: sel.StartLine, EndLine: sel.EndLine, Text: textutil.TailBytes(sel.Text, maxSelectionBytes)}
 }
 
 // Get returns a copy of the latest editor snapshot. The zero snapshot (no
