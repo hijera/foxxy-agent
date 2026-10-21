@@ -185,27 +185,32 @@ jobs:
       # without a jump, keeps a bounded DOM, follows a turn run in a second
       # browser and reads through the relay. At full speed here, where the
       # runner's own pace varies; locally it runs at CPU x4.
+      #
+      # The browser checks run in the full combination alone: the one matrix
+      # entry that has both the embedded UI and the swarm relay. The gate
+      # matches by contents rather than by the exact spelling of the set, so
+      # a change to FULL_TAGS in the Makefile cannot leave these steps dead.
       - name: Build the web UI and the swarm relay
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         run: make build TAGS="http ui swarm"
 
       # The browser below is a download of a few hundred MB, so it is cached
       # per resolved Playwright version (the package is not in the lockfile):
       # `playwright install` is a no-op while the cache holds.
       - name: Resolve the Playwright version
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         id: playwright
         run: echo "version=$(npm view playwright version)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the Playwright browsers
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Drive a long transcript in a browser
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         run: |
           npm --prefix external/ui i --no-save playwright@${{ steps.playwright.outputs.version }}
           (cd external/ui && npx playwright install --with-deps chromium)
@@ -216,7 +221,7 @@ jobs:
       # switched and a message taken back through the relay's mount, the
       # deferred prompt answered above its answer, and a Stop that keeps it.
       - name: Drive the message queue through a swarm relay
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         run: FOXXYCODE_BIN="$PWD/build/foxxycode" npm --prefix external/ui run check:queue
 
       # The gateway suite runs the bot against the fake Bot API in-process. In

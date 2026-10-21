@@ -231,6 +231,11 @@ agent:
   model: "openai/gpt-5.6-terra"  # optional default LLM until the client overrides per session;
                                # unset, interactive surfaces pick a model per session, while
                                # foxxycode -p / foxxycode acp / API calls without a model report "no model configured"
+  # queue_mode: steer          # what Enter does with a message written while a turn runs:
+                               # steer joins the running turn at its next step, after_turn
+                               # starts a prompt of its own after the answer. Unset (the
+                               # default), the browser and the console ask on the first such
+                               # message; Tab sends the other way for one submission.
   max_turns: 0                 # ReAct iterations per prompt, unanswered retries and continuations excluded; 0 (default) = no limit
   llm_retry_max: 10             # shared per-step budget: transport retries + no-answer recoveries
                                # (default 10; 0 disables these retries, not separately configured continuations)
@@ -335,7 +340,8 @@ skills:
 
 # Rules (Go: config.Rules, internal/config/rules.go)
 # One project folder is read under the session CWD: the first of .foxxycode/rules,
-# the shared .agents/rules, .cursor/rules, .claude/rules and .codex/rules that
+# the legacy .foxxyrules / .foxyrules, the shared .agents/rules, .cursor/rules,
+# .claude/rules and .codex/rules that
 # holds a rule file, so another agent's mirror of the same rules is not loaded
 # twice. Your own ~/.foxxycode/rules joins it in every workspace, and nested
 # **/AGENTS.md are read for the folders a tool enters. Your own

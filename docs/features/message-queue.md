@@ -38,7 +38,6 @@ An **after-turn** message is the prompt of a run of its own, started once the an
 
 With `agent.llm_stall_retry` on, an iteration that re-issues a request the provider left unanswered, waits out a usage limit, replays an empty answer or carries on an answer the stream cut is not a step the model took, and it does not read the queue. A re-issue is meant to be the request that failed, and a continuation is meant to follow the half-written answer: a follow-up slipped in between would be answered by the replay, and in the transcript it would split the answer from its own continuation. It is read at the next real step instead - or at the end of the turn. The nudges that bring a looping model or an empty answer back to work do read it: a correction is what those steps need.
 
-## The lifetime of the queue
 ## Turn boundaries and Stop
 
 When a turn answers, the manager looks at what is waiting in one atomic step: every steer message first, as one batch for one more run of the same turn; otherwise the oldest after-turn message, alone; otherwise it closes the queue. Deciding under one lock means a message is never accepted by a turn that is already over, and a message switched from one mode to the other a moment earlier is taken as what it is now.

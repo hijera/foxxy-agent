@@ -379,14 +379,16 @@ mcp_servers:
    on them — over HTTP that call sits on a request an editor panel is blocked on, and a cold
    `npx` server that downloads its package on first run used to hold it for minutes. Each
    handshake (transport setup + `initialize` + `tools/list`) is bounded at **30 s**.
+   A session restored from disk leaves configured servers cold until its first
+   turn: reading stored history starts no configured MCP process, ACP
+   client-supplied servers still connect on load, and the first turn starts the
+   configured servers through the same trust gate.
 2. A prompt turn — the only thing that needs the tools — waits for that connect to settle
    before it builds its tool set. While it waits, HTTP clients get `event: mcp_phase`
    (`connecting`, then `ready`) so the panel can say what is holding the turn up; a session
    whose servers are already connected sends nothing and starts immediately.
 3. The agent calls `tools/list` on each server and registers the tools
 4. The staged config tools can add, replace, or delete a global `mcp_servers`
-
-A session restored from disk leaves configured servers cold until its first turn. Reading stored history starts no configured MCP process; ACP client-supplied servers still connect on load. The first turn starts the configured servers through the same trust gate.
    entry while the session is running: `config_set` stages the uci-like command
    and `config_commit` (after the user confirms) validates and atomically
    writes the config, reconnects the effective `config.yaml` + `mcp.json`
