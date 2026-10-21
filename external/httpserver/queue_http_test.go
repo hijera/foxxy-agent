@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -47,8 +48,10 @@ func runningQueueStand(t *testing.T, textOnly bool) *queueHTTPState {
 }
 
 // A model that reads no images gets none, the rule POST /v1/responses applies
-// to an ordinary prompt: the text is queued without the image, and an image
-// alone leaves nothing to queue.
+// to an ordinary prompt: the text is queued without the image, and the answer
+// says how many attachments were dropped so the client can show it rather than
+// a queue row that quietly lost them. An image alone leaves nothing to queue at
+// all, and is refused as that - never as an empty message.
 func TestQueueHTTPDropsImagesForATextOnlyModel(t *testing.T) {
 	s := runningQueueStand(t, true)
 	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
@@ -56,12 +59,41 @@ func TestQueueHTTPDropsImagesForATextOnlyModel(t *testing.T) {
 	if status != http.StatusCreated || msg["text"] != "inspect" || msg["imageParts"] != nil {
 		t.Fatalf("text with an image for a text-only model: %d %v", status, out)
 	}
+	if got := out["images_dropped"]; got != float64(1) {
+		t.Fatalf("images_dropped = %v, want 1: the drop must be named in the answer", got)
+	}
 	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
 	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 0 {
 		t.Fatalf("queued rows = %+v, %v; want the text without the image", rows, err)
 	}
-	if status, out := postQueue(t, s, `{"text":"","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`); status != http.StatusBadRequest {
-		t.Fatalf("an image alone for a text-only model answered %d %v, want 400", status, out)
+	status, out = postQueue(t, s, `{"text":"","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+	errObj, _ := out["error"].(map[string]interface{})
+	if status != http.StatusBadRequest || errObj["code"] != "model_not_multimodal" {
+		t.Fatalf("an image alone for a text-only model answered %d %v, want 400 model_not_multimodal", status, out)
+	}
+	if msg, _ := errObj["message"].(string); !strings.Contains(msg, "attachment") {
+		t.Fatalf("the refusal says %q, want it to name the attachments it cannot queue", msg)
+	}
+}
+
+// A multimodal model keeps what the request carried, and says nothing about
+// drops: the field is for the loss, not for the ordinary case.
+func TestQueueHTTPKeepsImagesForAMultimodalModel(t *testing.T) {
+	s := runningQueueStand(t, false)
+	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" {
+		t.Fatalf("text with an image for a multimodal model: %d %v", status, out)
+	}
+	if parts, _ := msg["imageParts"].([]interface{}); len(parts) != 1 {
+		t.Fatalf("imageParts = %v, want the one attachment kept", msg["imageParts"])
+	}
+	if _, named := out["images_dropped"]; named {
+		t.Fatalf("a kept attachment was reported as dropped: %v", out)
+	}
+	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 1 {
+		t.Fatalf("queued rows = %+v, %v; want the text with its image", rows, err)
 	}
 }
 
@@ -98,7 +130,7 @@ func TestQueueResponseUsesOneCurrentSnapshot(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	writeQueue(w, http.StatusCreated, st.GetID(), st, msg.Wire())
+	writeQueue(w, http.StatusCreated, st.GetID(), st, msg.Wire(), 0)
 	var got struct {
 		Messages []session.QueuedMessage `json:"messages"`
 		Message  session.QueuedMessage   `json:"message"`
@@ -144,7 +176,7 @@ func TestQueueResponsesRemainConsistentDuringMutations(t *testing.T) {
 	responses := make([]response, 2048)
 	for i := range responses {
 		w := httptest.NewRecorder()
-		writeQueue(w, http.StatusOK, st.GetID(), st, nil)
+		writeQueue(w, http.StatusOK, st.GetID(), st, nil, 0)
 		if err := json.Unmarshal(w.Body.Bytes(), &responses[i]); err != nil {
 			t.Fatal(err)
 		}
