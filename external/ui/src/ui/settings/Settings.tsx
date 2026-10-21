@@ -27,6 +27,7 @@ import {
   refreshSettingsConfig,
   snapshotSettingsConfig,
   subscribeSettingsConfig,
+  withoutReplacedRevision,
 } from "./settingsConfigStore";
 import {
   serverSnapshotShellStack,
@@ -395,9 +396,17 @@ export function Settings(props: {
       // once (a reopen before the read below lands draws it). The copy read
       // here, and the one config_reloaded brings, replaces it with what the
       // server made of the save, unless the operator types something first.
-      // A form a newer copy took over meanwhile is left as it is.
-      setDraft((d) => (d.doc === sent ? { ...d, base: sent } : d));
-      noteSettingsConfigSaved(sent);
+      // A form a newer copy took over meanwhile is left as it is. Neither the
+      // copy nor the document the form goes on with may name the configuration
+      // this save replaced (see withoutReplacedRevision): the next save would
+      // measure "untouched" against that one and lose a change-and-revert to
+      // one of its values.
+      const saved = noteSettingsConfigSaved(sent);
+      setDraft((d) =>
+        d.doc === sent
+          ? { ...d, base: saved, doc: saved }
+          : { ...d, doc: withoutReplacedRevision(d.doc) },
+      );
       props.onConfigSaved?.();
       setBusy(false);
       void refreshSettingsConfig();

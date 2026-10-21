@@ -149,15 +149,46 @@ export function ensureSettingsConfig(): Promise<SettingsConfigCopy> {
 }
 
 /**
+ * withoutReplacedRevision drops the name (revision) of the configuration a
+ * document was read from. A save overwrote that one, so its name must not
+ * reach the next save: PUT /foxxycode/config measures "untouched" against the
+ * configuration the body's revision names (restoreUntouched keeps what the
+ * file says for a value sent back as it was served), and against a replaced
+ * document a change-and-revert to one of its values looks untouched, so the
+ * revert is lost. A document with no name is measured against the
+ * configuration live when the PUT arrives - which, right after a save, is what
+ * the save left in the file - until a read brings the revision of what is on
+ * disk now.
+ */
+export function withoutReplacedRevision(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!("revision" in config)) {
+    return config;
+  }
+  const saved = { ...config };
+  delete saved.revision;
+  return saved;
+}
+
+/**
  * noteSettingsConfigSaved takes the document a save just wrote as the copy, so
  * an open that comes before the read after the save lands - or after that read
  * failed - draws what was saved rather than what the save replaced (a save made
  * from that older copy would put the replaced values back). Reads issued before
- * the save are older than it and are dropped.
+ * the save are older than it and are dropped. The document it returns and
+ * publishes has no name of the replaced configuration (see
+ * withoutReplacedRevision); the form keeps editing it, so its next save is
+ * measured against what the file holds now, not against the document this one
+ * overwrote.
  */
-export function noteSettingsConfigSaved(config: Record<string, unknown>): void {
+export function noteSettingsConfigSaved(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
   applied = issued;
-  publish({ schema: current.schema, config, error: null });
+  const saved = withoutReplacedRevision(config);
+  publish({ schema: current.schema, config: saved, error: null });
+  return saved;
 }
 
 /** refreshSettingsConfig reads the schema and the config again now. */

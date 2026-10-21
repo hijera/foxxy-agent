@@ -604,6 +604,73 @@ test("a save during which the operator typed on does not turn the button green",
   expect(input.value).toBe("46");
 });
 
+// The revision a config document carries names the configuration it was read
+// from, and a PUT measures "untouched" against that one: a value sent back as
+// it was served keeps what the file says now. The document a save leaves must
+// not keep naming the configuration that save replaced - with the read after
+// the save gone, a field put back to the value of the replaced document would
+// look untouched and the revert would be lost (restoreUntouched keeps the
+// file's value for it).
+test("a save does not name the configuration the save before it replaced", async () => {
+  const fetch = stubServer();
+  server.config = {
+    revision: "rev-A",
+    providers: [{ name: "demo" }],
+    models: [{ model: "demo/m1" }, { model: "demo/m2" }],
+    agent: { max_turns: 40 },
+  };
+  // Every read after the first fails, so the copy a save leaves is what the
+  // next save sends - the case where a stale name would persist forever.
+  let configGets = 0;
+  const answer = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (
+      String(path) === "/foxxycode/config" &&
+      (init?.method ?? "GET") === "GET"
+    ) {
+      configGets++;
+      if (configGets > 1) {
+        return { ok: false, status: 502, json: async () => ({}) };
+      }
+    }
+    return answer(path, init);
+  });
+
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  const input = (await screen.findByLabelText("Max turns")) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "45" } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("settings-save"));
+  });
+  await waitFor(() =>
+    expect(server.config).toMatchObject({ agent: { max_turns: 45 } }),
+  );
+
+  fireEvent.change(input, { target: { value: "40" } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("settings-save"));
+  });
+  await waitFor(() =>
+    expect(server.config).toMatchObject({ agent: { max_turns: 40 } }),
+  );
+
+  const puts = fetch.mock.calls
+    .filter(
+      ([path, init]) =>
+        String(path) === "/foxxycode/config" &&
+        ((init as RequestInit | undefined)?.method ?? "GET") === "PUT",
+    )
+    .map(
+      ([, init]) =>
+        JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>,
+    );
+  expect(puts).toHaveLength(2);
+  // The first save measures against what the form was read from.
+  expect(puts[0]).toMatchObject({ revision: "rev-A" });
+  // The second must not: that document is the one the first save replaced.
+  expect(puts[1]).not.toHaveProperty("revision");
+});
+
 // A reload of the server's config reached an open provider form that holds no
 // edits, and the providers came back in another order. The form stays on the
 // provider the address names instead of showing whichever one took its place.

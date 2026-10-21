@@ -190,6 +190,24 @@ test("a saved document is the copy until a read after the save replaces it", asy
   expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 45 } });
 });
 
+// A save overwrote the configuration its document was read from, so the name
+// (revision) that document carries is dropped from the copy. Sent back on a
+// later save it would make the server measure "untouched" against the replaced
+// document (restoreUntouched), and a change-and-revert to a value of it would
+// look untouched and keep what the first save replaced.
+test("a saved document drops the revision naming the configuration it replaced", async () => {
+  answeringServer({ config: { revision: "rev-A", agent: { max_turns: 40 } } });
+  await ensureSettingsConfig();
+
+  const saved = noteSettingsConfigSaved({
+    revision: "rev-A",
+    agent: { max_turns: 45 },
+  });
+
+  expect(saved).toEqual({ agent: { max_turns: 45 } });
+  expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 45 } });
+});
+
 // A first read that failed leaves nothing to draw; the next reload notice (or the
 // events stream coming back) asks again rather than waiting for a reopen.
 test("a reload notice retries a first read that failed", async () => {
