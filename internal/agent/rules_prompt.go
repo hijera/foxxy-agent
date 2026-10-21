@@ -13,7 +13,10 @@ import (
 type rulesState interface {
 	GetCWD() string
 	GetRulesCatalog() []*rules.Rule
-	GetMessages() []llm.Message
+	// DeliveredRuleBodies is what the history already carries, folded across
+	// calls (session/rules_delivered.go): asked in front of every tool call, so
+	// it walks the history it has walked before as little as it can.
+	DeliveredRuleBodies() map[string]string
 	GetLastContextBreakdown() *session.ContextBreakdown
 	SetLastContextBreakdown(*session.ContextBreakdown)
 	CachedRulesPrompt(rendersRules bool, inputs string) (*session.RulesPrompt, uint64)

@@ -44,7 +44,24 @@ func (a *Agent) toolCallRules(mode string, tc llm.ToolCall, cwd string) string {
 		return ""
 	}
 	paths := toolfs.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
-	if len(paths) == 0 || !a.rulesRendered(mode) {
+	if len(paths) == 0 {
+		return ""
+	}
+	// Nothing a call could bring in has been discovered: no rule gated on a
+	// path, and no nested AGENTS.md read on demand. Said before anything is
+	// stat'ed, matched or read - this sits in front of every tool call.
+	//
+	// And a look that finds nothing on the paths as the model wrote them finds
+	// nothing after the directories are dropped from them either: dropping
+	// paths only ever removes matches. So the stat every path pays is for a
+	// call that did bring something in, not for the ordinary miss.
+	if !a.agentsOnDemand() {
+		if !rules.HaveScoped(rs.GetRulesCatalog()) ||
+			len(rules.MatchScoped(rs.GetRulesCatalog(), paths)) == 0 {
+			return ""
+		}
+	}
+	if !a.rulesRendered(mode) {
 		return ""
 	}
 	matched := rules.MatchScoped(rs.GetRulesCatalog(), withoutDirectories(paths))
@@ -56,7 +73,7 @@ func (a *Agent) toolCallRules(mode string, tc llm.ToolCall, cwd string) string {
 		return ""
 	}
 	home := a.homeDir()
-	fresh := freshRules(deliveredRules(rs.GetMessages()), cwd, home, matched)
+	fresh := freshRules(rs.DeliveredRuleBodies(), cwd, home, matched)
 	if len(fresh) == 0 {
 		return ""
 	}
@@ -102,38 +119,6 @@ func withoutTargets(rs []*rules.Rule, paths []string) []*rules.Rule {
 		}
 		if !targeted {
 			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// deliveredRules returns the rules the model can read in msgs, by the path of
-// their attachment, with the text each was last attached with: the rule
-// attachments of user messages (a rule the user named, one a mentioned path
-// activated) and of tool results (one a call activated), in the window the
-// provider is sent - everything from the last compaction summary on. The
-// summary itself does not count: whatever of a rule a summarizer retold is not
-// the rule, and the next match attaches it whole.
-func deliveredRules(msgs []llm.Message) map[string]string {
-	out := map[string]string{}
-	for _, m := range session.MessagesForLLM(msgs) {
-		if m.CompactionSummary {
-			continue
-		}
-		var text string
-		switch m.Role {
-		case llm.RoleUser:
-			text = m.Content
-		case llm.RoleTool:
-			text = m.Rules
-		}
-		if !strings.Contains(text, `kind="rule"`) {
-			continue
-		}
-		for _, blk := range mention.Blocks(text) {
-			if blk.Kind == mention.KindRule {
-				out[blk.Path] = blk.Body(text)
-			}
 		}
 	}
 	return out

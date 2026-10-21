@@ -72,6 +72,22 @@ func MatchScoped(catalog []*Rule, paths []string) []*Rule {
 	return out
 }
 
+// HaveScoped reports whether the catalog holds anything MatchScoped could
+// return: a rule of the auto kind gated on a directory or on globs. A caller
+// with paths to look up can then skip the whole look - the stat of every path,
+// the walk of the history - when nothing could ever match.
+func HaveScoped(catalog []*Rule) bool {
+	for _, r := range catalog {
+		if r == nil || r.ApplyMode != ApplyAuto || !r.AlwaysApply {
+			continue
+		}
+		if r.ScopeDir != "" || len(r.Globs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // normalizeScopePath cleans a path for prefix comparison. filepath.Rel is
 // deliberately avoided: it errors across Windows drive letters.
 func normalizeScopePath(p string) string {

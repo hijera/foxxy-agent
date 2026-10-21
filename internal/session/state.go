@@ -168,6 +168,14 @@ type State struct {
 	// kind of template: with {{.Rules}} and without (rules_load.go).
 	rulesGeneration uint64
 	rulesPrompts    [2]*RulesPrompt
+	// deliveredFold is DeliveredRuleBodies' walk of the history, kept between
+	// calls and extended over what was appended since (rules_delivered.go).
+	// Guarded by deliveredMu, which is taken around the walk alone.
+	deliveredMu      sync.Mutex
+	deliveredValid   bool
+	deliveredBodies  map[string]string
+	deliveredCount   int
+	deliveredEditRev uint64
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
 	// contextWindows reads the provider-reported context windows cached by

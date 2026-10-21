@@ -70,7 +70,7 @@ func (a *Agent) attachActivatedRules(blocks []acp.ContentBlock) []acp.ContentBlo
 		matched = append(matched, rules.AgentsForPaths(cwd, paths, nil)...)
 	}
 	matched = withoutTargets(matched, paths)
-	delivered := deliveredRules(rs.GetMessages())
+	delivered := rs.DeliveredRuleBodies()
 	for _, b := range blocks {
 		if res := b.Resource; res != nil && res.Mention != nil && res.Mention.Kind == mention.KindRule {
 			path, body := ruleAttachmentKey(res)
