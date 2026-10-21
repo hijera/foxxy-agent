@@ -111,6 +111,14 @@ export const messagesRu: Record<string, string> = {
   "composer.queueImages.few": "{count} картинки во вложении",
   "composer.queueImages.many": "{count} картинок во вложении",
   "composer.queueImages.other": "{count} картинки во вложении",
+  "composer.queueImagesDropped.one":
+    "{count} вложение не встало в очередь: выбранная модель не читает изображения.",
+  "composer.queueImagesDropped.few":
+    "{count} вложения не встали в очередь: выбранная модель не читает изображения.",
+  "composer.queueImagesDropped.many":
+    "{count} вложений не встало в очередь: выбранная модель не читает изображения.",
+  "composer.queueImagesDropped.other":
+    "{count} вложения не встали в очередь: выбранная модель не читает изображения.",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.queueBusyElsewhere":
     "Ход этого чата выполняется в другом окне FoxxyCode, и его очередь там. Сообщение возвращено в поле ввода.",

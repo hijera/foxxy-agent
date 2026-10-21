@@ -111,6 +111,10 @@ export const messagesEn: Record<string, string> = {
   "composer.queueModeAfterTurnTitle": "Starts a prompt of its own after the answer. Click to join the running turn instead.",
   "composer.queueImages.one": "{count} image attached",
   "composer.queueImages.other": "{count} images attached",
+  "composer.queueImagesDropped.one":
+    "{count} attachment was not queued: the selected model cannot read images.",
+  "composer.queueImagesDropped.other":
+    "{count} attachments were not queued: the selected model cannot read images.",
   "composer.queueFailed": "The message could not be queued.",
   "composer.queueBusyElsewhere":
     "This chat's turn is running in another FoxxyCode window, and its queue is there. Your message is back in the composer.",

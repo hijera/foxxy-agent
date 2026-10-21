@@ -310,7 +310,7 @@ import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { downloadBlob } from "./settings/transferIO";
-import { t } from "./i18n/i18n";
+import { t, tp } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
@@ -1519,7 +1519,7 @@ export function App() {
    * reverting a Mode or Model the user picked a moment earlier.
    */
   const appliedSelectionSidRef = useRef("");
-  /** Session whose Mode/Model the user changed by hand; their pick wins. */
+  /** Session whose Mode/Model/Reasoning the user changed by hand; their pick wins. */
   const userTouchedSelectionSidRef = useRef("");
   /**
    * Bumped on every hand-made Mode change. A turn snapshots it so the
@@ -1530,13 +1530,6 @@ export function App() {
   /** Current mode, readable from callbacks that outlive their render. */
   const modeRef = useRef(mode);
   modeRef.current = mode;
-  /** The selection object already applied to the composer; see the effect below. */
-  const appliedSessionSelectionRef = useRef<{
-    sid: string;
-    model: string;
-    reasoning: string;
-    choices: string[];
-  } | null>(null);
   /**
    * The reasoning levels the viewed session's last snapshot named for its
    * model (`reasoningChoices`): the menu's levels plus `off` where the
@@ -2493,6 +2486,11 @@ export function App() {
       setSchedulerEditor(null);
       setTasksOpen(false);
       viewedSessionIdRef.current = id.trim();
+      // Opening a session restores its stored selection once. What was applied
+      // or picked for the session being left belongs to that one and must not
+      // decide this one's.
+      appliedSelectionSidRef.current = "";
+      userTouchedSelectionSidRef.current = "";
       setSessionHashInLocation(id, opts);
       setSessionId(id);
       void markFoxxyCodeSessionActivityRead(id);
@@ -2914,14 +2912,13 @@ export function App() {
       !shouldApplySessionSelection({
         stashSid: openSessionSelection.sid,
         viewedSid: viewedSessionIdRef.current,
-        appliedSid: appliedSessionSelectionRef.current === openSessionSelection ? openSessionSelection.sid : "",
-        userTouchedSid: "",
+        appliedSid: appliedSelectionSidRef.current,
+        userTouchedSid: userTouchedSelectionSidRef.current,
       })
     ) {
       return;
     }
     appliedSelectionSidRef.current = openSessionSelection.sid;
-    appliedSessionSelectionRef.current = openSessionSelection;
     // The session's own model. What the start page picked, and the cookie that
     // remembers it, are a new chat's default: shown here they would ride into
     // this session with its next message (#362).
@@ -6267,6 +6264,8 @@ export function App() {
       if (!sid) {
         return;
       }
+      // Their pick outranks the snapshot a slower read may still be carrying.
+      userTouchedSelectionSidRef.current = sid;
       void patchSessionSettings(sid, { selectedReasoning: lv });
     },
     [sessionId, patchSessionSettings],
@@ -6281,7 +6280,12 @@ export function App() {
       setLlmModel(mid);
       writeLlmModelCookie(mid);
       const sid = sessionId.trim();
-      if (!sid || !llmModelIds.includes(mid)) {
+      if (!sid) {
+        return;
+      }
+      // Their pick outranks the snapshot a slower read may still be carrying.
+      userTouchedSelectionSidRef.current = sid;
+      if (!llmModelIds.includes(mid)) {
         return;
       }
       void patchSessionSettings(sid, { selectedModelId: mid });
@@ -6975,6 +6979,8 @@ export function App() {
       type QueueAnswer = {
         messages?: QueuedMessage[];
         version?: number;
+        /** Attachments the server could not carry to a model that reads no images. */
+        images_dropped?: number;
         error?: { code?: string; message?: string };
       };
       let payload: QueueAnswer | null = null;
@@ -6999,8 +7005,27 @@ export function App() {
       } catch {
         // Network failure: treated as a refusal below.
       }
-      if (status === 201 && Array.isArray(payload?.messages)) {
+      if (
+        (status === 201 || status === 200) &&
+        Array.isArray(payload?.messages)
+      ) {
         applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
+        // An attachment the server could not send to a model that reads no
+        // images is gone from the queued row: say so rather than let the
+        // paperclip disappear with it.
+        const dropped = Number(payload?.images_dropped ?? 0);
+        if (dropped > 0 && viewedSessionIdRef.current.trim() === sid) {
+          applyStreamItemsForSession(sid, (prev) => [
+            ...prev,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "info" as const,
+              message: tp("composer.queueImagesDropped", dropped),
+              createdAtUtc: new Date().toISOString(),
+            },
+          ]);
+        }
         return;
       }
       if (

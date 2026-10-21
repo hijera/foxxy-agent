@@ -53,7 +53,15 @@ export function useApiImageSrc(url: string | undefined): string | undefined {
     })();
     return () => {
       abort.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        // The URL just released must not be left in the state an <img> reads:
+        // a revoked blob URL renders broken, where this hook promises no src at
+        // all until a refetch arrives. The effect that revoked it is also the
+        // one whose env changed while the request target did not, so without
+        // this the same src is served over and over.
+        setLoaded((cur) => (cur && cur.src === objectUrl ? null : cur));
+      }
     };
   }, [url, target, env]);
 
