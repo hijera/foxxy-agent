@@ -511,6 +511,22 @@ export function Composer(props: {
    */
   const queueChoiceAnsweredRef = useRef(false);
   /**
+   * The text a queue just took, or null while no draft of that text is on its
+   * way. A second activation of a queue action in the window before App's
+   * setDraft("") re-renders would otherwise queue the same draft twice: both
+   * still read the text of the one they belong to. The check sits at the top
+   * of queueDraft, so every path that could take the draft is covered; the
+   * text is recorded where the draft is taken, not by the first-use question,
+   * whose answer re-enters queueDraft to take it. Cleared when the draft text
+   * changes, so the next follow-up is a message of its own. An empty text is
+   * never recorded: an attachment-only queue empties its own chips, and an
+   * empty draft cannot fire again.
+   */
+  const queuedDraftTextRef = useRef<string | null>(null);
+  useEffect(() => {
+    queuedDraftTextRef.current = null;
+  }, [props.value]);
+  /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
    * draft leaves the button as Stop, which is how the turn is still cancelled.
@@ -552,6 +568,10 @@ export function Composer(props: {
     if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
       return;
     }
+    // This very draft is already on its way to the queue (queuedDraftTextRef).
+    if (txt !== "" && queuedDraftTextRef.current === txt) {
+      return;
+    }
     const chosen = mode ?? props.queueMode;
     if (!chosen) {
       queueChoiceAnsweredRef.current = false;
@@ -561,6 +581,7 @@ export function Composer(props: {
     setQueueChoice(null);
     const files = [...sendableAttachedFiles];
     if (files.length > 0) setAttachedFiles([]);
+    if (txt !== "") queuedDraftTextRef.current = txt;
     props.onQueue(txt, chosen, files);
   }, [props.value, props.onQueue, props.queueMode, runLocalCommandFromDraft, sendableAttachedFiles, setAttachedFiles]);
   /** The answer to the first-use question: it is Enter's mode from now on. */
@@ -3169,11 +3190,14 @@ export function Composer(props: {
                   }
                   // Tab belongs to an open picker even when it lists nothing:
                   // the draft there is a mention or a command being written.
+                  // A held Tab's repeats are not new sends, as Enter's rule
+                  // (composerEnterAction) says for its own key.
                   if (
                     ev.key === "Tab" &&
                     props.generating &&
                     queueArmed &&
                     !(slashOpen || atOpen || atRangeOpen || argOpen) &&
+                    !ev.repeat &&
                     !ev.shiftKey &&
                     !ev.ctrlKey &&
                     !ev.altKey &&

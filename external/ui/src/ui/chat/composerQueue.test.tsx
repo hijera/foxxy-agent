@@ -14,9 +14,9 @@ function renderGenerating(opts: {
   onStop?: () => void;
   onCancelQueued?: (id: string) => void;
 }) {
-  return render(
+  const el = (value: string) => (
     <Composer
-      value={opts.value}
+      value={value}
       isEmpty={false}
       mode="agent"
       modes={["agent", "plan"]}
@@ -29,8 +29,10 @@ function renderGenerating(opts: {
       onQueue={opts.onQueue ?? (() => {})}
       queueMode="steer"
       onCancelQueued={opts.onCancelQueued ?? (() => {})}
-    />,
+    />
   );
+  const view = render(el(opts.value));
+  return { ...view, setValue: (value: string) => view.rerender(el(value)) };
 }
 
 test("the primary control queues the draft while a turn runs", () => {
@@ -146,4 +148,43 @@ test("a queued message with images shows a paperclip and their count, not the im
   expect(files).toHaveAttribute("aria-label", "2 images attached");
   expect(files.querySelector("svg")).not.toBeNull();
   expect(screen.getByTestId("composer-queue-mode-q1")).toHaveTextContent("After turn");
+});
+
+// The draft is cleared only on the next render, so a second activation of a
+// queue action in that window still reads the text of the one it belongs to.
+// Both would POST it to /queue, and the operator would see two identical rows.
+test("a second activation of a queue action takes no second copy of the draft", () => {
+  const onQueue = vi.fn();
+  renderGenerating({ value: "check the Windows path too", onQueue });
+  const box = screen.getByRole("textbox");
+  fireEvent.keyDown(box, { key: "Tab" });
+  fireEvent.keyDown(box, { key: "Tab" });
+  fireEvent.click(screen.getByRole("button", { name: "Queue this message" }));
+
+  expect(onQueue).toHaveBeenCalledTimes(1);
+  expect(onQueue).toHaveBeenCalledWith("check the Windows path too", "after_turn", []);
+});
+
+// Enter's rule (composerEnterAction) ignores a held key's repeats; Tab is the
+// same kind of send and must not queue once per repeat either.
+test("a held Tab queues on its first press only, not on the repeats", () => {
+  const onQueue = vi.fn();
+  renderGenerating({ value: "one more thing", onQueue });
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", repeat: true });
+
+  expect(onQueue).not.toHaveBeenCalled();
+});
+
+// The guard is one queue per draft, not one per composer: what the app cleared
+// and the operator typed over is a follow-up of its own.
+test("a draft that changed is a new message of its own", () => {
+  const onQueue = vi.fn();
+  const { setValue } = renderGenerating({ value: "first follow-up", onQueue });
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab" });
+  setValue("second follow-up");
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab" });
+
+  expect(onQueue).toHaveBeenCalledTimes(2);
+  expect(onQueue).toHaveBeenNthCalledWith(1, "first follow-up", "after_turn", []);
+  expect(onQueue).toHaveBeenNthCalledWith(2, "second follow-up", "after_turn", []);
 });
