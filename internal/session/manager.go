@@ -1436,12 +1436,22 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		state.MarkNextPromptQueued()
 		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
 		state.ClearNextPromptQueued()
-		if turnCtx.Err() != nil && state.MessagesRev() == rev {
-			// Stopped before the prompt entered the conversation: nothing read
-			// it. An after_turn message waits again, as Stop promises, and the
-			// images it was to carry are not left for the next prompt.
+		// The run ended before its prompt entered the conversation - a Stop that
+		// landed first, a hook that refused the text - and the check is the
+		// conversation rather than the context: a refusal returns without
+		// cancelling anything, and its message is as unread as one a Stop took.
+		unread := state.MessagesRev() == rev
+		if unread {
+			// Nothing read the batch. An after_turn message waits again, as Stop
+			// promises, and the images it was to carry are not left for the next
+			// prompt. Unread steer messages were written for a turn that is now
+			// over and go the way Stop drops them - said so, not silently.
 			state.TakePendingImageParts()
 			state.ReturnQueuedMessages(keepAfterTurn(queued))
+			if dropped := len(queued) - len(keepAfterTurn(queued)); dropped > 0 {
+				m.log.Warn("message queue follow-up ended before it was read; unread steer messages dropped",
+					"session_id", params.SessionID, "dropped", dropped)
+			}
 		}
 		if err != nil {
 			state.TakeTurnStopNotice()
@@ -1449,6 +1459,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 			}
 			return nil, err
+		}
+		if unread {
+			// A run that recorded nothing answered nothing. Continuing would take
+			// the very messages just put back and hand them to the same refusal.
+			break
 		}
 	}
 

@@ -26,7 +26,7 @@ type queueRunner struct {
 	stop string
 }
 
-func (r *queueRunner) run(_ context.Context, _ *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+func (r *queueRunner) run(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 	r.mu.Lock()
 	idx := len(r.prompts)
 	var text strings.Builder
@@ -43,6 +43,9 @@ func (r *queueRunner) run(_ context.Context, _ *session.State, prompt []acp.Cont
 	if stop == "" {
 		stop = string(acp.StopReasonEndTurn)
 	}
+	// What Agent.Run does with its prompt once the hooks have let it through:
+	// the message is the conversation's record that the run read it.
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text.String()})
 	return stop, nil
 }
 
@@ -281,6 +284,77 @@ func TestStopAfterADeferredPromptIsReadDoesNotQueueItAgain(t *testing.T) {
 	if rows, err := mgr.QueuedTurnMessages(sid); err != nil || len(rows) != 0 {
 		t.Fatalf("queued after the Stop = %+v, %v; the read message came back", rows, err)
 	}
+}
+
+// A continuation its UserPromptSubmit hook refuses is refused before the prompt
+// becomes a message (agent/react.go), and nothing about the turn is cancelled.
+// The deferred message that run was started from is as unread as one a Stop
+// took, so it waits for the next turn the way Stop keeps it - a refusal is a
+// reason to say why, never a reason to lose what the operator wrote. The next
+// turn reads it after its own prompt, like any other deferred message.
+func TestAHookRefusalBeforeThePromptIsReadKeepsTheDeferredMessageQueued(t *testing.T) {
+	var mgr *session.Manager
+	var sid string
+	var mu sync.Mutex
+	var prompts []string
+	refuse := true
+	run := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		text := ""
+		if len(prompt) > 0 {
+			text = prompt[0].Text
+		}
+		mu.Lock()
+		idx := len(prompts)
+		prompts = append(prompts, text)
+		doRefuse := refuse && idx > 0
+		mu.Unlock()
+		if idx == 0 {
+			if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, "deferred", session.QueueModeAfterTurn, nil); err != nil {
+				t.Error(err)
+			}
+			st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
+			return string(acp.StopReasonEndTurn), nil
+		}
+		if doRefuse {
+			return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", "not now")
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr, sid = newQueueManagerWith(t, run)
+
+	_, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}})
+	if err == nil || !strings.Contains(err.Error(), "prompt rejected by hook") {
+		t.Fatalf("HandleSessionPrompt = %v, want the hook's refusal", err)
+	}
+	if got := seenPrompts(&mu, &prompts); len(got) != 2 {
+		t.Fatalf("runs = %v, want the prompt and the one refused continuation", got)
+	}
+	rows, err := mgr.QueuedTurnMessages(sid)
+	if err != nil || len(rows) != 1 || rows[0].Text != "deferred" || rows[0].Mode != session.QueueModeAfterTurn {
+		t.Fatalf("queued after the refusal = %+v, %v; want the deferred message back", rows, err)
+	}
+
+	// It is still the next turn's to read, once its own prompt has been answered.
+	mu.Lock()
+	refuse = false
+	mu.Unlock()
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "next"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := seenPrompts(&mu, &prompts); len(got) != 4 || got[2] != "next" || got[3] != "deferred" {
+		t.Fatalf("runs = %v, want next and then the deferred message", got)
+	}
+	if rows, err := mgr.QueuedTurnMessages(sid); err != nil || len(rows) != 0 {
+		t.Fatalf("queued after the next turn = %+v, %v; it was read", rows, err)
+	}
+}
+
+// seenPrompts is the run texts recorded so far, for the test above.
+func seenPrompts(mu *sync.Mutex, prompts *[]string) []string {
+	mu.Lock()
+	defer mu.Unlock()
+	return append([]string(nil), (*prompts)...)
 }
 
 // A cancelled turn is a Stop, and a Stop drops unread steer messages instead of
