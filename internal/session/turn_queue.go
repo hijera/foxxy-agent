@@ -98,7 +98,14 @@ func queuedImage(p acp.ImagePartRef) acp.QueuedImage {
 	}
 	img.MimeType = strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(header), "data:"), ";base64")
 	if strings.HasSuffix(strings.ToLower(header), ";base64") {
+		// Every quartet of base64 is three bytes, and each padding '=' is a byte
+		// the payload does not carry. A payload that is not a whole number of
+		// quartets - a truncated data URI - decodes to nothing rather than to a
+		// negative size, which is what the raw subtraction used to publish.
 		img.SizeBytes = base64.StdEncoding.DecodedLen(len(payload)) - strings.Count(payload[max(0, len(payload)-2):], "=")
+		if img.SizeBytes < 0 {
+			img.SizeBytes = 0
+		}
 	}
 	return img
 }

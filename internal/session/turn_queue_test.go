@@ -235,6 +235,36 @@ func TestQueuedImagePartsAreCopied(t *testing.T) {
 	}
 }
 
+// What a queue snapshot says an attachment weighs: the bytes its base64
+// payload decodes to, never a negative number. A payload that is not a whole
+// number of quartets - a truncated data URI - reports 0 rather than letting the
+// padding count subtract more than the payload holds.
+func TestQueuedImageSizeBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name, dataURL string
+		want          int
+		mime          string
+	}{
+		{"one byte", "data:image/png;base64,YQ==", 1, "image/png"},
+		{"two bytes", "data:image/jpeg;base64,YWI=", 2, "image/jpeg"},
+		{"three bytes", "data:image/png;base64,YWJj", 3, "image/png"},
+		{"padding with no payload", "data:image/png;base64,A=", 0, "image/png"},
+		{"a single padding mark", "data:image/png;base64,=", 0, "image/png"},
+		{"not base64 at all", "data:image/png,raw", 0, "image/png"},
+		{"not a data URI", "https://example.invalid/x.png", 0, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := queuedImage(acp.ImagePartRef{Name: "x.png", DataURL: tc.dataURL})
+			if got.SizeBytes != tc.want {
+				t.Errorf("size = %d, want %d (%q)", got.SizeBytes, tc.want, tc.dataURL)
+			}
+			if got.MimeType != tc.mime {
+				t.Errorf("mime = %q, want %q", got.MimeType, tc.mime)
+			}
+		})
+	}
+}
+
 // The mid-turn drain leaves the queue open, so the next step can be corrected
 // too; the boundary drain closes it only when it finds nothing.
 func TestTakeQueuedMessagesKeepsTheQueueOpen(t *testing.T) {
