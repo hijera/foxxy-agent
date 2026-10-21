@@ -207,6 +207,83 @@ func (h *Handler) mirrorSettings(sessionID string, snap acp.SessionSettings) {
 	st.reasoningChoices = append([]string(nil), snap.ReasoningChoices...)
 	st.choicesModel = snap.Model
 	st.overrides = append([]acp.TurnOverride(nil), snap.Overrides...)
+	// A snapshot that already arms a setting this client held for a session
+	// the server had not created speaks for the server: the change is armed
+	// there, so the held copy would list it twice and ask for it again with
+	// the first prompt. Only an armed override covers a held turn-scoped
+	// change; an active one is just the running turn's own value.
+	st.pendingSettings = dropPendingArmedBy(st.pendingSettings, snap.Overrides)
+}
+
+// dropPendingArmedBy removes the turn-scoped fields of the held changes that
+// snap already arms, and a change left with none. A session-scoped change
+// (Turns == 0) is never listed as an override and stays held.
+func dropPendingArmedBy(pending []session.SettingsChange, snap []acp.TurnOverride) []session.SettingsChange {
+	armed := armedSettings(snap)
+	if len(armed) == 0 {
+		return pending
+	}
+	out := make([]session.SettingsChange, 0, len(pending))
+	for _, ch := range pending {
+		if ch.Turns == 0 {
+			out = append(out, ch)
+			continue
+		}
+		if armed[session.SettingModel] {
+			ch.Model = nil
+		}
+		if armed[session.SettingReasoning] {
+			ch.Reasoning = nil
+		}
+		if armed[session.SettingMode] {
+			ch.Mode = nil
+		}
+		if armed[session.SettingPermissionMode] {
+			ch.PermissionMode = nil
+		}
+		if ch.Empty() {
+			continue
+		}
+		out = append(out, ch)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// armedSettings names the settings snap arms for the next operator turns.
+// An override that is only active is the running turn's own value and arms
+// nothing.
+func armedSettings(snap []acp.TurnOverride) map[string]bool {
+	var armed map[string]bool
+	for _, o := range snap {
+		if o.TurnsLeft <= 0 {
+			continue
+		}
+		if armed == nil {
+			armed = make(map[string]bool, len(snap))
+		}
+		armed[o.Setting] = true
+	}
+	return armed
+}
+
+// mergeOverrides lists the server snapshot's overrides together with the ones
+// this client holds for a session the server has not created yet. A setting
+// the server already arms is listed once, from the server: the local copy of
+// the same change would show it twice and a consumer would spend its turns
+// twice.
+func mergeOverrides(server, local []acp.TurnOverride) []acp.TurnOverride {
+	out := append([]acp.TurnOverride(nil), server...)
+	armed := armedSettings(server)
+	for _, o := range local {
+		if o.TurnsLeft > 0 && armed[o.Setting] {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
 }
 
 // SessionSettings returns what this client holds of a session's settings:
@@ -230,7 +307,7 @@ func (h *Handler) SessionSettings(sessionID string) (acp.SessionSettings, error)
 	if st.choicesModel == snap.Model && len(st.reasoningChoices) > 0 {
 		snap.ReasoningChoices = append([]string(nil), st.reasoningChoices...)
 	}
-	snap.Overrides = append(append([]acp.TurnOverride(nil), st.overrides...), snap.Overrides...)
+	snap.Overrides = mergeOverrides(st.overrides, snap.Overrides)
 	return snap, nil
 }
 
@@ -253,20 +330,49 @@ func (h *Handler) localSettingsLocked(sessionID string, st *sessionState) acp.Se
 			snap.ReasoningChoices = append([]string(nil), m.ReasoningLevels...)
 		}
 	}
+	// One armed override per setting, the last change winning and listed in
+	// the settings' own order: a second change of the same setting replaces
+	// the first, the way the server arms them.
+	armed := make(map[string]acp.TurnOverride, 4)
 	for _, ch := range st.pendingSettings {
 		if ch.Turns == 0 {
 			continue
 		}
-		for setting, value := range map[string]*string{
-			session.SettingModel: ch.Model, session.SettingReasoning: ch.Reasoning,
-			session.SettingMode: ch.Mode, session.SettingPermissionMode: ch.PermissionMode,
-		} {
+		for _, setting := range settingNames {
+			value := settingValue(ch, setting)
 			if value != nil {
-				snap.Overrides = append(snap.Overrides, acp.TurnOverride{Setting: setting, Value: *value, TurnsLeft: ch.Turns})
+				armed[setting] = acp.TurnOverride{Setting: setting, Value: *value, TurnsLeft: ch.Turns}
 			}
 		}
 	}
+	for _, setting := range settingNames {
+		if o, ok := armed[setting]; ok {
+			snap.Overrides = append(snap.Overrides, o)
+		}
+	}
 	return snap
+}
+
+// settingNames are the settings an override can name, in the order they are
+// listed in (the session package's settingOrder).
+var settingNames = []string{
+	session.SettingModel, session.SettingReasoning, session.SettingMode, session.SettingPermissionMode,
+}
+
+// settingValue is the value ch names for setting, nil when it leaves it
+// alone.
+func settingValue(ch session.SettingsChange, setting string) *string {
+	switch setting {
+	case session.SettingModel:
+		return ch.Model
+	case session.SettingReasoning:
+		return ch.Reasoning
+	case session.SettingMode:
+		return ch.Mode
+	case session.SettingPermissionMode:
+		return ch.PermissionMode
+	}
+	return nil
 }
 
 // applySettingsEvent forwards a server's event: session_settings to the
