@@ -6034,6 +6034,14 @@ export function App() {
     const generation = turnActivity.generation(sid);
     const streamGeneration = streamGenerationBySidRef.current.get(sid);
     const cancelCtl = new AbortController();
+    // Capture this turn's gates before releasing its stream. An acknowledgement
+    // may arrive after navigation or a successor turn raised another prompt.
+    const stoppedPermissions = (
+      streamShadowBySidRef.current.get(sid) ?? itemsRef.current
+    ).filter(
+      (it): it is Extract<TranscriptItem, { type: "permission_prompt" }> =>
+        it.type === "permission_prompt" && !it.resolved,
+    );
     const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
     const errorId = `stop_error_${sid}`;
     applyStreamItemsForSession(sid, (prev) =>
@@ -6067,6 +6075,41 @@ export function App() {
         turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
       if (fenced) {
+        const stoppedIds = new Set(
+          stoppedPermissions.map((it) => it.payload.toolCall.toolCallId),
+        );
+        for (const it of stoppedPermissions) {
+          upsertPermissionPromptRecord(sid, {
+            toolCallId: it.payload.toolCall.toolCallId,
+            payload: it.payload,
+            resolved: { optionId: "cancelled", summaryLine: "" },
+          });
+        }
+        applyStreamItemsForSession(sid, (prev) =>
+          prev
+            .filter(
+              (it) =>
+                it.type !== "permission_prompt" ||
+                !stoppedIds.has(it.payload.toolCall.toolCallId),
+            )
+            .map((it) =>
+              it.type === "tool_call" &&
+              stoppedIds.has(it.toolCallId) &&
+              (it.status === "pending" || it.status === "in_progress")
+                ? { ...it, status: "cancelled" as const }
+                : it,
+            ),
+        );
+        setPermissionPendingSids((prev) => {
+          const next = new Set(prev);
+          next.delete(sid);
+          return next;
+        });
+        setDesktopNotifications((prev) =>
+          prev.filter(
+            (n) => n.kind !== "permission" || !stoppedIds.has(n.toolCallId),
+          ),
+        );
         stoppedTurnBySidRef.current.set(sid, generation);
         void turnActivity.refresh(sid, false);
       }

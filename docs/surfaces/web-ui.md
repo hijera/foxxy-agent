@@ -658,6 +658,12 @@ Behavior (unchanged summary)
 - **Keyboard send** follows `ui.send_mode`: Enter, Ctrl/Cmd+Enter or button only. In Enter mode Ctrl/Cmd+Enter inserts a newline; Shift+Enter remains a newline. Touch-only input leaves Return to the phone keyboard. A narrow desktop window retains keyboard shortcuts, editor panels retain their embed behavior, and IME composition never submits or changes picker selection.
 - **Stop** sends **`POST /foxxycode/sessions/{id}/cancel`** and aborts the tab's own reader at once, so the request does not wait for a connection that reader holds. Failure remains visible and retryable, and the tab rejoins the running turn; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 
+When Stop cancels a turn waiting for tool permission, its approval card closes and the tool is recorded as cancelled. The card stays closed after reloading the chat or sending another message. If cancellation fails, the permission card remains available so the running turn can still be answered.
+
+![A cancelled tool after Stop, without obsolete approval buttons](../assets/message-queue/stop-permission-cancelled-dark-1280.png)
+
+*The cancelled tool keeps its result; reloading and continuing the chat do not restore its permission card.*
+
 ![A failed cancellation remains retryable while the turn still runs](../assets/message-queue/stop-queue-cancel-failed-dark-1280.png)
 
 *The cancel request was refused: the notice says so, the turn still runs and Stop remains available for another attempt.*

@@ -356,6 +356,44 @@ test("rewinding the first message removes the old visible tail before resending"
 });
 const composer = () => screen.getByRole("textbox", { name: "Message" });
 const stop = () => screen.getByRole("button", { name: "Stop generation" });
+
+test.each([true, false])(
+  "Stop retires only acknowledged permission prompts (success=%s)",
+  async (success) => {
+    await mount();
+    await send("Run a command");
+    const stream = backend.posts[0]!.stream;
+    await act(async () => {
+      stream.frame("tool_call", {
+        toolCallId: "call_stop",
+        title: "run_command",
+        status: "in_progress",
+      });
+      stream.frame("permission", {
+        sessionId: A,
+        toolCall: { toolCallId: "call_stop", title: "Run: run_command" },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      });
+    });
+    await screen.findByTestId("permission-prompt-card");
+    backend.override = (r) =>
+      r.path.endsWith("/cancel") ? json({}, success ? 200 : 500) : undefined;
+    fireEvent.click(stop());
+    if (success) {
+      await waitFor(() =>
+        expect(
+          screen.queryByTestId("permission-prompt-card"),
+        ).not.toBeInTheDocument(),
+      );
+      expect(
+        JSON.parse(localStorage.getItem(`foxxycode_pp_v1:${A}`)!)[0].resolved,
+      ).toBeTruthy();
+    } else {
+      await screen.findAllByText(/stop.*try again/i);
+      expect(screen.getByTestId("permission-prompt-card")).toBeInTheDocument();
+    }
+  },
+);
 async function send(text: string) {
   fireEvent.change(composer(), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));

@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-20
 
+**Stop closes a pending permission request.**
+Stopping a turn dismisses its tool approval card, including after reloading the chat. The tool is persisted as cancelled; if Stop fails, the permission request remains available.
+
 **Two queue modes and images.**
 While a reply is running, steer that turn or queue a separate prompt after it. Choose the default on first use; Tab switches the mode for one submission. Queued images stay attached and return with a recovered draft.
 
