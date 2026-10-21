@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // MaxQueuedMessages bounds how many follow-ups one session may hold at once.
@@ -98,16 +99,60 @@ func queuedImage(p acp.ImagePartRef) acp.QueuedImage {
 	}
 	img.MimeType = strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(header), "data:"), ";base64")
 	if strings.HasSuffix(strings.ToLower(header), ";base64") {
-		// Every quartet of base64 is three bytes, and each padding '=' is a byte
-		// the payload does not carry. A payload that is not a whole number of
-		// quartets - a truncated data URI - decodes to nothing rather than to a
-		// negative size, which is what the raw subtraction used to publish.
-		img.SizeBytes = base64.StdEncoding.DecodedLen(len(payload)) - strings.Count(payload[max(0, len(payload)-2):], "=")
-		if img.SizeBytes < 0 {
-			img.SizeBytes = 0
-		}
+		img.SizeBytes = base64DecodedLen(payload)
 	}
 	return img
+}
+
+// base64DecodedLen reports how many bytes a base64 payload decodes to. It
+// counts rather than decodes, so it runs per queue snapshot without a scratch
+// buffer: every quartet of payload characters is three bytes and every '=' is
+// one byte the payload does not carry, over the whole payload and not only its
+// last quartet. Newline characters are skipped, as encoding/base64 skips them.
+// Canonical, unpadded and padded-more-than-once payloads all report their true
+// length, and a payload whose padding subtracts more than the rest decodes to
+// reports 0 rather than a negative size.
+func base64DecodedLen(payload string) int {
+	chars, pads := 0, 0
+	for i := 0; i < len(payload); i++ {
+		switch payload[i] {
+		case '\r', '\n':
+			continue
+		case '=':
+			pads++
+		}
+		chars++
+	}
+	size := chars*3/4 - pads
+	if size < 0 {
+		return 0
+	}
+	return size
+}
+
+// QueuedImagesForModel converts the images of a queued message for delivery to
+// the session's model, and reports the note naming whatever it had to drop.
+//
+// The enqueue gate keeps the images of a message only when the model takes them
+// (POST /foxxycode/sessions/{id}/queue, images_dropped). The model can be
+// switched between that moment and this one, so the same rule is applied again
+// as the message is read: a text-only model gets the message with its
+// attachments named as lost, never a request the provider would refuse and
+// never a failed turn over pictures queued while a multimodal model was
+// selected.
+func QueuedImagesForModel(cfg *config.Config, modelID string, parts []acp.ImagePartRef) (kept []llm.ImagePart, note string) {
+	kept = make([]llm.ImagePart, 0, len(parts))
+	for _, p := range parts {
+		kept = append(kept, llm.ImagePart{DataURL: p.DataURL, Name: p.Name})
+	}
+	if len(kept) == 0 || cfg.ModelMultimodal(modelID) {
+		return kept, ""
+	}
+	names := make([]string, 0, len(kept))
+	for _, p := range kept {
+		names = append(names, p.Name)
+	}
+	return nil, llm.ImagesDroppedNote("the session's model takes no images", names)
 }
 
 // QueuedMessagesWire converts a queue snapshot for the wire.

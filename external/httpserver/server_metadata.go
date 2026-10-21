@@ -183,13 +183,10 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 }
 
 // configuredModelMultimodal reports whether the selected YAML model explicitly
-// opts in to image/file inputs. Missing and unknown entries fail closed.
+// opts in to image/file inputs. Missing and unknown entries fail closed - the
+// one gate every delivery path applies (config.ModelMultimodal).
 func configuredModelMultimodal(cfg *config.Config, modelID string) bool {
-	if cfg == nil {
-		return false
-	}
-	entry := cfg.FindModelEntry(modelID)
-	return entry != nil && entry.Multimodal
+	return cfg.ModelMultimodal(modelID)
 }
 
 // applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).

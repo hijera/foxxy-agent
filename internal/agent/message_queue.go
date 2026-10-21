@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -28,9 +29,14 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	}
 	sessionID := a.state.GetID()
 	for _, q := range queued {
-		images := make([]llm.ImagePart, 0, len(q.ImageParts))
-		for _, p := range q.ImageParts {
-			images = append(images, llm.ImagePart{DataURL: p.DataURL, Name: p.Name})
+		// The model decides what these images are worth, not the moment they
+		// were queued: a switch to a text-only model since then drops them
+		// here, named in the message, rather than failing the step at the
+		// provider (session.QueuedImagesForModel).
+		images, droppedNote := session.QueuedImagesForModel(a.cfg, a.state.EffectiveModelID(a.cfg), q.ImageParts)
+		if droppedNote != "" {
+			a.log.Warn("queued images dropped for a model that takes none",
+				"session_id", sessionID, "images", len(q.ImageParts))
 		}
 		if len(images) > 0 {
 			if err := session.SavePartsToAssets(images, a.state.GetPersistedSessionDir()); err != nil {
@@ -40,6 +46,13 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 		content := a.resolveQueuedMessage(q.Text)
 		if note := filePathsNote(images); note != "" {
 			content += "\n\n" + note
+		}
+		if droppedNote != "" {
+			if strings.TrimSpace(content) == "" {
+				content = droppedNote
+			} else {
+				content += "\n\n" + droppedNote
+			}
 		}
 		// The follow-up's own mentions resolve now, as it enters the
 		// conversation, and ride in its message (mentions.go).

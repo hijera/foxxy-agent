@@ -213,6 +213,127 @@ func TestSettingsCommandWithAnImageQueuesTheImage(t *testing.T) {
 	}
 }
 
+// imageProbeRunner answers every prompt and records the images the boundary
+// left for it - what Agent.Run would pick up - along with the prompt text.
+type imageProbeRunner struct {
+	mu      sync.Mutex
+	prompts []string
+	images  []llm.ImagePart
+	onRun   func(run int)
+}
+
+func (r *imageProbeRunner) run(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+	r.mu.Lock()
+	idx := len(r.prompts)
+	var text strings.Builder
+	for _, b := range prompt {
+		text.WriteString(b.Text)
+	}
+	r.prompts = append(r.prompts, text.String())
+	r.images = append(r.images, st.TakePendingImageParts()...)
+	hook := r.onRun
+	r.mu.Unlock()
+	if hook != nil {
+		hook(idx)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text.String()})
+	return string(acp.StopReasonEndTurn), nil
+}
+
+func (r *imageProbeRunner) seen() ([]string, []llm.ImagePart) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.prompts...), append([]llm.ImagePart(nil), r.images...)
+}
+
+// The boundary hands a queued message's images to the run only when the
+// session's model still takes them. A model switched to a text-only one after
+// the message was queued gets the text with the attachments named as lost -
+// never a request the provider would refuse, and never a failed turn.
+func TestTurnBoundaryDropsQueuedImagesForATextOnlyModel(t *testing.T) {
+	r := &imageProbeRunner{}
+	var mgr *session.Manager
+	var sid string
+	r.onRun = func(run int) {
+		if run != 0 {
+			return
+		}
+		parts := []acp.ImagePartRef{{Name: "shot.png", DataURL: "data:image/png;base64,YQ=="}}
+		if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, "inspect this", session.QueueModeSteer, parts); err != nil {
+			t.Errorf("enqueue: %v", err)
+		}
+	}
+	dir := t.TempDir()
+	// testConfig declares no multimodal model - the state after a switch away
+	// from one that took images.
+	mgr = session.NewManager(testConfig(), noopSender{}, r.run, slog.Default(), dir, nil)
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	sid = res.SessionID
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "start the work"}},
+	}); err != nil {
+		t.Fatalf("HandleSessionPrompt: %v", err)
+	}
+
+	prompts, images := r.seen()
+	if len(images) != 0 {
+		t.Fatalf("the run was handed %d images for a text-only model: %+v", len(images), images)
+	}
+	if len(prompts) != 2 {
+		t.Fatalf("runs = %q, want the start and one follow-up", prompts)
+	}
+	if !strings.Contains(prompts[1], "inspect this") {
+		t.Fatalf("the follow-up lost its text: %q", prompts[1])
+	}
+	if !strings.Contains(prompts[1], "[image not shown] shot.png") {
+		t.Fatalf("the follow-up does not name the image it lost: %q", prompts[1])
+	}
+}
+
+// The other half of the same rule: a model that takes images is handed the
+// queued message's images as they were queued, with no note about a drop.
+func TestTurnBoundaryKeepsQueuedImagesForAMultimodalModel(t *testing.T) {
+	r := &imageProbeRunner{}
+	var mgr *session.Manager
+	var sid string
+	r.onRun = func(run int) {
+		if run != 0 {
+			return
+		}
+		parts := []acp.ImagePartRef{{Name: "shot.png", DataURL: "data:image/png;base64,YQ=="}}
+		if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, "inspect this", session.QueueModeSteer, parts); err != nil {
+			t.Errorf("enqueue: %v", err)
+		}
+	}
+	cfg := testConfig()
+	cfg.Models[0].Multimodal = true
+	dir := t.TempDir()
+	mgr = session.NewManager(cfg, noopSender{}, r.run, slog.Default(), dir, nil)
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	sid = res.SessionID
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "start the work"}},
+	}); err != nil {
+		t.Fatalf("HandleSessionPrompt: %v", err)
+	}
+
+	prompts, images := r.seen()
+	if len(images) != 1 || images[0].Name != "shot.png" {
+		t.Fatalf("the run was handed %+v, want the one queued image", images)
+	}
+	if len(prompts) != 2 || strings.Contains(prompts[1], "[image not shown]") {
+		t.Fatalf("prompts = %q, want the follow-up unchanged", prompts)
+	}
+}
+
 // deferredStopRunner answers the first prompt after queueing one after_turn
 // message, then stops the turn from inside the run that message starts -
 // before or after that run puts its prompt into the conversation.
@@ -393,7 +514,10 @@ func TestACancelledTurnDropsTheQueueInsteadOfAnsweringIt(t *testing.T) {
 }
 
 // One admitted turn cannot be kept alive forever by queueing into every
-// boundary: past the cap the queue is closed and the session is released.
+// boundary: past the shared follow-up cap the queue is closed and the session
+// is released. Ordinary follow-ups stop at that bound - the starting prompt
+// plus 8 continuations - whatever the queue can hold: the larger after-turn
+// bound below is for deferred messages only.
 func TestTurnBoundaryStopsAfterTheFollowUpCap(t *testing.T) {
 	r := &queueRunner{}
 	var mgr *session.Manager
@@ -418,11 +542,10 @@ func TestTurnBoundaryStopsAfterTheFollowUpCap(t *testing.T) {
 	}
 
 	got := r.seen()
-	if len(got) < 2 {
-		t.Fatalf("the boundary never continued the turn: %v", got)
-	}
-	if len(got) > session.MaxQueuedMessages+1 {
-		t.Fatalf("the boundary ran the runner %d times: the cap does not hold", len(got))
+	// 1 + maxQueuedFollowUpRuns: the start, then 8 continuations of one
+	// steer batch each. A bound that covered a full queue would run 21.
+	if len(got) != 9 {
+		t.Fatalf("the boundary ran the runner %d times, want 9 (the shared follow-up bound): %v", len(got), got)
 	}
 	// The session must be usable again: a turn that never released would be
 	// worse than a dropped follow-up.
@@ -431,6 +554,41 @@ func TestTurnBoundaryStopsAfterTheFollowUpCap(t *testing.T) {
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: "next prompt"}},
 	}); err != nil {
 		t.Fatalf("the session never released its turn: %v", err)
+	}
+}
+
+// A deferred message is answered one at a time, so draining a full queue of
+// them is its own bound: up to MaxQueuedMessages after_turn deliveries in one
+// admission. A script that keeps writing new ones stops at that bound, and what
+// it wrote past it waits for the next ordinary turn instead of being lost.
+func TestAfterTurnStreamStopsAtItsOwnBound(t *testing.T) {
+	r := &queueRunner{}
+	var mgr *session.Manager
+	var sid string
+	r.onRun = func(int) {
+		_, _, _ = mgr.EnqueueTurnMessageWithMode(sid, "and one more", session.QueueModeAfterTurn, nil)
+	}
+	mgr, sid = newQueueManager(t, r)
+
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "start the work"}},
+	}); err != nil {
+		t.Fatalf("HandleSessionPrompt: %v", err)
+	}
+
+	got := r.seen()
+	// 1 + maxQueuedAfterTurnRuns (MaxQueuedMessages): the start, then one run
+	// per deferred message the bound allows.
+	if len(got) != session.MaxQueuedMessages+1 {
+		t.Fatalf("the boundary ran the runner %d times, want %d: %v", len(got), session.MaxQueuedMessages+1, got)
+	}
+	left, err := mgr.QueuedTurnMessages(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 || left[0].Mode != session.QueueModeAfterTurn {
+		t.Fatalf("left = %+v, want the one after_turn message past the bound to wait", left)
 	}
 }
 

@@ -1403,26 +1403,60 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// bury that. The run count is
 	// bounded for the same reason the ReAct loop is: each continuation is a
 	// fresh Agent.Run with its own budget, so without a cap one admission
-	// could hold the session's turn lock indefinitely. The cap covers a full
-	// queue of after_turn messages.
-	for runs := 0; stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil; runs++ {
-		if runs >= maxQueuedFollowUpRuns {
-			left := state.CloseMessageQueue()
-			if len(left) > 0 || len(state.QueuedMessages()) > 0 {
-				m.log.Warn("message queue follow-ups capped; unread steer messages dropped",
-					"session_id", params.SessionID, "runs", runs, "dropped", len(left))
-			}
-			break
-		}
+	// could hold the session's turn lock indefinitely. Ordinary follow-ups are
+	// bounded by maxQueuedFollowUpRuns for exactly that reason; a deferred
+	// after_turn message is answered one at a time, so draining a full queue of
+	// them is covered by its own bound (maxQueuedAfterTurnRuns) rather than by
+	// raising the shared one.
+	var followUps, afterTurns int
+	for stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil {
 		queued, more := state.TakeQueuedMessagesOrClose()
 		if !more {
 			break
 		}
-		var images []llm.ImagePart
-		for _, q := range queued {
-			for _, p := range q.ImageParts {
-				images = append(images, llm.ImagePart{DataURL: p.DataURL, Name: p.Name})
+		// The drain hands back either a batch of steer messages, answered
+		// together in one run, or a single after_turn message, which gets a run
+		// of its own. Each kind is charged to its own bound; a delivery over
+		// its bound is put back before the queue closes, so the close - which
+		// drops unread steer and retains after_turn - decides what becomes of
+		// it, exactly as the bounds' comments promise.
+		afterTurn := len(queued) > 0 && queued[0].Mode == QueueModeAfterTurn
+		over := false
+		if afterTurn {
+			over = afterTurns >= maxQueuedAfterTurnRuns
+			afterTurns++
+		} else {
+			over = followUps >= maxQueuedFollowUpRuns
+			followUps++
+		}
+		if over {
+			state.ReturnQueuedMessages(queued)
+			left := state.CloseMessageQueue()
+			switch {
+			case len(left) > 0:
+				m.log.Warn("message queue follow-ups capped; unread steer messages dropped",
+					"session_id", params.SessionID,
+					"steer_runs", followUps, "after_turn_runs", afterTurns, "dropped", len(left))
+			case len(state.QueuedMessages()) > 0:
+				m.log.Warn("message queue follow-ups capped; after_turn messages wait for the next turn",
+					"session_id", params.SessionID,
+					"steer_runs", followUps, "after_turn_runs", afterTurns)
 			}
+			break
+		}
+		var refs []acp.ImagePartRef
+		for _, q := range queued {
+			refs = append(refs, q.ImageParts...)
+		}
+		// The same rule the mid-turn read applies (QueuedImagesForModel): a
+		// message queued while the model took images is delivered without them,
+		// and names what it lost in the prompt, if the model has since been
+		// switched to one that takes none. Never a failed run over pictures.
+		cfg := m.activeCfg()
+		images, droppedNote := QueuedImagesForModel(cfg, state.EffectiveModelID(cfg), refs)
+		if droppedNote != "" {
+			m.log.Warn("queued images dropped for a model that takes none",
+				"session_id", params.SessionID, "images", len(refs))
 		}
 		if len(images) > 0 {
 			if saveErr := SavePartsToAssets(images, sessionDir); saveErr != nil {
@@ -1434,7 +1468,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// announces it (PromptEcho) before it answers it.
 		rev := state.MessagesRev()
 		state.MarkNextPromptQueued()
-		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
+		prompt := state.ResolveQueuedMentions(QueuedPromptBlocks(queued))
+		if droppedNote != "" {
+			prompt = append(prompt, acp.ContentBlock{Type: acp.ContentTypeText, Text: droppedNote})
+		}
+		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, prompt, sender)
 		state.ClearNextPromptQueued()
 		// The run ended before its prompt entered the conversation - a Stop that
 		// landed first, a hook that refused the text - and the check is the
@@ -1476,14 +1514,24 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 }
 
 // maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by
-// what arrived in its final moments.
+// batches of ordinary (steer) follow-ups that arrived in its final moments.
 //
 // Each continuation is a full Agent.Run with its own agent.max_turns budget, so
 // an operator (or a script) writing one follow-up per boundary could otherwise
 // hold the session's turn lock for as long as they keep typing. Past the cap
 // the queue is closed and unread steer messages are dropped with a warning;
 // after_turn messages remain waiting for the next ordinary turn.
-const maxQueuedFollowUpRuns = MaxQueuedMessages
+const maxQueuedFollowUpRuns = 8
+
+// maxQueuedAfterTurnRuns bounds how many after_turn deliveries one admitted
+// turn answers. A deferred prompt is answered one at a time, so covering a full
+// queue of them - MaxQueuedMessages - takes that many runs: this separate,
+// larger bound is what makes that queue drainable without raising the shared
+// follow-up bound above, which is the one that keeps a stream of ordinary
+// follow-ups from holding the turn lock for a full queue of runs each. Past the
+// cap the queue is closed the same way, and what is left waits for the next
+// ordinary turn.
+const maxQueuedAfterTurnRuns = MaxQueuedMessages
 
 func (m *Manager) HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error {
 	mode := params.ModeID

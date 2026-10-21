@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // A queue that was never opened belongs to no turn, so it refuses rather than
@@ -236,9 +237,9 @@ func TestQueuedImagePartsAreCopied(t *testing.T) {
 }
 
 // What a queue snapshot says an attachment weighs: the bytes its base64
-// payload decodes to, never a negative number. A payload that is not a whole
-// number of quartets - a truncated data URI - reports 0 rather than letting the
-// padding count subtract more than the payload holds.
+// payload decodes to, never a negative number - for canonical payloads,
+// unpadded ones, ones padded more than the final quartet and ones wrapped
+// across lines alike.
 func TestQueuedImageSizeBytes(t *testing.T) {
 	for _, tc := range []struct {
 		name, dataURL string
@@ -248,6 +249,10 @@ func TestQueuedImageSizeBytes(t *testing.T) {
 		{"one byte", "data:image/png;base64,YQ==", 1, "image/png"},
 		{"two bytes", "data:image/jpeg;base64,YWI=", 2, "image/jpeg"},
 		{"three bytes", "data:image/png;base64,YWJj", 3, "image/png"},
+		{"padding in more than the last quartet", "data:image/png;base64,YQ==YQ==", 2, "image/png"},
+		{"unpadded one byte", "data:image/png;base64,YQ", 1, "image/png"},
+		{"unpadded two bytes", "data:image/png;base64,YWI", 2, "image/png"},
+		{"wrapped across lines", "data:image/png;base64,YQ==\r\nYQ==", 2, "image/png"},
 		{"padding with no payload", "data:image/png;base64,A=", 0, "image/png"},
 		{"a single padding mark", "data:image/png;base64,=", 0, "image/png"},
 		{"not base64 at all", "data:image/png,raw", 0, "image/png"},
@@ -262,6 +267,47 @@ func TestQueuedImageSizeBytes(t *testing.T) {
 				t.Errorf("mime = %q, want %q", got.MimeType, tc.mime)
 			}
 		})
+	}
+}
+
+// The read-side twin of the enqueue gate: a message queued while the model took
+// images is delivered without them - and names what it lost - once the model is
+// one that takes none. Never a failed turn over pictures queued earlier.
+func TestQueuedImagesForModel(t *testing.T) {
+	parts := []acp.ImagePartRef{
+		{Name: "shot.png", DataURL: "data:image/png;base64,YQ=="},
+		{Name: "", DataURL: "data:image/png;base64,YWI="},
+	}
+	cfg := &config.Config{Models: []config.ModelEntry{
+		{Model: "p/multimodal", Multimodal: true},
+		{Model: "p/text", Multimodal: false},
+	}}
+	kept, note := QueuedImagesForModel(cfg, "p/multimodal", parts)
+	if len(kept) != 2 || kept[0].Name != "shot.png" || note != "" {
+		t.Fatalf("multimodal model: kept=%+v note=%q, want both images and no note", kept, note)
+	}
+	for _, tc := range []struct{ name, modelID string }{
+		{"text-only model", "p/text"},
+		{"unknown model fails closed", "p/unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kept, note := QueuedImagesForModel(cfg, tc.modelID, parts)
+			if len(kept) != 0 {
+				t.Fatalf("kept %d images, want none", len(kept))
+			}
+			// The note names every lost attachment - an unnamed one as "image" -
+			// under the marker the model and the client already know.
+			if !strings.Contains(note, "[image not shown] shot.png, image") {
+				t.Errorf("the note does not name the lost images: %q", note)
+			}
+		})
+	}
+	kept, note = QueuedImagesForModel(nil, "p/multimodal", parts)
+	if len(kept) != 0 || note == "" {
+		t.Fatalf("no config: kept=%d note=%q, want the images dropped", len(kept), note)
+	}
+	if kept, note := QueuedImagesForModel(cfg, "p/text", nil); len(kept) != 0 || note != "" {
+		t.Fatalf("a message with no images: kept=%d note=%q", len(kept), note)
 	}
 }
 
