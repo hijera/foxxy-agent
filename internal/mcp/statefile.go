@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/platform"
 )
@@ -39,7 +40,9 @@ func updateStateFile(path string, update func() error) error {
 // writeStateFile replaces path with data through a temporary file of its own
 // next to it, readable by the operator only: two writers never share a
 // temporary, and a reader sees the old file or the new one, never a
-// half-written one.
+// half-written one. The replace waits out the unlocked readers of the file -
+// readOverrides on every list and dial - whose handles make it fail on
+// Windows (renameWithRetry).
 func writeStateFile(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -55,9 +58,26 @@ func writeStateFile(path string, data []byte) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write %s: %w", path, err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := renameWithRetry(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
+}
+
+// renameWithRetry renames tmpPath over path, retrying briefly on transient
+// Windows sharing errors that occur when another handle holds the destination
+// open. On POSIX isRetryableFileLockError is always false, so this is a single
+// os.Rename with no behavior change. The document stays a temporary-plus
+// rename throughout: a crash mid-write cannot leave a torn file behind.
+func renameWithRetry(tmpPath, path string) error {
+	const maxAttempts = 20
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err = os.Rename(tmpPath, path); err == nil || !isRetryableFileLockError(err) {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return err
 }
