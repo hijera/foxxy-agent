@@ -343,15 +343,6 @@ function pickMenuDir(
   return "opens-down";
 }
 
-
-/**
- * The command group of the / menu: the server's rows, plus the commands this
- * composer runs itself - /docs where it can open the reader, /mcp where it can
- * open Settings (each label is that row's description, null where the composer
- * cannot run it) - in name order.
- */
-
-
 /**
  * How long after compositionend a keyCode 229 keydown still counts as the key
  * that ended the composition (Safari's order). The keydown follows within a
@@ -513,6 +504,13 @@ export function Composer(props: {
    */
   const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(null);
   /**
+   * Whether the first-use question is already answered. A double click on one
+   * of its two buttons would otherwise queue the draft twice: the draft is
+   * cleared only on the next render, so both clicks still see the text of the
+   * one they belong to.
+   */
+  const queueChoiceAnsweredRef = useRef(false);
+  /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
    * draft leaves the button as Stop, which is how the turn is still cancelled.
@@ -556,6 +554,7 @@ export function Composer(props: {
     }
     const chosen = mode ?? props.queueMode;
     if (!chosen) {
+      queueChoiceAnsweredRef.current = false;
       setQueueChoice({ alternate });
       return;
     }
@@ -566,7 +565,12 @@ export function Composer(props: {
   }, [props.value, props.onQueue, props.queueMode, runLocalCommandFromDraft, sendableAttachedFiles, setAttachedFiles]);
   /** The answer to the first-use question: it is Enter's mode from now on. */
   const chooseQueueMode = (mode: QueueMode) => {
+    if (queueChoiceAnsweredRef.current) {
+      return;
+    }
+    queueChoiceAnsweredRef.current = true;
     const alternate = queueChoice?.alternate === true;
+    setQueueChoice(null);
     props.onQueueModeChange?.(mode);
     queueDraft(alternate ? oppositeQueueMode(mode) : mode);
   };
@@ -980,6 +984,12 @@ export function Composer(props: {
     closeAtRangePicker();
   }
 
+  /**
+   * One page of the / menu: the server's rows, plus the commands this composer
+   * runs itself - /docs where it can open the reader, /mcp where it can open
+   * Settings - added to the first page when it can run them, each labelled by
+   * the description the other rows use.
+   */
   const fetchSlashPage = useCallback(
     async (prefix: string, page: number) => {
       const sp = new URLSearchParams({

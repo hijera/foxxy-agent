@@ -34,10 +34,10 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { parseAppHash, setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
+import { useRailEscapeStep } from "../nav/railEscape";
 
 // The project website (site/ in the repository, published on GitHub Pages).
 const FOXXYCODE_SITE_URL = "https://hijera.github.io/foxxy-agent/";
-import { useRailEscapeStep } from "../nav/railEscape";
 
 type ValidateResponse = { ok: boolean; error?: string };
 

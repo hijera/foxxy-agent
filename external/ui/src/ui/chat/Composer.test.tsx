@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { afterEach, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -1186,6 +1187,41 @@ test("Tab queues the alternate mode and clears attached images", async () => {
   fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab" });
   expect(onQueue).toHaveBeenCalledWith("inspect this", "after_turn", [file]);
   expect(screen.queryByText("img.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("the first-use queue question is answered once, not once per click", async () => {
+  stubMatchMediaMobile(false);
+  const onQueue = vi.fn();
+  const onQueueModeChange = vi.fn();
+  render(
+    <Composer
+      value="inspect this"
+      isEmpty={false}
+      generating={true}
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+      onQueueModeChange={onQueueModeChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Queue this message" }));
+  await waitFor(() => screen.getByTestId("composer-queue-choice"));
+  const steer = screen.getByRole("button", { name: "Steer now" });
+  // Both clicks land before the answer re-renders the composer, the way a
+  // double click does: the draft is cleared only on the next render, so an
+  // unanswered question would send it twice.
+  await act(async () => {
+    steer.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    steer.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(onQueue).toHaveBeenCalledTimes(1);
+  expect(onQueue).toHaveBeenCalledWith("inspect this", "steer", []);
+  expect(onQueueModeChange).toHaveBeenCalledTimes(1);
   vi.unstubAllGlobals();
 });
 
