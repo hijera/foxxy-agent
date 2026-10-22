@@ -66,6 +66,7 @@ Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following
 <!-- divergence-registry:start -->
 | ID | Upstream | Форк | При следующем изменении upstream |
 |----|----------|------|----------------------------------|
+| `queue-output-limit` | 1.2.27 starts deferred prompts only after end_turn | Start after_turn after max_tokens, drop unread steer, keep errors and Stop waiting | Preserve the owner-selected output-cap exception and existing queue bounds |
 | `retry-max-default` | 1.2.0 (#329): 3 shared extra attempts | Owner-selected default of 10; about 55m30s for a wholly silent model with the default guards and delays | Preserve the shared default and explicit 0 disabling retries |
 | `stall-guard-layer` | 1.1.47: `stallGuardTransport` в `transport.go` режет SSE-тело без байтов, внутри ретрай-обёртки | Guard оборачивает провайдер и считает чанки (включая `Progress`), не keep-alive; стоит снаружи ретраев | 1.1.52: режимы портированы без `stallGuardTransport`/`idleBody`; при следующих изменениях сохранять слой guard |
 | `transport-debug-wrap` | 1.1.47: общий транспорт на настройку прокси из `http.DefaultTransport`, пинги HTTP/2 через x/net | Тот же общий пул, но из форковых прокси-хелперов (таймаут заголовков, системный прокси #124, пинги `http.HTTP2Config` из #125) и за debug-обёрткой | 1.1.52: режимы портированы в `buildLLMTransport` с системным прокси, debug-обёрткой, ключом пула и форковым обходом NO_PROXY/loopback; при следующих изменениях сохранять их |

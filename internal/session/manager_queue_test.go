@@ -179,6 +179,87 @@ func TestStopKeepsAfterTurnWithoutStartingIt(t *testing.T) {
 	}
 }
 
+func TestOutputLimitDeferredQueuePolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stop acp.StopReason
+		err  error
+		runs int
+		left int
+	}{
+		{"output cap", acp.StopReasonMaxTokens, nil, 3, 0},
+		{"step cap", acp.StopReasonMaxTurns, nil, 1, 2},
+		{"Stop", acp.StopReasonCancelled, nil, 1, 2},
+		{"refusal", acp.StopReasonRefused, nil, 1, 2},
+		{"provider error", acp.StopReasonRefused, fmt.Errorf("HTTP 400: context limit 4096"), 1, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mgr *session.Manager
+			var sid string
+			var prompts []string
+			runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+				prompts = append(prompts, prompt[0].Text)
+				st.AddMessage(llm.Message{Role: llm.RoleUser, Content: prompt[0].Text})
+				if len(prompts) == 1 {
+					for _, q := range []struct {
+						text string
+						mode session.QueueMode
+					}{{"unread steer", session.QueueModeSteer}, {"first deferred", session.QueueModeAfterTurn}, {"second deferred", session.QueueModeAfterTurn}} {
+						if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, q.text, q.mode, nil); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				// Each deferred answer can itself reach the cap. It must still
+				// launch the next deferred prompt, without replaying steering.
+				st.SetTurnStopNotice("output limit")
+				return string(tc.stop), tc.err
+			}
+			mgr, sid = newQueueManagerWith(t, runner)
+			res, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "initial"}}})
+			if (err != nil) != (tc.err != nil) {
+				t.Fatalf("error=%v, want %v", err, tc.err)
+			}
+			if len(prompts) != tc.runs {
+				t.Fatalf("prompts=%v, want %d runs", prompts, tc.runs)
+			}
+			if tc.runs == 3 && (prompts[1] != "first deferred" || prompts[2] != "second deferred" || res.StopReason != tc.stop || res.StopNotice != "output limit") {
+				t.Fatalf("prompts=%v result=%+v", prompts, res)
+			}
+			rows, err := mgr.QueuedTurnMessages(sid)
+			if err != nil || len(rows) != tc.left {
+				t.Fatalf("remaining=%+v, %v; want %d", rows, err, tc.left)
+			}
+			for _, q := range rows {
+				if q.Mode != session.QueueModeAfterTurn {
+					t.Fatalf("unread steering survived the terminal outcome: %+v", q)
+				}
+			}
+		})
+	}
+}
+
+func TestOutputLimitWithoutDeferredPromptKeepsItsNotice(t *testing.T) {
+	var mgr *session.Manager
+	var sid string
+	calls := 0
+	mgr, sid = newQueueManagerWith(t, func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		calls++
+		if _, _, err := mgr.EnqueueTurnMessage(sid, "unread steer"); err != nil {
+			t.Fatal(err)
+		}
+		st.SetTurnStopNotice("4096 token output limit")
+		return string(acp.StopReasonMaxTokens), nil
+	})
+	res, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "initial"}}})
+	if err != nil || calls != 1 || res.StopReason != acp.StopReasonMaxTokens || res.StopNotice != "4096 token output limit" {
+		t.Fatalf("result=%+v err=%v calls=%d", res, err, calls)
+	}
+	if rows, err := mgr.QueuedTurnMessages(sid); err != nil || len(rows) != 0 {
+		t.Fatalf("remaining=%+v, %v", rows, err)
+	}
+}
+
 // A settings command with an image and no text applies at once, and the image
 // is still queued: the command is the operator's, the image is a message.
 func TestSettingsCommandWithAnImageQueuesTheImage(t *testing.T) {

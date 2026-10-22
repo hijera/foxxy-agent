@@ -7,7 +7,10 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-20
+## Unreleased — 2026-10-22
+
+**Deferred prompts continue after the output cap.**
+When a model reaches its answer token limit, After turn prompts start automatically in order. The cut answer and its notice remain visible; unread Steer messages are dropped. Provider errors, context overflow and Stop keep deferred prompts waiting.
 
 **Stop closes a pending permission request.**
 Stopping a turn dismisses its tool approval card, including after reloading the chat. The tool is persisted as cancelled; if Stop fails, the permission request remains available.

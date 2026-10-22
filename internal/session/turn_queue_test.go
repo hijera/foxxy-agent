@@ -168,6 +168,29 @@ func TestModeSwitchBeforeTheBoundaryIsHonoured(t *testing.T) {
 	}
 }
 
+func TestOutputLimitBoundaryHonoursModeChangesAndCloses(t *testing.T) {
+	st := &State{ID: "sess_queue_output_limit"}
+	st.OpenMessageQueue()
+	deferred, _ := st.EnqueueMessageWithMode("deferred became steer", QueueModeAfterTurn, nil)
+	steer, _ := st.EnqueueMessageWithMode("steer became deferred", QueueModeSteer, nil)
+	if !st.SetQueuedMessageMode(deferred.ID, QueueModeSteer) || !st.SetQueuedMessageMode(steer.ID, QueueModeAfterTurn) {
+		t.Fatal("mode switch failed")
+	}
+	taken, dropped, more := st.TakeAfterTurnMessageOrClose()
+	if !more || dropped != 1 || len(taken) != 1 || taken[0].ID != steer.ID || !st.MessageQueueOpen() {
+		t.Fatalf("taken=%+v dropped=%d more=%v", taken, dropped, more)
+	}
+	if _, err := st.EnqueueMessage("late steering"); err != nil {
+		t.Fatal(err)
+	}
+	if taken, dropped, more = st.TakeAfterTurnMessageOrClose(); more || dropped != 1 || len(taken) != 0 || st.MessageQueueOpen() {
+		t.Fatalf("empty boundary: taken=%+v dropped=%d more=%v", taken, dropped, more)
+	}
+	if _, err := st.EnqueueMessage("too late"); !errors.Is(err, ErrNoActiveTurn) {
+		t.Fatalf("enqueue after closing: %v", err)
+	}
+}
+
 func TestQueueIsCapped(t *testing.T) {
 	st := &State{ID: "sess_queue_cap"}
 	st.OpenMessageQueue()
