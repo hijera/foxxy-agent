@@ -1396,10 +1396,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// finds nothing closes the queue in the same step, so there is no window
 	// where a message is accepted by a turn that is already over.
 	//
-	// An ordinary answer can continue either queue mode. An output cap ends
-	// that turn but still starts explicit after_turn prompts; unread steering
-	// is dropped rather than resuming the truncated work. Other endings (Stop,
-	// the step cap, a refusal or an error) leave deferred work waiting. The run count is
+	// An ordinary answer or an output cap can continue either queue mode:
+	// unread steering is answered before any deferred prompt. Other endings
+	// (Stop, the step cap, a refusal or an error) leave deferred work waiting.
+	// The run count is
 	// bounded for the same reason the ReAct loop is: each continuation is a
 	// fresh Agent.Run with its own budget, so without a cap one admission
 	// could hold the session's turn lock indefinitely. Ordinary follow-ups are
@@ -1408,19 +1408,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// them is covered by its own bound (maxQueuedAfterTurnRuns) rather than by
 	// raising the shared one.
 	var followUps, afterTurns int
-	// fork(queue-output-limit): only deferred prompts start after an output cap.
+	// fork(queue-output-limit): deliver unread steering before deferred prompts after an output cap.
 	for (stopReason == string(acp.StopReasonEndTurn) || stopReason == string(acp.StopReasonMaxTokens)) && turnCtx.Err() == nil {
-		var queued []QueuedMessage
-		var more bool
-		if stopReason == string(acp.StopReasonMaxTokens) {
-			var dropped int
-			queued, dropped, more = state.TakeAfterTurnMessageOrClose()
-			if dropped > 0 {
-				m.log.Warn("output limit reached; unread steer messages dropped", "session_id", params.SessionID, "dropped", dropped)
-			}
-		} else {
-			queued, more = state.TakeQueuedMessagesOrClose()
-		}
+		queued, more := state.TakeQueuedMessagesOrClose()
 		if !more {
 			break
 		}
@@ -1479,7 +1469,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		rev := state.MessagesRev()
 		state.MarkNextPromptQueued()
 		// The capped answer and its notice are already in the transcript. A
-		// deferred answer has its own ending and must not return the old notice.
+		// queued answer has its own ending and must not return the old notice.
 		state.TakeTurnStopNotice()
 		prompt := state.ResolveQueuedMentions(QueuedPromptBlocks(queued))
 		if droppedNote != "" {

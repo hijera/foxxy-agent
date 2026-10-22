@@ -187,7 +187,7 @@ func TestOutputLimitDeferredQueuePolicy(t *testing.T) {
 		runs int
 		left int
 	}{
-		{"output cap", acp.StopReasonMaxTokens, nil, 3, 0},
+		{"output cap", acp.StopReasonMaxTokens, nil, 4, 0},
 		{"step cap", acp.StopReasonMaxTurns, nil, 1, 2},
 		{"Stop", acp.StopReasonCancelled, nil, 1, 2},
 		{"refusal", acp.StopReasonRefused, nil, 1, 2},
@@ -211,7 +211,7 @@ func TestOutputLimitDeferredQueuePolicy(t *testing.T) {
 					}
 				}
 				// Each deferred answer can itself reach the cap. It must still
-				// launch the next deferred prompt, without replaying steering.
+				// launch unread steering first, then each deferred prompt.
 				st.SetTurnStopNotice("output limit")
 				return string(tc.stop), tc.err
 			}
@@ -223,7 +223,7 @@ func TestOutputLimitDeferredQueuePolicy(t *testing.T) {
 			if len(prompts) != tc.runs {
 				t.Fatalf("prompts=%v, want %d runs", prompts, tc.runs)
 			}
-			if tc.runs == 3 && (prompts[1] != "first deferred" || prompts[2] != "second deferred" || res.StopReason != tc.stop || res.StopNotice != "output limit") {
+			if tc.runs == 4 && (prompts[1] != "unread steer" || prompts[2] != "first deferred" || prompts[3] != "second deferred" || res.StopReason != tc.stop || res.StopNotice != "output limit") {
 				t.Fatalf("prompts=%v result=%+v", prompts, res)
 			}
 			rows, err := mgr.QueuedTurnMessages(sid)
@@ -239,20 +239,26 @@ func TestOutputLimitDeferredQueuePolicy(t *testing.T) {
 	}
 }
 
-func TestOutputLimitWithoutDeferredPromptKeepsItsNotice(t *testing.T) {
+func TestOutputLimitSteerWithoutDeferredPromptRunsOnce(t *testing.T) {
 	var mgr *session.Manager
 	var sid string
 	calls := 0
-	mgr, sid = newQueueManagerWith(t, func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+	mgr, sid = newQueueManagerWith(t, func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		calls++
-		if _, _, err := mgr.EnqueueTurnMessage(sid, "unread steer"); err != nil {
-			t.Fatal(err)
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: prompt[0].Text})
+		if calls == 2 && prompt[0].Text != "unread steer" {
+			t.Fatalf("follow-up prompt=%q, want the retained steering", prompt[0].Text)
+		}
+		if calls == 1 {
+			if _, _, err := mgr.EnqueueTurnMessage(sid, "unread steer"); err != nil {
+				t.Fatal(err)
+			}
 		}
 		st.SetTurnStopNotice("4096 token output limit")
 		return string(acp.StopReasonMaxTokens), nil
 	})
 	res, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "initial"}}})
-	if err != nil || calls != 1 || res.StopReason != acp.StopReasonMaxTokens || res.StopNotice != "4096 token output limit" {
+	if err != nil || calls != 2 || res.StopReason != acp.StopReasonMaxTokens || res.StopNotice != "4096 token output limit" {
 		t.Fatalf("result=%+v err=%v calls=%d", res, err, calls)
 	}
 	if rows, err := mgr.QueuedTurnMessages(sid); err != nil || len(rows) != 0 {

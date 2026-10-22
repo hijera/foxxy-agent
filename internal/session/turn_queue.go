@@ -441,28 +441,8 @@ func (s *State) TakeQueuedMessages() []QueuedMessage {
 // the same lock means a row switched from one mode to the other a moment ago
 // is taken as what it is now, never skipped.
 func (s *State) TakeQueuedMessagesOrClose() ([]QueuedMessage, bool) {
-	taken, _, more := s.takeQueuedMessagesOrClose(false)
-	return taken, more
-}
-
-// TakeAfterTurnMessageOrClose starts only deferred work after an output cap.
-// Unread steering belonged to the truncated turn and is dropped atomically
-// with selecting the next deferred message, including concurrent mode changes.
-func (s *State) TakeAfterTurnMessageOrClose() (taken []QueuedMessage, dropped int, more bool) {
-	return s.takeQueuedMessagesOrClose(true)
-}
-
-func (s *State) takeQueuedMessagesOrClose(afterTurnOnly bool) ([]QueuedMessage, int, bool) {
 	s.queueMu.Lock()
-	var taken []QueuedMessage
-	dropped := 0
-	if afterTurnOnly {
-		kept := keepAfterTurn(s.queue)
-		dropped = len(s.queue) - len(kept)
-		s.queue = kept
-	} else {
-		taken = takeSteer(s.queue)
-	}
+	taken := takeSteer(s.queue)
 	switch {
 	case len(taken) > 0:
 		s.queue = keepAfterTurn(s.queue)
@@ -474,15 +454,12 @@ func (s *State) takeQueuedMessagesOrClose(afterTurnOnly bool) ([]QueuedMessage, 
 		s.queueOpen = false
 		s.bumpQueueLocked()
 		s.queueMu.Unlock()
-		if dropped > 0 {
-			s.notifyQueue()
-		}
-		return nil, dropped, false
+		return nil, false
 	}
 	s.bumpQueueLocked()
 	s.queueMu.Unlock()
 	s.notifyQueue()
-	return taken, dropped, true
+	return taken, true
 }
 
 // ReturnQueuedMessages puts messages the boundary took back at the head of the

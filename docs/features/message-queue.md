@@ -42,11 +42,11 @@ With `agent.llm_stall_retry` on, an iteration that re-issues a request the provi
 
 When a turn answers, the manager looks at what is waiting in one atomic step: every steer message first, as one batch for one more run of the same turn; otherwise the oldest after-turn message, alone; otherwise it closes the queue. Deciding under one lock means a message is never accepted by a turn that is already over, and a message switched from one mode to the other a moment earlier is taken as what it is now.
 
-An ordinary **answer** continues either queue mode. Reaching the model's **output token limit** also starts the oldest after-turn message as a new prompt with its own budget. The truncated answer and its limit notice stay in the transcript; unread steer messages belonged to that finished turn and are dropped. Each deferred answer can itself reach its output cap without blocking the next deferred message. This applies to an output cap reported by the model (`finish_reason: length`), not an HTTP error about an invalid token setting or an overflowing context window.
+An ordinary **answer** continues either queue mode. Reaching the model's **output token limit** also delivers queued prompts with fresh budgets. The truncated answer and its limit notice stay in the transcript. Unread steer messages are delivered first as a batch, in their original order; only after that answer does the oldest after-turn prompt start, even when it was queued before the steering. Each deferred answer can itself reach its output cap without blocking the next deferred message. This applies to an output cap reported by the model (`finish_reason: length`), not an HTTP error about an invalid token setting or an overflowing context window.
 
 ![A deferred prompt answered automatically after a 4096 token output cap](../assets/message-queue/message-queue-output-limit-dark-1280.png)
 
-*The output-capped answer keeps its notice; the queued After turn prompt starts automatically and receives its own answer in IntelliJ.*
+*The output-capped answer keeps its notice; unread Steer messages are answered before queued After turn prompts in IntelliJ.*
 
 A turn stopped by its step cap, a refusal, a hook, a provider error or exhausted recovery keeps after-turn messages waiting instead of starting them. The continuations are capped: **8** batches of ordinary follow-ups per admitted turn (each a full agent run of its own, so a stream of them cannot hold the session's turn lock indefinitely), and **20** after-turn deliveries - the size of a full queue - so a queue of deferred messages drains in the same turn. Past either cap the queue closes: the steer messages are dropped with a warning and the after-turn ones stay queued.
 

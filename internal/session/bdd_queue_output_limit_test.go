@@ -13,6 +13,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -27,13 +28,13 @@ func (s *queueOutputLimitScenario) modelReachesLimit() error {
 	if err := s.reset(); err != nil {
 		return err
 	}
-	s.queueErr = make(chan error, 3)
+	s.queueErr = make(chan error, 4)
 	s.serve(func(n int, w io.Writer) {
 		if n == 1 {
 			for _, q := range []struct {
 				text string
 				mode session.QueueMode
-			}{{"UNREAD_STEER", session.QueueModeSteer}, {"FIRST_DEFERRED", session.QueueModeAfterTurn}, {"SECOND_DEFERRED", session.QueueModeAfterTurn}} {
+			}{{"FIRST_DEFERRED", session.QueueModeAfterTurn}, {"UNREAD_STEER_FIRST", session.QueueModeSteer}, {"SECOND_DEFERRED", session.QueueModeAfterTurn}, {"UNREAD_STEER_SECOND", session.QueueModeSteer}} {
 				_, _, err := s.mgr.EnqueueTurnMessageWithMode(s.sid, q.text, q.mode, nil)
 				if err != nil {
 					s.queueErr <- err
@@ -78,12 +79,12 @@ func (s *queueOutputLimitScenario) run() error {
 	}
 }
 
-func (s *queueOutputLimitScenario) deferredPromptsRun() error {
+func (s *queueOutputLimitScenario) queuedPromptsRun() error {
 	calls := s.stub.calls()
-	if len(calls) != 3 || s.res.StopReason != acp.StopReasonEndTurn || s.res.StopNotice != "" {
-		return fmt.Errorf("calls=%d, result=%+v; want the capped call and two deferred answers", len(calls), s.res)
+	if len(calls) != 4 || s.res.StopReason != acp.StopReasonEndTurn || s.res.StopNotice != "" {
+		return fmt.Errorf("calls=%d, result=%+v; want the capped call, steering and two deferred answers", len(calls), s.res)
 	}
-	for i, want := range []string{"FIRST_DEFERRED", "SECOND_DEFERRED"} {
+	for i, want := range []string{"UNREAD_STEER_FIRST", "FIRST_DEFERRED", "SECOND_DEFERRED"} {
 		var req struct {
 			Messages []struct{ Role, Content string }
 		}
@@ -96,17 +97,28 @@ func (s *queueOutputLimitScenario) deferredPromptsRun() error {
 				lastUser = m.Content
 			}
 		}
-		if lastUser != want {
+		if i == 0 {
+			first, second := strings.Index(lastUser, "UNREAD_STEER_FIRST"), strings.Index(lastUser, "UNREAD_STEER_SECOND")
+			if first < 0 || second <= first {
+				return fmt.Errorf("steering batch=%q, want both corrections in their original order", lastUser)
+			}
+		} else if lastUser != want {
 			return fmt.Errorf("request %d user=%q, want %q", i+2, lastUser, want)
 		}
 	}
 	return nil
 }
 
-func (s *queueOutputLimitScenario) steerNotSent() error {
-	for _, raw := range s.stub.calls() {
-		if strings.Contains(string(raw), "UNREAD_STEER") {
-			return fmt.Errorf("unread steering crossed the output-limited boundary")
+func (s *queueOutputLimitScenario) queuedMessagesOnce() error {
+	var users strings.Builder
+	for _, msg := range s.state.GetMessages() {
+		if msg.Role == llm.RoleUser {
+			users.WriteString(msg.Content)
+		}
+	}
+	for _, want := range []string{"UNREAD_STEER_FIRST", "UNREAD_STEER_SECOND", "FIRST_DEFERRED", "SECOND_DEFERRED"} {
+		if count := strings.Count(users.String(), want); count != 1 {
+			return fmt.Errorf("%q occurs %d times in user messages, want exactly once", want, count)
 		}
 	}
 	return nil
@@ -142,8 +154,8 @@ func TestMessageQueueOutputLimitFeature(t *testing.T) {
 	suite := godog.TestSuite{Name: "message_queue_output_limit", ScenarioInitializer: func(sc *godog.ScenarioContext) {
 		sc.Step(`^a model that reaches its 4096 token output limit with both queue modes waiting$`, s.modelReachesLimit)
 		sc.Step(`^the user starts that output-limited turn$`, s.run)
-		sc.Step(`^the two deferred prompts run once each in order$`, s.deferredPromptsRun)
-		sc.Step(`^the unread steering message is not sent to the model$`, s.steerNotSent)
+		sc.Step(`^the unread steering runs before the two deferred prompts$`, s.queuedPromptsRun)
+		sc.Step(`^each queued message appears exactly once in the transcript$`, s.queuedMessagesOnce)
 		sc.Step(`^the truncated answer and its limit notice remain in the transcript$`, s.transcriptKeepsLimit)
 		sc.Step(`^no queued messages remain after the deferred answers$`, s.queueEmpty)
 	}, Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/message_queue_output_limit.feature"}, TestingT: t, Strict: true}}
