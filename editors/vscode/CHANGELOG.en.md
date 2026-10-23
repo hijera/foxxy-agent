@@ -10,6 +10,9 @@
 
 ## Unreleased — 2026-10-23
 
+**Reading position when resizing the panel.**
+Narrowing or widening the panel keeps the running command visible when following output and preserves the visible row when reading history.
+
 **Safe repeated settings saves.**
 Edits typed while saving are carried onto the merged server result. Saving again preserves changes from another window, even if the background refresh fails.
 

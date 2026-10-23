@@ -743,6 +743,8 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
 ### Transcript window
 
+- **Panel resizing** keeps the end visible for a reader following output and otherwise restores the first visible row's offset. `chat/useTranscriptResizeAnchor.ts` remembers the preceding layout before a width change, transfers the position between `.chat-scroll` and document scroll at the shell boundary, and settles it after the shell and composer reserve update. Intermediate resize offsets do not change the follow flag. This also applies to wrapping changes within one shell.
+
 A long conversation keeps a bounded slice of its rows in the DOM and holds only the end of its history until the reader scrolls up (issue #338; behaviour and the numbers: **`docs/surfaces/web-ui.md`**, **Long sessions**).
 
 - **Rows are found by id.** Every row root carries **`data-row-id`** with its transcript item id (**`rowId`** prop on the row components, set by **`MessageList`**); the window measures and anchors by it. A new kind of row does the same, and it must be a **direct child** of **`.messages-inner`**: no wrapper, or the window cannot see it.

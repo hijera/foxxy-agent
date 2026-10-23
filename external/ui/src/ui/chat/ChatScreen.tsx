@@ -45,6 +45,7 @@ import {
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { useTranscriptResizeAnchor } from "./useTranscriptResizeAnchor";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -225,6 +226,14 @@ export function ChatScreen(props: {
     readerAtTailRef.current = atTail;
     onReaderAtTailChangeRef.current?.(atTail);
   }, []);
+  const syncAfterResizeRef = useRef(() => {});
+  const { isResizing, rememberPosition } = useTranscriptResizeAnchor({
+    scrollerRef: messagesRef,
+    stickToBottomRef,
+    enabled: !isEmpty,
+    resetKey: props.sessionId,
+    onRestored: () => syncAfterResizeRef.current(),
+  });
 
   useLayoutEffect(() => {
     if (isEmpty) return;
@@ -321,6 +330,9 @@ export function ChatScreen(props: {
     // A jump owns the position while it travels. Reading it mid-flight would
     // put the button back on screen for every frame above the band.
     if (jumpFrameRef.current !== null) return;
+    // A shell switch briefly exposes the new scrollport at its old offset.
+    // It is a resize, not the reader leaving the tail.
+    if (isResizing()) return;
     let atBottom: boolean;
     if (mobileDocScroll) {
       atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
@@ -335,7 +347,9 @@ export function ChatScreen(props: {
     stickToBottomRef.current = atNewest;
     setShowScrollToBottom(!atNewest);
     reportReaderAtTail(atBottom);
-  }, [mobileDocScroll, reportReaderAtTail]);
+    rememberPosition();
+  }, [mobileDocScroll, reportReaderAtTail, isResizing, rememberPosition]);
+  syncAfterResizeRef.current = syncTranscriptPosition;
 
   const jumpToNewestMessage = useCallback(() => {
     cancelTranscriptJump();

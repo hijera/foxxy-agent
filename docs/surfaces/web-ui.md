@@ -639,6 +639,7 @@ Scrolling up in a long chat leaves the newest messages off screen, and dragging 
 - **The reader always wins** - a wheel, a finger or a press on the scrollbar stops the travel where it is and brings the button straight back if they stopped short of the end.
 - **Only down** - the button never moves the chat up. On a phone the end is measured against what is visible above the on-screen keyboard, and where the keyboard covers the page instead of shrinking it (iOS Safari) the composer and the button rise above it; the button used to stay under the keyboard there and send the page up by the keyboard's height.
 - **Both scroll surfaces** - the wide shell scrolls `.chat-scroll`, the narrow one scrolls the document; the same module reads the distance and the end position for both, and one reading drives the follow flag, the button and the jump.
+- **Resizing the panel** preserves the reader's position across both scroll surfaces and text wrapping. Following the newest output keeps the end visible; inspecting history keeps the first visible row at its previous offset. A width change does not count as scrolling away from a running command.
 - **`prefers-reduced-motion: reduce`** puts the transcript at the end in one step and drops the button's fade.
 - **Accessible name and tooltip** are both `chat.scrollToBottom`; the empty hero never renders it.
 
