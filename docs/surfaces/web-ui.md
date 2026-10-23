@@ -232,6 +232,12 @@ Clear the field to use the session model for summarization.
 
 ## Settings: opening and saving
 
+After a save, the form uses the merged settings returned by the server. Edits
+typed while the save was in progress are carried onto that result, so saving
+again preserves changes made in another window to fields you left untouched.
+This also works when the background refresh after saving fails. Lists remain
+atomic: editing a provider or model list saves that entire list.
+
 ![Save all green after a save, with no line of text above the tabs](../assets/settings-save-done-dark-1280.png)
 
 *A save that went through: the Save button is green for two seconds, and nothing else on screen changes.*

@@ -172,21 +172,23 @@ export function withoutReplacedRevision(
 }
 
 /**
- * noteSettingsConfigSaved takes the document a save just wrote as the copy, so
+ * noteSettingsConfigSaved takes the document a save returned as the copy, so
  * an open that comes before the read after the save lands - or after that read
  * failed - draws what was saved rather than what the save replaced (a save made
  * from that older copy would put the replaced values back). Reads issued before
  * the save are older than it and are dropped. The document it returns and
- * publishes has no name of the replaced configuration (see
- * withoutReplacedRevision); the form keeps editing it, so its next save is
- * measured against what the file holds now, not against the document this one
- * overwrote.
+ * publishes keeps the returned revision when authoritative is true. Older
+ * servers return only ok, so their optimistic copy drops the replaced revision
+ * until a read supplies the actual saved document (see withoutReplacedRevision).
  */
 export function noteSettingsConfigSaved(
   config: Record<string, unknown>,
+  authoritative = false,
 ): Record<string, unknown> {
   applied = issued;
-  const saved = withoutReplacedRevision(config);
+  // New servers return the merged document and its revision atomically with
+  // the save. Only legacy responses need the unversioned optimistic copy.
+  const saved = authoritative ? config : withoutReplacedRevision(config);
   publish({ schema: current.schema, config: saved, error: null });
   return saved;
 }

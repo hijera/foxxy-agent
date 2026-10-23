@@ -36,6 +36,7 @@ import {
 } from "../shellBreakpoint";
 import { parseAppHash, setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
 import { useRailEscapeStep } from "../nav/railEscape";
+import { rebaseSettings } from "./rebaseSettings";
 
 // The project website (site/ in the repository, published on GitHub Pages).
 const FOXXYCODE_SITE_URL = "https://hijera.github.io/foxxy-agent/";
@@ -364,6 +365,7 @@ export function Settings(props: {
     clearSaved();
     const sent = doc;
     const editsAtSend = edits.current;
+    const replacedAtSend = draft.replaced;
     try {
       const body = JSON.stringify(sent);
       const v = await fetch("/foxxycode/config/validate", {
@@ -381,7 +383,9 @@ export function Settings(props: {
         headers: { "Content-Type": "application/json" },
         body,
       });
-      const pj = (await p.json()) as ValidateResponse;
+      const pj = (await p.json()) as ValidateResponse & {
+        config?: Record<string, unknown>;
+      };
       if (!p.ok || !pj.ok) {
         setError(pj.error || t("settings.saveFailed", { status: p.status }));
         return;
@@ -392,20 +396,22 @@ export function Settings(props: {
       if (edits.current === editsAtSend) {
         flashSaved();
       }
-      // What was sent is what the file has now, and the kept copy says so at
-      // once (a reopen before the read below lands draws it). The copy read
-      // here, and the one config_reloaded brings, replaces it with what the
-      // server made of the save, unless the operator types something first.
-      // A form a newer copy took over meanwhile is left as it is. Neither the
-      // copy nor the document the form goes on with may name the configuration
-      // this save replaced (see withoutReplacedRevision): the next save would
-      // measure "untouched" against that one and lose a change-and-revert to
-      // one of its values.
-      const saved = noteSettingsConfigSaved(sent);
+      // The response includes concurrent changes preserved by the server.
+      // Replay only edits made after sending; never replace a reloaded form.
+      const saved = noteSettingsConfigSaved(pj.config ?? sent, !!pj.config);
       setDraft((d) =>
-        d.doc === sent
-          ? { ...d, base: saved, doc: saved }
-          : { ...d, doc: withoutReplacedRevision(d.doc) },
+        d.replaced !== replacedAtSend
+          ? d
+          : {
+              ...d,
+              seen: saved,
+              base: saved,
+              doc: d.doc === sent
+                ? saved
+                : pj.config
+                  ? rebaseSettings(sent, d.doc, saved)
+                  : withoutReplacedRevision(d.doc),
+            },
       );
       props.onConfigSaved?.();
       setBusy(false);
@@ -415,7 +421,7 @@ export function Settings(props: {
     } finally {
       setBusy(false);
     }
-  }, [doc, clearSaved, flashSaved, props, t]);
+  }, [doc, draft.replaced, clearSaved, flashSaved, props, t]);
 
   // Renders the content panel for a section, reusing the schema-present and
   // appearance-without-schema paths for both the desktop rail and the mobile

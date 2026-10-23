@@ -83,6 +83,15 @@ func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(s.configDocument(c)); err != nil {
+		s.log.Error("foxxycode config get encode", "error", err)
+	}
+}
+
+// configDocument is shared by reads and saves, including write-only secret
+// redaction and the effective authentication metadata used by the settings UI.
+func (s *Server) configDocument(c *config.Config) *config.ConfigJSON {
 	dto := config.ConfigToJSONDTO(c)
 	// The document names the configuration it was read from, and a PUT that
 	// sends it back is measured against that one (config_revisions.go).
@@ -101,10 +110,7 @@ func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
 	// from the environment: this document is what a save writes back, and an
 	// environment credential must never end up in it. Who is signed in is
 	// GET /foxxycode/auth/me's answer, not this one's.
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(dto); err != nil {
-		s.log.Error("foxxycode config get encode", "error", err)
-	}
+	return dto
 }
 
 func (s *Server) foxxycodeConfigValidatePost(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +158,7 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 	// Anything less lets two writers interleave and install runtime state that
 	// no longer matches the file.
 	var cfgPath string
+	var saved *config.ConfigJSON
 	txErr := config.WithConfigFileLock(func() error {
 		c := s.activeCfg()
 		if c == nil {
@@ -206,6 +213,9 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 		// observer registered in New, which is also how a reload from the agent's
 		// own config_commit tool or from the console gets here.
 		s.mgr.ReplaceConfig(reloaded)
+		// Capture the merged document while this transaction
+		// still owns the file lock, together with the revision of that exact copy.
+		saved = s.configDocument(reloaded)
 		return nil
 	})
 	switch {
@@ -240,7 +250,7 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("config updated", "path", cfgPath)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "config": saved})
 }
 
 func writeFoxxyCodeConfigErr(w http.ResponseWriter, code int, msg string) {

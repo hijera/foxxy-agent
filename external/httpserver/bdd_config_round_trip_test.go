@@ -69,6 +69,7 @@ type configRoundTripWorld struct {
 	saved   string
 	// second is the document another browser read and holds on to.
 	second map[string]interface{}
+	result map[string]interface{}
 }
 
 // startSpelledGateway serves spelledConfigYAML the way foxxycode serve would: the home is
@@ -162,6 +163,13 @@ func (w *configRoundTripWorld) put(doc map[string]interface{}) error {
 		raw, _ := readAllString(put)
 		return fmt.Errorf("PUT /foxxycode/config: status %d, want 200 (%s)", put.StatusCode, raw)
 	}
+	var response struct {
+		Config map[string]interface{} `json:"config"`
+	}
+	if err := json.NewDecoder(put.Body).Decode(&response); err != nil {
+		return err
+	}
+	w.result = response.Config
 	raw, err := os.ReadFile(w.cfgPath)
 	if err != nil {
 		return err
@@ -220,6 +228,19 @@ func (w *configRoundTripWorld) wantBothSaves() error {
 	).Replace(w.initial))
 }
 
+func (w *configRoundTripWorld) saveFromResult() error {
+	if w.result == nil || w.result["revision"] == nil {
+		return fmt.Errorf("save response has no configuration with a revision")
+	}
+	agent, _ := w.result["agent"].(map[string]interface{})
+	if agent["max_turns"] != float64(42) || agent["model"] != "spare/tiny" {
+		return fmt.Errorf("save response does not include both edits: %v", agent)
+	}
+	// Saving a revert using the returned revision must not undo the other edit.
+	agent["model"] = "local/qwen"
+	return w.put(w.result)
+}
+
 func (w *configRoundTripWorld) wantUnchanged() error {
 	return w.wantSaved(w.initial)
 }
@@ -251,6 +272,7 @@ func TestConfigSaveRoundTripFeature(t *testing.T) {
 			sc.Step(`^a second browser has read the config$`, w.secondReads)
 			sc.Step(`^the second browser saves what it read with "([^"]*)" set to "([^"]*)"$`, w.secondSaves)
 			sc.Step(`^config\.yaml carries both saves and is otherwise what it was$`, w.wantBothSaves)
+			sc.Step(`^the second browser reverts its model using the save response without another read$`, w.saveFromResult)
 			sc.Step(`^config\.yaml is byte for byte what it was$`, w.wantUnchanged)
 			sc.Step(`^config\.yaml is what it was with "([^"]*)" written as "([^"]*)"$`, w.wantOneLineChanged)
 		},

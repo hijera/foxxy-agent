@@ -569,6 +569,47 @@ test("a reopen after a failed first read shows the requested tab loading, not Ap
 // A save that ends after the operator typed on saved what it sent, not what the
 // form shows now: the button does not turn green, and the form still holds
 // edits a reload of the server's config leaves alone.
+test("a second save preserves concurrent changes and edits typed during the first save", async () => {
+  const fetch = stubServer();
+  server.config = { ...server.config, revision: "rev-A" };
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const answer = fetch.getMockImplementation()!;
+  let writes = 0;
+  let reads = 0;
+  const puts: Record<string, unknown>[] = [];
+  fetch.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === "/foxxycode/config" && (init?.method ?? "GET") === "GET") {
+      if (++reads > 1) return { ok: false, status: 502, json: async () => ({}) };
+    }
+    if (path === "/foxxycode/config" && init?.method === "PUT") {
+      const submitted = JSON.parse(String(init.body));
+      puts.push(submitted);
+      if (++writes === 1) {
+        await held;
+        // The real PUT merges untouched fields with concurrent changes.
+        server.config = { ...submitted, revision: "rev-B", providers: [{ name: "concurrent" }] };
+      } else {
+        server.config = { ...submitted, revision: "rev-C" };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, config: structuredClone(server.config) }) };
+    }
+    return answer(path, init);
+  });
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  const input = await screen.findByLabelText("Max turns");
+  fireEvent.change(input, { target: { value: "45" } });
+  await act(async () => { fireEvent.click(screen.getByTestId("settings-save")); });
+  await waitFor(() => expect(writes).toBe(1));
+  // Reverting to the original value is still an edit relative to the first save.
+  fireEvent.change(input, { target: { value: "40" } });
+  await act(async () => { release(); await held; });
+  await waitFor(() => expect(reads).toBeGreaterThan(1));
+  await act(async () => { fireEvent.click(screen.getByTestId("settings-save")); });
+  await waitFor(() => expect(writes).toBe(2));
+  expect(puts[1]).toMatchObject({ revision: "rev-B", providers: [{ name: "concurrent" }], agent: { max_turns: 40 } });
+});
+
 test("a save during which the operator typed on does not turn the button green", async () => {
   const fetch = stubServer();
   render(<Settings onClose={() => {}} initialSection="agent" />);

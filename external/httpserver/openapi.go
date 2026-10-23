@@ -1310,10 +1310,17 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "`{\"ok\":true}` on success",
+							"description": "`{\"ok\":true,\"config\":{...}}` on success. config is the merged configuration with write-only secrets redacted with its new revision, captured in the save transaction. Clients rebase edits made during the request onto this document before saving again.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigValidateResponse"},
+									"schema": map[string]interface{}{
+										"type":     "object",
+										"required": []string{"ok", "config"},
+										"properties": map[string]interface{}{
+											"ok":     map[string]interface{}{"type": "boolean"},
+											"config": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigJSON"},
+										},
+									},
 								},
 							},
 						},

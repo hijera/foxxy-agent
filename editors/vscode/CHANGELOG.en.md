@@ -10,6 +10,9 @@
 
 ## Unreleased — 2026-10-23
 
+**Safe repeated settings saves.**
+Edits typed while saving are carried onto the merged server result. Saving again preserves changes from another window, even if the background refresh fails.
+
 **Separate clocks in a narrow panel.**
 The command timer stays beside the status phrase, and the turn time and token count appear on the next line. Long-running commands no longer show two joined durations.
 

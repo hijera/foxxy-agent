@@ -35,3 +35,11 @@ Feature: A settings save rewrites only what the operator changed
     When the settings screen saves the config with "agent.max_turns" set to 42
     And the second browser saves what it read with "agent.model" set to "spare/tiny"
     Then config.yaml carries both saves and is otherwise what it was
+
+  Scenario: A second save uses the merged configuration returned by the first save
+    Given a foxxycode server whose config.yaml spells its paths with ${FOXXYCODE_HOME}, ${CWD}, ~ and ${VAR}
+    And a second browser has read the config
+    When the settings screen saves the config with "agent.max_turns" set to 42
+    And the second browser saves what it read with "agent.model" set to "spare/tiny"
+    And the second browser reverts its model using the save response without another read
+    Then config.yaml is what it was with "max_turns: 40" written as "max_turns: 42"
