@@ -8,7 +8,10 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-22
+## Unreleased — 2026-10-23
+
+**Separate clocks in a narrow panel.**
+The command timer stays beside the status phrase, and the turn time and token count appear on the next line. Long-running commands no longer show two joined durations.
 
 **Deferred prompts continue after the output cap.**
 When a model reaches its answer token limit, unread Steer messages are delivered first in their original order, followed by After turn prompts. The cut answer and its notice remain visible. Provider errors, context overflow and Stop keep deferred prompts waiting.

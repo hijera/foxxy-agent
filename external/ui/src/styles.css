@@ -15933,17 +15933,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
    speak for themselves, and the word gives way. */
 
 
-/* The turn's own numbers lead the line: its clock, the tokens generated in it, the
-   background tasks running right now. Each item is closed by a middle dot, so the
-   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading …". */
-.typing-dots-turn {
-  display: inline-flex;
-  align-items: baseline;
-  flex: none;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
 .typing-dots-turn-item::after {
   content: "\00b7";
   margin: 0 5px;
