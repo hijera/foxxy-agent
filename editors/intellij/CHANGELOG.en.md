@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-23
 
+**Attachments returned by the remote console.**
+Taking a queued message back with /queue drop restores the attachment contents together with its text, so sending it again keeps the files.
+
 **Reading position when resizing the panel.**
 Narrowing or widening the panel keeps the running command visible when following output and preserves the visible row when reading history.
 
@@ -32,6 +35,11 @@ Manage servers and individual tools in web settings, the console and Telegram. P
 
 **Stable context and preserved settings.**
 Project rules use the first populated root, and standing prompt content stays stable between steps. Settings account for concurrent edits and preserve unchanged YAML values and comments. Open session settings from chat and dismiss panels with Escape.
+
+## 0.3.33 — 2026-10-20
+
+**Sign in to NeuralDeep right from onboarding.**
+The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving. The domain selector comes first: choose neuraldeep.ru or neuraldeep.tech, and sign-in, the model catalog and saved settings use that domain.
 
 ## 0.3.32 — 2026-10-20
 

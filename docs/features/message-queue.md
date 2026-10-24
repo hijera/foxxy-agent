@@ -124,6 +124,10 @@ In a remote console, a turn started by another client also accepts queued input 
 
 ## Over HTTP
 
+In remote-console mode, taking a queued message back restores the attachment
+contents along with the text, so resubmitting it sends the files again rather
+than keeping only their names.
+
 | Route | What it does |
 |---|---|
 | `GET /foxxycode/sessions/{id}/queue` | What is waiting: `id`, `text`, `mode`, `imageParts` (each image's `name`, `mimeType` and `sizeBytes`, never its bytes) and `createdAt` per row, and the queue `version`. |

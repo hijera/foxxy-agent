@@ -90,7 +90,7 @@ type neuralDeepEndpoint struct{ APIBase, Hub string }
 // first. They are separate installations of the same gateway: api.neuraldeep.ru
 // serves Russia, api.neuraldeep.tech is the mirror for everywhere else. A var,
 // not a const block, so tests can substitute stand hosts (like the poll pacing
-// above). The UI copy of this list lives in external/ui SettingsSection.tsx.
+// above). The UI copy of this list lives in external/ui/src/ui/settings/neuralDeepEndpoints.ts.
 var neuralDeepEndpoints = []neuralDeepEndpoint{
 	{APIBase: neuralDeepBaseURL, Hub: NeuralDeepHubURL},
 	{APIBase: "https://api.neuraldeep.tech/v1", Hub: "https://hub.neuraldeep.tech"},

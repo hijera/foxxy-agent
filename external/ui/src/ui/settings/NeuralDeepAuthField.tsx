@@ -56,6 +56,16 @@ export function NeuralDeepAuthField(props: {
    * read asks for it, so a login issued by the other deployment is flagged.
    */
   apiBase: string;
+  /**
+   * i18n keys overriding the settings wording. The onboarding picker renders
+   * the same widget but cannot point at the Logical models section, so it
+   * carries its own copy.
+   */
+  descriptionKey?: string;
+  fieldLabelKey?: string;
+  /** Notified on every status read; the onboarding picker saves a keyless
+   * provider row when the stored login is the credential. */
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const providerName = props.providerName.trim();
   const apiBase = props.apiBase.trim();
@@ -67,6 +77,31 @@ export function NeuralDeepAuthField(props: {
   const [login, setLogin] = useState<DeviceLogin | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A stored login only authenticates the deployment that minted it: a key
+  // issued by one hub is refused by the other, so a login whose recorded hub
+  // is not the one the picked endpoint resolves to is not a credential for
+  // this form. The parent's onConnectedChange is that decision (the onboarding
+  // picker saves a keyless row exactly while it says the login is the
+  // credential), so a mismatched login reports false here even though the
+  // status read says "connected" - the widget still shows the mismatch note.
+  const loginIsCredential = (next: AuthStatus): boolean => {
+    if (!next.connected) {
+      return false;
+    }
+    if (next.hub && next.endpoint_hub) {
+      const hub = next.hub.replace(/\/+$/, "").toLowerCase();
+      const endpointHub = next.endpoint_hub.replace(/\/+$/, "").toLowerCase();
+      return hub === endpointHub;
+    }
+    return true;
+  };
+  // Every status the widget settles on reaches the parent: the onboarding
+  // picker saves a keyless provider row exactly while this says the login is
+  // the credential.
+  const applyStatus = (next: AuthStatus) => {
+    setStatus(next);
+    props.onConnectedChange?.(loginIsCredential(next));
+  };
   // A pending login is tied to the provider it was started for, not to the
   // endpoint currently picked: switching the endpoint mid-flow keeps polling
   // (the key is minted by the hub the flow started with, and the status read
@@ -80,7 +115,10 @@ export function NeuralDeepAuthField(props: {
       setError("");
     }
     if (!providerName) {
-      setStatus({ connected: false });
+      // Through applyStatus, like every other settled status: a row with no
+      // name has no login either, and the parent must hear that too or it
+      // keeps treating a login as the credential after the name is cleared.
+      applyStatus({ connected: false });
       return;
     }
     const controller = new AbortController();
@@ -93,7 +131,9 @@ export function NeuralDeepAuthField(props: {
         if (!response.ok) {
           throw new Error(await responseError(response));
         }
-        setStatus((await response.json()) as AuthStatus);
+        const next = (await response.json()) as AuthStatus;
+        if (controller.signal.aborted) return;
+        applyStatus(next);
         // A status read that succeeds retires whatever an earlier one said:
         // the message would otherwise outlive its cause until the provider
         // name changed.
@@ -128,25 +168,35 @@ export function NeuralDeepAuthField(props: {
         setLogin((current) => ({ ...current, ...next }));
         if (next.status === "completed") {
           // Re-read the stored status: the poll response carries no masked
-          // key, and "Signed in ()" with an empty mask reads as a bug.
+          // key, and "Signed in ()" with an empty mask reads as a bug. The
+          // whole re-read resolves after the cancelled check above (another
+          // await point per response), so the settled status is applied only
+          // if the widget is still showing this flow - a sign-in that finishes
+          // after the user picked another domain or preset must not flip the
+          // parent's "the login is the credential" switch back on.
+          let settled: AuthStatus = { connected: true, source: "oauth" };
           try {
             const statusResponse = await fetch(statusEndpoint, {
               method: "GET",
             });
             if (statusResponse.ok) {
-              setStatus((await statusResponse.json()) as AuthStatus);
-            } else {
-              setStatus({ connected: true, source: "oauth" });
+              settled = (await statusResponse.json()) as AuthStatus;
             }
           } catch {
-            setStatus({ connected: true, source: "oauth" });
+            // The optimistic status stands: the login completed even if the
+            // masked-key read did not.
           }
+          if (cancelled) {
+            return;
+          }
+          applyStatus(settled);
           setLoading(false);
           return;
         }
         if (next.status === "failed") {
           setError(
-            next.error || translate("settings.neuralDeepAuth.error.signInFailed"),
+            next.error ||
+              translate("settings.neuralDeepAuth.error.signInFailed"),
           );
           setLoading(false);
           return;
@@ -184,7 +234,9 @@ export function NeuralDeepAuthField(props: {
       }
       const next = (await response.json()) as DeviceLogin;
       if (!next.login_id || !next.verification_url || !next.user_code) {
-        throw new Error(translate("settings.neuralDeepAuth.error.incompleteResponse"));
+        throw new Error(
+          translate("settings.neuralDeepAuth.error.incompleteResponse"),
+        );
       }
       setLogin(next);
       window.open(next.verification_url, "_blank", "noopener,noreferrer");
@@ -202,7 +254,7 @@ export function NeuralDeepAuthField(props: {
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
-      setStatus((await response.json()) as AuthStatus);
+      applyStatus((await response.json()) as AuthStatus);
       setLogin(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -236,12 +288,16 @@ export function NeuralDeepAuthField(props: {
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">
       <FieldLabel
-        label={t("settings.neuralDeepAuth.fieldLabel")}
-        description={t("settings.neuralDeepAuth.description")}
+        label={t(props.fieldLabelKey ?? "settings.neuralDeepAuth.fieldLabel")}
+        description={t(
+          props.descriptionKey ?? "settings.neuralDeepAuth.description",
+        )}
       />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">
-          {t("settings.neuralDeepAuth.connected", { masked: status.masked || "" })}
+          {t("settings.neuralDeepAuth.connected", {
+            masked: status.masked || "",
+          })}
         </p>
       ) : null}
       {shadowed ? (
@@ -267,7 +323,9 @@ export function NeuralDeepAuthField(props: {
       ) : null}
       {login?.user_code && login.verification_url ? (
         <div className="codex-auth-device">
-          <p className="settings-field-desc">{t("settings.neuralDeepAuth.enterCode")}</p>
+          <p className="settings-field-desc">
+            {t("settings.neuralDeepAuth.enterCode")}
+          </p>
           <code className="codex-auth-code">{login.user_code}</code>
           <a
             className="settings-btn"
@@ -283,7 +341,9 @@ export function NeuralDeepAuthField(props: {
               user is right to abandon. */}
           {login.hub_client ? (
             <p className="settings-field-desc">
-              {t("settings.neuralDeepAuth.hubClientNotice", { client: login.hub_client })}
+              {t("settings.neuralDeepAuth.hubClientNotice", {
+                client: login.hub_client,
+              })}
             </p>
           ) : null}
           {login.status !== "failed" && login.status !== "completed" ? (

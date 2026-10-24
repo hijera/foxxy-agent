@@ -181,7 +181,10 @@ func (h *Handler) TakeBackQueuedTurnMessage(sessionID, messageID string) (sessio
 	fence := h.queueRequestFence(sessionID)
 	var out struct {
 		queueResponse
-		InlineFiles []acp.ImagePartRef `json:"inline_files"`
+		Message *struct {
+			session.QueuedMessage
+			InlineFiles []acp.ImagePartRef `json:"inline_files"`
+		} `json:"message"`
 	}
 	if err := h.deleteJSON(h.controlCtx, queuePath(sessionID)+"/"+url.PathEscape(messageID), &out); err != nil {
 		return session.QueuedMessage{}, nil, translateQueueError(err)
@@ -190,8 +193,8 @@ func (h *Handler) TakeBackQueuedTurnMessage(sessionID, messageID string) (sessio
 	if out.Message == nil {
 		return session.QueuedMessage{}, out.Messages, fmt.Errorf("remote foxxycode: the queue answered without a message")
 	}
-	taken := *out.Message
-	taken.ImageParts = out.InlineFiles
+	taken := out.Message.QueuedMessage
+	taken.ImageParts = out.Message.InlineFiles
 	return taken, out.Messages, nil
 }
 

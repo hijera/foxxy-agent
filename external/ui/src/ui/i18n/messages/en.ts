@@ -473,8 +473,12 @@ export const messagesEn: Record<string, string> = {
   "settings.statusLine.off": "Hide",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
   "onboarding.provider.neuraldeep.description":
-    "Russian AI hub — models via api.neuraldeep.ru",
-  "onboarding.openHub": "Open hub.neuraldeep.ru",
+    "AI hub — neuraldeep.ru or neuraldeep.tech",
+  "onboarding.neuralDeepAuth.fieldLabel": "or sign in to NeuralDeep",
+  "onboarding.neuralDeepAuth.description":
+    "Skip the key entirely: sign in with your NeuralDeep hub account and the hub issues a personal key for FoxxyCode. The free tier's default model is filled in below, and the model picker lists your tier's catalog with this login.",
+  "onboarding.neuralDeepDomain": "NeuralDeep domain",
+  "onboarding.openHub": "Open {domain}",
   "onboarding.title": "Choose a provider",
   "onboarding.lead":
     "Connect an LLM backend to start chatting. You can add more providers later in Settings.",
