@@ -44,8 +44,10 @@ type queueBody struct {
 // row it added, or the row it took back (takenBack). imagesDropped counts the
 // attachments the request was refused to carry to a model that takes no images;
 // it is named only when there were any, so the client can say the drop happened
-// rather than showing a queue row that silently lost them.
-func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, message interface{}, imagesDropped int) {
+// rather than showing a queue row that silently lost them. notice says what
+// the settings commands at the start of the text changed - also when a message
+// was queued with them, so a model switch applied that way is never silent.
+func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, message interface{}, imagesDropped int, notice string) {
 	queue, version := st.QueueSnapshot()
 	out := map[string]interface{}{
 		"object":    "foxxycode.message_queue",
@@ -58,6 +60,9 @@ func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session
 	}
 	if imagesDropped > 0 {
 		out["images_dropped"] = imagesDropped
+	}
+	if strings.TrimSpace(notice) != "" {
+		out["notice"] = notice
 	}
 	writeJSON(w, status, out)
 }
@@ -75,16 +80,19 @@ func takenBack(q session.QueuedMessage) takenBackMessage {
 	return takenBackMessage{QueuedMessage: q.Wire(), InlineFiles: q.ImageParts}
 }
 
-// queueInlineFiles checks the images a follow-up brings. They are kept in
+// queueInlineFiles checks the files a follow-up brings. They are kept in
 // memory until the agent reads the message, then saved with the session's
-// assets and sent to the model, so only an image carried in the request itself
-// is taken: a base64 data URI of an image type, never a URL to fetch.
+// assets and sent to the model, so only a file carried in the request itself
+// is taken: a base64 data URI of its media type - an image or a document, the
+// same set POST /v1/responses forwards from the composer's picker - never a
+// URL to fetch.
 func queueInlineFiles(files []acp.ImagePartRef) ([]acp.ImagePartRef, error) {
 	for i, f := range files {
 		header, payload, ok := strings.Cut(f.DataURL, ",")
 		h := strings.ToLower(header)
-		if !ok || !strings.HasPrefix(h, "data:image/") || !strings.HasSuffix(h, ";base64") || payload == "" {
-			return nil, fmt.Errorf("inline_files[%d]: data_url must be a base64 data URI of an image (data:image/...;base64,...)", i)
+		media, isBase64 := strings.CutSuffix(h, ";base64")
+		if !ok || !isBase64 || !strings.HasPrefix(media, "data:") || len(media) == len("data:") || payload == "" {
+			return nil, fmt.Errorf("inline_files[%d]: data_url must be a base64 data URI of the file (data:<media type>;base64,...)", i)
 		}
 	}
 	return files, nil
@@ -110,7 +118,7 @@ func (s *Server) foxxycodeQueueList(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, nil, 0)
+	writeQueue(w, http.StatusOK, id, st, nil, 0, "")
 }
 
 func (s *Server) foxxycodeQueuePost(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +206,7 @@ func (s *Server) foxxycodeQueuePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	writeQueue(w, http.StatusCreated, id, st, msg.Wire(), imagesDropped)
+	writeQueue(w, http.StatusCreated, id, st, msg.Wire(), imagesDropped, notice)
 }
 
 func (s *Server) foxxycodeQueuePatch(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +230,7 @@ func (s *Server) foxxycodeQueuePatch(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, nil, 0)
+	writeQueue(w, http.StatusOK, id, st, nil, 0, "")
 }
 
 func (s *Server) foxxycodeQueueDelete(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +250,7 @@ func (s *Server) foxxycodeQueueDelete(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, takenBack(taken), 0)
+	writeQueue(w, http.StatusOK, id, st, takenBack(taken), 0, "")
 }
 
 func (s *Server) foxxycodeQueueClear(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +262,7 @@ func (s *Server) foxxycodeQueueClear(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, nil, 0)
+	writeQueue(w, http.StatusOK, id, st, nil, 0, "")
 }
 
 // queueError answers in the error shape the rest of /foxxycode uses, with a code a

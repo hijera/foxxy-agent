@@ -97,15 +97,16 @@ func TestQueueHTTPKeepsImagesForAMultimodalModel(t *testing.T) {
 	}
 }
 
-// Only an image carried in the request is taken: a URL the server or a browser
-// would have to fetch, or a data URI of another type, is refused.
-func TestQueueHTTPRefusesAnInlineFileThatIsNotAnImageDataURI(t *testing.T) {
+// Only a file carried in the request is taken: a URL the server or a browser
+// would have to fetch, or a data URI that is not a base64 one of some media
+// type, is refused.
+func TestQueueHTTPRefusesAnInlineFileThatIsNotAFileDataURL(t *testing.T) {
 	s := runningQueueStand(t, false)
 	for _, dataURL := range []string{
 		"https://example.com/pixel.png",
-		"data:text/plain;base64,YQ==",
 		"data:image/png,not-base64",
 		"data:image/png;base64,",
+		"data:;base64,YQ==",
 	} {
 		status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"x","data_url":"`+dataURL+`"}]}`)
 		errObj, _ := out["error"].(map[string]interface{})
@@ -115,6 +116,39 @@ func TestQueueHTTPRefusesAnInlineFileThatIsNotAnImageDataURI(t *testing.T) {
 	}
 	if rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID); err != nil || len(rows) != 0 {
 		t.Fatalf("refused files were queued: %+v, %v", rows, err)
+	}
+}
+
+// The composer's picker takes any file, not only pictures, and an ordinary
+// prompt through POST /v1/responses forwards each one to the session's assets.
+// The queue takes the same set: a PDF that sends must also queue.
+func TestQueueHTTPKeepsANonImageAttachment(t *testing.T) {
+	s := runningQueueStand(t, false)
+	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"report.pdf","data_url":"data:application/pdf;base64,JVBERi0="}]}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" {
+		t.Fatalf("text with a PDF for a multimodal model: %d %v", status, out)
+	}
+	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 1 {
+		t.Fatalf("queued rows = %+v, %v; want the text with its file", rows, err)
+	}
+}
+
+// Settings commands at the start of the text apply at once and the rest is
+// queued. Both happen on one request, so the 201 carries the notice of what
+// the commands changed beside the queued message: a model switch applied this
+// way must not be silent for the client that sent it.
+func TestQueueHTTPAnswersAQueuedMessageWithTheSettingsNotice(t *testing.T) {
+	s := runningQueueStand(t, false)
+	status, out := postQueue(t, s, `{"text":"/model openai/gpt-4o\ninspect"}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" {
+		t.Fatalf("commands with queued text: %d %v", status, out)
+	}
+	notice, _ := out["notice"].(string)
+	if strings.TrimSpace(notice) == "" {
+		t.Fatalf("the 201 dropped the notice of the commands it applied: %v", out)
 	}
 }
 
@@ -130,7 +164,7 @@ func TestQueueResponseUsesOneCurrentSnapshot(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	writeQueue(w, http.StatusCreated, st.GetID(), st, msg.Wire(), 0)
+	writeQueue(w, http.StatusCreated, st.GetID(), st, msg.Wire(), 0, "")
 	var got struct {
 		Messages []session.QueuedMessage `json:"messages"`
 		Message  session.QueuedMessage   `json:"message"`
@@ -176,7 +210,7 @@ func TestQueueResponsesRemainConsistentDuringMutations(t *testing.T) {
 	responses := make([]response, 2048)
 	for i := range responses {
 		w := httptest.NewRecorder()
-		writeQueue(w, http.StatusOK, st.GetID(), st, nil, 0)
+		writeQueue(w, http.StatusOK, st.GetID(), st, nil, 0, "")
 		if err := json.Unmarshal(w.Body.Bytes(), &responses[i]); err != nil {
 			t.Fatal(err)
 		}
