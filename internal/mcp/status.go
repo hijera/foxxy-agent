@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -103,7 +104,7 @@ func ListStatus(ctx context.Context, cfg *config.Config, cwd string, log *slog.L
 					row.Status = "connected"
 				}
 				for _, tool := range tools {
-					row.Tools = append(row.Tools, ToolStatus{Name: tool.Name, Enabled: !containsName(srv.Config.DisabledTools, tool.Name)})
+					row.Tools = append(row.Tools, ToolStatus{Name: tool.Name, Enabled: !slices.Contains(srv.Config.DisabledTools, tool.Name)})
 				}
 				sort.Slice(row.Tools, func(i, j int) bool { return row.Tools[i].Name < row.Tools[j].Name })
 			}(&rows[i], srv)
@@ -133,15 +134,6 @@ func DeclarationSummary(transport, command string, args []string, target string,
 	}
 	parts = append(parts, "workspace: "+cwd, "source: "+source)
 	return strings.Join(parts, " · ")
-}
-
-func containsName(names []string, target string) bool {
-	for _, name := range names {
-		if name == target {
-			return true
-		}
-	}
-	return false
 }
 
 // SetStatus applies a control offered by /mcp. Trust approval is deliberately
