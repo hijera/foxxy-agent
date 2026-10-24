@@ -1488,8 +1488,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			// prompt. Unread steer messages were written for a turn that is now
 			// over and go the way Stop drops them - said so, not silently.
 			state.TakePendingImageParts()
-			state.ReturnQueuedMessages(keepAfterTurn(queued))
-			if dropped := len(queued) - len(keepAfterTurn(queued)); dropped > 0 {
+			kept := keepAfterTurn(queued)
+			state.ReturnQueuedMessages(kept)
+			if dropped := len(queued) - len(kept); dropped > 0 {
 				m.log.Warn("message queue follow-up ended before it was read; unread steer messages dropped",
 					"session_id", params.SessionID, "dropped", dropped)
 			}
