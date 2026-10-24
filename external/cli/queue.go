@@ -136,11 +136,19 @@ func oppositeQueueMode(mode session.QueueMode) session.QueueMode {
 func (a *App) submitQueueChoice(text string, alternate bool) {
 	mode := a.queuePreference
 	if !session.ValidQueueMode(mode) {
-		if a.pendingQueueText != "" {
+		images := a.takeDraftImages()
+		if a.queueChoicePending() {
 			// A second message while the choice is still open joins the first
 			// rather than replacing it: both wait for the same answer, and the
 			// first keeps the key it was sent with.
-			text, alternate = a.pendingQueueText+"\n"+text, a.pendingQueueAlternate
+			if a.pendingQueueText != "" {
+				text, alternate = a.pendingQueueText+"\n"+text, a.pendingQueueAlternate
+			} else {
+				alternate = a.pendingQueueAlternate
+			}
+			a.pendingQueueImages = append(a.pendingQueueImages, images...)
+		} else {
+			a.pendingQueueImages = images
 		}
 		a.pendingQueueText, a.pendingQueueAlternate = text, alternate
 		a.appendStatus(roleDim, "Choose the default queue mode once: 1 Steer next step · 2 After this turn (Esc restores draft)")
@@ -152,9 +160,23 @@ func (a *App) submitQueueChoice(text string, alternate bool) {
 	a.enqueuePromptWithMode(text, mode, false)
 }
 
+// queueChoicePending reports whether the first-use question is still open: its
+// answer takes the message held in pendingQueueText and pendingQueueImages.
+func (a *App) queueChoicePending() bool {
+	return a.pendingQueueText != "" || len(a.pendingQueueImages) > 0
+}
+
 func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePreference bool) {
+	a.enqueuePromptParts(text, mode, savePreference, a.takeDraftImages())
+}
+
+// enqueuePromptParts queues text with the attachments named: what the draft
+// carried, or what a prompt the server refused to run brought back. The images
+// travel with the message rather than being named and dropped - a terminal
+// draft is text only, but the queue holds either.
+func (a *App) enqueuePromptParts(text string, mode session.QueueMode, savePreference bool, images []acp.ImagePartRef) {
 	body := strings.TrimSpace(text)
-	if body == "" {
+	if body == "" && len(images) == 0 {
 		return
 	}
 	sessionID, mgr, local := a.sessionID, a.mgr, a.remoteURL == ""
@@ -163,7 +185,7 @@ func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePre
 		if savePreference {
 			if writer, ok := mgr.(interface{ SetQueueModePreference(session.QueueMode) error }); ok {
 				if err := writer.SetQueueModePreference(preferred); err != nil {
-					return queueResult{action: "enqueue", text: body, err: fmt.Errorf("save queue preference: %w", err)}
+					return queueResult{action: "enqueue", text: body, images: images, err: fmt.Errorf("save queue preference: %w", err)}
 				}
 			}
 		}
@@ -174,15 +196,17 @@ func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePre
 		if withMode, ok := mgr.(interface {
 			EnqueueFollowUpWithMode(context.Context, string, string, string, session.QueueMode, []acp.ImagePartRef) (session.QueuedMessage, bool, string, error)
 		}); ok {
-			_, queued, _, err = withMode.EnqueueFollowUpWithMode(context.Background(), sessionID, body, "console", mode, nil)
+			_, queued, _, err = withMode.EnqueueFollowUpWithMode(context.Background(), sessionID, body, "console", mode, images)
 		} else {
 			_, queued, _, err = mgr.EnqueueFollowUp(context.Background(), sessionID, body, "console")
 		}
 		if err != nil {
-			return queueResult{action: "enqueue", text: body, err: fmt.Errorf("could not queue the message: %w", err)}
+			return queueResult{action: "enqueue", text: body, images: images, err: fmt.Errorf("could not queue the message: %w", err)}
 		}
 		if !queued {
-			return queueResult{action: "settings", text: body}
+			// Only settings commands queued nothing: the notice arrives as a
+			// session_settings update, and the images come back to the draft.
+			return queueResult{action: "settings", text: body, images: images}
 		}
 		// Remote rows arrive as versioned backend updates; the in-process
 		// queue is read back here, as the enqueue itself used to answer.
@@ -225,6 +249,9 @@ func (a *App) dispatchQueueCommand(args string) {
 type queueResult struct {
 	action string
 	text   string
+	// images are the attachments of the message the action is about: what it
+	// brought, or what comes back to the draft with its text.
+	images []acp.ImagePartRef
 	rows   []session.QueuedMessage
 	err    error
 }
@@ -253,6 +280,7 @@ func (a *App) applyQueueResult(u queueResult) {
 	if u.err != nil {
 		if u.action == "enqueue" {
 			a.restoreDraft(u.text)
+			a.draftImages = append(u.images, a.draftImages...)
 			if isNoActiveTurn(u.err) {
 				a.refreshRemoteControls()
 			}
@@ -263,6 +291,7 @@ func (a *App) applyQueueResult(u queueResult) {
 	// A text that was only settings commands queued nothing: the notice
 	// arrives as a session_settings update, and the queue is what it was.
 	if u.action == "settings" {
+		a.draftImages = append(u.images, a.draftImages...)
 		return
 	}
 	if a.remoteURL == "" && u.action != "list" {
@@ -283,10 +312,38 @@ func (a *App) applyQueueResult(u queueResult) {
 	case "drop":
 		// Taken back before the turn read it: the text returns to the input,
 		// the way the browser's cross gives it back - taking a message back is
-		// how it gets edited.
+		// how it gets edited. Its images wait with the draft for the next
+		// message, named on screen because a terminal shows no chips.
 		a.restoreDraft(u.text)
+		a.restoreDraftImages(u.images)
 		a.appendStatus(roleDim, "Taken back into the input: "+queuePreview(u.text))
 	}
+}
+
+// restoreDraftImages holds the images of a taken-back message for the next
+// prompt or queue entry, and names them.
+func (a *App) restoreDraftImages(images []acp.ImagePartRef) {
+	if len(images) == 0 {
+		return
+	}
+	a.draftImages = append(a.draftImages, images...)
+	names := make([]string, 0, len(a.draftImages))
+	for _, img := range a.draftImages {
+		name := strings.TrimSpace(img.Name)
+		if name == "" {
+			name = "image"
+		}
+		names = append(names, name)
+	}
+	a.appendStatus(roleDim, "Attached for the next message: "+strings.Join(names, ", "))
+}
+
+// takeDraftImages returns the images waiting with the draft and clears them:
+// they ride out with the message this call is about to send or queue.
+func (a *App) takeDraftImages() []acp.ImagePartRef {
+	images := a.draftImages
+	a.draftImages = nil
+	return images
 }
 
 // restoreDraft puts text back into the input, ahead of anything typed since.
@@ -305,6 +362,21 @@ func (a *App) restoreDraft(text string) {
 func queueVerb(arg string) string {
 	verb, _, _ := strings.Cut(strings.TrimSpace(arg), " ")
 	return verb
+}
+
+// takeBackQueuedTurnMessage removes one queued message and hands it back whole.
+// Its images travel only here, never in the list every client is sent, so this
+// is the drop's only chance at them: both backends answer with the message as
+// it was written. A backend that can only cancel falls back to the list row,
+// whose text is intact and whose images were never in the list to lose.
+func takeBackQueuedTurnMessage(mgr backend, sessionID string, row session.QueuedMessage) (session.QueuedMessage, []session.QueuedMessage, error) {
+	if taker, ok := mgr.(interface {
+		TakeBackQueuedTurnMessage(sessionID, messageID string) (session.QueuedMessage, []session.QueuedMessage, error)
+	}); ok {
+		return taker.TakeBackQueuedTurnMessage(sessionID, row.ID)
+	}
+	left, err := mgr.CancelQueuedTurnMessage(sessionID, row.ID)
+	return row, left, err
 }
 
 func runQueueCommand(mgr backend, sessionID, arg string) queueResult {
@@ -330,11 +402,11 @@ func runQueueCommand(mgr backend, sessionID, arg string) queueResult {
 		if _, err := fmt.Sscanf(rest, "%d", &idx); err != nil || idx < 1 || idx > len(rows) {
 			return queueResult{err: fmt.Errorf("Usage: /queue drop <1..%d>", len(rows))}
 		}
-		left, err := mgr.CancelQueuedTurnMessage(sessionID, rows[idx-1].ID)
+		taken, left, err := takeBackQueuedTurnMessage(mgr, sessionID, rows[idx-1])
 		if err != nil {
 			return queueResult{err: fmt.Errorf("could not drop that message: %w", err)}
 		}
-		return queueResult{action: "drop", rows: left, text: rows[idx-1].Text}
+		return queueResult{action: "drop", rows: left, text: taken.Text, images: taken.ImageParts}
 	case queueVerb(arg) == "mode":
 		var idx int
 		var rawMode string

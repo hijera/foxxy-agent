@@ -173,6 +173,28 @@ func (h *Handler) CancelQueuedTurnMessage(sessionID, messageID string) ([]sessio
 	return out.Messages, nil
 }
 
+// TakeBackQueuedTurnMessage is CancelQueuedTurnMessage that also hands back the
+// message it removed, whole. The bytes of its images travel only in the
+// answer's inline_files - the list every client is sent names them without
+// them - so they replace the names the decoded message carries.
+func (h *Handler) TakeBackQueuedTurnMessage(sessionID, messageID string) (session.QueuedMessage, []session.QueuedMessage, error) {
+	fence := h.queueRequestFence(sessionID)
+	var out struct {
+		queueResponse
+		InlineFiles []acp.ImagePartRef `json:"inline_files"`
+	}
+	if err := h.deleteJSON(h.controlCtx, queuePath(sessionID)+"/"+url.PathEscape(messageID), &out); err != nil {
+		return session.QueuedMessage{}, nil, translateQueueError(err)
+	}
+	h.publishQueue(sessionID, out.queueResponse, fence)
+	if out.Message == nil {
+		return session.QueuedMessage{}, out.Messages, fmt.Errorf("remote foxxycode: the queue answered without a message")
+	}
+	taken := *out.Message
+	taken.ImageParts = out.InlineFiles
+	return taken, out.Messages, nil
+}
+
 // ClearQueuedTurnMessages empties the remote session's queue.
 func (h *Handler) ClearQueuedTurnMessages(sessionID string) error {
 	fence := h.queueRequestFence(sessionID)

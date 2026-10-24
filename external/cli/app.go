@@ -36,6 +36,9 @@ type turnDone struct {
 	// server refused as session_busy can be taken back and queued instead.
 	text string
 	row  tui.Component
+	// images are that prompt's attachments, taken back with its text on the
+	// same refusal (queue.go).
+	images []acp.ImagePartRef
 	// woken marks the turn a finished background task started: a busy
 	// refusal of it is the waker's to retry, not a failure to report.
 	woken bool
@@ -77,9 +80,14 @@ type App struct {
 	queuePreference       session.QueueMode
 	pendingQueueText      string
 	pendingQueueAlternate bool
-	editorWrap            *tui.Container
-	editor                *tui.Editor
-	foot                  *footer
+	// pendingQueueImages ride with the message the first-use question is
+	// holding; draftImages wait with the editor for the next message to take
+	// them (queue.go).
+	pendingQueueImages []acp.ImagePartRef
+	draftImages        []acp.ImagePartRef
+	editorWrap         *tui.Container
+	editor             *tui.Editor
+	foot               *footer
 
 	// Local shell state (the `!!` prefix): the running command, its block, and
 	// the most recent block, which ctrl+o expands.
@@ -650,24 +658,32 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	if a.modal != nil {
 		return false
 	}
-	if a.pendingQueueText != "" {
+	if a.queueChoicePending() {
 		switch key.String() {
 		case "1", "2":
+			// Answer the question only on an empty input: a "1" typed into the
+			// next message is a digit, not a mode pick, and goes to the editor.
+			if !a.editor.IsEmpty() {
+				return false
+			}
 			mode := session.QueueModeSteer
 			if key.String() == "2" {
 				mode = session.QueueModeAfterTurn
 			}
-			text, alternate := a.pendingQueueText, a.pendingQueueAlternate
-			a.pendingQueueText = ""
+			text, alternate, images := a.pendingQueueText, a.pendingQueueAlternate, a.pendingQueueImages
+			a.pendingQueueText, a.pendingQueueAlternate, a.pendingQueueImages = "", false, nil
 			a.queuePreference = mode
 			if alternate {
 				mode = oppositeQueueMode(mode)
 			}
-			a.enqueuePromptWithMode(text, mode, true)
+			a.enqueuePromptParts(text, mode, true, images)
 			return true
 		case "escape":
-			a.editor.SetText(a.pendingQueueText)
-			a.pendingQueueText = ""
+			// The draft comes back ahead of anything typed since, the way
+			// restoreDraft returns a message the queue refused.
+			a.restoreDraft(a.pendingQueueText)
+			a.restoreDraftImages(a.pendingQueueImages)
+			a.pendingQueueText, a.pendingQueueAlternate, a.pendingQueueImages = "", false, nil
 			return true
 		}
 	}
@@ -691,8 +707,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 		}
 		return false
 	case "ctrl+c":
-		if !a.editor.IsEmpty() {
+		if !a.editor.IsEmpty() || len(a.draftImages) > 0 {
 			a.editor.SetText("")
+			a.draftImages = nil
 			return true
 		}
 		if time.Since(a.lastCtrlC) < 2*time.Second {
@@ -809,7 +826,9 @@ func (a *App) openQuestionModal(req questRequest) {
 // --- submit / turn ---
 
 func (a *App) onSubmit(text string) {
-	if strings.TrimSpace(text) == "" {
+	// A message of images alone is valid, as it is in the browser: the text
+	// may be empty when attachments are waiting with the draft.
+	if strings.TrimSpace(text) == "" && len(a.draftImages) == 0 {
 		return
 	}
 	a.editor.AddToHistory(text)
@@ -837,10 +856,12 @@ func (a *App) submitPrompt(text string) {
 	}
 	row := newUserMessage(a.theme, text)
 	a.chat.AddChild(row)
+	images := a.takeDraftImages()
 	a.startTurnWorker(acp.SessionPromptParams{
-		SessionID: a.sessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-	}, nil, nil, text, row)
+		SessionID:  a.sessionID,
+		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
+		ImageParts: images,
+	}, nil, nil, text, row, images)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it
@@ -850,7 +871,7 @@ func (a *App) submitPrompt(text string) {
 // done, when non-nil, also receives the turn's error once turnDone is posted: a
 // background wake waits on it (background.go), so the waker starts at most one
 // turn at a time and hears a busy session as busy.
-func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error, text string, row tui.Component) {
+func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error, text string, row tui.Component, images []acp.ImagePartRef) {
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
@@ -872,7 +893,7 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 			stop = string(res.StopReason)
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, text: text, row: row, woken: woken}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, text: text, row: row, woken: woken, images: images}}:
 		case <-a.closed:
 		}
 		if done != nil {

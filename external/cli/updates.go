@@ -68,7 +68,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			// activity update arrived first. A refused queue restores the draft.
 			a.chat.RemoveChild(u.row)
 			a.appendStatus(roleDim, "The session is busy with another turn; your message was queued for it.")
-			a.enqueuePrompt(u.text)
+			a.enqueuePromptParts(u.text, session.QueueModeSteer, false, u.images)
 			return
 		}
 		if u.woken && errors.Is(u.err, session.ErrSessionTurnBusy) {
