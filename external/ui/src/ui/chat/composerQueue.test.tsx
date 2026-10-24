@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Composer } from "./Composer";
 
 afterEach(() => cleanup());
@@ -163,6 +163,41 @@ test("a second activation of a queue action takes no second copy of the draft", 
 
   expect(onQueue).toHaveBeenCalledTimes(1);
   expect(onQueue).toHaveBeenCalledWith("check the Windows path too", "after_turn", []);
+});
+
+// An attachment-only queue empties its own chips only on the next render, so a
+// second activation in that window sees the same files and would queue them
+// again - with no text for the draft guard to match on. Both clicks land before
+// the composer re-renders, the way a double click on a controlled chip row
+// does.
+test("a second activation of a queue action takes no second copy of the attachments", async () => {
+  const onQueue = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent"]}
+      generating={true}
+      llmModelMultimodal={true}
+      queueMode="steer"
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+    />,
+  );
+  const file = new File(["image"], "img.png", { type: "image/png" });
+  fireEvent.change(screen.getByTestId("composer-file-input"), { target: { files: [file] } });
+  await waitFor(() => screen.getByText("img.png"));
+  const queueButton = screen.getByRole("button", { name: "Queue this message" });
+  await act(async () => {
+    queueButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    queueButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(onQueue).toHaveBeenCalledTimes(1);
+  expect(onQueue).toHaveBeenCalledWith("", "steer", [file]);
 });
 
 // Enter's rule (composerEnterAction) ignores a held key's repeats; Tab is the

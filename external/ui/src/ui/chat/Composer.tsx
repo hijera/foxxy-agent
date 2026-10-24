@@ -517,15 +517,16 @@ export function Composer(props: {
    * still read the text of the one they belong to. The check sits at the top
    * of queueDraft, so every path that could take the draft is covered; the
    * text is recorded where the draft is taken, not by the first-use question,
-   * whose answer re-enters queueDraft to take it. Cleared when the draft text
-   * changes, so the next follow-up is a message of its own. An empty text is
-   * never recorded: an attachment-only queue empties its own chips, and an
-   * empty draft cannot fire again.
+   * whose answer re-enters queueDraft to take it. An empty text is recorded
+   * too: an attachment-only queue empties its own chips only on the next
+   * render, and a second activation before that would take them again.
+   * Cleared when the draft text or the chips change, so the next follow-up is
+   * a message of its own.
    */
   const queuedDraftTextRef = useRef<string | null>(null);
   useEffect(() => {
     queuedDraftTextRef.current = null;
-  }, [props.value]);
+  }, [props.value, sendableAttachedFiles.length]);
   /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
@@ -569,7 +570,7 @@ export function Composer(props: {
       return;
     }
     // This very draft is already on its way to the queue (queuedDraftTextRef).
-    if (txt !== "" && queuedDraftTextRef.current === txt) {
+    if (queuedDraftTextRef.current !== null && queuedDraftTextRef.current === txt) {
       return;
     }
     const chosen = mode ?? props.queueMode;
@@ -581,7 +582,7 @@ export function Composer(props: {
     setQueueChoice(null);
     const files = [...sendableAttachedFiles];
     if (files.length > 0) setAttachedFiles([]);
-    if (txt !== "") queuedDraftTextRef.current = txt;
+    queuedDraftTextRef.current = txt;
     props.onQueue(txt, chosen, files);
   }, [props.value, props.onQueue, props.queueMode, runLocalCommandFromDraft, sendableAttachedFiles, setAttachedFiles]);
   /** The answer to the first-use question: it is Enter's mode from now on. */
