@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-23
+## 0.3.34 — 2026-10-23
 
 **Attachments returned by the remote console.**
 Taking a queued message back with /queue drop restores the attachment contents together with its text, so sending it again keeps the files.

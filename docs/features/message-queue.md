@@ -120,13 +120,9 @@ queued messages (2) · /queue to manage
 
 `/queue` lists them, `/queue mode <n> steer|after_turn` switches one, `/queue drop <n>` takes one back and puts its text into the input, with its images attached to the next message that goes out (named on screen, since a terminal shows no chips), `/queue clear` empties the queue. Pressing **escape** cancels the turn: its unread steer messages go with it, and the after-turn ones stay queued. The same works against a remote server (`--remote`): the console talks to the queue routes below, and subscribes to the server's event stream, so a follow-up someone queued in a browser shows up above the console's input too.
 
-In a remote console, a turn started by another client also accepts queued input and Escape cancellation. The console tracks that server activity separately from its own prompt request. After a server restart, the latest fresh queue snapshot can recover a lower version (including zero) only if no queue update crosses the read; delayed pre-recovery replies and notifications cannot restore old rows. Recovery does not require an idle turn. A failed read or crossed snapshot is re-read (up to three attempts, with a short delay); a newer refresh or client shutdown stops the old recovery. Queue reads have a separate timeout budget from activity reads. This control support does not attach the console to the other client's live transcript or share its permission and question dialogs.
+In a remote console, taking a queued message back restores the attachment contents along with the text, so resubmitting it sends the files again rather than keeping only their names. A turn started by another client also accepts queued input and Escape cancellation. The console tracks that server activity separately from its own prompt request. After a server restart, the latest fresh queue snapshot can recover a lower version (including zero) only if no queue update crosses the read; delayed pre-recovery replies and notifications cannot restore old rows. Recovery does not require an idle turn. A failed read or crossed snapshot is re-read (up to three attempts, with a short delay); a newer refresh or client shutdown stops the old recovery. Queue reads have a separate timeout budget from activity reads. This control support does not attach the console to the other client's live transcript or share its permission and question dialogs.
 
 ## Over HTTP
-
-In remote-console mode, taking a queued message back restores the attachment
-contents along with the text, so resubmitting it sends the files again rather
-than keeping only their names.
 
 | Route | What it does |
 |---|---|
