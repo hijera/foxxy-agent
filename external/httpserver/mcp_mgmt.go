@@ -421,11 +421,14 @@ func (s *Server) foxxycodeMCPServerDelete(w http.ResponseWriter, r *http.Request
 }
 
 // refreshLiveMCPServer brings live sessions in line with one server whose
-// switch or trust the request changed. The change is already on disk, so a
-// client that goes away does not cut the refresh short: it keeps the request's
-// values but not its cancellation, and the manager bounds its own time.
+// switch or trust the request changed. The change is already on disk and the
+// answer has nothing to wait for: the reconcile runs detached - it keeps the
+// request's values but not its cancellation, and the manager bounds its own
+// time - so a slow dial or a session whose turn lock is held cannot hold the
+// response open for that budget.
 func (s *Server) refreshLiveMCPServer(r *http.Request, name string) {
-	s.mgr.RefreshMCPServer(context.WithoutCancel(r.Context()), name)
+	ctx := context.WithoutCancel(r.Context())
+	go s.mgr.RefreshMCPServer(ctx, name)
 }
 
 func writeFoxxyCodeMCPErr(w http.ResponseWriter, code int, msg string) {
