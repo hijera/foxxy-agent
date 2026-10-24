@@ -29,7 +29,7 @@
  *   FOXXYCODE_PORT_BASE     first of three loopback ports (default 19870)
  *   FOXXYCODE_BUDGET_SCALE  multiplies every time budget (a slow machine: 2)
  *   FOXXYCODE_SCENARIOS     a comma list of scenarios to run (open, scroll, phone,
- *                       edit, retry, prompt, short, two-browsers, swarm); all
+ *                       resize, edit, retry, prompt, short, two-browsers, swarm); all
  *                       by default
  *   FOXXYCODE_E2E_KEEP=1    leave the stand running after the checks, for a look
  *
@@ -568,6 +568,41 @@ async function scenarioPhone() {
   await context.close();
 }
 
+async function scenarioResize() {
+  const { context, page } = await openPage({ width: 1280, height: 900 }, { throttle: 1 });
+  await openAndTime(page, `${NODE}/#/s/${LONG}`);
+  const widths = [468, 390, 599, 600, 834, 1199, 1200, 1280];
+  const settle = () => page.evaluate(() => new Promise(resolve => {
+    let frames = 6;
+    const tick = () => --frames > 0 ? requestAnimationFrame(tick) : resolve();
+    requestAnimationFrame(tick);
+  }));
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await settle();
+    const t = await readTranscript(page);
+    check(`resize ${width}: newest message stays visible`, t.fromBottom <= 4 && t.text.includes(NEWEST), `${t.fromBottom}px from bottom`);
+  }
+  await scrollAndMeasure(page, 40, -300);
+  const anchor = await page.evaluate(() => {
+    const top = document.querySelector(".chat-scroll").getBoundingClientRect().top;
+    const row = [...document.querySelectorAll(".messages-inner > [data-row-id]")].find(el => el.getBoundingClientRect().bottom > top);
+    return { id: row.dataset.rowId, offset: row.getBoundingClientRect().top - top };
+  });
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await settle();
+    const drift = await page.evaluate(({ id, offset }) => {
+      const row = [...document.querySelectorAll(".messages-inner > [data-row-id]")].find(el => el.dataset.rowId === id);
+      if (!row) return null;
+      const top = matchMedia("(max-width: 1199px)").matches ? 0 : document.querySelector(".chat-scroll").getBoundingClientRect().top;
+      return Math.round(Math.abs(row.getBoundingClientRect().top - top - offset));
+    }, anchor);
+    check(`resize ${width}: inspected row keeps its position`, drift !== null && drift <= 4, `${drift}px drift`);
+  }
+  await context.close();
+}
+
 async function scenarioEditIndex() {
   const { context, page } = await openPage({ width: 1280, height: 900 }, { throttle: 1 });
   const rewinds = [];
@@ -740,6 +775,7 @@ const SCENARIOS = [
   ["open", () => scenarioOpen("open 1280", { width: 1280, height: 900 })],
   ["scroll", scenarioScroll],
   ["phone", scenarioPhone],
+  ["resize", scenarioResize],
   ["edit", scenarioEditIndex],
   ["retry", scenarioRetry],
   ["prompt", scenarioPrompt],

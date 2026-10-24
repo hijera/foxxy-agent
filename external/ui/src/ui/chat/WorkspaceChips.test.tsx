@@ -636,6 +636,38 @@ describe("WorkspaceChips", () => {
     );
   });
 
+  it("closes the folder menu on Escape", () => {
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    expect(screen.getByTestId("workspace-open-folder")).toBeTruthy();
+    expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
+    expect(screen.queryByTestId("workspace-open-folder")).toBeNull();
+  });
+
+  // Escape undoes one step: the name row of a new folder first, the browser next.
+  it("folds the new folder row on Escape first, then closes the browser", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ path: "/repos", parent: "/", folders: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { props } = renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-folder-modal"));
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+    expect(screen.getByTestId("workspace-modal-new-folder-name")).toBeTruthy();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
+    expect(screen.getByTestId("workspace-folder-modal")).toBeTruthy();
+
+    expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
+    expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+    expect(props.onPickFolder).not.toHaveBeenCalled();
+  });
+
   it("cancels the folder browser modal without picking", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

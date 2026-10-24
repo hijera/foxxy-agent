@@ -21,7 +21,7 @@ import { Composer } from "./Composer";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
-import type { QueuedMessage } from "./Composer";
+import type { QueuedMessage, QueueMode } from "./Composer";
 import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
@@ -45,6 +45,7 @@ import {
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { useTranscriptResizeAnchor } from "./useTranscriptResizeAnchor";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -107,6 +108,7 @@ export function ChatScreen(props: {
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
   /** `/docs [page or words]` typed in the composer opens the documentation reader. */
   onDocsCommand?: (arg: string) => void;
+  onMCPCommand?: () => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   turnActive?: boolean | undefined;
@@ -114,7 +116,10 @@ export function ChatScreen(props: {
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. */
-  onQueue?: (text: string) => void;
+  onQueue?: (text: string, mode: QueueMode, files?: File[]) => void;
+  queueMode?: QueueMode;
+  onQueueModeChange?: (mode: QueueMode) => void;
+  onSetQueuedMode?: (id: string, mode: QueueMode) => void;
   /** Take one queued follow-up back before the agent reads it. */
   onCancelQueued?: (id: string) => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
@@ -221,6 +226,14 @@ export function ChatScreen(props: {
     readerAtTailRef.current = atTail;
     onReaderAtTailChangeRef.current?.(atTail);
   }, []);
+  const syncAfterResizeRef = useRef(() => {});
+  const { isResizing, rememberPosition } = useTranscriptResizeAnchor({
+    scrollerRef: messagesRef,
+    stickToBottomRef,
+    enabled: !isEmpty,
+    resetKey: props.sessionId,
+    onRestored: () => syncAfterResizeRef.current(),
+  });
 
   useLayoutEffect(() => {
     if (isEmpty) return;
@@ -317,6 +330,9 @@ export function ChatScreen(props: {
     // A jump owns the position while it travels. Reading it mid-flight would
     // put the button back on screen for every frame above the band.
     if (jumpFrameRef.current !== null) return;
+    // A shell switch briefly exposes the new scrollport at its old offset.
+    // It is a resize, not the reader leaving the tail.
+    if (isResizing()) return;
     let atBottom: boolean;
     if (mobileDocScroll) {
       atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
@@ -331,7 +347,9 @@ export function ChatScreen(props: {
     stickToBottomRef.current = atNewest;
     setShowScrollToBottom(!atNewest);
     reportReaderAtTail(atBottom);
-  }, [mobileDocScroll, reportReaderAtTail]);
+    rememberPosition();
+  }, [mobileDocScroll, reportReaderAtTail, isResizing, rememberPosition]);
+  syncAfterResizeRef.current = syncTranscriptPosition;
 
   const jumpToNewestMessage = useCallback(() => {
     cancelTranscriptJump();
@@ -727,6 +745,7 @@ export function ChatScreen(props: {
                   ? { onPasteChipCaptured: props.onPasteChipCaptured }
                   : {})}
                 {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
                 {...(props.onContextRingOpen
                   ? { onContextRingOpen: props.onContextRingOpen }
                   : {})}
@@ -737,6 +756,9 @@ export function ChatScreen(props: {
                   ? {
                       queuedMessages: props.queuedMessages ?? [],
                       onQueue: props.onQueue,
+                      ...(props.queueMode ? { queueMode: props.queueMode } : {}),
+                      ...(props.onQueueModeChange ? { onQueueModeChange: props.onQueueModeChange } : {}),
+                      ...(props.onSetQueuedMode ? { onSetQueuedMode: props.onSetQueuedMode } : {}),
                       ...(props.onCancelQueued
                         ? { onCancelQueued: props.onCancelQueued }
                         : {}),
@@ -916,6 +938,7 @@ export function ChatScreen(props: {
                     ? { onPasteChipCaptured: props.onPasteChipCaptured }
                     : {})}
                   {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                  {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
                   {...(props.onContextRingOpen
                     ? { onContextRingOpen: props.onContextRingOpen }
                     : {})}
@@ -926,6 +949,9 @@ export function ChatScreen(props: {
                     ? {
                         queuedMessages: props.queuedMessages ?? [],
                         onQueue: props.onQueue,
+                        ...(props.queueMode ? { queueMode: props.queueMode } : {}),
+                        ...(props.onQueueModeChange ? { onQueueModeChange: props.onQueueModeChange } : {}),
+                        ...(props.onSetQueuedMode ? { onSetQueuedMode: props.onSetQueuedMode } : {}),
                         ...(props.onCancelQueued
                           ? { onCancelQueued: props.onCancelQueued }
                           : {}),

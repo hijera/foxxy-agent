@@ -390,7 +390,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	toolsMD := "## Tools\n\ntool_a: does things"
 	_ = toolsMD
-	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, nil)
+	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}})
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected breakdown")
@@ -420,7 +420,7 @@ func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
 		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
 	}
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("system prompt does not contain %q", want)
@@ -450,8 +450,12 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
-	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(content), 0o644); err != nil {
+	always := "---\nalwaysApply: true\n---\nRULE_ALWAYS_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "house.mdc"), []byte(always), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	globbed := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(globbed), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
@@ -460,12 +464,17 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
-	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
-		t.Fatal("expected rule token in prompt")
+	prompt := a.buildSystemPrompt("agent", nil, nil)
+	if !strings.Contains(prompt, "## Active project rules") || !strings.Contains(prompt, "RULE_ALWAYS_TOKEN") {
+		t.Fatal("expected the always-on rule under the rules heading")
 	}
 	if strings.Contains(prompt, "## Active Skills") {
 		t.Fatal("rule token should be under Rules not Skills heading")
+	}
+	// A glob rule waits for its path and then rides in the message or the
+	// tool result that brought it, never in the system prompt.
+	if strings.Contains(prompt, "RULE_GLOB_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt")
 	}
 }
 
@@ -488,7 +497,7 @@ func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	before := a.buildSystemPrompt("agent", nil, nil, nil)
+	before := a.buildSystemPrompt("agent", nil, nil)
 	if strings.Contains(before, "RULE_MENTION_ONLY") {
 		t.Fatal("mention-only rule must not appear without @mention")
 	}
@@ -499,7 +508,7 @@ func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 			t.Fatalf("%q: the rule must ride in the user message, got:\n%s", typed, msg)
 		}
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: msg})
-		if after := a.buildSystemPrompt("agent", nil, nil, nil); after != before {
+		if after := a.buildSystemPrompt("agent", nil, nil); after != before {
 			t.Fatalf("%q: the system prompt moved:\n--- before\n%s\n--- after\n%s", typed, before, after)
 		}
 	}
@@ -519,7 +528,7 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(prompt, "AGENTS_DOC_TOKEN") || !strings.Contains(prompt, "DESIGN_DOC_TOKEN") {
 		t.Fatal("expected project docs in rules block")
 	}
@@ -568,7 +577,7 @@ func TestBuildSystemPromptRootAgentsMDOnce(t *testing.T) {
 			st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 			a := NewAgent(cfg, st, nil, nil)
 			for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
-				prompt := a.buildSystemPrompt(mode, nil, nil, nil)
+				prompt := a.buildSystemPrompt(mode, nil, nil)
 				for token, want := range map[string]int{
 					"ROOT_AGENTS_ONCE_TOKEN":  1,
 					"DESIGN_ONCE_TOKEN":       1,
@@ -596,7 +605,7 @@ func TestContextBreakdownCountsRootAgentsMDOnceUnderRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	breakdown := func() session.ContextBreakdown {
 		t.Helper()
-		_ = a.buildSystemPrompt("agent", nil, nil, nil)
+		_ = a.buildSystemPrompt("agent", nil, nil)
 		b := st.GetLastContextBreakdown()
 		if b == nil {
 			t.Fatal("expected a context breakdown after building the system prompt")
@@ -610,6 +619,10 @@ func TestContextBreakdownCountsRootAgentsMDOnceUnderRules(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if frozen := breakdown(); frozen.Rules != before.Rules {
+		t.Fatal("editing AGENTS.md changed the standing prompt within its generation")
+	}
+	st.ReplaceRulesCatalog(st.GetRulesCatalog())
 	after := breakdown()
 
 	bodyTok := session.EstimateTokens(body)
@@ -639,13 +652,13 @@ func TestBuildSystemPromptPerProviderSelectsFamily(t *testing.T) {
 
 	// Enabled: the anthropic family variant (agent.anthropic.md) carries a
 	// "Model-family notes" section that the shared agent.md does not.
-	on := newAgentFor(true).buildSystemPrompt("agent", nil, nil, nil)
+	on := newAgentFor(true).buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(on, "Model-family notes") {
 		t.Fatal("expected anthropic family prompt when per-provider prompts are enabled")
 	}
 
 	// Disabled: falls back to the shared base prompt without family notes.
-	off := newAgentFor(false).buildSystemPrompt("agent", nil, nil, nil)
+	off := newAgentFor(false).buildSystemPrompt("agent", nil, nil)
 	if strings.Contains(off, "Model-family notes") {
 		t.Fatal("expected shared base prompt when per-provider prompts are disabled")
 	}
@@ -670,7 +683,7 @@ func TestBuildSystemPromptPerModelFileFromDir(t *testing.T) {
 	cfg.Prompts.ApplyDefaults()
 	cfg.Prompts.Dir = dir
 	a := NewAgent(cfg, st, nil, nil)
-	got := a.buildSystemPrompt("agent", nil, nil, nil)
+	got := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(got, "PERMODEL") {
 		t.Fatalf("expected per-model prompt file to be selected, got: %.80s", got)
 	}
@@ -1927,14 +1940,14 @@ func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing
 	cfg.Prompts.Dir = promptsDir
 	a := NewAgent(cfg, st, nil, nil)
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if n := strings.Count(prompt, "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("a template without {{.Rules}} carries the project AGENTS.md %d time(s), want 1:\n%s", n, prompt)
 	}
 
 	// With the built-in template the rules block carries it, exactly once.
 	cfg.Prompts.Dir = ""
-	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
+	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
 	}
 }
@@ -1969,7 +1982,7 @@ func TestWithTurnContextSendsHistoryAloneWhenTheBlockIsEmpty(t *testing.T) {
 	}
 }
 
-func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
+func TestBuildTurnContextCarriesClockAndTodoButNoRules(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -1987,7 +2000,7 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	a.clock = func() time.Time { return time.Date(2038, 1, 19, 3, 14, 7, 0, time.UTC) }
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if strings.Contains(sys.Content, "TURN_CTX_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt before any tool touched a matching file")
 	}
@@ -2001,19 +2014,25 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	}
 
 	st.SetPlan([]acp.PlanEntry{{Content: "TURN_CTX_TODO_TOKEN", Status: "pending"}})
-	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{read}})
+	result := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp))
+	st.AddMessage(result)
+	if !strings.Contains(result.Rules, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("the read's result lost the rule it activated: %+v", result)
+	}
 
 	block = a.buildTurnContext(sys)
 	if !strings.Contains(block, "TURN_CTX_TODO_TOKEN") {
 		t.Fatalf("turn context lost the checklist: %q", block)
 	}
-	if !strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
-		t.Fatalf("turn context lost the rule the read activated: %q", block)
+	// The rule rides in the result of the read, written once; repeating it in
+	// the block would send it again on every step.
+	if strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("turn context repeats the rule the read's result carries: %q", block)
 	}
-	// The frozen prompt is what the provider already has cached: the rule must
-	// not be folded back into it mid-turn.
-	if frozen := sys.Content; strings.Contains(frozen, "TURN_CTX_RULE_TOKEN") {
-		t.Fatal("the activated rule rewrote the frozen system prompt")
+	if next := a.buildSystemPromptParts("agent", nil, nil); next.Content != sys.Content {
+		t.Fatal("the activated rule rewrote the system prompt")
 	}
 }
 
@@ -2031,14 +2050,14 @@ func TestSystemPromptRebuildKeepsThePlanContext(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for i := 1; i <= 3; i++ {
-		if got := a.buildSystemPromptParts("agent", nil, nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+		if got := a.buildSystemPromptParts("agent", nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 			t.Fatalf("build %d lost the plan hand-off", i)
 		}
 	}
 
 	// And it is let go when the turn ends, so the next one starts clean.
 	a.releasePlanContext()
-	if got := a.buildSystemPromptParts("agent", nil, nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+	if got := a.buildSystemPromptParts("agent", nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 		t.Fatal("the plan hand-off outlived the turn that ran the plan")
 	}
 }
@@ -2096,7 +2115,7 @@ func TestTurnContextCarriesTheChecklistInAgentModeOnly(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for mode, want := range map[string]bool{"agent": true, "plan": false, "ask": false} {
-		sys := a.buildSystemPromptParts(mode, nil, nil, nil)
+		sys := a.buildSystemPromptParts(mode, nil, nil)
 		block := a.buildTurnContext(sys)
 		if got := strings.Contains(block, "MODE_TODO_TOKEN"); got != want {
 			t.Errorf("%s mode: checklist in the turn context = %v, want %v", mode, got, want)
@@ -2125,7 +2144,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if !sys.Volatile {
 		t.Fatal("a template printing UTCNow and TodoList must be marked volatile")
 	}
@@ -2135,7 +2154,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 	// The built-in template is the other way round.
 	cfg.Prompts.Dir = ""
-	builtin := a.buildSystemPromptParts("agent", nil, nil, nil)
+	builtin := a.buildSystemPromptParts("agent", nil, nil)
 	if builtin.Volatile {
 		t.Fatal("the built-in agent template must not be volatile")
 	}
@@ -2146,7 +2165,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 // A template with no {{.Rules}} in it asked for no rules at all. A rule a tool
 // call activates must not be smuggled in after the history either.
-func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
+func TestTemplateWithoutRulesGetsNoRulesAfterTheHistory(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2168,17 +2187,20 @@ func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
-	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
+	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); res.Rules != "" {
+		t.Fatalf("a template without {{.Rules}} still received a rule with a tool result: %q", res.Rules)
+	}
 	if block := a.buildTurnContext(sys); strings.Contains(block, "NO_RULES_TEMPLATE_TOKEN") {
 		t.Fatalf("a template without {{.Rules}} still received a rule: %q", block)
 	}
 }
 
-// A rule the frozen system prompt already carries must never be repeated after
-// the history: that is what rules.Added is for, and repeating it would spend on
-// every step exactly the tokens this change is saving.
-func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T) {
+// A glob rule an attached file brought in rides in the user's message, never
+// in the system prompt, and is not repeated with a later tool result: that
+// would spend exactly the tokens the attachment already paid.
+func TestRuleAnAttachmentBroughtIsNotRepeatedWithAToolResult(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2200,14 +2222,24 @@ func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T)
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	// An attachment already made the rule sticky, so the frozen prompt carries it.
-	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
-	if !strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
-		t.Fatal("the attached file did not activate the glob rule")
+	prompt := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "look"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "main.go"))}},
+	})
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: contentBlocksToText(prompt)})
+	if !strings.Contains(st.GetMessages()[0].Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("the attached file did not bring the glob rule into its message")
 	}
-	a.activateScopedRulesForToolCall("read", `{"path":"other.go"}`, tmp)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
+	if strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt")
+	}
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"other.go"}`}
+	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); strings.Contains(res.Rules, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatalf("a rule the user's message carries was repeated with a tool result: %q", res.Rules)
+	}
 	if block := a.buildTurnContext(sys); strings.Contains(block, "ALREADY_SENT_RULE_TOKEN") {
-		t.Fatalf("a rule the system prompt already carried was repeated after the history: %q", block)
+		t.Fatalf("a rule the user's message carries was repeated after the history: %q", block)
 	}
 }
 
@@ -2228,7 +2260,7 @@ func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
 		return time.Date(2038, 1, 19, 3, 14, 7+ticks, 0, time.UTC)
 	}
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	first := a.buildTurnContext(sys)
 	second := a.buildTurnContext(sys)
 	if first != second {
@@ -2510,9 +2542,19 @@ type settingsHarness struct {
 	sessionID string
 	mu        sync.Mutex
 	providers map[string]*scriptedProvider
+	// onBuild, when set, runs whenever the agent builds a provider for an
+	// API model id, before the provider is handed back.
+	onBuild func(apiModel string)
 }
 
 func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
+	t.Helper()
+	return newSettingsHarnessWith(t, nil, models...)
+}
+
+// newSettingsHarnessWith is newSettingsHarness with tune applied to the
+// configuration before the manager sees it.
+func newSettingsHarnessWith(t *testing.T, tune func(*config.Config), models ...string) *settingsHarness {
 	t.Helper()
 	root := t.TempDir()
 	cwd := t.TempDir()
@@ -2525,6 +2567,9 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 	for _, m := range models {
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
 	}
+	if tune != nil {
+		tune(cfg)
+	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
 	titleEnabled := false
 	cfg.Title.Enabled = &titleEnabled
@@ -2535,7 +2580,15 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := NewAgent(cfg, st, snd, slog.Default())
 		loop.SetSubagentRuntime(h.mgr)
-		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
+		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) {
+			h.mu.Lock()
+			onBuild := h.onBuild
+			h.mu.Unlock()
+			if onBuild != nil {
+				onBuild(in.Model)
+			}
+			return h.provider(in.Model), nil
+		})
 		return loop.Run(ctx, prompt)
 	}
 	// Sessions persist, because a subagent's bundle nests in its parent's.
@@ -2589,6 +2642,167 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 	h.prompt(t, "and now")
 	if a := h.provider("a").calls; a != 2 {
 		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+// switchModelDuring answers like a model a browser interrupts with
+// PATCH /foxxycode/sessions/{id}: part of the answer streams, the session's model
+// is switched to model, and the answer ends with a tool call, so the turn
+// takes another step.
+func switchModelDuring(t *testing.T, h *settingsHarness, model, text string) scriptStep {
+	return func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		onChunk(llm.StreamChunk{TextDelta: text})
+		to := model
+		if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &to, Source: "web"}); err != nil {
+			t.Errorf("switch the model: %v", err)
+		}
+		call := llm.ToolCall{ID: "g1", Name: "glob", InputJSON: `{"pattern":"*.none"}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{Content: text, ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}
+	}
+}
+
+// seedExchanges gives the session earlier turns, so a compaction has
+// something to fold.
+func (h *settingsHarness) seedExchanges(n int, model string) {
+	st := h.mgr.SessionByID(h.sessionID)
+	for i := 0; i < n; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("earlier question %d", i+1)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("earlier answer %d", i+1), Model: model})
+	}
+}
+
+func (h *settingsHarness) compacted() bool {
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.CompactionSummary {
+			return true
+		}
+	}
+	return false
+}
+
+// A model switched while an answer streams takes the turn's next request, and
+// the answer in flight keeps the name of the model that wrote it (#362).
+func TestAnswerIsSignedByTheModelThatWroteIt(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+	h.provider("b").steps = []scriptStep{answerStep("written by b")}
+	h.prompt(t, "go")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the step after the switch on b", a, b)
+	}
+	var signed []string
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.Role == llm.RoleAssistant {
+			signed = append(signed, m.Content+" | "+m.Model)
+		}
+	}
+	if want := []string{"written by a | fake/a", "written by b | fake/b"}; !reflect.DeepEqual(signed, want) {
+		t.Fatalf("assistant rows %q, want %q", signed, want)
+	}
+}
+
+// A switch that lands after the turn built its transport and before its first
+// request - here while the turn compacts first - reaches that request: the
+// loop compares the settings with what the transport was built for, not with
+// what it found when it started.
+func TestSwitchBeforeTheFirstRequestReachesIt(t *testing.T) {
+	keep := 1
+	h := newSettingsHarnessWith(t, func(cfg *config.Config) {
+		// The system prompt alone crosses 80% of this window, so the turn
+		// compacts before its first request.
+		cfg.Models[0].MaxContextTokens = 50
+		cfg.Compaction.KeepRecentTurns = &keep
+	}, "fake/a", "fake/b")
+	h.seedExchanges(3, "fake/a")
+	b := "fake/b"
+	h.provider("a").steps = []scriptStep{func(_ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) *llm.Response {
+		// The summarizer's request: the operator switches meanwhile.
+		if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &b, Source: "web"}); err != nil {
+			t.Errorf("switch the model: %v", err)
+		}
+		return &llm.Response{Content: "summary of the earlier turns", StopReason: "end_turn"}
+	}}
+	h.provider("b").steps = []scriptStep{answerStep("written by b")}
+	h.prompt(t, "go")
+	if !h.compacted() {
+		t.Fatal("the turn did not compact before its first request")
+	}
+	if a, bCalls := h.provider("a").calls, h.provider("b").calls; a != 1 || bCalls != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the summary on a and the first request on b", a, bCalls)
+	}
+}
+
+// A second switch that lands while the loop builds the transport for the
+// first is not left for the step after: the request goes to the model the
+// session names when it is sent.
+func TestSwitchDuringTheRebuildReachesTheRequest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b", "fake/c")
+	var once sync.Once
+	h.onBuild = func(apiModel string) {
+		if apiModel != "b" {
+			return
+		}
+		once.Do(func() {
+			c := "fake/c"
+			if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &c, Source: "web"}); err != nil {
+				t.Errorf("switch the model: %v", err)
+			}
+		})
+	}
+	h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+	h.provider("c").steps = []scriptStep{answerStep("written by c")}
+	h.prompt(t, "go")
+	if a, b, c := h.provider("a").calls, h.provider("b").calls, h.provider("c").calls; a != 1 || b != 0 || c != 1 {
+		t.Fatalf("requests served: a=%d b=%d c=%d, want the step after the switches on c", a, b, c)
+	}
+}
+
+// A switch to a model whose window only its provider's listing reports reads
+// that listing before the next request and compacts against it, in the middle
+// of a turn and between turns alike, instead of measuring against the 128000
+// default (#362).
+func TestSwitchToASmallerWindowCompactsBeforeTheNextRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		midTurn  bool
+		wantACnt int
+	}{
+		{name: "in the middle of a turn", midTurn: true, wantACnt: 1},
+		{name: "between turns", wantACnt: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newSettingsHarnessWith(t, func(cfg *config.Config) {
+				// fake/b reports its window through the provider's listing
+				// only; fake/a declares a large one of its own.
+				cfg.Providers[0].APIBase = "https://listing.invalid/v1"
+				cfg.Models[0].MaxContextTokens = 1_000_000
+			}, "fake/a", "fake/b")
+			var listings atomic.Int32
+			h.mgr.SetContextWindowLister(func(context.Context, llm.ProviderInput) ([]llm.ModelEntry, error) {
+				listings.Add(1)
+				return []llm.ModelEntry{{ID: "b", ContextWindow: 50}}, nil
+			}, nil)
+			t.Cleanup(func() { _ = h.mgr.WaitContextWindowsIdle(5 * time.Second) })
+			h.seedExchanges(4, "fake/a")
+			if tc.midTurn {
+				h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+			} else {
+				b := "fake/b"
+				if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &b, Source: "web"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h.provider("b").steps = []scriptStep{answerStep("summary of the earlier turns"), answerStep("written by b")}
+			h.prompt(t, "go")
+			if !h.compacted() {
+				w, source := h.mgr.SessionByID(h.sessionID).ContextWindow(h.mgr.Cfg())
+				t.Fatalf("no compaction before the request to fake/b; the session measures against %d (%s), listings read: %d", w, source, listings.Load())
+			}
+			if a := h.provider("a").calls; a != tc.wantACnt {
+				t.Fatalf("fake/a served %d requests, want %d", a, tc.wantACnt)
+			}
+		})
 	}
 }
 

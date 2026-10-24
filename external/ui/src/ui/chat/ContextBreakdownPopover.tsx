@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import { UsageSection } from "./UsageSection";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 import type { ProviderUsage } from "./providerUsage";
 
 export type ContextBreakdown = {
@@ -117,19 +118,8 @@ export function ContextBreakdownPopover(props: {
     };
   }, [props.open, useSheet, props.anchorRef]);
 
-  useEffect(() => {
-    if (!props.open) {
-      return;
-    }
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        ev.preventDefault();
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [props.open, props.onClose]);
+  // The popover is on top of whatever else is open: its Escape comes first.
+  useEscapeCloses(props.open, props.onClose);
 
   useEffect(() => {
     if (!props.open || useSheet) {

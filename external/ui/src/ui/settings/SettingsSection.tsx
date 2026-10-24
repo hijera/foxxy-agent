@@ -259,6 +259,7 @@ export function SettingsSection(props: {
   onEditingChange?: ((editing: boolean) => void) | undefined;
   /** Each change closes an open row form (the head's back arrow). */
   closeSignal?: number | undefined;
+  replacedSignal?: number | undefined;
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
   /** The conversation on screen, so the session table can spare it. */
@@ -537,7 +538,7 @@ export function SettingsSection(props: {
         hideBackLink={props.hideBackLink}
         onEditingChange={props.onEditingChange}
         closeSignal={props.closeSignal}
-
+        replacedSignal={props.replacedSignal}
         groups={
           key === "providers"
             ? [
@@ -687,7 +688,7 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       {
         id: "turn",
         legend: translate("settings.group.agent.turn"),
-        paths: ["model", "max_turns"],
+        paths: ["model", "max_turns", "queue_mode"],
       },
       {
         id: "retries",

@@ -5391,7 +5391,46 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
    written during a turn is queued, an empty one still stops the turn. Two
    classes, so the tint wins over .composer-send-play and the light theme's own
    rule for it, which come later in this file. */
-.composer-send-play.composer-run-icon--queue,
+.composer-send-play.composer-queue-mode,
+.composer-queue-choice button {
+  flex: 0 0 auto;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-glass-panel-bg);
+  color: var(--text);
+  padding: 3px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* The paperclip and the count of images a queued message carries; the images
+   themselves stay on the server until the message is read or taken back. */
+.composer-queue-files {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.composer-queue-choice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 12px;
+  background: var(--foxxycode-glass-panel-bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.composer-run-icon--queue,
 [data-theme="light"] .composer-send-play.composer-run-icon--queue {
   background: color-mix(in srgb, var(--accent) 82%, var(--foxxycode-blend-base));
 }
@@ -8578,8 +8617,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
-.settings-lead-pane .settings-error,
-.settings-lead-pane .settings-ok {
+.settings-lead-pane .settings-error {
   margin-top: 0;
 }
 
@@ -8637,6 +8675,12 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .settings-btn-primary {
   border-color: rgba(147, 51, 234, 0.55);
   background: rgba(147, 51, 234, 0.22);
+  /* Slower than the other buttons, so the green of a save eases back. */
+  transition:
+    background 360ms ease,
+    border-color 360ms ease,
+    box-shadow 360ms ease,
+    transform 80ms ease;
 }
 
 .settings-btn-primary:hover:not(:disabled) {
@@ -8719,12 +8763,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .settings-error {
   color: #fecaca;
-  margin: 4px 0 0;
-  font-size: 0.88rem;
-}
-
-.settings-ok {
-  color: #bbf7d0;
   margin: 4px 0 0;
   font-size: 0.88rem;
 }
@@ -9457,36 +9495,122 @@ html:not([data-theme="light"]) .context-usage-note--error {
   }
 }
 
-/* Save feedback: the save button pops with a green success flash. */
-.settings-btn-primary.is-saved {
-  animation: settings-save-pop 1s ease;
+/* Save feedback: a save that went through turns the Save button green for
+   SAVE_SUCCESS_MS (Settings.tsx) - no line of text, the colour is the message -
+   and the button eases back to its own colour after. The green is a state, not
+   a frame of the pop, so it holds under reduced motion too. A failed save says
+   why in the lead pane instead. */
+.settings-btn-primary.is-saved,
+.settings-btn-primary.is-saved:hover:not(:disabled) {
+  border-color: rgba(34, 197, 94, 0.85);
+  background: rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.24);
+  animation: settings-save-pop 0.45s ease;
 }
 
 @keyframes settings-save-pop {
   0% {
     transform: scale(1);
   }
-  25% {
-    transform: scale(1.16);
-    border-color: rgba(34, 197, 94, 0.85);
-    background: rgba(34, 197, 94, 0.32);
-    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
-  }
-  60% {
-    transform: scale(1);
-    border-color: rgba(34, 197, 94, 0.7);
-    background: rgba(34, 197, 94, 0.24);
-    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.22);
+  40% {
+    transform: scale(1.14);
   }
   100% {
     transform: scale(1);
   }
 }
 
+/* Skeleton of a settings tab: the first open of the page, while the schema
+   that describes the tab is on its way (SettingsSkeleton.tsx), and grey rows
+   in the section rail and the tile grid for the tabs it will bring. The bars
+   are tinted from --text, so they read on every theme. */
+.settings-skeleton-bar {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text) 6%, transparent) 0%,
+    color-mix(in srgb, var(--text) 12%, transparent) 40%,
+    color-mix(in srgb, var(--text) 6%, transparent) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.settings-skeleton-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 12px 16px;
+  border: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  border-radius: 12px;
+}
+
+.settings-skeleton-legend {
+  width: 34%;
+  height: 12px;
+}
+
+.settings-skeleton-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-skeleton-label {
+  width: 28%;
+}
+
+.settings-skeleton-field:nth-child(odd) .settings-skeleton-label {
+  width: 40%;
+}
+
+.settings-skeleton-input {
+  height: 40px;
+  border-radius: 10px;
+}
+
+.settings-nav-item--placeholder {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Bars as tall as a tab's line of text, so the rail keeps its height when the
+   tabs arrive (37px a row, like .settings-nav-item). */
+.settings-nav-item--placeholder .settings-skeleton-bar {
+  width: 70%;
+  margin: 4.5px 0;
+}
+
+.settings-nav-item--placeholder:nth-child(3n) .settings-skeleton-bar {
+  width: 52%;
+}
+
+.settings-tile--placeholder {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* The title and the description line of a tile, at their line heights: a
+   grey tile is as tall as the tile that replaces it. */
+.settings-skeleton-title {
+  width: 60%;
+  margin: 3px 0;
+}
+
+.settings-skeleton-desc {
+  width: 85%;
+  height: 8px;
+  margin: 3.5px 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .settings-form-anim,
   .settings-icon-spin,
-  .settings-btn-primary.is-saved {
+  .settings-btn-primary.is-saved,
+  .settings-skeleton-bar {
     animation: none;
   }
 }
@@ -9838,6 +9962,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .mcp-list {
+  /* Where a server row's name starts: the chevron, its gap, the status dot
+     and its gap. The tools and the trust note under a row start there too. */
+  --mcp-row-inset: calc(22px + 8px + 9px + 8px);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -9857,13 +9984,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 6px 0;
 }
 
-.mcp-list-item.is-disabled .mcp-list-item-text,
-.mcp-list-item.is-disabled .mcp-list-item-head > svg {
+.mcp-list-item.is-disabled .mcp-list-item-text {
   opacity: 0.5;
-}
-
-.mcp-list-item-head > svg {
-  flex-shrink: 0;
 }
 
 /* Trailing controls in an MCP row never shrink (same rule as skill rows), so
@@ -9974,7 +10096,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .mcp-trust-note {
-  margin: 6px 0 0 26px;
+  margin: 6px 0 0 var(--mcp-row-inset);
+  /* The file a declaration came from is one long path: it wraps anywhere
+     rather than run past the row on a phone. */
+  overflow-wrap: anywhere;
   font-size: 0.78rem;
   color: color-mix(in srgb, var(--text) 72%, transparent);
 }
@@ -10130,11 +10255,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   text-transform: uppercase;
 }
 
-/* Expanded per-tool rows, indented under the server head. */
+/* Expanded per-tool rows, under the server's name. */
 .mcp-tools {
   list-style: none;
   margin: 0 0 6px;
-  padding: 0 0 0 39px;
+  padding: 0 0 0 var(--mcp-row-inset);
   display: flex;
   flex-direction: column;
 }
@@ -10164,7 +10289,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .mcp-tools-empty {
   margin: 0 0 8px;
-  padding-left: 39px;
+  padding-left: var(--mcp-row-inset);
 }
 
 /* JSON editor card for one .foxxycode/mcp.json entry (add or edit). */
@@ -12259,10 +12384,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
 
 [data-theme="light"] .settings-error {
   color: #b91c1c;
-}
-
-[data-theme="light"] .settings-ok {
-  color: #15803d;
 }
 
 [data-theme="light"] .msg-system {
@@ -15812,17 +15933,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
    speak for themselves, and the word gives way. */
 
 
-/* The turn's own numbers lead the line: its clock, the tokens generated in it, the
-   background tasks running right now. Each item is closed by a middle dot, so the
-   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading …". */
-.typing-dots-turn {
-  display: inline-flex;
-  align-items: baseline;
-  flex: none;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
 .typing-dots-turn-item::after {
   content: "\00b7";
   margin: 0 5px;
@@ -15963,4 +16073,20 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   margin: 6px 0 0;
   font-size: 0.78rem;
   color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+/* Narrow MCP rows keep the name above their controls. */
+@media (max-width: 599px) {
+  .mcp-list-item-head {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+  .mcp-list-item-text {
+    flex-basis: calc(100% - var(--mcp-row-inset));
+  }
+}
+
+[data-effects="reduced"] .settings-skeleton-bar {
+  animation: none;
 }

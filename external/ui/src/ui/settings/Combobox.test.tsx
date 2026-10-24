@@ -1,7 +1,8 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Combobox } from "./Combobox";
+import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 afterEach(cleanup);
 
@@ -41,4 +42,23 @@ test("accepts a free-text value not in the options", () => {
   render(<Harness />);
   fireEvent.change(screen.getByTestId("cb"), { target: { value: "custom-x" } });
   expect(screen.getByTestId("val").textContent).toBe("custom-x");
+});
+
+// Escape undoes one step: the list first, the Settings drawer under it next.
+test("Escape folds the list and leaves the drawer under it for the next one", () => {
+  const closeDrawer = vi.fn();
+  render(
+    <>
+      <OpenRailScreen id="settings" onClose={closeDrawer} />
+      <Harness />
+    </>,
+  );
+  const input = screen.getByTestId("cb");
+  fireEvent.focus(input);
+  expect(screen.getByRole("listbox")).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(closeDrawer).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(closeDrawer).toHaveBeenCalledTimes(1);
 });

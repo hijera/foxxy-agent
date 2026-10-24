@@ -34,6 +34,13 @@ type ConfigJSON struct {
 	Browser      BrowserJSON      `json:"browser,omitempty"`
 	VCS          VCSJSON          `json:"vcs,omitempty"`
 	Debug        DebugJSON        `json:"debug,omitempty"`
+	// Revision names the configuration a GET /foxxycode/config document was read from.
+	// It is no setting: a client sends the document back with it unchanged, so a PUT
+	// can tell the values the client changed from the ones it only read, even when
+	// the live configuration moved in between (another save, the agent's
+	// config_commit, a hand edit). A document without one is measured against the
+	// configuration live when the PUT arrives.
+	Revision string `json:"revision,omitempty"`
 }
 
 // VCSJSON mirrors VCSConfig for JSON APIs.
@@ -144,6 +151,7 @@ type ModelJSON struct {
 // loop-guard counters, llm_retry_max (0 disables retries), and
 // llm_first_token_timeout_ms (0 disables the silence guard).
 type AgentJSON struct {
+	QueueMode                  string `json:"queue_mode,omitempty"`
 	Model                      string `json:"model"`
 	MaxTurns                   int    `json:"max_turns,omitempty"`
 	LLMRetryMax                *int   `json:"llm_retry_max,omitempty"`
@@ -549,6 +557,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
+		QueueMode:                  c.Agent.QueueMode,
 		Model:                      c.Agent.Model,
 		MaxTurns:                   c.Agent.MaxTurns,
 		LLMRetryMax:                c.Agent.LLMRetryMax,
@@ -848,6 +857,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
+		QueueMode:                  j.Agent.QueueMode,
 		Model:                      j.Agent.Model,
 		MaxTurns:                   j.Agent.MaxTurns,
 		LLMRetryMax:                j.Agent.LLMRetryMax,

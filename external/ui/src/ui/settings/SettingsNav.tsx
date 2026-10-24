@@ -12,6 +12,8 @@ export function SettingsNav(props: {
   sections: SectionDescriptor[];
   active: string;
   onSelect: (id: string) => void;
+  /** Grey rows after the tabs, for the ones the schema has yet to bring. */
+  placeholders?: number;
 }) {
   const { t } = useT();
   const { sections, active, onSelect } = props;
@@ -82,6 +84,15 @@ export function SettingsNav(props: {
           >
             {s.label}
           </button>
+        ))}
+        {Array.from({ length: props.placeholders ?? 0 }, (_, i) => (
+          <span
+            key={`placeholder-${i}`}
+            className="settings-nav-item settings-nav-item--placeholder"
+            aria-hidden="true"
+          >
+            <span className="settings-skeleton-bar" />
+          </span>
         ))}
       </nav>
       <button

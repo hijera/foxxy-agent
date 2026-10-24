@@ -3,15 +3,154 @@
 package httpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
+
+// postQueue queues body on the running turn of s and decodes the answer.
+func postQueue(t *testing.T, s *queueHTTPState, body string) (int, map[string]interface{}) {
+	t.Helper()
+	res, err := http.Post(s.queueURL(""), "application/json", bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	out := map[string]interface{}{}
+	_ = json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
+}
+
+func runningQueueStand(t *testing.T, textOnly bool) *queueHTTPState {
+	t.Helper()
+	s := &queueHTTPState{}
+	s.reset()
+	s.textOnlyModel = textOnly
+	t.Cleanup(s.close)
+	if err := s.startServer(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.haveSession(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.turnIsRunning(); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// A model that reads no images gets none, the rule POST /v1/responses applies
+// to an ordinary prompt: the text is queued without the image, and the answer
+// says how many attachments were dropped so the client can show it rather than
+// a queue row that quietly lost them. An image alone leaves nothing to queue at
+// all, and is refused as that - never as an empty message.
+func TestQueueHTTPDropsImagesForATextOnlyModel(t *testing.T) {
+	s := runningQueueStand(t, true)
+	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" || msg["imageParts"] != nil {
+		t.Fatalf("text with an image for a text-only model: %d %v", status, out)
+	}
+	if got := out["images_dropped"]; got != float64(1) {
+		t.Fatalf("images_dropped = %v, want 1: the drop must be named in the answer", got)
+	}
+	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 0 {
+		t.Fatalf("queued rows = %+v, %v; want the text without the image", rows, err)
+	}
+	status, out = postQueue(t, s, `{"text":"","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+	errObj, _ := out["error"].(map[string]interface{})
+	if status != http.StatusBadRequest || errObj["code"] != "model_not_multimodal" {
+		t.Fatalf("an image alone for a text-only model answered %d %v, want 400 model_not_multimodal", status, out)
+	}
+	if msg, _ := errObj["message"].(string); !strings.Contains(msg, "attachment") {
+		t.Fatalf("the refusal says %q, want it to name the attachments it cannot queue", msg)
+	}
+}
+
+// A multimodal model keeps what the request carried, and says nothing about
+// drops: the field is for the loss, not for the ordinary case.
+func TestQueueHTTPKeepsImagesForAMultimodalModel(t *testing.T) {
+	s := runningQueueStand(t, false)
+	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" {
+		t.Fatalf("text with an image for a multimodal model: %d %v", status, out)
+	}
+	if parts, _ := msg["imageParts"].([]interface{}); len(parts) != 1 {
+		t.Fatalf("imageParts = %v, want the one attachment kept", msg["imageParts"])
+	}
+	if _, named := out["images_dropped"]; named {
+		t.Fatalf("a kept attachment was reported as dropped: %v", out)
+	}
+	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 1 {
+		t.Fatalf("queued rows = %+v, %v; want the text with its image", rows, err)
+	}
+}
+
+// Only a file carried in the request is taken: a URL the server or a browser
+// would have to fetch, or a data URI that is not a base64 one of some media
+// type, is refused.
+func TestQueueHTTPRefusesAnInlineFileThatIsNotAFileDataURL(t *testing.T) {
+	s := runningQueueStand(t, false)
+	for _, dataURL := range []string{
+		"https://example.com/pixel.png",
+		"data:image/png,not-base64",
+		"data:image/png;base64,",
+		"data:;base64,YQ==",
+	} {
+		status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"x","data_url":"`+dataURL+`"}]}`)
+		errObj, _ := out["error"].(map[string]interface{})
+		if status != http.StatusBadRequest || errObj["code"] != "invalid_request" {
+			t.Fatalf("data_url %q answered %d %v, want 400 invalid_request", dataURL, status, out)
+		}
+	}
+	if rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID); err != nil || len(rows) != 0 {
+		t.Fatalf("refused files were queued: %+v, %v", rows, err)
+	}
+}
+
+// The composer's picker takes any file, not only pictures, and an ordinary
+// prompt through POST /v1/responses forwards each one to the session's assets.
+// The queue takes the same set: a PDF that sends must also queue.
+func TestQueueHTTPKeepsANonImageAttachment(t *testing.T) {
+	s := runningQueueStand(t, false)
+	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"report.pdf","data_url":"data:application/pdf;base64,JVBERi0="}]}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" {
+		t.Fatalf("text with a PDF for a multimodal model: %d %v", status, out)
+	}
+	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 1 {
+		t.Fatalf("queued rows = %+v, %v; want the text with its file", rows, err)
+	}
+}
+
+// Settings commands at the start of the text apply at once and the rest is
+// queued. Both happen on one request, so the 201 carries the notice of what
+// the commands changed beside the queued message: a model switch applied this
+// way must not be silent for the client that sent it.
+func TestQueueHTTPAnswersAQueuedMessageWithTheSettingsNotice(t *testing.T) {
+	s := runningQueueStand(t, false)
+	status, out := postQueue(t, s, `{"text":"/model openai/gpt-4o\ninspect"}`)
+	msg, _ := out["message"].(map[string]interface{})
+	if status != http.StatusCreated || msg["text"] != "inspect" {
+		t.Fatalf("commands with queued text: %d %v", status, out)
+	}
+	notice, _ := out["notice"].(string)
+	if strings.TrimSpace(notice) == "" {
+		t.Fatalf("the 201 dropped the notice of the commands it applied: %v", out)
+	}
+}
 
 func TestQueueResponseUsesOneCurrentSnapshot(t *testing.T) {
 	st := &session.State{ID: "sess_queue_snapshot"}
@@ -25,7 +164,7 @@ func TestQueueResponseUsesOneCurrentSnapshot(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	writeQueue(w, http.StatusCreated, st.GetID(), st, &msg)
+	writeQueue(w, http.StatusCreated, st.GetID(), st, msg.Wire(), 0, "")
 	var got struct {
 		Messages []session.QueuedMessage `json:"messages"`
 		Message  session.QueuedMessage   `json:"message"`
@@ -71,7 +210,7 @@ func TestQueueResponsesRemainConsistentDuringMutations(t *testing.T) {
 	responses := make([]response, 2048)
 	for i := range responses {
 		w := httptest.NewRecorder()
-		writeQueue(w, http.StatusOK, st.GetID(), st, nil)
+		writeQueue(w, http.StatusOK, st.GetID(), st, nil, 0, "")
 		if err := json.Unmarshal(w.Body.Bytes(), &responses[i]); err != nil {
 			t.Fatal(err)
 		}
@@ -82,7 +221,7 @@ func TestQueueResponsesRemainConsistentDuringMutations(t *testing.T) {
 	}
 	for _, got := range responses {
 		want, ok := snapshots.Load(got.Version)
-		if !ok || !slices.Equal(got.Messages, want.([]session.QueuedMessage)) {
+		if !ok || !slices.EqualFunc(got.Messages, want.([]session.QueuedMessage), func(a, b session.QueuedMessage) bool { return reflect.DeepEqual(a, b) }) {
 			t.Fatalf("version %d: response messages %+v, recorded snapshot %+v", got.Version, got.Messages, want)
 		}
 	}

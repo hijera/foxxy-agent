@@ -217,14 +217,14 @@ export function parseSessionAssetFiles(
   const files: { name: string; mimeType: string }[] = [];
   for (const line of (m[1] ?? "").split("\n")) {
     const t = line.trim();
-    if (!t.startsWith("- /")) continue;
+    if (!/^- (?:\/|[A-Za-z]:[\\/]|\\\\)/.test(t)) continue;
     const body = t.slice(2); // remove "- "
     const parenIdx = body.indexOf(" (");
     let name: string;
     if (parenIdx >= 0 && body.endsWith(")")) {
       name = body.slice(parenIdx + 2, -1);
     } else {
-      name = body.split("/").pop() || "file";
+      name = body.split(/[\\/]/).pop() || "file";
     }
     files.push({ name, mimeType: "application/octet-stream" });
   }

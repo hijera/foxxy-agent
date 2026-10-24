@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"strings"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // readQueuedMessages folds the follow-ups written during this turn into the
@@ -27,13 +29,39 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	}
 	sessionID := a.state.GetID()
 	for _, q := range queued {
+		// The model decides what these images are worth, not the moment they
+		// were queued: a switch to a text-only model since then drops them
+		// here, named in the message, rather than failing the step at the
+		// provider (session.QueuedImagesForModel).
+		images, droppedNote := session.QueuedImagesForModel(a.cfg, a.state.EffectiveModelID(a.cfg), q.ImageParts)
+		if droppedNote != "" {
+			a.log.Warn("queued images dropped for a model that takes none",
+				"session_id", sessionID, "images", len(q.ImageParts))
+		}
+		if len(images) > 0 {
+			if err := session.SavePartsToAssets(images, a.state.GetPersistedSessionDir()); err != nil {
+				a.log.Warn("save queued files to assets", "error", err)
+			}
+		}
+		content := a.resolveQueuedMessage(q.Text)
+		if note := filePathsNote(images); note != "" {
+			content += "\n\n" + note
+		}
+		if droppedNote != "" {
+			if strings.TrimSpace(content) == "" {
+				content = droppedNote
+			} else {
+				content += "\n\n" + droppedNote
+			}
+		}
 		// The follow-up's own mentions resolve now, as it enters the
 		// conversation, and ride in its message (mentions.go).
 		msg := llm.Message{
-			Role:      llm.RoleUser,
-			Content:   a.resolveQueuedMessage(q.Text),
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Queued:    true,
+			Role:       llm.RoleUser,
+			Content:    content,
+			ImageParts: images,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			Queued:     true,
 		}
 		*messages = append(*messages, msg)
 		// The frame goes out before the message is persisted, like every other
@@ -41,7 +69,7 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 		// the message in the transcript and is not replayed the frame on top of it.
 		_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeUserMessageChunk,
-			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: q.Text},
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
 		})
 		a.state.AddMessage(msg)
 	}

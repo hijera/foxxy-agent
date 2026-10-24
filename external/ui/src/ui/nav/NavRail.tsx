@@ -23,6 +23,7 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 
 function IconBook(props: { className?: string }) {
   return (
@@ -359,16 +360,17 @@ export function NavRail(props: {
     }
   }, [menu.length, moreOpen]);
 
+  // Escape folds the menu, and the focus goes back to its button; the screen
+  // open under it stays for the next Escape (railEscape.ts).
+  useEscapeCloses(moreOpen, () => {
+    setMoreOpen(false);
+    moreBtnRef.current?.focus();
+  });
+
   useEffect(() => {
     if (!moreOpen) {
       return undefined;
     }
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setMoreOpen(false);
-        moreBtnRef.current?.focus();
-      }
-    };
     const onDown = (ev: Event) => {
       const host = moreHostRef.current;
       if (host && ev.target instanceof Node && host.contains(ev.target)) {
@@ -376,10 +378,8 @@ export function NavRail(props: {
       }
       setMoreOpen(false);
     };
-    document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onDown);
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onDown);
     };
   }, [moreOpen]);

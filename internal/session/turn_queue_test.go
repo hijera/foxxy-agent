@@ -6,6 +6,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // A queue that was never opened belongs to no turn, so it refuses rather than
@@ -35,6 +38,133 @@ func TestEnqueueTrimsAndRefusesEmpty(t *testing.T) {
 	}
 	if msg.ID == "" || msg.CreatedAt == "" {
 		t.Fatalf("queued message is missing its identity: %+v", msg)
+	}
+}
+
+func TestAfterTurnWaitsWhileSteerIsTaken(t *testing.T) {
+	st := &State{ID: "sess_queue_modes"}
+	st.OpenMessageQueue()
+	if _, err := st.EnqueueMessageWithMode("next turn", QueueModeAfterTurn, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnqueueMessageWithMode("correct this step", QueueModeSteer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.TakeQueuedMessages(); len(got) != 1 || got[0].Text != "correct this step" {
+		t.Fatalf("steer drain = %+v", got)
+	}
+	if got := st.QueuedMessages(); len(got) != 1 || got[0].Mode != QueueModeAfterTurn {
+		t.Fatalf("waiting queue = %+v", got)
+	}
+	if got, ok := st.TakeQueuedMessagesOrClose(); !ok || len(got) != 1 || got[0].Text != "next turn" {
+		t.Fatalf("next turn = %+v, %v", got, ok)
+	}
+}
+
+// The boundary answers what was written for the ending turn first, as one
+// batch, and only then starts the deferred prompts, one per run, oldest first.
+func TestBoundaryTakesSteerBatchBeforeEachAfterTurnMessage(t *testing.T) {
+	st := &State{ID: "sess_queue_boundary_order"}
+	st.OpenMessageQueue()
+	for _, q := range []struct {
+		text string
+		mode QueueMode
+	}{
+		{"deferred one", QueueModeAfterTurn},
+		{"steer one", QueueModeSteer},
+		{"deferred two", QueueModeAfterTurn},
+		{"steer two", QueueModeSteer},
+	} {
+		if _, err := st.EnqueueMessageWithMode(q.text, q.mode, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var runs [][]string
+	for {
+		batch, more := st.TakeQueuedMessagesOrClose()
+		if !more {
+			break
+		}
+		var texts []string
+		for _, m := range batch {
+			texts = append(texts, m.Text)
+		}
+		runs = append(runs, texts)
+	}
+	want := [][]string{{"steer one", "steer two"}, {"deferred one"}, {"deferred two"}}
+	if fmt.Sprint(runs) != fmt.Sprint(want) {
+		t.Fatalf("boundary runs = %v, want %v", runs, want)
+	}
+	if st.MessageQueueOpen() {
+		t.Fatal("the boundary found nothing and left the queue open")
+	}
+}
+
+// A message taken by the boundary and put back (its run was stopped before it
+// read it) waits at the head of the queue, ahead of what arrived meanwhile.
+func TestReturnedMessagesWaitFirst(t *testing.T) {
+	st := &State{ID: "sess_queue_returned"}
+	st.OpenMessageQueue()
+	if _, err := st.EnqueueMessageWithMode("deferred", QueueModeAfterTurn, nil); err != nil {
+		t.Fatal(err)
+	}
+	taken, ok := st.TakeQueuedMessagesOrClose()
+	if !ok || len(taken) != 1 {
+		t.Fatalf("boundary took %+v, %v", taken, ok)
+	}
+	if _, err := st.EnqueueMessageWithMode("written later", QueueModeAfterTurn, nil); err != nil {
+		t.Fatal(err)
+	}
+	before := st.QueueVersion()
+	st.ReturnQueuedMessages(taken)
+	got := st.QueuedMessages()
+	if len(got) != 2 || got[0].Text != "deferred" || got[1].Text != "written later" {
+		t.Fatalf("queue after the return = %+v", got)
+	}
+	if st.QueueVersion() <= before {
+		t.Fatal("returning messages did not move the queue version")
+	}
+}
+
+func TestRetainedMessageCanSwitchToSteerBeforeNextTurn(t *testing.T) {
+	st := &State{ID: "sess_queue_retained"}
+	st.OpenMessageQueue()
+	msg, err := st.EnqueueMessageWithMode("next turn", QueueModeAfterTurn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.CloseMessageQueue()
+	if !st.SetQueuedMessageMode(msg.ID, QueueModeSteer) {
+		t.Fatal("retained message missing")
+	}
+	st.OpenMessageQueue()
+	if got := st.TakeQueuedMessages(); len(got) != 1 || got[0].ID != msg.ID {
+		t.Fatalf("next turn steer = %+v", got)
+	}
+}
+
+// A row switched to the other mode before the boundary reads it is taken as
+// what it is now: a message moved to steer joins the batch for the ending
+// turn, one moved to after_turn waits for a run of its own.
+func TestModeSwitchBeforeTheBoundaryIsHonoured(t *testing.T) {
+	st := &State{ID: "sess_queue_boundary_switch"}
+	st.OpenMessageQueue()
+	late, err := st.EnqueueMessageWithMode("late change", QueueModeAfterTurn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	soon, err := st.EnqueueMessageWithMode("can wait", QueueModeSteer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.SetQueuedMessageMode(late.ID, QueueModeSteer) || !st.SetQueuedMessageMode(soon.ID, QueueModeAfterTurn) {
+		t.Fatal("mode switch failed")
+	}
+	if got, ok := st.TakeQueuedMessagesOrClose(); !ok || len(got) != 1 || got[0].ID != late.ID {
+		t.Fatalf("boundary batch = %+v, %v; want the message switched to steer", got, ok)
+	}
+	if got, ok := st.TakeQueuedMessagesOrClose(); !ok || len(got) != 1 || got[0].ID != soon.ID {
+		t.Fatalf("next run = %+v, %v; want the message switched to after_turn", got, ok)
 	}
 }
 
@@ -88,6 +218,96 @@ func TestQueuedMessagesIsACopy(t *testing.T) {
 	snapshot[0].Text = "rewritten"
 	if got := st.QueuedMessages()[0].Text; got != "original" {
 		t.Fatalf("the queue was mutated through its snapshot: %q", got)
+	}
+}
+
+func TestQueuedImagePartsAreCopied(t *testing.T) {
+	st := &State{ID: "sess_queue_image_copy"}
+	st.OpenMessageQueue()
+	parts := []acp.ImagePartRef{{Name: "original.png", DataURL: "data:image/png;base64,YQ=="}}
+	if _, err := st.EnqueueMessageWithMode("image", QueueModeSteer, parts); err != nil {
+		t.Fatal(err)
+	}
+	parts[0].Name = "changed.png"
+	rows := st.QueuedMessages()
+	rows[0].ImageParts[0].Name = "snapshot.png"
+	if got := st.QueuedMessages()[0].ImageParts[0].Name; got != "original.png" {
+		t.Fatalf("queued image mutated: %q", got)
+	}
+}
+
+// What a queue snapshot says an attachment weighs: the bytes its base64
+// payload decodes to, never a negative number - for canonical payloads,
+// unpadded ones, ones padded more than the final quartet and ones wrapped
+// across lines alike.
+func TestQueuedImageSizeBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name, dataURL string
+		want          int
+		mime          string
+	}{
+		{"one byte", "data:image/png;base64,YQ==", 1, "image/png"},
+		{"two bytes", "data:image/jpeg;base64,YWI=", 2, "image/jpeg"},
+		{"three bytes", "data:image/png;base64,YWJj", 3, "image/png"},
+		{"padding in more than the last quartet", "data:image/png;base64,YQ==YQ==", 2, "image/png"},
+		{"unpadded one byte", "data:image/png;base64,YQ", 1, "image/png"},
+		{"unpadded two bytes", "data:image/png;base64,YWI", 2, "image/png"},
+		{"wrapped across lines", "data:image/png;base64,YQ==\r\nYQ==", 2, "image/png"},
+		{"padding with no payload", "data:image/png;base64,A=", 0, "image/png"},
+		{"a single padding mark", "data:image/png;base64,=", 0, "image/png"},
+		{"not base64 at all", "data:image/png,raw", 0, "image/png"},
+		{"not a data URI", "https://example.invalid/x.png", 0, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := queuedImage(acp.ImagePartRef{Name: "x.png", DataURL: tc.dataURL})
+			if got.SizeBytes != tc.want {
+				t.Errorf("size = %d, want %d (%q)", got.SizeBytes, tc.want, tc.dataURL)
+			}
+			if got.MimeType != tc.mime {
+				t.Errorf("mime = %q, want %q", got.MimeType, tc.mime)
+			}
+		})
+	}
+}
+
+// The read-side twin of the enqueue gate: a message queued while the model took
+// images is delivered without them - and names what it lost - once the model is
+// one that takes none. Never a failed turn over pictures queued earlier.
+func TestQueuedImagesForModel(t *testing.T) {
+	parts := []acp.ImagePartRef{
+		{Name: "shot.png", DataURL: "data:image/png;base64,YQ=="},
+		{Name: "", DataURL: "data:image/png;base64,YWI="},
+	}
+	cfg := &config.Config{Models: []config.ModelEntry{
+		{Model: "p/multimodal", Multimodal: true},
+		{Model: "p/text", Multimodal: false},
+	}}
+	kept, note := QueuedImagesForModel(cfg, "p/multimodal", parts)
+	if len(kept) != 2 || kept[0].Name != "shot.png" || note != "" {
+		t.Fatalf("multimodal model: kept=%+v note=%q, want both images and no note", kept, note)
+	}
+	for _, tc := range []struct{ name, modelID string }{
+		{"text-only model", "p/text"},
+		{"unknown model fails closed", "p/unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kept, note := QueuedImagesForModel(cfg, tc.modelID, parts)
+			if len(kept) != 0 {
+				t.Fatalf("kept %d images, want none", len(kept))
+			}
+			// The note names every lost attachment - an unnamed one as "image" -
+			// under the marker the model and the client already know.
+			if !strings.Contains(note, "[image not shown] shot.png, image") {
+				t.Errorf("the note does not name the lost images: %q", note)
+			}
+		})
+	}
+	kept, note = QueuedImagesForModel(nil, "p/multimodal", parts)
+	if len(kept) != 0 || note == "" {
+		t.Fatalf("no config: kept=%d note=%q, want the images dropped", len(kept), note)
+	}
+	if kept, note := QueuedImagesForModel(cfg, "p/text", nil); len(kept) != 0 || note != "" {
+		t.Fatalf("a message with no images: kept=%d note=%q", len(kept), note)
 	}
 }
 

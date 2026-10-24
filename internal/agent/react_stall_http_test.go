@@ -114,13 +114,16 @@ func TestStalledStreamOverHTTPIsCarriedOn(t *testing.T) {
 
 // silentStreamProvider never sends a chunk and returns only when the caller's
 // context ends, as a provider does when the upstream holds the request.
-type silentStreamProvider struct{}
+type silentStreamProvider struct {
+	started chan<- struct{}
+}
 
 func (silentStreamProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, fmt.Errorf("Complete must not be used here")
 }
 
-func (silentStreamProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
+func (p silentStreamProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
+	close(p.started)
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -137,14 +140,25 @@ func TestInterruptedBeforeOutputNamesTheSilence(t *testing.T) {
 	}
 	st := &session.State{ID: "sess_silent", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
 	ag := NewAgent(cfg, st, &loopGuardSender{}, nil)
-	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return silentStreamProvider{}, nil }
+	started := make(chan struct{})
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return silentStreamProvider{started: started}, nil }
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan struct{})
 	go func() {
-		time.Sleep(150 * time.Millisecond)
-		cancel()
+		defer close(done)
+		// Interrupt a silent stream, not setup that can take longer than a
+		// fixed sleep on a loaded machine or under the race detector.
+		select {
+		case <-started:
+			cancel()
+		case <-ctx.Done():
+		}
 	}()
 	_, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	cancel()
+	<-done
 	if err == nil || !strings.Contains(err.Error(), "interrupted before producing a response") {
 		t.Fatalf("expected the interruption error, got %v", err)
 	}

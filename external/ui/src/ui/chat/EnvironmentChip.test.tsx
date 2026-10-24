@@ -52,6 +52,18 @@ describe("EnvironmentChip", () => {
     expect(menu.textContent).not.toContain("Add remote");
   });
 
+  // The menu opens from a click, so the focus stays on the chip: Escape has
+  // to reach the menu from there too.
+  it("closes on Escape with the focus still on the chip", async () => {
+    render(<EnvironmentChip />);
+    const btn = screen.getByTestId("composer-env-btn");
+    btn.getBoundingClientRect = () => new DOMRect(0, 0, 100, 48);
+    fireEvent.click(btn);
+    await screen.findByTestId("composer-env-menu");
+    expect(fireEvent.keyDown(btn, { key: "Escape" })).toBe(false);
+    expect(screen.queryByTestId("composer-env-menu")).toBeNull();
+  });
+
   it("localizes the add-remote form without changing its test ids", () => {
     setLocale("ru");
     render(<EnvironmentChip />);

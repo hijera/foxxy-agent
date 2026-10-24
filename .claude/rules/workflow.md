@@ -1,5 +1,5 @@
 ---
-description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI and config schema sync before lint, final checks
+description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI and config schema sync before lint, final checks, the comment on an issue a merge closes
 paths:
   - "**/*.go"
   - "docs/**/*.md"
@@ -99,3 +99,40 @@ file in the **repo-root `features/`** directory. The godog step definitions stay
 package under test (e.g. `external/httpserver/bdd_*_test.go`, `internal/agent/bdd_*_test.go`)
 and point `Options.Paths` at `../../features/<name>.feature`. **Edge and error cases go in
 ordinary unit tests**, not in `features/`.
+
+## Merging the pull request
+
+When the operator says the pull request can be merged and it is set to close an issue on merge (a
+closing keyword such as `Closes #N` or `Fixes #N` in the description or a commit message, or an
+issue linked to the pull request by hand), the issue gets a comment saying what came of it. GitHub
+records only that the pull request closed the issue, and without the comment whoever filed or
+follows it has to open the pull request and work that out; issues #265 and #305 closed that way.
+
+1. Before the merge, list the issues it is set to close:
+   **`gh pr view <PR> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'`**.
+2. Merge, and make sure the merge went through before writing about it: **`gh pr merge`** has
+   reported an error after the merge had already landed (pull request #369), so read
+   **`git log origin/main`** before retrying.
+3. Comment on each of those issues, one comment per issue
+   (**`gh issue comment <N> --body-file <file>`**), in the language the issue is written in,
+   whatever the language of the session: an English issue gets an English comment even when the
+   operator talks to you in Russian. When the title and the body are in different languages (an
+   English title over a Russian body is common here), go by the body. A Russian comment follows
+   **`.claude/rules/russian-wording.md`**. The comment covers:
+   - the pull request, the merge commit and the release. **`.github/workflows/tag-on-merge.yaml`**
+     puts the next patch tag on the merge commit within a minute or two of a merge through GitHub;
+     after **`git fetch --tags`**, **`git describe --tags --exact-match <merge commit>`** prints the
+     version, and until it does, the comment says the change ships with the next release;
+   - what changed, point by point against the issue and in its terms rather than a copy of the pull
+     request description: each acceptance criterion the issue lists with the test or check that now
+     holds it, and the numbers before and after when the issue was about speed or size;
+   - how to use or check the change: the command, the config key or the place in the UI, with the
+     **`github.com/hijera/foxxy-agent/blob/main/docs/<group>/<page>.md`** link when a documentation page describes it;
+   - what went differently from the issue: the option an open question got, a point done another
+     way or left out, and the issue that tracks the rest when there is one.
+
+   When someone other than the operator filed the issue, thank them, and for a bug give the cause in
+   a sentence or two, since the reporter has only seen the symptom.
+4. An issue from step 1 that the merge left open is closed by hand once its comment is up:
+   **`gh issue close <N> --reason completed`**; issue #368 stayed open that way after pull
+   request #369.

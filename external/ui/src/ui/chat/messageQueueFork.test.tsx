@@ -121,6 +121,7 @@ function renderGenerating(value: string, onQueue: (t: string) => void) {
       generating={true}
       onStop={() => {}}
       queuedMessages={[]}
+      queueMode="steer"
       onQueue={onQueue}
       onCancelQueued={() => {}}
     />,
@@ -139,7 +140,7 @@ describe("the keyboard queues with the key that sends", () => {
     expect(onQueue).not.toHaveBeenCalled();
 
     fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
-    expect(onQueue).toHaveBeenCalledWith("one more thing");
+    expect(onQueue).toHaveBeenCalledWith("one more thing", "steer", []);
   });
 
   test("off: the keyboard never queues, the button still does", () => {
@@ -155,6 +156,6 @@ describe("the keyboard queues with the key that sends", () => {
     expect(onQueue).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Queue this message" }));
-    expect(onQueue).toHaveBeenCalledWith("one more thing");
+    expect(onQueue).toHaveBeenCalledWith("one more thing", "steer", []);
   });
 });

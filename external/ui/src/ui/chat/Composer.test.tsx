@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { afterEach, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -669,6 +670,54 @@ describe("/docs", () => {
   });
 });
 
+test("/mcp opens MCP settings without sending a prompt", () => {
+  const onSend = vi.fn();
+  const onMCPCommand = vi.fn();
+  render(
+    <Composer
+      value=" /mcp "
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+      onMCPCommand={onMCPCommand}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(onMCPCommand).toHaveBeenCalledOnce();
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+// The console opens its /mcp controls whatever follows the command; the web
+// composer does the same rather than send "/mcp github" to the model. A word
+// that only starts with the command is an ordinary prompt.
+test.each([
+  ["/mcp github", true],
+  ["/mcp\tgithub tools", true],
+  ["/mcpx", false],
+  ["/mcp-servers", false],
+])("%j runs the MCP command: %s", (value, opens) => {
+  const onSend = vi.fn();
+  const onMCPCommand = vi.fn();
+  render(
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+      onMCPCommand={onMCPCommand}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(onMCPCommand).toHaveBeenCalledTimes(opens ? 1 : 0);
+  expect(onSend).toHaveBeenCalledTimes(opens ? 0 : 1);
+});
+
 test("generating shows stop and calls onStop", () => {
   let stopped = false;
   render(
@@ -1125,6 +1174,54 @@ test("send with attached file passes files to onSend", async () => {
   await waitFor(() => screen.getByText("img.png"));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("describe this", [file]);
+  vi.unstubAllGlobals();
+});
+
+test("Tab queues the alternate mode and clears attached images", async () => {
+  stubMatchMediaMobile(false);
+  const onQueue = vi.fn();
+  render(<Composer value="inspect this" isEmpty={false} generating={true} mode="agent" modes={["agent"]} llmModelMultimodal={true} queueMode="steer" onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} />);
+  const file = new File(["image"], "img.png", { type: "image/png" });
+  fireEvent.change(screen.getByTestId("composer-file-input"), { target: { files: [file] } });
+  await waitFor(() => screen.getByText("img.png"));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab" });
+  expect(onQueue).toHaveBeenCalledWith("inspect this", "after_turn", [file]);
+  expect(screen.queryByText("img.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("the first-use queue question is answered once, not once per click", async () => {
+  stubMatchMediaMobile(false);
+  const onQueue = vi.fn();
+  const onQueueModeChange = vi.fn();
+  render(
+    <Composer
+      value="inspect this"
+      isEmpty={false}
+      generating={true}
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+      onQueueModeChange={onQueueModeChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Queue this message" }));
+  await waitFor(() => screen.getByTestId("composer-queue-choice"));
+  const steer = screen.getByRole("button", { name: "Steer now" });
+  // Both clicks land before the answer re-renders the composer, the way a
+  // double click does: the draft is cleared only on the next render, so an
+  // unanswered question would send it twice.
+  await act(async () => {
+    steer.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    steer.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(onQueue).toHaveBeenCalledTimes(1);
+  expect(onQueue).toHaveBeenCalledWith("inspect this", "steer", []);
+  expect(onQueueModeChange).toHaveBeenCalledTimes(1);
   vi.unstubAllGlobals();
 });
 
@@ -2420,3 +2517,44 @@ function stubViewport(opts: { narrow: boolean; touchOnly: boolean }) {
     addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
   }));
 }
+
+// The picker's FileList is live: clearing the input empties it. React runs a
+// state update later whenever the app has other updates queued - as it does
+// all through a running turn - so the files must be copied before the input is
+// cleared, or an image picked during a turn silently goes missing.
+test("files picked from the dialog survive the input being cleared before the update runs", () => {
+  stubMatchMediaMobile(false);
+  let updater: unknown = null;
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal={true}
+      attachedFiles={[]}
+      onAttachedFilesChange={(u) => {
+        updater = u;
+      }}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const input = screen.getByTestId("composer-file-input") as HTMLInputElement;
+  const file = new File(["image"], "shot.png", { type: "image/png" });
+  const live: File[] = [file];
+  Object.defineProperty(input, "files", { configurable: true, get: () => live });
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get: () => (live.length ? "C:\\fakepath\\shot.png" : ""),
+    set: (v: string) => {
+      if (v === "") live.length = 0;
+    },
+  });
+  fireEvent.change(input);
+  // The update runs only now, after the handler cleared the input.
+  const next = typeof updater === "function" ? (updater as (p: File[]) => File[])([]) : updater;
+  expect(next).toEqual([file]);
+  vi.unstubAllGlobals();
+});

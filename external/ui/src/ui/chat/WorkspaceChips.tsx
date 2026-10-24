@@ -27,6 +27,7 @@ import {
 } from "../shellBreakpoint";
 import { isEditorEmbed } from "../embedShell";
 import { useT } from "../i18n/I18nProvider";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 
 type Props = {
   context: WorkspaceContext | null;
@@ -65,6 +66,11 @@ export function WorkspaceChips(props: Props) {
   // Editor plugins (VS Code / IntelliJ) fix the working directory to the open
   // IDE project, so folder switching is hidden there; branch/worktree stay.
   const hideFolderChip = isEditorEmbed();
+  // Escape closes the folder or branch menu that is open.
+  useEscapeCloses(menuOpen !== null, () => {
+    setMenuOpen(null);
+    setMenuAnchorRect(null);
+  });
 
   const ctx = props.context;
   if (!ctx) {

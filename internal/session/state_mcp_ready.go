@@ -1,6 +1,10 @@
 package session
 
-import "context"
+import (
+	"context"
+
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+)
 
 // Readiness gate for the configured MCP servers of one session.
 //
@@ -10,7 +14,7 @@ import "context"
 // webview's six connections, for as long as it liked.
 //
 // The connect now runs in the background and publishes through
-// [State.replaceConfiguredMCPClients]. This gate is how a turn — the one caller that actually
+// [State.beginConfiguredMCPConnectWithPublisher]. This gate is how a turn — the one caller that actually
 // needs the tools — waits for it, and nobody else does.
 
 // mcpGate is one pending connect. Closing is tracked explicitly rather than probed, because
@@ -29,25 +33,46 @@ func (g *mcpGate) settle() {
 	close(g.done)
 }
 
-// beginConfiguredMCPConnect arms the gate for a connect that is about to start and returns the
-// function that settles it. Overlapping connects (session load followed by a workspace switch)
-// each own their own gate, so a slow one finishing cannot clear a newer one's pending state.
-// On a closed session the gate stays settled and the returned function does nothing.
-func (s *State) beginConfiguredMCPConnect() func() {
+// beginConfiguredMCPConnectWithPublisher binds publication to this connection.
+// A newer workspace connection or a closed session rejects and closes late clients.
+func (s *State) beginConfiguredMCPConnectWithPublisher() (func(), func([]*mcp.Client) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.mcpClosed {
-		return func() {}
+		return func() {}, func(clients []*mcp.Client) bool {
+			closeMCPClients(clients)
+			return false
+		}
 	}
 	gate := &mcpGate{done: make(chan struct{})}
 	s.mcpReady = gate
-	return func() {
+	settle := func() {
 		s.mu.Lock()
 		gate.settle()
 		if s.mcpReady == gate {
 			s.mcpReady = nil
 		}
 		s.mu.Unlock()
+	}
+	publish := func(clients []*mcp.Client) bool {
+		s.mu.Lock()
+		if s.mcpClosed || s.mcpReady != gate {
+			s.mu.Unlock()
+			closeMCPClients(clients)
+			return false
+		}
+		old := s.configuredMCPClients
+		s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
+		s.mu.Unlock()
+		closeMCPClients(old)
+		return true
+	}
+	return settle, publish
+}
+
+func closeMCPClients(clients []*mcp.Client) {
+	for _, client := range clients {
+		_ = client.Close()
 	}
 }
 
