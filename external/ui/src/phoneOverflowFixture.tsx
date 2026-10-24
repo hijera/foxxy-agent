@@ -16,12 +16,18 @@ import "./styles.css";
 import { AssistantMessage } from "./ui/messages/AssistantMessage";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
 import { UserMessage } from "./ui/messages/UserMessage";
+import { TypingDotsMessage } from "./ui/messages/TypingDotsMessage";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { initLocale } from "./ui/i18n/i18n";
 import { UI_LOCALE_DEFAULT, isUiLocale } from "./ui/i18n/locales";
 
 const lang = new URLSearchParams(location.search).get("lang") || "";
 initLocale(isUiLocale(lang) ? lang : UI_LOCALE_DEFAULT);
+const theme = new URLSearchParams(location.search).get("theme");
+if (theme === "light" || theme === "dark") {
+  document.documentElement.dataset.theme = theme;
+}
+const statusStartedAt = Date.now();
 
 const longRepo = "organization-with-a-long-name/repository-number-0-with-a-long-name";
 const mcpAnswer = JSON.stringify({
@@ -67,6 +73,15 @@ function Fixture() {
       }}
     >
       <div className="messages-inner">
+        <div data-testid="long-tool-status">
+          <TypingDotsMessage
+            statusKind="tool"
+            statusKey="status.run"
+            startedAtMs={statusStartedAt - 1_662_000}
+            turnStartedAtMs={statusStartedAt - 1_668_000}
+            turnTokens={169}
+          />
+        </div>
         <UserMessage content={`search ${"x".repeat(80)}`} />
         <ToolCallMessage
           toolCallId="tc-mcp-search"

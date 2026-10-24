@@ -153,6 +153,15 @@
           "title": "Default model",
           "type": "string"
         },
+        "queue_mode": {
+          "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.",
+          "enum": [
+            "steer",
+            "after_turn"
+          ],
+          "title": "Queue mode",
+          "type": "string"
+        },
         "wait_for_limit_reset": {
           "description": "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.",
           "title": "Wait for limit reset",
@@ -169,6 +178,7 @@
       "type": "object",
       "x-foxxycode-property-order": [
         "model",
+        "queue_mode",
         "max_turns",
         "llm_retry_max",
         "llm_retry_base_ms",

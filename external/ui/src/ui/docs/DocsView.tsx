@@ -300,10 +300,14 @@ export function DocsView(props: {
   );
 
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    // Escape clears a search; in an empty box it is left to the rail, which
+    // closes the reader (nav/railEscape.ts).
     if (e.key === "Escape") {
-      e.preventDefault();
-      setQuery("");
-      setResultsOpen(false);
+      if (query) {
+        e.preventDefault();
+        setQuery("");
+        setResultsOpen(false);
+      }
       return;
     }
     if (!hits || hits.length === 0) {

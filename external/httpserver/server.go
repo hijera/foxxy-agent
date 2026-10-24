@@ -85,6 +85,9 @@ type Server struct {
 	// trustLoopback makes a direct loopback client pass the sign-in form; only
 	// `foxxycode http` sets it (SetTrustLoopbackClients).
 	trustLoopback atomic.Bool
+	// served remembers the configurations GET /foxxycode/config handed out, so a
+	// PUT is measured against what its client read (config_revisions.go).
+	served *servedConfigs
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
@@ -196,6 +199,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		streamTickets:        newStreamTicketStore(),
+		served:               newServedConfigs(),
 		sessions:             webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}

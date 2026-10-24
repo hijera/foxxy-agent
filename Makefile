@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -331,6 +331,27 @@ test-race:
 
 print-test-tag-sets:
 	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
+
+# The prompt-cache group: what every request sends the provider, held byte for
+# byte between the steps and the turns of a session - the system message, the
+# history prefix, the rules and where they ride. Its specs are the
+# features/prompt_cache_*.feature files and its tests are named TestPromptCache*,
+# so a new one joins the group by its name. It is part of `make test`; run it on
+# its own when a change touches the system prompt, the rules, the history or the
+# send boundary.
+test-cache:
+	go test -count=1 -run '^TestPromptCache' ./...
+
+# The performance group: the benchmarks (Benchmark*, in the perf_test.go files),
+# which `make test` never runs. They time the work a turn repeats - rules
+# discovery, the look for the rules a tool call brings in, the send boundary -
+# and report what a session of a real project costs the context as metrics
+# (system-tokens, request-tokens, duplicate-rules). BENCH narrows them to a
+# regexp, BENCHTIME sets how long each one runs.
+BENCH ?= .
+BENCHTIME ?= 1s
+test-perf:
+	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
 
 # Type-check the Windows build without a Windows machine.
 #

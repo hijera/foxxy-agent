@@ -2,6 +2,7 @@ import React from "react";
 import { afterEach, describe, expect, it, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { NavRail } from "./NavRail";
+import { OpenRailScreen } from "./railEscape.fakes";
 import { resetAuthStateForTests, setAuthState } from "../auth/authState";
 
 afterEach(() => cleanup());
@@ -335,6 +336,23 @@ describe("NavRail on a phone: the More menu", () => {
     fireEvent.click(more);
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("Escape folds the menu and leaves the screen open under it for the next one", () => {
+    stubLayout({ stacked: true, pill: 180 });
+    const closeDocs = vi.fn();
+    render(
+      <>
+        <OpenRailScreen id="docs" onClose={closeDocs} />
+        <NavRail {...base} onOpenDocs={() => {}} docsOpen />
+      </>,
+    );
+    fireEvent.click(screen.getByTestId("nav-more"));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(closeDocs).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(closeDocs).toHaveBeenCalledTimes(1);
   });
 
   it("More lights up while a folded panel is open", () => {

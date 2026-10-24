@@ -7,7 +7,36 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-20
+## Unreleased — 2026-10-23
+
+**Attachments returned by the remote console.**
+Taking a queued message back with /queue drop restores the attachment contents together with its text, so sending it again keeps the files.
+
+**Reading position when resizing the panel.**
+Narrowing or widening the panel keeps the running command visible when following output and preserves the visible row when reading history.
+
+**Safe repeated settings saves.**
+Edits typed while saving are carried onto the merged server result. Saving again preserves changes from another window, even if the background refresh fails.
+
+**Separate clocks in a narrow panel.**
+The command timer stays beside the status phrase, and the turn time and token count appear on the next line. Long-running commands no longer show two joined durations.
+
+**Deferred prompts continue after the output cap.**
+When a model reaches its answer token limit, unread Steer messages are delivered first in their original order, followed by After turn prompts. The cut answer and its notice remain visible. Provider errors, context overflow and Stop keep deferred prompts waiting.
+
+**Stop closes a pending permission request.**
+Stopping a turn dismisses its tool approval card, including after reloading the chat. The tool is persisted as cancelled; if Stop fails, the permission request remains available.
+
+**Two queue modes and images.**
+While a reply is running, steer that turn or queue a separate prompt after it. Choose the default on first use; Tab switches the mode for one submission. Queued images stay attached and return with a recovered draft.
+
+**MCP controls in chat.**
+Manage servers and individual tools in web settings, the console and Telegram. Project overrides live outside the checkout, and local servers pass the trust check before connecting.
+
+**Stable context and preserved settings.**
+Project rules use the first populated root, and standing prompt content stays stable between steps. Settings account for concurrent edits and preserve unchanged YAML values and comments. Open session settings from chat and dismiss panels with Escape.
+
+## 0.3.33 — 2026-10-20
 
 **Sign in to NeuralDeep right from onboarding.**
 The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving. The domain selector comes first: choose neuraldeep.ru or neuraldeep.tech, and sign-in, the model catalog and saved settings use that domain.

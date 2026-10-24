@@ -83,7 +83,19 @@ func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(s.configDocument(c)); err != nil {
+		s.log.Error("foxxycode config get encode", "error", err)
+	}
+}
+
+// configDocument is shared by reads and saves, including write-only secret
+// redaction and the effective authentication metadata used by the settings UI.
+func (s *Server) configDocument(c *config.Config) *config.ConfigJSON {
 	dto := config.ConfigToJSONDTO(c)
+	// The document names the configuration it was read from, and a PUT that
+	// sends it back is measured against that one (config_revisions.go).
+	dto.Revision = s.served.revision(c)
 	// Report the effective auth state (YAML token or out-of-band --auth-token / FOXXYCODE_HTTP_TOKEN),
 	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
 	pol := s.authPolicyNow()
@@ -98,10 +110,7 @@ func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {
 	// from the environment: this document is what a save writes back, and an
 	// environment credential must never end up in it. Who is signed in is
 	// GET /foxxycode/auth/me's answer, not this one's.
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(dto); err != nil {
-		s.log.Error("foxxycode config get encode", "error", err)
-	}
+	return dto
 }
 
 func (s *Server) foxxycodeConfigValidatePost(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +158,7 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 	// Anything less lets two writers interleave and install runtime state that
 	// no longer matches the file.
 	var cfgPath string
+	var saved *config.ConfigJSON
 	txErr := config.WithConfigFileLock(func() error {
 		c := s.activeCfg()
 		if c == nil {
@@ -160,9 +170,24 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("%w: %s", errFoxxyCodeConfigParse, err.Error())
 		}
-		// Rendered over the file that is there, so the operator's comments and the
-		// editor schema modeline survive a save from the settings screen.
-		yb, err := config.MarshalConfigYAMLForFile(newCfg, cfgPath)
+		// What the client read: the configuration its document names by
+		// revision, or the live one for a document without it (another client,
+		// a script) or from further back than this process remembers.
+		served := c
+		var read struct {
+			Revision string `json:"revision"`
+		}
+		if json.Unmarshal(body, &read) == nil {
+			if old := s.served.lookup(read.Revision); old != nil {
+				served = old
+			}
+		}
+		// Rendered over the file that is there, so the operator's comments, the
+		// editor schema modeline and the spelling of every value the form did not
+		// change survive a save from the settings screen. A value sent back as it
+		// was served keeps what the file says now - not what this process made of
+		// it, and not what the client was shown before another save replaced it.
+		yb, err := config.MarshalConfigYAMLForEdit(newCfg, served, c, cfgPath)
 		if err != nil {
 			return errFoxxyCodeConfigSerialize
 		}
@@ -188,6 +213,9 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 		// observer registered in New, which is also how a reload from the agent's
 		// own config_commit tool or from the console gets here.
 		s.mgr.ReplaceConfig(reloaded)
+		// Capture the merged document while this transaction
+		// still owns the file lock, together with the revision of that exact copy.
+		saved = s.configDocument(reloaded)
 		return nil
 	})
 	switch {
@@ -222,7 +250,7 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("config updated", "path", cfgPath)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "config": saved})
 }
 
 func writeFoxxyCodeConfigErr(w http.ResponseWriter, code int, msg string) {

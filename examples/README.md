@@ -100,3 +100,5 @@ python3 examples/httpserver/http_smoke_gateway.py
 ```
 
 **`http_e2e_scheduler_agent.py`** expects an already running **`foxxycode http`** and **`BASE_URL`**, **`FOXXYCODE_HOME`**, **`WORK_DIR`** matching that process (as set by **`test_httpserver.sh`**).
+
+The offline console checks `cli/cli_e2e_queue.py` and `cli/cli_e2e_mcp.py` cover both queue modes and live MCP management with a scripted provider. They require a Unix pty.

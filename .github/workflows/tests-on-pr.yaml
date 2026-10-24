@@ -162,6 +162,7 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -r examples/cli/requirements.txt
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_mcp.py
 
       # One-shot input through a real shell: pipes, redirects, a 200 KiB prompt
       # file, a while-read loop and a terminal, against a scripted model the
@@ -171,37 +172,57 @@ jobs:
         run: |
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+      # The console's message queue (issue #364) on a real pty against a
+      # scripted model the script serves: the first-use question, steer and
+      # after-turn messages, /queue drop, the deferred prompt after the answer.
+      - name: Drive the console's message queue through a real pty
+        if: matrix.tags == 'cli'
+        run: FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_queue.py
+
       # A long conversation in the web UI (issue #338): the real binary with a
       # 3306-message session and a swarm relay in front of it, driven in
       # Chromium. It opens on the newest page, scrolls through the history
       # without a jump, keeps a bounded DOM, follows a turn run in a second
       # browser and reads through the relay. At full speed here, where the
       # runner's own pace varies; locally it runs at CPU x4.
+      #
+      # The browser checks run in the full combination alone: the one matrix
+      # entry that has both the embedded UI and the swarm relay. The gate
+      # matches by contents rather than by the exact spelling of the set, so
+      # a change to FULL_TAGS in the Makefile cannot leave these steps dead.
       - name: Build the web UI and the swarm relay
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         run: make build TAGS="http ui swarm"
 
       # The browser below is a download of a few hundred MB, so it is cached
       # per resolved Playwright version (the package is not in the lockfile):
       # `playwright install` is a no-op while the cache holds.
       - name: Resolve the Playwright version
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         id: playwright
         run: echo "version=$(npm view playwright version)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the Playwright browsers
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Drive a long transcript in a browser
-        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
         run: |
           npm --prefix external/ui i --no-save playwright@${{ steps.playwright.outputs.version }}
           (cd external/ui && npx playwright install --with-deps chromium)
           FOXXYCODE_BIN="$PWD/build/foxxycode" FOXXYCODE_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
+
+      # The message queue (issue #364) through the same kind of stand: the
+      # first-use question, steer and after-turn messages with an image, a mode
+      # switched and a message taken back through the relay's mount, the
+      # deferred prompt answered above its answer, and a Stop that keeps it.
+      - name: Drive the message queue through a swarm relay
+        if: contains(matrix.tags, 'ui') && contains(matrix.tags, 'swarm')
+        run: FOXXYCODE_BIN="$PWD/build/foxxycode" npm --prefix external/ui run check:queue
 
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started

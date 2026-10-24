@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SkillsSection } from "./SkillsSection";
 import type { JsonSchema } from "./SchemaForm";
+import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 afterEach(() => {
   cleanup();
@@ -148,4 +149,31 @@ test("an installed skill row leads with its switch", async () => {
   expect(row.firstElementChild).toBe(toggle);
   expect(row.querySelector(":scope > svg")).toBeNull();
   expect(row.textContent).toContain("v1.0.1");
+});
+
+// The marketplace results hang under the search box. Escape takes them away
+// first, clearing the search, and the Settings drawer stays for the next one.
+test("Escape clears the install search before it reaches the drawer", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+  );
+  const closeDrawer = vi.fn();
+  render(
+    <>
+      <OpenRailScreen id="settings" onClose={closeDrawer} />
+      <SkillsSection schema={skillsSchema} value={{}} onChange={() => {}} />
+    </>,
+  );
+  const input = screen.getByTestId("skills-install-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "pdf" } });
+  expect(await screen.findByTestId("skills-install-results")).toBeTruthy();
+
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(input.value).toBe("");
+  expect(screen.queryByTestId("skills-install-results")).toBeNull();
+  expect(closeDrawer).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(closeDrawer).toHaveBeenCalledTimes(1);
 });

@@ -85,7 +85,12 @@ class ControlledStream {
   }
 }
 
-type Queue = { messages: { id: string; text: string }[]; version: number };
+type QueuedRow = {
+  id: string;
+  text: string;
+  imageParts?: { name?: string; mimeType?: string; sizeBytes?: number }[];
+};
+type Queue = { messages: QueuedRow[]; version: number };
 type Request = { path: string; method: string; init: RequestInit };
 class Backend {
   activity = new Map([
@@ -94,6 +99,9 @@ class Backend {
   ]);
   history = [A, B];
   queues = new Map<string, Queue>();
+  // The images a queued row carries, by id: the server keeps them and hands
+  // them back only to the DELETE that takes the row back.
+  queuedFiles = new Map<string, { name: string; data_url: string }[]>();
   messages = new Map<string, { role: string; content: string }[]>([
     [
       A,
@@ -115,6 +123,8 @@ class Backend {
   posts: { sid: string; stream: ControlledStream }[] = [];
   relays: { sid: string; stream: ControlledStream }[] = [];
   messagesRev = new Map<string, number>();
+  /** The model every session's transcript read names as its own. */
+  sessionModel = "";
   abortPostReads = true;
   override?: (request: Request) => Response | Promise<Response> | undefined;
   /** Connections the browser keeps open to this host, shared by every tab of
@@ -223,6 +233,7 @@ class Backend {
           ...(this.messagesRev.has(sid)
             ? { messagesRev: this.messagesRev.get(sid) }
             : {}),
+          ...(this.sessionModel ? { model: this.sessionModel } : {}),
         });
       if (suffix === "/tool-calls") return json({ toolCalls: [] });
       if (suffix === "/rewind")
@@ -244,12 +255,16 @@ class Backend {
         const id = decodeURIComponent(suffix.slice("/queue/".length));
         if (!queue.messages.some((m) => m.id === id))
           return json({ error: { code: "not_found" } }, 404);
+        const taken = queue.messages.find((m) => m.id === id)!;
         const next = {
           messages: queue.messages.filter((m) => m.id !== id),
           version: queue.version + 1,
         };
         this.queues.set(sid, next);
-        return json(next);
+        return json({
+          ...next,
+          message: { ...taken, inline_files: this.queuedFiles.get(id) ?? [] },
+        });
       }
       if (suffix === "/queue") {
         const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
@@ -272,7 +287,7 @@ class Backend {
     }
     if (path === "/v1/models")
       return json({ data: [{ id: "test-model", owned_by: "test" }] });
-    if (path === "/foxxycode/config") return json({});
+    if (path === "/foxxycode/config") return json({ agent: { queue_mode: "steer" } });
     if (path.startsWith("/foxxycode/slash-commands")) return json({ items: [] });
     if (path === "/foxxycode/workspace/context")
       return json({ cwd: "/workspace", is_git_repo: false });
@@ -341,6 +356,44 @@ test("rewinding the first message removes the old visible tail before resending"
 });
 const composer = () => screen.getByRole("textbox", { name: "Message" });
 const stop = () => screen.getByRole("button", { name: "Stop generation" });
+
+test.each([true, false])(
+  "Stop retires only acknowledged permission prompts (success=%s)",
+  async (success) => {
+    await mount();
+    await send("Run a command");
+    const stream = backend.posts[0]!.stream;
+    await act(async () => {
+      stream.frame("tool_call", {
+        toolCallId: "call_stop",
+        title: "run_command",
+        status: "in_progress",
+      });
+      stream.frame("permission", {
+        sessionId: A,
+        toolCall: { toolCallId: "call_stop", title: "Run: run_command" },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      });
+    });
+    await screen.findByTestId("permission-prompt-card");
+    backend.override = (r) =>
+      r.path.endsWith("/cancel") ? json({}, success ? 200 : 500) : undefined;
+    fireEvent.click(stop());
+    if (success) {
+      await waitFor(() =>
+        expect(
+          screen.queryByTestId("permission-prompt-card"),
+        ).not.toBeInTheDocument(),
+      );
+      expect(
+        JSON.parse(localStorage.getItem(`foxxycode_pp_v1:${A}`)!)[0].resolved,
+      ).toBeTruthy();
+    } else {
+      await screen.findAllByText(/stop.*try again/i);
+      expect(screen.getByTestId("permission-prompt-card")).toBeInTheDocument();
+    }
+  },
+);
 async function send(text: string) {
   fireEvent.change(composer(), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -459,7 +512,9 @@ test("a pending question missing from SSE is recovered from session activity", a
 test.each(["post", "relay"])(
   "a late provider window replaces the model-list fallback on the %s stream",
   async (transport) => {
-    document.cookie = "foxxycode_llm_model=test-model; Path=/";
+    // Both sessions run on test-model: an open session shows its own model,
+    // never the one a cookie remembers for a new chat.
+    backend.sessionModel = "test-model";
     backend.override = (r) => {
       if (r.path === "/v1/models")
         return json({
@@ -909,6 +964,32 @@ test("taking a queued message back puts its text in the composer", async () => {
   fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
   await waitFor(() => expect(composer()).toHaveValue("Use the EU prices"));
   expect(screen.queryByTestId("composer-queue")).not.toBeInTheDocument();
+});
+
+// The images of a queued message never ride the list every client is sent; they
+// come back in the answer that takes the message back, into the draft with the text.
+test("taking a queued message back puts its image back in the composer", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [
+      {
+        id: "q1",
+        text: "Compare with this screenshot",
+        imageParts: [{ name: "shot.png", mimeType: "image/png", sizeBytes: 5 }],
+      },
+    ],
+    version: 3,
+  });
+  backend.queuedFiles.set("q1", [{ name: "shot.png", data_url: "data:image/png;base64,aGVsbG8=" }]);
+  await mount();
+  await screen.findByText("Compare with this screenshot");
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() => expect(composer()).toHaveValue("Compare with this screenshot"));
+  await waitFor(() =>
+    expect(screen.getAllByTestId("composer-attachment-chip").map((c) => c.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining("shot.png")]),
+    ),
+  );
 });
 
 test("a message the agent read before it was taken back does not return", async () => {

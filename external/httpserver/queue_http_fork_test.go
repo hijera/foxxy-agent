@@ -18,7 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
-func postQueue(t *testing.T, ts *httptest.Server, id, text string) (int, string) {
+func postForkQueue(t *testing.T, ts *httptest.Server, id, text string) (int, string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"text": text})
 	req, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/sessions/"+id+"/queue", bytes.NewReader(body))
@@ -77,13 +77,13 @@ func TestQueuePostIsBusyWhileAnotherBackendRunsTheTurn(t *testing.T) {
 	// refuses to delete a lock file somebody still holds.
 	t.Cleanup(unlock)
 
-	status, code := postQueue(t, ts, id, "also check the Windows path")
+	status, code := postForkQueue(t, ts, id, "also check the Windows path")
 	if status != http.StatusConflict || code != "session_busy" {
 		t.Fatalf("queue while another backend runs the turn = %d %q, want 409 session_busy", status, code)
 	}
 
 	unlock()
-	status, code = postQueue(t, ts, id, "also check the Windows path")
+	status, code = postForkQueue(t, ts, id, "also check the Windows path")
 	if status != http.StatusConflict || code != "no_active_turn" {
 		t.Fatalf("queue with no turn anywhere = %d %q, want 409 no_active_turn", status, code)
 	}

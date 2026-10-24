@@ -81,6 +81,7 @@ Defaults for the main agent loop (model id and safety caps).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `agent.queue_mode` | string, one of `steer`, `after_turn` |  | Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use. |
 | `agent.model` | string |  | Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (foxxycode -p, foxxycode acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty. |
 | `agent.max_turns` | integer | 0 | Cap on the ReAct steps (LLM calls) of one prompt turn. 0, the default, sets no cap; a turn that reaches a cap set here ends with a notice that names it. |
 | `agent.llm_retry_max` | integer | 10 | Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits. Interrupted-answer continuations keep their separate llm_continue_max budget and do not consume max_turns. |
@@ -158,12 +159,12 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
+Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `rules.auto_discover` | boolean | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. |
 
 ### `mcp_servers`
 

@@ -8,6 +8,7 @@ import {
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
+import { queuedUserMessageItem } from "./queuedUserMessage";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
@@ -378,18 +379,12 @@ export async function consumeComposerSseReader(
        * What is still pending lands above it first - tool rows waiting for a frame,
        * an open thinking row - and the answer to it starts a bubble of its own below.
        */
-      const appendQueuedUserMessage = (text: string) => {
+      const appendQueuedUserMessage = (item: Extract<TranscriptItem, { type: "user_message" }>) => {
         if (toolQueue.length > 0) flushToolQueue();
         finishThinking();
         applyStreamItems((prev) => [
           ...prev,
-          {
-            id: newId("u"),
-            type: "user_message" as const,
-            content: text,
-            queued: true,
-            createdAtUtc: new Date().toISOString(),
-          },
+          { ...item, queued: true },
         ]);
         markRowAppendedAfterAssistant();
       };
@@ -774,16 +769,9 @@ export async function consumeComposerSseReader(
           // here, where it was read - not at the end, where a transcript reload
           // would otherwise be the first place it appears.
           if (ev.event === "user_message") {
-            try {
-              const raw = JSON.parse(ev.data) as {
-                content?: { text?: string };
-              };
-              const text = String(raw?.content?.text || "");
-              if (text.trim()) {
-                appendQueuedUserMessage(text);
-              }
-            } catch {
-              // ignore
+            const item = queuedUserMessageItem(ev.data, newId("u"), new Date().toISOString());
+            if (item) {
+              appendQueuedUserMessage(item);
             }
             continue;
           }
@@ -1055,16 +1043,9 @@ export async function consumeComposerSseReader(
           // here, where it was read - not at the end, where a transcript reload
           // would otherwise be the first place it appears.
           if (ev.event === "user_message") {
-            try {
-              const raw = JSON.parse(ev.data) as {
-                content?: { text?: string };
-              };
-              const text = String(raw?.content?.text || "");
-              if (text.trim()) {
-                appendQueuedUserMessage(text);
-              }
-            } catch {
-              // ignore
+            const item = queuedUserMessageItem(ev.data, newId("u"), new Date().toISOString());
+            if (item) {
+              appendQueuedUserMessage(item);
             }
             continue;
           }

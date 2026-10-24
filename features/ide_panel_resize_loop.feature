@@ -32,3 +32,24 @@ Feature: Embedded IDE panel opens a transcript without a ResizeObserver loop
     Then the error overlay stays hidden
     When the page raises an uncaught "TypeError: boom"
     Then the error overlay reports "boom"
+
+  Scenario: Resizing between desktop and narrow panels keeps the newest command in view
+    When the embedded panel opens that transcript at 1280 pixels wide
+    Then the newest message stays in view after resizing the panel to 468 pixels
+    And the newest message stays in view after resizing the panel to 599 pixels
+    And the newest message stays in view after resizing the panel to 600 pixels
+    And the newest message stays in view after resizing the panel to 1199 pixels
+    And the newest message stays in view after resizing the panel to 1200 pixels
+    And the newest message stays in view after resizing the panel to 1280 pixels
+
+  Scenario: Resizing preserves the older message the reader is inspecting
+    When the embedded panel opens that transcript at 1280 pixels wide
+    And the reader scrolls up to inspect an older transcript row
+    Then the inspected row stays in place after resizing the panel to 468 pixels
+    And the inspected row stays in place after resizing the panel to 390 pixels
+    And the inspected row stays in place after resizing the panel to 599 pixels
+    And the inspected row stays in place after resizing the panel to 600 pixels
+    And the inspected row stays in place after resizing the panel to 834 pixels
+    And the inspected row stays in place after resizing the panel to 1199 pixels
+    And the inspected row stays in place after resizing the panel to 1200 pixels
+    And the inspected row stays in place after resizing the panel to 1280 pixels

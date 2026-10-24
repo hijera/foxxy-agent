@@ -187,3 +187,23 @@ test("empty filter result shows a no-models notice", () => {
   });
   expect(screen.getByTestId("model-menu-empty")).toBeTruthy();
 });
+
+// A menu of the composer answers Escape itself: a short list has no filter to
+// take the key, and a long one closes the same way. The key is claimed, so a
+// screen of the rail under the chat would stay.
+test("Escape closes the model menu, with a filter or without one", () => {
+  renderModelMenu({
+    models: ["opencode-go/glm-5", "cliproxyapi/gpt-5.5"],
+    model: "opencode-go/glm-5",
+  });
+  openModelMenu();
+  expect(screen.getByRole("menu")).toBeTruthy();
+  expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
+  expect(screen.queryByRole("menu")).toBeNull();
+  cleanup();
+
+  renderModelMenu({});
+  openModelMenu();
+  fireEvent.keyDown(screen.getByTestId("model-menu-filter"), { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+});

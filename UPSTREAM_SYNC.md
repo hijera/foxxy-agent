@@ -8,6 +8,19 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.27 — 2026-10-20
+
+Checkpoint: `24bf9b367767bb0a76193c4dac57ab03b0203365` (commit of annotated tag `1.2.27`, tag object `b871635452e2a9e37d00dcda960c889ae045a2c7`), following `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (`1.2.18`). The range contains 45 commits, consolidated as a net-change port.
+
+- Ported skill-history documentation, one-folder rules discovery and stable prompt generations, both message queue modes with attachments, MCP management across the web, console and Telegram, session settings retention, config revision checks and minimal saves, settings caching and save feedback, and Escape dismissal of rail screens.
+- The owner approved the first populated project rules root, stable standing rules with scoped rules delivered once in the activating message or tool result, both `steer` and `after_turn` queue modes, the first-use preference question, and the upstream contributor workflow updates.
+- Preserved FoxxyCode's configured send shortcut. Tab chooses the alternate queue mode only outside suggestion menus. Preserved the legacy `.foxxyrules` / `.foxyrules` fallback roots, paginated slash catalog, localization, project trust, provider prompts, both compaction engines, retry and continuation budgets, cross-process history refresh, stop notices, and the Chromium 104 baseline.
+- Preserved asynchronous MCP bootstrap and workspace switching. Publication is bound to its connection generation, so a late dial cannot install clients into a newer workspace or a closed session. Restored sessions defer their initial MCP connection until the first turn. Project switches are stored in the agent home, outside the checkout, and shared state files use process-wide file locks.
+- Browser verification found and fixed queued-image extraction for Windows drive and UNC paths. A regression covers both forms; the relay browser run verifies authenticated thumbnails and originals, live delivery, draft recovery, ordering, stop behavior and two-client synchronization.
+- Implementation commit: `07fe9d3ce37acd0a7be6dcb77d3fe1c7f43fbc71`. All 45 commits are accounted for in `ports.yaml`: 41 adapted constituent/PR-merge records reference that bundle, and four overlapping integration merges are skipped as redundant. A scan of the complete range reports no pending commits.
+- Validation: UI tests passed 310 files / 2920 tests; `make lint`, `make check-windows`, `make lint-windows`, `make docs`, `make docs-check`, `make site-schema-check`, typechecking and the embedded build passed. All 27 requested behavioral guard tests executed and passed, as did registry integrity. Real pty runs cover queue modes and MCP controls; Chromium layout, phone overflow and chevron checks and WebKit folder-dialog checks passed. Screenshots are embedded in the corresponding feature pages; additional before/after and light/narrow evidence is on the `screenshots` branch under `upstream-1.2.27/`.
+- Final regression: `GOFLAGS='-count=1 -timeout=20m' make test` passed on native Windows, including every tagged Go package and the 310-file UI suite. The UI BDD package took 639 seconds, exceeding Go's default ten-minute package limit. Linux race testing passed every package after rerunning the session package with corrected test synchronization and setup deadlines (117 seconds). A test sender now protects concurrent title/tool updates; lifecycle tests wait for the deletion mark and allow instrumented subprocess startup before testing a recovery deadline. Native Windows repeats cover those timing cases.
+
 ## Sync through upstream 1.2.18 — 2026-10-16
 
 Checkpoint: `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (tag `1.2.18`), following `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (`1.2.10`).
@@ -53,6 +66,7 @@ Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following
 <!-- divergence-registry:start -->
 | ID | Upstream | Форк | При следующем изменении upstream |
 |----|----------|------|----------------------------------|
+| `queue-output-limit` | 1.2.27 starts queued follow-ups only after end_turn | After max_tokens, deliver unread steer in order before after_turn; keep errors and Stop waiting | Preserve the owner-selected output-cap exception, steering priority and queue bounds |
 | `retry-max-default` | 1.2.0 (#329): 3 shared extra attempts | Owner-selected default of 10; about 55m30s for a wholly silent model with the default guards and delays | Preserve the shared default and explicit 0 disabling retries |
 | `stall-guard-layer` | 1.1.47: `stallGuardTransport` в `transport.go` режет SSE-тело без байтов, внутри ретрай-обёртки | Guard оборачивает провайдер и считает чанки (включая `Progress`), не keep-alive; стоит снаружи ретраев | 1.1.52: режимы портированы без `stallGuardTransport`/`idleBody`; при следующих изменениях сохранять слой guard |
 | `transport-debug-wrap` | 1.1.47: общий транспорт на настройку прокси из `http.DefaultTransport`, пинги HTTP/2 через x/net | Тот же общий пул, но из форковых прокси-хелперов (таймаут заголовков, системный прокси #124, пинги `http.HTTP2Config` из #125) и за debug-обёрткой | 1.1.52: режимы портированы в `buildLLMTransport` с системным прокси, debug-обёрткой, ключом пула и форковым обходом NO_PROXY/loopback; при следующих изменениях сохранять их |

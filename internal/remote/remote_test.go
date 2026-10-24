@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -664,6 +665,87 @@ func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
 	assertRemoteReasoningOption(t, loaded.ConfigOptions, "low")
 }
 
+// Loading a remote session adopts the settings snapshot the server answers
+// with, so the console shows that session's model, level, mode and permission
+// mode on entering it, not the ones of the session it left (#362).
+func TestRemoteLoadAdoptsTheSessionsSettings(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"messages":[],"selectedModelId":"remote/terra","selectedReasoning":"high","mode":"plan",
+			"settings":{"sessionId":%q,"version":7,"model":"remote/terra","reasoning":"high","reasoningChoices":["low","high","off"],"mode":"plan","permissionMode":"bypass","configuredPermissionMode":"ask",
+				"overrides":[{"setting":"model","value":"remote/terra","turnsLeft":2}]}}`, r.PathValue("id"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetServer(&collectSender{})
+	loaded, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: "sess_bypass"})
+	if err != nil {
+		t.Fatalf("HandleSessionLoad: %v", err)
+	}
+	current := map[string]string{}
+	for _, opt := range loaded.ConfigOptions {
+		current[opt.ID] = opt.CurrentValue
+	}
+	want := map[string]string{"mode": "plan", "model": "remote/terra", "reasoning": "high", "permission_mode": "bypass"}
+	for id, value := range want {
+		if current[id] != value {
+			t.Fatalf("loaded config options %v, want %s = %q", current, id, value)
+		}
+	}
+	// The whole snapshot is there for the console to show, the overrides of
+	// the next turns included.
+	snap, err := h.SessionSettings("sess_bypass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "bypass" || snap.Version != 7 || len(snap.Overrides) != 1 || snap.Overrides[0].TurnsLeft != 2 {
+		t.Fatalf("SessionSettings = %+v, want the loaded snapshot", snap)
+	}
+	// A load answered with an older snapshot than the one the client holds
+	// leaves the client's alone: its top-level level is the running turn's.
+	h.mirrorSettings("sess_bypass", acp.SessionSettings{SessionID: "sess_bypass", Version: 9, Model: "remote/terra", Reasoning: "low", Mode: "plan", PermissionMode: "bypass", ReasoningChoices: []string{"low", "high", "off"}})
+	reloaded, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: "sess_bypass"})
+	if err != nil {
+		t.Fatalf("second HandleSessionLoad: %v", err)
+	}
+	for _, opt := range reloaded.ConfigOptions {
+		if opt.ID == "reasoning" && opt.CurrentValue != "low" {
+			t.Fatalf("a stale load moved the level to %q, want the held low", opt.CurrentValue)
+		}
+	}
+	// A later snapshot that names no off takes it away again.
+	h.mirrorSettings("sess_bypass", acp.SessionSettings{SessionID: "sess_bypass", Version: 10, Model: "remote/terra", Reasoning: "high", PermissionMode: "bypass", ReasoningChoices: []string{"low", "high"}})
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_bypass", ConfigID: "reasoning", Value: "off",
+	}); err == nil {
+		t.Fatal("off is still accepted after a snapshot that no longer offers it")
+	}
+
+	// A session the server has not pinned yet runs under the mode the server
+	// is configured with, which the snapshot named.
+	fresh, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	for _, opt := range fresh.ConfigOptions {
+		if opt.ID == "permission_mode" {
+			if opt.CurrentValue != "ask" {
+				t.Fatalf("a new session's permission mode = %q, want the server's ask", opt.CurrentValue)
+			}
+			return
+		}
+	}
+	t.Fatalf("a new session has no permission option: %+v", fresh.ConfigOptions)
+}
+
 func TestRemoteReasoningConfigOptionClampsAfterModelSwitch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
@@ -977,5 +1059,151 @@ func TestSessionListForwardsTheWorkspaceFilter(t *testing.T) {
 	}
 	if len(res.Sessions) != 1 || res.Sessions[0].SessionID != "sess_ws" || res.Sessions[0].CWD != cwd {
 		t.Fatalf("sessions = %+v", res.Sessions)
+	}
+}
+
+// A message the turn reads from the queue, or a deferred one that starts a
+// prompt of its own, reaches the console as the operator's message, between
+// the answers it sits between.
+func TestPromptForwardsQueuedUserMessagesInPlace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"first answer\"}}]}\n\n" +
+			"event: user_message\ndata: {\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"then update the changelog\"}}\n\n" +
+			"event: user_message\ndata: {\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"  \"}}\n\n" +
+			"data: {\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"second answer\"}}]}\n\n" +
+			"data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	sender := &collectSender{}
+	if _, err := promptOnce(t, srv, sender); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	sender.mu.Lock()
+	for _, u := range sender.updates {
+		if c, ok := u.(acp.MessageChunkUpdate); ok {
+			got = append(got, c.SessionUpdate+":"+c.Content.Text)
+		}
+	}
+	sender.mu.Unlock()
+	want := []string{
+		acp.UpdateTypeAgentMessageChunk + ":first answer",
+		acp.UpdateTypeUserMessageChunk + ":then update the changelog",
+		acp.UpdateTypeAgentMessageChunk + ":second answer",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("chunks = %q, want %q", got, want)
+	}
+}
+
+// Saving the queue mode changes that one key: a field this client does not
+// know - a server newer than the console - goes back exactly as it came.
+func TestSetQueueModePreferenceKeepsWhatItDoesNotKnow(t *testing.T) {
+	var put map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/foxxycode/config":
+			_, _ = w.Write([]byte(`{"agent":{"model":"stub/a","future_agent_key":7},"future_section":{"on":true}}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/foxxycode/config":
+			if err := json.NewDecoder(r.Body).Decode(&put); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetQueueModePreference(session.QueueModeAfterTurn); err != nil {
+		t.Fatal(err)
+	}
+	var agent map[string]json.RawMessage
+	if err := json.Unmarshal(put["agent"], &agent); err != nil {
+		t.Fatalf("agent section: %v (%s)", err, put["agent"])
+	}
+	if string(agent["queue_mode"]) != `"after_turn"` || string(agent["future_agent_key"]) != "7" || string(agent["model"]) != `"stub/a"` {
+		t.Fatalf("agent section written back as %s", put["agent"])
+	}
+	if string(put["future_section"]) != `{"on":true}` {
+		t.Fatalf("an unknown section was not kept: %s", put["future_section"])
+	}
+}
+
+// The remote /mcp controls read the policy the server reports: a trust
+// control exists only for a gated row under ask. An approval sends back the
+// fingerprint the list reported, so the server can refuse it when the
+// checkout rewrote the declaration in between; a withdrawal sends nothing.
+func TestRemoteMCPTrustFollowsThePolicyAndNamesTheDeclarationShown(t *testing.T) {
+	type call struct{ path, body string }
+	var calls []call
+	policy := "ask"
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /foxxycode/mcp", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "foxxycode.mcp_list", "workspace": "/work", "project_trust": policy,
+			"items": []any{
+				map[string]any{"name": "proj", "source": "local", "origin": "project", "gated": true,
+					"status": "needs_approval", "transport": "stdio", "command": "proj-mcp",
+					"env": map[string]string{"TOKEN": "secret"}, "fingerprint": "sha256:shown", "tools": []any{}},
+				map[string]any{"name": "glob", "source": "global", "origin": "home", "gated": false,
+					"status": "connected", "transport": "stdio", "command": "glob-mcp",
+					"fingerprint": "sha256:glob", "tools": []any{}},
+			},
+		})
+	})
+	record := func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		calls = append(calls, call{r.URL.Path, string(raw)})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+	mux.HandleFunc("POST /foxxycode/mcp/{name}/trust", record)
+	mux.HandleFunc("POST /foxxycode/mcp/{name}/untrust", record)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(h.Close)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		policy string
+		want   map[string]bool
+	}{
+		{"ask", map[string]bool{"proj": true, "glob": false}},
+		{"allow", map[string]bool{"proj": false, "glob": false}},
+		{"deny", map[string]bool{"proj": false, "glob": false}},
+	} {
+		policy = tc.policy
+		rows, err := h.MCPServers(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.Approvable != tc.want[row.Name] {
+				t.Errorf("policy %s, row %s: Approvable = %v", tc.policy, row.Name, row.Approvable)
+			}
+			if row.Name == "proj" && (row.Fingerprint != "sha256:shown" || strings.Contains(row.Declaration, "secret")) {
+				t.Errorf("proj row = %+v", row)
+			}
+		}
+	}
+
+	if err := h.SetMCPTrust(ctx, "", "proj", "sha256:shown", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetMCPTrust(ctx, "", "proj", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0].path != "/foxxycode/mcp/proj/trust" || !strings.Contains(calls[0].body, `"fingerprint":"sha256:shown"`) ||
+		calls[1].path != "/foxxycode/mcp/proj/untrust" || calls[1].body != "" {
+		t.Fatalf("calls = %+v", calls)
 	}
 }
