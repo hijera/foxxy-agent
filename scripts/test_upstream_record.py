@@ -80,3 +80,14 @@ class RecordBatchTests(GitRepoCase):
                                                    remaining=("Finish UI",))]).stdout)
         self.assertEqual(report["changed"], 1)
         self.assertEqual(report["entries"][0]["remaining"], ["Finish UI"])
+
+    def test_batch_rejects_wrong_field_types_without_tracebacks_or_ledger_changes(self):
+        self.ledger()
+        before = (self.root / "ports.yaml").read_bytes()
+        invalid = {"upstream_sha": None, "status": [], "fork_commits": None,
+                   "reason": 42, "remaining": "Finish UI"}
+        for key, value in invalid.items():
+            with self.subTest(field=key):
+                result = self.batch([{**self.entry(self.base), key: value}], expected=2)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertEqual((self.root / "ports.yaml").read_bytes(), before)

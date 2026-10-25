@@ -228,15 +228,15 @@ def preview_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def bundle_path(repo: Path, requested: Path, git) -> Path:
+def bundle_path(repo: Path, requested: Path, git, label: str = "Preview bundle") -> Path:
     path = requested if requested.is_absolute() else repo / requested
     if path.exists() or path.is_symlink():
-        raise ValueError(f"Preview bundle already exists: {path}")
+        raise ValueError(f"{label} already exists: {path}")
     path = path.resolve()
     common = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()).resolve()
     private = Path(git(repo, "rev-parse", "--absolute-git-dir").strip()).resolve()
     if any(path.is_relative_to(directory) for directory in (common, private)):
-        raise ValueError("Preview bundle cannot be inside Git metadata")
+        raise ValueError(f"{label} cannot be inside Git metadata")
     return path
 
 

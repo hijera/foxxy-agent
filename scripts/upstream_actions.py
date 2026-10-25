@@ -203,6 +203,12 @@ def record_batch(repo: Path, args, git, resolve) -> dict:
                                                       "reason", "remaining"}:
             raise ValueError(f"Batch entry {number} requires exactly:"
                              " upstream_sha, status, fork_commits, reason, remaining")
+        for key in ("upstream_sha", "status", "reason"):
+            if not isinstance(item[key], str):
+                raise ValueError(f"Batch entry {number}: {key} must be a string")
+        for key in ("fork_commits", "remaining"):
+            if not isinstance(item[key], list) or any(not isinstance(value, str) for value in item[key]):
+                raise ValueError(f"Batch entry {number}: {key} must be an array of strings")
         entries.append(build_entry(repo, item["upstream_sha"], item["status"], item["fork_commits"],
                                    item["reason"], item["remaining"], git, resolve))
     ledger = load_ledger(path, required=True)

@@ -354,6 +354,8 @@ def main() -> int:
     status = 0
     try:
         repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").strip()).resolve()
+        if getattr(args, "output", None):
+            args.output = bundle_path(repo, args.output.absolute(), git, "Report")
         if args.command in {"preview", "apply", "overlap"}:
             base, target, fork = (resolve(repo, ref) for ref in (args.from_ref, args.to, args.fork_base))
             try:

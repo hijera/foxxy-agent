@@ -3,7 +3,7 @@
 import json
 import os
 
-from upstream_preview import build_preview
+from upstream_preview import build_preview, classify_path_conflicts, tree
 
 
 # Textual merges with no conflict and no structural surprise; anything else stays manual.
@@ -12,6 +12,8 @@ APPLYABLE = {"clean", "add_clean", "delete_clean", "add_add_equal"}
 
 def apply_preview(repo, base: str, target: str, fork: str, git, changes, fork_path,
                   dry_run: bool = False) -> dict:
+    if fork != git(repo, "rev-parse", "HEAD").strip():
+        raise ValueError("apply requires --fork-base to match the checkout's current HEAD")
     report, artifacts = build_preview(repo, base, target, fork, git, changes, fork_path)
     warnings = [
         "Writes the working tree only: nothing is staged, committed or pushed.",
@@ -23,7 +25,7 @@ def apply_preview(repo, base: str, target: str, fork: str, git, changes, fork_pa
     ]
     if dry_run:
         warnings.insert(0, "Dry run: the checkout was not modified.")
-    applied, skipped = [], []
+    applied, skipped, ready = [], [], []
     for row in report["files"]:
         destination = row["fork_path"]
         sources = [destination]
@@ -32,27 +34,43 @@ def apply_preview(repo, base: str, target: str, fork: str, git, changes, fork_pa
         if row["status"] not in APPLYABLE:
             skipped.append({"path": destination, "reason": row["status"]})
             continue
-        dirty = [path for path in sources if git(repo, "status", "--porcelain", "--", path).strip()]
+        if any((repo / path).resolve() != repo / path or (repo / path).is_symlink()
+               for path in sources):
+            skipped.append({"path": destination, "reason": "unsafe_path"})
+            continue
+        dirty = [path for path in sources if git(repo, "status", "--porcelain", "--ignored",
+                                                "--untracked-files=all", "--", ":(literal)" + path).strip()]
         if dirty:
             skipped.append({"path": destination, "reason": "local_edits", "paths": dirty})
             continue
+        ready.append(row)
+    # A skipped deletion/rename must not make its source look vacant to a write.
+    classify_path_conflicts(ready, tree(repo, fork), artifacts)
+    ready_rows = []
+    for row in ready:
+        if row["status"] not in APPLYABLE:
+            skipped.append({"path": row["fork_path"], "reason": row["status"]})
+        else:
+            ready_rows.append(row)
+    if not dry_run:
+        # All inputs are in memory and local edits have been checked. Remove the
+        # old shapes before creating destinations, including rename sources.
+        removals = {row["ours_path"] for row in ready_rows if row["status"] == "delete_clean" or
+                    (row["objects"]["ours"] and row["ours_path"] != row["fork_path"])}
+        for path in sorted(removals, key=lambda name: (-name.count("/"), name)):
+            remove(repo / path)
+    for row in ready_rows:
+        destination = row["fork_path"]
         if row["status"] == "delete_clean":
             action, mode = "delete", None
         else:
             action, mode = "write", row.get("merged_mode")
-        if not dry_run:
-            if action == "delete":
-                remove(repo / destination)
-            else:
-                target_file = repo / destination
-                target_file.parent.mkdir(parents=True, exist_ok=True)
-                target_file.write_bytes(artifacts[row["artifacts"]["merged"]])
-                if mode:
-                    os.chmod(target_file, 0o755 if mode == "100755" else 0o644)
-                if "old_path" in row:
-                    source = fork_path(row["old_path"])
-                    if source != destination and (repo / source).exists():
-                        remove(repo / source)
+        if not dry_run and action == "write":
+            target_file = repo / destination
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_bytes(artifacts[row["artifacts"]["merged"]])
+            if mode:
+                os.chmod(target_file, 0o755 if mode == "100755" else 0o644)
         applied.append({"path": destination, "action": action, "mode": mode,
                         "status": row["status"]})
     counts = {}

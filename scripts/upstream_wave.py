@@ -19,20 +19,49 @@ def tags_in(repo, git, shas: set[str]) -> dict[str, list[str]]:
     return found
 
 
-def plan_cuts(ordered: list[str], boundaries: set[str], max_commits: int, max_tags: int):
+def plan_cuts(ordered: list[str], boundaries: set[str], max_commits: int, max_tags: int,
+              checkpoints: set[str]):
     """End indices of consecutive waves; a wave ends at a release tag once it is large enough."""
     cuts, start, boundary_count, orphan_cut = [], 0, 0, False
     for index, sha in enumerate(ordered):
-        if sha in boundaries:
+        if sha in boundaries and sha in checkpoints:
             boundary_count += 1
         span = index - start + 1
-        cut = sha in boundaries and (span >= max_commits or boundary_count >= max_tags)
-        if not cut and span > max_commits * 2:
+        cut = sha in checkpoints and sha in boundaries and (span >= max_commits or boundary_count >= max_tags)
+        if not cut and sha in checkpoints and span > max_commits * 2:
             cut, orphan_cut = True, True
         if cut or index == len(ordered) - 1:
             cuts.append(index)
             start, boundary_count = index + 1, 0
     return cuts, orphan_cut
+
+
+def checkpoint_order(commits: list[dict], base: str, target: str) -> tuple[list[dict], set[str]]:
+    """Keep merged branches with their first-parent checkpoint, so ranges tile."""
+    by_sha = {item["sha"]: item for item in commits}
+    descendants = set()
+    for item in commits:
+        if any(parent == base or parent in descendants for parent in item["parents"]):
+            descendants.add(item["sha"])
+    mainline, current = [], target
+    while current in by_sha:
+        mainline.append(current)
+        parents = by_sha[current]["parents"]
+        current = parents[0] if parents else ""
+    ordered, seen = [], set()
+    for checkpoint in reversed(mainline):
+        stack = [(checkpoint, False)]
+        while stack:
+            sha, expanded = stack.pop()
+            if sha not in by_sha or sha in seen:
+                continue
+            if expanded:
+                seen.add(sha)
+                ordered.append(by_sha[sha])
+            else:
+                stack.append((sha, True))
+                stack.extend((parent, False) for parent in reversed(by_sha[sha]["parents"]))
+    return ordered, set(mainline) & descendants
 
 
 def build_waves(repo, base: str, target: str, max_commits: int, max_tags: int, git, changes,
@@ -45,9 +74,10 @@ def build_waves(repo, base: str, target: str, max_commits: int, max_tags: int, g
         f"{base}..{target}").split("\0")]
     ordered = [{"sha": packed[i], "subject": packed[i + 1], "parents": packed[i + 2].split()}
                for i in range(0, len(packed) - 2, 3) if packed[i]]
+    ordered, checkpoints = checkpoint_order(ordered, base, target)
     shas = {item["sha"] for item in ordered}
     tags = tags_in(repo, git, shas)
-    cuts, orphan_cut = plan_cuts([item["sha"] for item in ordered], set(tags), max_commits, max_tags)
+    cuts, orphan_cut = plan_cuts([item["sha"] for item in ordered], set(tags), max_commits, max_tags, checkpoints)
     warnings = [
         "Waves are planning aids: they do not fetch, apply, record or verify anything.",
         "Cut points prefer release tag boundaries so a wave can be reported as one upstream checkpoint.",

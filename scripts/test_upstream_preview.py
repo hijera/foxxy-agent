@@ -239,6 +239,64 @@ class PreviewTests(GitRepoCase):
         self.assertEqual(row["status"], "clean")
         self.assertEqual(row["merged_mode"], "100755")
 
+    def test_preview_output_rejects_metadata_before_creating_bundle(self):
+        for name in ("HEAD", "new-report.json"):
+            with self.subTest(name=name):
+                output = self.root / ".git" / name
+                original = output.read_bytes() if output.exists() else None
+                bundle = self.root / ("bundle-" + name)
+                self.preview(self.base, self.base, "--output", str(output),
+                             "--bundle", str(bundle), expected=2)
+                self.assertFalse(bundle.exists())
+                if original is None:
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(output.read_bytes(), original)
+
+    def test_preview_rejects_private_and_common_metadata_in_linked_worktree(self):
+        linked = self.root / "linked"
+        self.git("worktree", "add", "--detach", str(linked), self.base)
+        private = Path(self.git("-C", str(linked), "rev-parse", "--absolute-git-dir").strip())
+        for directory in (private, self.root / ".git"):
+            for flag in ("--bundle", "--output"):
+                with self.subTest(directory=directory, flag=flag):
+                    output = directory / "forbidden-preview"
+                    self.run_script("--repo", str(linked), "preview", "--from", self.base,
+                                    "--to", self.base, flag, str(output), expected=2)
+                    self.assertFalse(output.exists())
+
+    def test_preview_reports_add_add_mode_conflict_without_candidate(self):
+        self.write("script.sh", "echo same\n")
+        self.git("add", "script.sh")
+        self.git("update-index", "--chmod=+x", "script.sh")
+        self.git("commit", "-qm", "upstream executable addition")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "--detach", self.base)
+        self.write("script.sh", "echo same\n")
+        self.commit("fork non-executable addition")
+        report = json.loads(self.preview(self.base, target, "--bundle", str(self.root / "modes")).stdout)
+        row = report["files"][0]
+        self.assertEqual(row["status"], "mode_conflict")
+        self.assertNotIn("merged", row["artifacts"])
+
+    def test_preview_reports_gitlinks_without_reading_commit_as_blob(self):
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{self.base},submodule")
+        self.git("commit", "-qm", "gitlink addition")
+        report = json.loads(self.preview(self.base, "HEAD", "--fork-base", self.base,
+                            "--bundle", str(self.root / "gitlinks")).stdout)
+        row = report["files"][0]
+        self.assertEqual(row["status"], "special_entry")
+        self.assertEqual(row["objects"]["theirs"]["kind"], "commit")
+        self.assertEqual(row["artifacts"], {})
+
+    def test_merge_rejects_inconsistent_conflict_exit_codes(self):
+        for code, output in ((0, b"<<<<<<< fork\n"), (1, b"clean\n")):
+            with self.subTest(code=code), patch("upstream_preview.subprocess.run") as run:
+                run.return_value.returncode = code
+                run.return_value.stdout = output
+                with self.assertRaisesRegex(ValueError, "inconsistent conflict"):
+                    merge_text(self.root, b"base", b"ours", b"theirs")
+
     def test_prepare_includes_preview_and_correct_module_imports(self):
         base, target = self.history("old\n", "github.com/EvilFreelancer/coddy-agent/internal/config\n", "old\n")
         tree = self.root / "worktrees" / "prepared"

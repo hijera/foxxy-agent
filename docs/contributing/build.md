@@ -506,8 +506,9 @@ inspected repository (or the absolute path supplied), containing `preview.json`,
 base/ours/theirs artifacts and a merged candidate when available. Unsupported
 content is saved as `.raw`; special entries are never materialized as links.
 Numbered artifact paths avoid interpreting repository filenames as output paths.
-Existing bundle paths, Git metadata destinations and upstream branding path
-collisions are rejected. A failed write reports the incomplete bundle's location
+Existing bundle or report paths, Git metadata destinations (for both `--bundle`
+and `--output`) and upstream branding path collisions are rejected before creating
+a bundle. A failed write reports the incomplete bundle's location
 and leaves it for inspection.
 
 Exit 0 means the preview completed, including when conflicts require review;
@@ -530,7 +531,9 @@ boundaries, so each wave can be reported as one checkpoint. A wave closes at a
 tag once it has reached `--max-commits` or covered `--max-tags`; a stretch
 without tags is cut past twice the commit budget and the report says so. The
 `to` of one wave is the `from` of the next, so the plan tiles the range exactly
-once.
+once. Cut points stay on the target's first-parent history, after the range base,
+and merged branch commits stay with their merge checkpoint. Side-branch tags do
+not split that group, so every reported range can be passed directly to `preview`.
 
 Each wave reports its tags, commit and merge counts, changed-file count,
 divergence registry entries it contacts and how many commits the ledger has not
@@ -568,13 +571,19 @@ dispositions into the working tree: `clean`, `add_clean`, `delete_clean` and
 `add_add_equal`. A rename is written to its destination path and the old fork
 path is removed. Nothing is staged, committed or pushed; `git status` shows the
 result for review, and `--dry-run` reports the same plan without touching the
-checkout.
+checkout. `--fork-base` must resolve to the current checkout's `HEAD`; use a
+separate worktree to apply against a different fork revision. Deletions and
+rename sources are removed before destinations are written, allowing clean
+file/directory transitions.
 
 Conflicted and structural rows are never written — not even with conflict
 markers. They stay in the report as `skipped` with their disposition, so they
 can be resolved by hand from the preview bundle. Paths with uncommitted local
-edits are skipped as `local_edits` rather than overwritten. Every applied row
-records the proposed executable mode.
+edits, including ignored files, are skipped as `local_edits` rather than
+overwritten. Redirected paths (symlinks or junctions) are skipped as `unsafe_path`.
+A skipped removal keeps its source as a blocker for dependent writes. The full
+plan is checked before any writes, and every applied row records the proposed
+executable mode. Report destinations are checked before modifying the checkout.
 
 Applying is still a mechanical step: review semantic values, compatibility
 aliases and provenance afterwards, and run `rebrand-check`, `verify` and the
