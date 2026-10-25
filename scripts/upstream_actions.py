@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 
 from upstream_ledger import load_ledger, validate_ledger
+from upstream_branding import CONTENT_REPLACEMENTS
+from upstream_preview import build_preview, write_bundle
 
 
 def raw_git(repo: Path, *args: str) -> bytes:
@@ -42,13 +44,13 @@ def adapt_patch(patch: bytes, replacements: dict) -> tuple[bytes, list[str]]:
             if not binary and line.startswith(b"index "):
                 continue
             if not payload or (utf8 and not binary):
-                for source, replacement in replacements.items():
+                for source, replacement in (CONTENT_REPLACEMENTS if payload else replacements).items():
                     line = line.replace(source.encode("ascii"), replacement.encode("ascii"))
             output.append(line)
     return b"".join(output), warnings
 
 
-def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements, fork_path) -> dict:
+def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements, fork_path, changes) -> dict:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", args.wave):
         raise ValueError("--wave must be a lowercase alphanumeric/hyphen name, at most 64 characters")
     branch = "codex/upstream-" + args.wave
@@ -86,12 +88,15 @@ def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements
                                       "Only the committed fork base is checked out; source worktree edits are not copied."]}
     if args.dry_run:
         return result
+    preview, artifacts = build_preview(repo, report["base"], report["target"], fork_base, git, changes, fork_path)
     git(repo, "worktree", "add", "-b", branch, "--", str(worktree), fork_base)
     try:
         git_dir = Path(git(worktree, "rev-parse", "--absolute-git-dir").strip())
         bundle = git_dir / "upstream-port"
         bundle.mkdir()
         result["bundle"] = str(bundle)
+        write_bundle(bundle / "preview", preview, artifacts)
+        result["preview"] = {"bundle": str(bundle / "preview"), "counts": preview["counts"], "conflicts": preview["conflicts"]}
         (bundle / "original.patch").write_bytes(original)
         (bundle / "adapted.patch").write_bytes(adapted)
         (bundle / "scan.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

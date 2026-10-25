@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan, prepare and record upstream ports; Python 3.10+, Git and PyYAML."""
+"""Plan, preview, prepare and record upstream ports; Python 3.10+, Git and PyYAML."""
 
 from __future__ import annotations
 
@@ -13,18 +13,12 @@ import sys
 from upstream_ledger import OPEN_STATUSES, load_ledger
 from upstream_ledger import STATUSES
 from upstream_actions import prepare, record
+from upstream_branding import BRAND_REPLACEMENTS, MODULE_REPLACEMENTS, REPOSITORY_REPLACEMENTS, fork_path
+from upstream_preview import build_preview, bundle_path, preview_markdown, write_bundle
 
 
 REGISTRY = ".cursor/rules/upstream-divergences.mdc"
 MARKER = re.compile(r"//[^\n]*?fork\(([a-z0-9-]+)\)")
-BRAND_REPLACEMENTS = {"coddy": "foxxycode", "Coddy": "FoxxyCode", "CODDY": "FOXXYCODE"}
-
-
-def fork_path(path: str) -> str:
-    """Map product branding in directory and file names to the fork spelling."""
-    for source, replacement in BRAND_REPLACEMENTS.items():
-        path = path.replace(source, replacement)
-    return path
 
 
 class PortError(Exception):
@@ -224,13 +218,16 @@ def build_report(repo: Path, args: argparse.Namespace) -> dict:
             "target": target, "fork_head": fork_ref or resolve(repo, "HEAD"), "commits": commits,
             "ledger": ledger, "pending_commits": pending, "backlog": backlog,
             "files": ordered_files, "fork_files": fork_files, "path_mappings": mappings,
-            "branding": {"replacements": BRAND_REPLACEMENTS, "scope": "code and paths"},
+            "branding": {"replacements": BRAND_REPLACEMENTS, "scope": "code and paths",
+                         "module_replacements": MODULE_REPLACEMENTS, "repository_replacements": REPOSITORY_REPLACEMENTS},
             "divergences": divergences,
             "obligations": obligations(review_files), "warnings": warnings,
             "tests_executed": False}
 
 
 def markdown(report: dict) -> str:
+    if report["command"] == "preview":
+        return preview_markdown(report)
     if report["command"] in {"prepare", "record"}:
         return "```json\n" + json.dumps(report, ensure_ascii=False, indent=2) + "\n```\n"
     if report["command"] == "ledger-check":
@@ -256,6 +253,9 @@ def markdown(report: dict) -> str:
                   "Apply when porting: " + ", ".join(f"`{old}` -> `{new}`" for old, new in report["branding"]["replacements"].items()), ""])
     for item in report["path_mappings"]:
         lines.append(f"- {json.dumps(item['upstream'], ensure_ascii=False)} -> {json.dumps(item['fork'], ensure_ascii=False)}")
+    lines.extend(["", "Content owner mappings (preview and prepared UTF-8 hunks):", ""])
+    for mapping in (report["branding"]["module_replacements"], report["branding"]["repository_replacements"]):
+        lines.extend(f"- `{source}` -> `{destination}`" for source, destination in mapping.items())
     lines.extend(["", "## Divergences to review", ""])
     if not report["divergences"]:
         lines.append("No direct match. This does not prove behavioral equivalence.")
@@ -275,6 +275,11 @@ def main() -> int:
     scan = commands.add_parser("scan", help="Inventory an explicit upstream range without fetching or applying it")
     scan.add_argument("--from", dest="from_ref", required=True)
     scan.add_argument("--to", default="upstream/main")
+    preview = commands.add_parser("preview", help="Preview normalized three-way merges of committed blobs; never applies results")
+    preview.add_argument("--from", dest="from_ref", required=True)
+    preview.add_argument("--to", default="upstream/main")
+    preview.add_argument("--fork-base", default="HEAD")
+    preview.add_argument("--bundle", type=Path, help="Save inputs, merged candidates and reports in a new directory")
     check = commands.add_parser("check", help="Plan review and checks for changes since a fork base; does not run tests")
     check.add_argument("--base", required=True)
     ledger_check = commands.add_parser("ledger-check", help="Validate ledger structure without fetching or verifying commits")
@@ -282,6 +287,8 @@ def main() -> int:
         command.add_argument("--ledger", type=Path, help="Ledger path relative to the inspected repository (default: ports.yaml)")
         command.add_argument("--format", choices=("markdown", "json"), default="markdown")
         command.add_argument("--output", type=Path, help="Create a UTF-8 report; refuse to overwrite an existing file")
+    preview.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    preview.add_argument("--output", type=Path, help="Create a UTF-8 report; refuse to overwrite an existing file")
     prep = commands.add_parser("prepare", help="Create a new worktree and save original/adapted review patches; never applies them")
     prep.add_argument("--wave", required=True)
     prep.add_argument("--from", dest="from_ref", required=True)
@@ -302,8 +309,21 @@ def main() -> int:
     args = parser.parse_args()
     try:
         repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").strip()).resolve()
-        if args.command == "prepare":
-            report = prepare(repo, args, git, resolve, build_report, markdown, BRAND_REPLACEMENTS, fork_path)
+        if args.command == "preview":
+            base, target, fork = (resolve(repo, ref) for ref in (args.from_ref, args.to, args.fork_base))
+            try:
+                git(repo, "merge-base", "--is-ancestor", base, target)
+            except PortError as exc:
+                raise PortError("--from must be an ancestor of --to; choose an explicit upstream range.") from exc
+            destination = bundle_path(repo, args.bundle, git) if args.bundle else None
+            report, artifacts = build_preview(repo, base, target, fork, git, changes, fork_path)
+            if destination:
+                write_bundle(destination, report, artifacts)
+            else:
+                for row in report["files"]:
+                    row.pop("artifacts")
+        elif args.command == "prepare":
+            report = prepare(repo, args, git, resolve, build_report, markdown, BRAND_REPLACEMENTS, fork_path, changes)
         elif args.command == "record":
             report = record(repo, args, git, resolve)
         else:
@@ -323,4 +343,5 @@ def main() -> int:
 if __name__ == "__main__":
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     raise SystemExit(main())

@@ -1,0 +1,29 @@
+"""Ordered mechanical mappings, shared by patch and blob previews."""
+
+BRAND_REPLACEMENTS = {"coddy": "foxxycode", "Coddy": "FoxxyCode", "CODDY": "FOXXYCODE"}
+MODULE_REPLACEMENTS = {
+    "github.com/EvilFreelancer/coddy-agent": "github.com/hijera/foxxycode-agent",
+    "github.com/coddy-project/coddy-agent": "github.com/hijera/foxxycode-agent",
+}
+# URLs name the repository, which differs from its historical Go module name.
+REPOSITORY_REPLACEMENTS = {
+    f"{scheme}://github.com/{owner}/coddy-agent": f"{scheme}://github.com/hijera/foxxy-agent"
+    for scheme in ("https", "http") for owner in ("EvilFreelancer", "coddy-project")
+}
+CONTENT_REPLACEMENTS = {**REPOSITORY_REPLACEMENTS, **MODULE_REPLACEMENTS, **BRAND_REPLACEMENTS}
+
+
+def fork_path(path: str) -> str:
+    """Map only product tokens in paths; module owners are content mappings."""
+    for source, replacement in BRAND_REPLACEMENTS.items():
+        path = path.replace(source, replacement)
+    return path
+
+
+def normalize(data: bytes, upstream: bool) -> bytes:
+    """Normalize UTF-8 Git blobs; never guess or replace undecodable bytes."""
+    text = data.decode("utf-8").replace("\r\n", "\n")
+    if upstream:
+        for source, replacement in CONTENT_REPLACEMENTS.items():
+            text = text.replace(source, replacement)
+    return text.encode("utf-8")

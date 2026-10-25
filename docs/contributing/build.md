@@ -338,12 +338,14 @@ root; use `--repo <checkout>` before the subcommand to inspect another checkout.
 
 ```bash
 python scripts/upstream.py scan --from <upstream-base-sha> --to <upstream-target-sha>
+python scripts/upstream.py preview --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD
 python scripts/upstream.py check --base <fork-base-sha>
 python scripts/upstream.py ledger-check
 ```
 
 Fetch upstream explicitly before scanning a remote ref. `scan`, `check` and
-`ledger-check` are read-only apart from an optional output report. The helper
+`ledger-check` are read-only apart from an optional output report. `preview`
+can also write an explicitly requested artifact bundle. The helper
 never fetches, applies patches, commits, pushes or runs tests. `scan`
 requires an explicit ancestor range and records full commit IDs. Its candidate
 list includes merge commits (first-parent diffs), so related entries can overlap.
@@ -417,6 +419,58 @@ and record structure only: it does not fetch or verify commit existence,
 ancestry, or behavior. Edit the ledger after verifying the port, then run the
 validator. The helper never advances a synchronization checkpoint automatically.
 
+### Preview normalized three-way merges
+
+```bash
+python scripts/upstream.py preview --from 1.2.18 --to 1.3.0 --fork-base HEAD --bundle port-preview
+```
+
+`preview` compares the net upstream range against a committed fork revision
+without creating a branch or worktree, applying results, or updating the ledger.
+Fetch the refs explicitly first; the base must be an ancestor of the target.
+All three refs are pinned to full commit IDs in the report. Uncommitted changes
+are excluded even when `--fork-base` is `HEAD`.
+
+The trial maps upstream path branding, normalizes UTF-8 text from CRLF to LF,
+and mechanically rebrands the upstream base and target. Existing fork text
+receives only line-ending normalization, so fork compatibility values such as
+`engine: coddy` are not rewritten merely because they occur in ours. Content
+mappings distinguish the Go module
+`github.com/hijera/foxxycode-agent` from repository URLs pointing to
+`https://github.com/hijera/foxxy-agent`, for both upstream owners
+`EvilFreelancer` and `coddy-project`. These mappings also appear in scan/check
+JSON and apply to UTF-8 hunk contents in `prepare`'s adapted patch. Other owners,
+raw/download URLs, semantic values, aliases and provenance still need review.
+
+Git's `merge-file --diff3` merges regular text blobs using the explicit upstream
+base. The Markdown and JSON reports distinguish clean merges, text conflicts,
+clean additions/deletions, add/add conflicts, modify/delete conflicts, rename
+destination collisions, binary files, non-UTF-8 content, and special Git entries
+such as symlinks and submodules. Renames use Git's similarity detection; both
+paths, input object IDs and modes are retained. The proposed executable mode is
+recorded for merged candidates. An upstream rename whose old and destination
+paths both exist in the fork requires manual review. No external decoder is
+used for Git blobs; undecodable content is retained as raw bytes.
+
+Without `--bundle`, the command writes only its report to stdout or an exclusive
+`--output` file. With `--bundle`, it creates a new directory relative to the
+inspected repository (or the absolute path supplied), containing `preview.json`,
+`preview.md` and numbered `files/` directories. Each row names its normalized
+base/ours/theirs artifacts and a merged candidate when available. Unsupported
+content is saved as `.raw`; special entries are never materialized as links.
+Numbered artifact paths avoid interpreting repository filenames as output paths.
+Existing bundle paths, Git metadata destinations and upstream branding path
+collisions are rejected. A failed write reports the incomplete bundle's location
+and leaves it for inspection.
+
+Exit 0 means the preview completed, including when conflicts require review;
+Git, input or output errors return 2. Conflict counts measure textual overlap,
+not porting effort or semantic correctness. The net range includes previously
+recorded ports; review the ledger and the scan's divergence/guard report before
+using any candidate. Do not apply both merge-commit patches and their overlapping
+constituent patches. The preview does not fetch, run tests, advance a checkpoint,
+or prove that a fork policy survived.
+
 ### Prepare a worktree and patches
 
 ```bash
@@ -431,12 +485,16 @@ creation. The source checkout can be dirty: only the committed `--fork-base`
 
 The returned `bundle` path is inside the new worktree's private Git directory,
 so reports do not appear as source changes. It contains `original.patch`,
-`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs.
+`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs,
+plus a `preview/` directory with the three-way inputs, candidates and reports
+described above. The manifest includes preview disposition and conflict counts.
+`--dry-run` does not compute or write the three-way trial.
 The patches describe the net upstream range, including recorded ports; choose
 the needed hunks after reviewing partial/completed entries. The adapted patch
 mechanically rebrands paths and UTF-8 text, leaving binary and non-UTF-8 payloads
 unchanged with warnings. It is a review candidate, not a semantic port: correct
-compatibility values, provenance and repository owners before applying it.
+compatibility values, provenance and any repository addresses outside the explicit
+owner mappings before applying it.
 
 Run `git apply --check <bundle>/adapted.patch` in the new worktree after review.
 Adapted text patches omit obsolete blob IDs and must not use `--3way`. Neither
@@ -479,6 +537,9 @@ offline integration suite with:
 ```bash
 python -m unittest discover -s scripts -p "test_upstream*.py"
 ```
+
+The [Upstream helper workflow](../../.github/workflows/upstream-helper.yaml) runs
+this suite on Linux and Windows with Python 3.10 when helper sources change.
 
 Prompt-cache regressions run separately with `make test-cache`; context and timing benchmarks run with `make test-perf`.
 
