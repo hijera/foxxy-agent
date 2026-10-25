@@ -76,10 +76,12 @@ class OverlapTests(GitRepoCase):
         self.write("script.sh", "coddy echo\n")
         self.commit("base script")
         base = self.git("rev-parse", "HEAD").strip()
+        # `update-index --chmod=+x` changes only the index, so the working tree
+        # stays non-executable and an ordinary checkout refuses to move away.
         self.git("update-index", "--chmod=+x", "script.sh")
-        self.commit("upstream executable")
+        self.git("commit", "-qm", "upstream executable")
         target = self.git("rev-parse", "HEAD").strip()
-        self.git("checkout", "-q", "--detach", base)
+        self.git("checkout", "-q", "-f", "--detach", base)
         self.write("script.sh", "foxxycode echo\n")
         self.commit("fork rebranded content")
         report = json.loads(self.overlap(base, target).stdout)
