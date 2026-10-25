@@ -1,30 +1,44 @@
 /** Expand fork-owned CSS at its original cascade position before theme transforms. */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultDirectory = path.join(moduleDirectory, "src", "styles", "fork");
-const features = new Set([
-  "svn",
-  "onboarding",
-  "provider-transfer",
-  "ide-embed",
-]);
+
+/**
+ * A marker is `foxxycode:styles` plus exactly one token: the feature name whose
+ * `<name>.css` the directory holds. A longer comment is documentation prose (a
+ * porting note may name the mechanism) and stays in the composed stylesheet, so
+ * only a single token after the reserved prefix is ever treated as a marker.
+ */
+const marker = /^foxxycode:styles\s+(\S+)\s*$/;
+
+/** Feature name (lowercased, without .css) to the file the directory actually holds. */
+function featureFiles(directory) {
+  const files = new Map();
+  for (const entry of readdirSync(directory)) {
+    if (!entry.endsWith(".css")) continue;
+    files.set(entry.slice(0, -".css".length).toLowerCase(), entry);
+  }
+  return files;
+}
 
 export function expandForkStyles(
   root,
   { directory = defaultDirectory, result } = {},
 ) {
+  const features = featureFiles(directory);
   root.walkComments((comment) => {
-    if (!comment.text.startsWith("foxxycode:styles")) return;
-    const name = comment.text.match(/^foxxycode:styles ([a-z-]+)$/)?.[1];
-    if (!features.has(name))
-      throw comment.error(`Unknown fork stylesheet: ${comment.text}`);
+    const name = comment.text.match(marker)?.[1]?.toLowerCase();
+    if (!name) return;
     if (comment.parent.type !== "root")
       throw comment.error("Fork stylesheet markers must be at the top level");
-    const file = path.join(directory, `${name}.css`);
+    const entry = features.get(name);
+    if (!entry)
+      throw comment.error(`Unknown fork stylesheet: ${comment.text}`);
+    const file = path.join(directory, entry);
     let source;
     try {
       source = readFileSync(file, "utf8");
@@ -35,9 +49,17 @@ export function expandForkStyles(
     }
     const feature = postcss.parse(source, { from: file });
     feature.walkComments((child) => {
-      if (child.text.startsWith("foxxycode:styles")) {
+      if (child.text.match(marker)) {
         throw child.error("Feature styles cannot include other feature styles");
       }
+    });
+    // The shipped stylesheet is one file: scripts-sync-to-go.mjs copies
+    // dist/styles.css alone, so an import a feature file left in the cascade
+    // would 404 in the embedded page and drop those styles silently.
+    feature.walkAtRules("import", (rule) => {
+      throw rule.error(
+        "Feature styles cannot use @import: the composed stylesheet carries no runtime imports",
+      );
     });
     result?.messages.push({
       type: "dependency",

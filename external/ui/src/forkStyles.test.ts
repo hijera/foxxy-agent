@@ -1,10 +1,18 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, test } from "vitest";
 import postcss from "postcss";
 // @ts-ignore -- shared build plugin is plain JavaScript.
-import forkStyles from "../postcss-fork-styles.mjs";
+import forkStyles, { readStyleSource } from "../postcss-fork-styles.mjs";
 // @ts-ignore -- shared Chromium 104 transform is plain JavaScript.
 import resolveColorMix from "../postcss-resolve-color-mix.mjs";
 
@@ -60,7 +68,7 @@ test("feature color mixes see all theme variables before the Chromium 104 transf
   expect(result.css).toMatch(/--cmix-[a-z0-9]+: rgba\(0, 0, 0, 0.5\)/);
 });
 
-test("unknown and missing feature styles fail the build instead of losing styling", async () => {
+test("unknown feature styles fail the build instead of losing styling", async () => {
   const dir = directory();
   await expect(
     postcss([forkStyles({ directory: dir })]).process(
@@ -68,6 +76,18 @@ test("unknown and missing feature styles fail the build instead of losing stylin
       { from: "styles.css" },
     ),
   ).rejects.toThrow(/Unknown fork stylesheet/);
+  // A name that looks right but has no file in the directory is just as lost.
+  await expect(
+    postcss([forkStyles({ directory: dir })]).process(
+      "/* foxxycode:styles svn */",
+      { from: "styles.css" },
+    ),
+  ).rejects.toThrow(/Unknown fork stylesheet/);
+});
+
+test("a feature file the directory lists but that cannot be read fails the build", async () => {
+  const dir = directory();
+  mkdirSync(join(dir, "svn.css"));
   await expect(
     postcss([forkStyles({ directory: dir })]).process(
       "/* foxxycode:styles svn */",
@@ -91,4 +111,72 @@ test("nested includes and includes inside media rules are rejected", async () =>
       { from: "styles.css" },
     ),
   ).rejects.toThrow(/top level/);
+});
+
+test("feature styles cannot pull in runtime imports", async () => {
+  const dir = directory();
+  writeFileSync(
+    join(dir, "svn.css"),
+    '@import "other.css";\n.x { color: red; }',
+  );
+  writeFileSync(join(dir, "other.css"), ".y { color: blue; }");
+  await expect(
+    postcss([forkStyles({ directory: dir })]).process(
+      "/* foxxycode:styles svn */",
+      { from: "styles.css" },
+    ),
+  ).rejects.toThrow(/@import/);
+});
+
+test("a comment that only mentions the mechanism stays documentation", async () => {
+  const dir = directory();
+  const note = "/* foxxycode:styles live in src/styles/fork/ */";
+  const result = await postcss([forkStyles({ directory: dir })]).process(
+    `${note}\n.card { color: black; }`,
+    { from: "styles.css" },
+  );
+  expect(result.css).toContain(note);
+  expect(result.css).toContain("color: black");
+});
+
+describe("the real stylesheet composition", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const forkDirectory = join(here, "styles", "fork");
+
+  /** Every feature file the directory holds, by feature name. */
+  const featureFiles = readdirSync(forkDirectory)
+    .filter((entry) => entry.endsWith(".css"))
+    .map((entry) => entry.slice(0, -".css".length))
+    .sort();
+
+  /** Marker names styles.css spells out, in source order. */
+  const markers = [
+    ...readFileSync(join(here, "styles.css"), "utf8").matchAll(
+      /\/\*\s*foxxycode:styles\s+(\S+)\s*\*\//g,
+    ),
+  ].map((match) => match[1]!.toLowerCase());
+
+  /**
+   * One rule only each feature owns. A feature file without an entry here would
+   * drop out of the pin below the moment it stops being pulled in.
+   */
+  const signatures: Record<string, string> = {
+    "ide-embed": '[data-embed="intellij"]',
+    onboarding: ".tour-overlay",
+    "provider-transfer": ".provider-import",
+    svn: ".svn-status-row",
+  };
+
+  test("every feature file has its marker in styles.css, and every marker its file", () => {
+    expect([...markers].sort()).toEqual(featureFiles);
+  });
+
+  test("every feature contributes the rule its surface renders with", () => {
+    expect(Object.keys(signatures).sort()).toEqual(featureFiles);
+    const composed = readStyleSource();
+    for (const [name, selector] of Object.entries(signatures)) {
+      expect(composed, `${name} styles are missing`).toContain(selector);
+    }
+    expect(composed).not.toMatch(/\/\*\s*foxxycode:styles\s+\S+\s*\*\//);
+  });
 });
