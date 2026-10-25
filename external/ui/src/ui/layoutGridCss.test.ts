@@ -11,6 +11,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+// @ts-ignore -- shared source composition is plain JavaScript.
+import { readStyleSource } from "../../postcss-fork-styles.mjs";
 
 import {
   PHONE_MAX_WIDTH_PX,
@@ -19,7 +21,7 @@ import {
 } from "./shellBreakpoint";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const css = readStyleSource().replace(/\/\*[\s\S]*?\*\//g, "");
 const design = readFileSync(join(dir, "../../../../DESIGN.md"), "utf8");
 
 type Query = { kind: "min" | "max"; px: number };

@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+// @ts-ignore -- shared source composition is plain JavaScript.
+import { readStyleSource } from "../../postcss-fork-styles.mjs";
 
 import { PHONE_MAX_WIDTH_PX } from "./shellBreakpoint";
 
@@ -9,7 +11,9 @@ import { PHONE_MAX_WIDTH_PX } from "./shellBreakpoint";
 // live check at 360-430px (docs/surfaces/web-ui.md, Phone layout) measures it.
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../styles.css"), "utf8");
+// The composed stylesheet, so a phone rule a styles/fork/ feature file owns -
+// the SVN cards narrow under the same query - is pinned here with the rest.
+const css: string = readStyleSource();
 const indexHtml = readFileSync(join(dir, "../index.html"), "utf8");
 
 type Block = { prelude: string; body: string; children: Block[] };

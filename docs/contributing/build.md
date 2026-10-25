@@ -93,6 +93,41 @@ go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
 
 The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
+## Fork-owned SPA styles
+
+The common stylesheet stays at `external/ui/src/styles.css`, matching the
+upstream path. FoxxyCode's SVN cards, provider onboarding and guided tour,
+provider import/export controls and IDE embed chrome live in
+`external/ui/src/styles/fork/`.
+
+A top-level comment such as `/* foxxycode:styles svn */` marks the original
+cascade position: `foxxycode:styles` plus exactly one name, the file
+`styles/fork/<name>.css`. `external/ui/postcss-fork-styles.mjs` expands that
+feature's CSS before `postcss-resolve-color-mix.mjs` runs. Keep the marker in
+place when porting upstream CSS; edit the feature file for fork-specific
+styling. Move its media queries and state rules together. A longer comment that
+only names the mechanism is documentation and stays in the composed stylesheet
+untouched. Feature files cannot include one another and cannot use `@import`.
+An unknown name, an unreadable file, a nested include and an `@import` all fail
+the build.
+
+The same composition runs in Vite development and production. Included files
+are registered as dependencies for hot reload. The browser receives one
+stylesheet with no include markers or runtime imports, and `scripts-sync-to-go.mjs`
+continues publishing the same embedded `styles.css`. All theme variables remain
+visible to the Chromium 104 color transform. CSS contract tests read the
+composed source through `readStyleSource()` from the same module — fork rules
+count for the phone layout and reduced-effects contracts like for any other —
+and `forkStyles.test.ts` pins that every file under `styles/fork/` has its
+marker in `styles.css`, every marker its file, and every feature the rules its
+surface renders with.
+
+For a mechanical extraction, compare the built CSS before and after the move:
+the bytes and SHA-256 must match. Run `make ui-test`, `npm run test:layout` in
+`external/ui`, the Chromium 104 compatibility guard and the browser checks for
+the affected surfaces. Capture before/after views in narrow/wide and dark/light
+layouts, then rebuild the binary as described above.
+
 ## Install on your PATH
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
