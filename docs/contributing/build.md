@@ -373,13 +373,21 @@ root; use `--repo <checkout>` before the subcommand to inspect another checkout.
 
 ```bash
 python scripts/upstream.py scan --from <upstream-base-sha> --to <upstream-target-sha>
+python scripts/upstream.py preview --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD
+python scripts/upstream.py wave --from <upstream-base-sha> --to <upstream-target-sha>
+python scripts/upstream.py overlap --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD
+python scripts/upstream.py apply --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD --dry-run
 python scripts/upstream.py check --base <fork-base-sha>
+python scripts/upstream.py rebrand-check --base <fork-base-sha>
+python scripts/upstream.py verify --base <fork-base-sha>
 python scripts/upstream.py ledger-check
 ```
 
-Fetch upstream explicitly before scanning a remote ref. `scan`, `check` and
-`ledger-check` are read-only apart from an optional output report. The helper
-never fetches, applies patches, commits, pushes or runs tests. `scan`
+Fetch upstream explicitly before scanning a remote ref. `scan`, `wave`,
+`overlap`, `check`, `rebrand-check`, `verify` and `ledger-check` are read-only
+apart from an optional output report. `preview` can also write an explicitly
+requested artifact bundle, `apply` writes the working tree, and `verify --run`
+executes `go test`. The helper never fetches, stages, commits or pushes. `scan`
 requires an explicit ancestor range and records full commit IDs. Its candidate
 list includes merge commits (first-parent diffs), so related entries can overlap.
 It retains paths touched by intermediate commits even if a later commit reverts
@@ -452,6 +460,184 @@ and record structure only: it does not fetch or verify commit existence,
 ancestry, or behavior. Edit the ledger after verifying the port, then run the
 validator. The helper never advances a synchronization checkpoint automatically.
 
+### Preview normalized three-way merges
+
+```bash
+python scripts/upstream.py preview --from 1.2.18 --to 1.3.0 --fork-base HEAD --bundle port-preview
+```
+
+`preview` compares the net upstream range against a committed fork revision
+without creating a branch or worktree, applying results, or updating the ledger.
+Fetch the refs explicitly first; the base must be an ancestor of the target.
+All three refs are pinned to full commit IDs in the report. Uncommitted changes
+are excluded even when `--fork-base` is `HEAD`.
+
+The trial maps upstream path branding, normalizes UTF-8 text from CRLF to LF,
+and mechanically rebrands the upstream base and target. Existing fork text
+receives only line-ending normalization, so fork compatibility values such as
+`engine: coddy` are not rewritten merely because they occur in ours. Content
+mappings distinguish the Go module
+`github.com/hijera/foxxycode-agent` from repository URLs pointing to
+`https://github.com/hijera/foxxy-agent`, for both upstream owners
+`EvilFreelancer` and `coddy-project`. These mappings also appear in scan/check
+JSON and apply to UTF-8 hunk contents in `prepare`'s adapted patch. Other owners,
+raw/download URLs, semantic values, aliases and provenance still need review.
+
+Git's `merge-file --diff3` merges regular text blobs using the explicit upstream
+base. The Markdown and JSON reports distinguish clean merges, text conflicts,
+clean additions/deletions, add/add conflicts, modify/delete conflicts, rename
+destination collisions, file/directory conflicts, binary files, non-UTF-8 content,
+and special Git entries such as symlinks and submodules. Renames use Git's similarity detection; both
+paths, input object IDs and modes are retained. The proposed executable mode is
+recorded for merged candidates. An upstream rename whose old and destination
+paths both exist in the fork requires manual review. No external decoder is
+used for Git blobs; undecodable content is retained as raw bytes.
+
+`path_conflict` rows name the fork files that block a destination in
+`blocking_paths` and have no merged candidate. Clean deletions and renames can
+make room for a file/directory transition; modified or blocked sources remain
+blockers. Branding mappings that turn an upstream file into the parent of
+another upstream file are rejected before any bundle or worktree is created.
+
+Without `--bundle`, the command writes only its report to stdout or an exclusive
+`--output` file. With `--bundle`, it creates a new directory relative to the
+inspected repository (or the absolute path supplied), containing `preview.json`,
+`preview.md` and numbered `files/` directories. Each row names its normalized
+base/ours/theirs artifacts and a merged candidate when available. Unsupported
+content is saved as `.raw`; special entries are never materialized as links.
+Numbered artifact paths avoid interpreting repository filenames as output paths.
+Existing bundle or report paths, Git metadata destinations (for both `--bundle`
+and `--output`) and upstream branding path collisions are rejected before creating
+a bundle. A failed write reports the incomplete bundle's location
+and leaves it for inspection.
+
+Exit 0 means the preview completed, including when conflicts require review;
+Git, input or output errors return 2. Conflict counts measure textual overlap,
+not porting effort or semantic correctness. The net range includes previously
+recorded ports; review the ledger and the scan's divergence/guard report before
+using any candidate. Do not apply both merge-commit patches and their overlapping
+constituent patches. The preview does not fetch, run tests, advance a checkpoint,
+or prove that a fork policy survived.
+
+### Plan waves
+
+```bash
+python scripts/upstream.py wave --from 1.2.27 --to 1.3.0 --max-commits 60 --max-tags 5
+```
+
+A range of several hundred commits is not reviewable as one net patch. `wave`
+cuts `--from..--to` into consecutive waves that end at upstream release tag
+boundaries, so each wave can be reported as one checkpoint. A wave closes at a
+tag once it has reached `--max-commits` or covered `--max-tags`; a stretch
+without tags is cut past twice the commit budget and the report says so. The
+`to` of one wave is the `from` of the next, so the plan tiles the range exactly
+once. Cut points stay on the target's first-parent history, after the range base,
+and merged branch commits stay with their merge checkpoint. Side-branch tags do
+not split that group, so every reported range can be passed directly to `preview`.
+
+Each wave reports its tags, commit and merge counts, changed-file count,
+divergence registry entries it contacts and how many commits the ledger has not
+reviewed yet. `pull_requests` groups `Merge pull request #N` commits with their
+constituent commits, which makes the overlap between a merge and its branch
+explicit: do not port both. The plan is a scheduling aid only; it does not
+fetch, apply, record or verify anything.
+
+### Compare against the fork
+
+```bash
+python scripts/upstream.py overlap --from 1.2.27 --to 1.3.0 --fork-base HEAD
+```
+
+`overlap` answers one question per changed file: does the fork already match
+the normalized upstream target? It compares content only, without merging, and
+reports `identical` (already ported), `mode_only`, `differs`, `absent` (no fork
+counterpart), `remains_in_fork` (upstream deleted, fork kept), `already_absent`,
+and the undecided `binary`, `non_utf8` and `special_entry` dispositions. Paths
+are mapped with the same branding rules as `preview`, and upstream text is
+rebranded while fork text is only normalized for line endings.
+
+`identical` means the bytes match after mechanical normalization, not that the
+port was reviewed. Use it to drop already absorbed files from the review list,
+not as evidence.
+
+### Apply clean merges
+
+```bash
+python scripts/upstream.py apply --from 1.2.27 --to 1.3.0 --fork-base HEAD --dry-run
+```
+
+`apply` runs the same three-way trial as `preview` and writes only the clean
+dispositions into the working tree: `clean`, `add_clean`, `delete_clean` and
+`add_add_equal`. A rename is written to its destination path and the old fork
+path is removed. Nothing is staged, committed or pushed; `git status` shows the
+result for review, and `--dry-run` reports the same plan without touching the
+checkout. `--fork-base` must resolve to the current checkout's `HEAD`; use a
+separate worktree to apply against a different fork revision. Deletions and
+rename sources are removed before destinations are written, allowing clean
+file/directory transitions.
+
+Conflicted and structural rows are never written — not even with conflict
+markers. They stay in the report as `skipped` with their disposition, so they
+can be resolved by hand from the preview bundle. Paths with uncommitted local
+edits, including ignored files, are skipped as `local_edits` rather than
+overwritten. Redirected paths (symlinks or junctions) are skipped as `unsafe_path`.
+A skipped removal keeps its source as a blocker for dependent writes. The full
+plan is checked before any writes, and every applied row records the proposed
+executable mode. Report destinations are checked before modifying the checkout.
+
+Applying is still a mechanical step: review semantic values, compatibility
+aliases and provenance afterwards, and run `rebrand-check`, `verify` and the
+regression gates before recording the port.
+
+### Gate leftover branding
+
+```bash
+python scripts/upstream.py rebrand-check --base <fork-base-sha>
+python scripts/upstream.py rebrand-check --all --strict
+python scripts/upstream.py rebrand-check <path>...
+```
+
+`rebrand-check` scans text for upstream branding. Scope is either explicit
+paths, `--base` (files changed since that fork revision, plus non-ignored
+untracked paths) or `--all` (every tracked file). Findings carry a kind and a
+severity:
+
+- **errors** — `path` (the path keeps a branding token), `link` (a URL) and
+  `reference` (an import path, module name or repository owner of the upstream
+  project). These break links, imports and paths, so they gate: the exit status
+  is 1 whenever any remains.
+- **notes** — bare mentions of the upstream name in copy, identifiers and
+  prose. The fork keeps these on purpose: the compatibility value
+  `engine: coddy`, the compaction engine, the hub client id and provenance
+  citations of upstream issues. They are listed for review and gate only with
+  `--strict`.
+
+Other projects of the same owners are not upstream branding; `EvilFreelancer`
+and the `rpa-skills` marketplace stay. Paths that must keep naming the upstream
+project are skipped entirely: the ledger and journal, the divergence registry
+under `.cursor/rules/` and `.claude/rules/`, the helper's own scripts, `docs/`,
+`README*` attribution and `CHANGELOG*` history. This is a mechanical gate only;
+semantic values and aliases still need review.
+
+### Plan guard tests
+
+```bash
+python scripts/upstream.py verify --base <fork-base-sha>
+python scripts/upstream.py verify --base <fork-base-sha> --run
+```
+
+`verify` turns the divergence review into an executable checklist: one
+`go test ./internal/forkguard -count=1` for registry integrity, plus one command
+per contacted divergence that runs its named guard tests in the packages of its
+registry sites. A divergence that names no guard tests gets its package suite
+instead. Without `--run` the report is a plan and `tests_executed` stays false.
+
+`--run` executes each command and classifies it as `passed`, `failed`,
+`no_tests` or `unavailable`; the exit status is 0 only when every command
+passed. A successful run that matched no tests is `no_tests`, which is not
+validation. The command does not fetch, and it never accepts a port on its own:
+run the full regression and the lint gates before recording.
+
 ### Prepare a worktree and patches
 
 ```bash
@@ -466,12 +652,16 @@ creation. The source checkout can be dirty: only the committed `--fork-base`
 
 The returned `bundle` path is inside the new worktree's private Git directory,
 so reports do not appear as source changes. It contains `original.patch`,
-`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs.
+`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs,
+plus a `preview/` directory with the three-way inputs, candidates and reports
+described above. The manifest includes preview disposition and conflict counts.
+`--dry-run` does not compute or write the three-way trial.
 The patches describe the net upstream range, including recorded ports; choose
 the needed hunks after reviewing partial/completed entries. The adapted patch
 mechanically rebrands paths and UTF-8 text, leaving binary and non-UTF-8 payloads
 unchanged with warnings. It is a review candidate, not a semantic port: correct
-compatibility values, provenance and repository owners before applying it.
+compatibility values, provenance and any repository addresses outside the explicit
+owner mappings before applying it.
 
 Run `git apply --check <bundle>/adapted.patch` in the new worktree after review.
 Adapted text patches omit obsolete blob IDs and must not use `--3way`. Neither
@@ -484,6 +674,7 @@ before removing the worktree.
 
 ```bash
 python scripts/upstream.py record --upstream-commit <source> --status adapted --fork-commit <result> --reason "Kept fork continuation behavior" --dry-run
+python scripts/upstream.py record --batch reviewed.json --dry-run
 ```
 
 Remove `--dry-run` to update the existing ledger. Refs are resolved to full SHAs;
@@ -492,6 +683,13 @@ Repeat `--fork-commit` for several result commits and `--remaining` for individu
 unfinished items. `--update` is required to replace a different existing record
 and supplies the entire replacement decision. An identical record is a no-op.
 Commit existence and ancestry do not prove semantic correctness.
+
+`--batch` takes a JSON array of the same entries (`upstream_sha`, `status`,
+`fork_commits`, `reason`, `remaining`) and records them in one atomic write,
+which is what a several-hundred-commit range needs. The batch is all-or-nothing:
+a malformed entry, a duplicate `upstream_sha`, or a decision that contradicts an
+existing record (without `--update`) rejects the whole file and leaves the ledger
+untouched.
 
 The ledger must be a regular file within the inspected repository. Recording
 uses an exclusive `<ledger>.lock`, a same-directory temporary file and atomic
@@ -514,6 +712,9 @@ offline integration suite with:
 ```bash
 python -m unittest discover -s scripts -p "test_upstream*.py"
 ```
+
+The [Upstream helper workflow](../../.github/workflows/upstream-helper.yaml) runs
+this suite on Linux and Windows with Python 3.10 when helper sources change.
 
 Prompt-cache regressions run separately with `make test-cache`; context and timing benchmarks run with `make test-perf`.
 

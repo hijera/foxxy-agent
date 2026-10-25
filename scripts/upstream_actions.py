@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 
 from upstream_ledger import load_ledger, validate_ledger
+from upstream_branding import CONTENT_REPLACEMENTS
+from upstream_preview import build_preview, check_mappings, tree, write_bundle
 
 
 def raw_git(repo: Path, *args: str) -> bytes:
@@ -42,13 +44,13 @@ def adapt_patch(patch: bytes, replacements: dict) -> tuple[bytes, list[str]]:
             if not binary and line.startswith(b"index "):
                 continue
             if not payload or (utf8 and not binary):
-                for source, replacement in replacements.items():
+                for source, replacement in (CONTENT_REPLACEMENTS if payload else replacements).items():
                     line = line.replace(source.encode("ascii"), replacement.encode("ascii"))
             output.append(line)
     return b"".join(output), warnings
 
 
-def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements, fork_path) -> dict:
+def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements, fork_path, changes) -> dict:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", args.wave):
         raise ValueError("--wave must be a lowercase alphanumeric/hyphen name, at most 64 characters")
     branch = "codex/upstream-" + args.wave
@@ -69,12 +71,7 @@ def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements
     report = build_report(repo, argparse.Namespace(command="scan", from_ref=args.from_ref,
                           to=args.to, ledger=args.ledger, fork_ref=fork_base))
     for rev in (report["base"], report["target"]):
-        mapped = {}
-        for path in filter(None, git(repo, "ls-tree", "-r", "--name-only", "-z", rev).split("\0")):
-            destination = fork_path(path)
-            if destination in mapped:
-                raise ValueError(f"Rebranding collision: {mapped[destination]} and {path} -> {destination}")
-            mapped[destination] = path
+        check_mappings(tree(repo, rev), fork_path)
     original = raw_git(repo, "diff", "--binary", "--full-index", "--no-renames", "--no-ext-diff",
                        "--no-textconv", report["base"], report["target"], "--")
     adapted, warnings = adapt_patch(original, replacements)
@@ -86,12 +83,15 @@ def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements
                                       "Only the committed fork base is checked out; source worktree edits are not copied."]}
     if args.dry_run:
         return result
+    preview, artifacts = build_preview(repo, report["base"], report["target"], fork_base, git, changes, fork_path)
     git(repo, "worktree", "add", "-b", branch, "--", str(worktree), fork_base)
     try:
         git_dir = Path(git(worktree, "rev-parse", "--absolute-git-dir").strip())
         bundle = git_dir / "upstream-port"
         bundle.mkdir()
         result["bundle"] = str(bundle)
+        write_bundle(bundle / "preview", preview, artifacts)
+        result["preview"] = {"bundle": str(bundle / "preview"), "counts": preview["counts"], "conflicts": preview["conflicts"]}
         (bundle / "original.patch").write_bytes(original)
         (bundle / "adapted.patch").write_bytes(adapted)
         (bundle / "scan.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -102,43 +102,46 @@ def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements
     return result
 
 
-def record(repo: Path, args, git, resolve) -> dict:
+def build_entry(repo: Path, upstream_commit, status, fork_commits, reason, remaining, git, resolve) -> dict:
+    entry = {"upstream_sha": resolve(repo, upstream_commit), "status": status,
+             "fork_commits": list(dict.fromkeys(resolve(repo, ref) for ref in fork_commits)),
+             "reason": reason, "remaining": list(remaining)}
+    head = resolve(repo, "HEAD")
+    for sha in entry["fork_commits"]:
+        git(repo, "merge-base", "--is-ancestor", sha, head)
+    return entry
+
+
+def merge_entries(document: dict, entries: list[dict], update: bool) -> list[dict]:
+    """Return the new ports list; mixed existing decisions are all-or-nothing."""
+    merged = list(document["ports"])
+    seen = set()
+    for entry in entries:
+        sha = entry["upstream_sha"]
+        if sha in seen:
+            raise ValueError(f"Duplicate upstream_sha in the batch: {sha}")
+        seen.add(sha)
+        existing = next((item for item in merged if item["upstream_sha"] == sha), None)
+        if existing is not None and existing != entry and not update:
+            raise ValueError("Entry already exists; use --update to replace the complete decision: " + sha)
+        merged = [entry if item is existing else item for item in merged]
+        if existing is None:
+            merged.append(entry)
+    return merged
+
+
+def write_ledger(path: Path, document: dict) -> None:
     try:
         import yaml
     except ImportError as exc:
         raise ValueError("record requires: python -m pip install -r scripts/requirements-upstream.txt") from exc
 
-    path = args.ledger or Path("ports.yaml")
-    if not path.is_absolute():
-        path = repo / path
-    if path.is_symlink() or not path.resolve().is_relative_to(repo):
-        raise ValueError("record requires a regular ledger inside the inspected repository")
-    entry = {"upstream_sha": resolve(repo, args.upstream_commit), "status": args.status,
-             "fork_commits": list(dict.fromkeys(resolve(repo, ref) for ref in args.fork_commit)),
-             "reason": args.reason, "remaining": args.remaining}
-    head = resolve(repo, "HEAD")
-    for sha in entry["fork_commits"]:
-        git(repo, "merge-base", "--is-ancestor", sha, head)
     lock = path.with_name(path.name + ".lock")
-    lock_fd = None
     temporary = None
+    lock_fd = None
     try:
-        if not args.dry_run:
-            lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         before = path.read_bytes()
-        ledger = load_ledger(path, required=True)
-        document = {key: value for key, value in ledger.items() if key not in {"path", "present"}}
-        existing = next((item for item in document["ports"] if item["upstream_sha"] == entry["upstream_sha"]), None)
-        if existing is not None and existing != entry and not args.update:
-            raise ValueError("Entry already exists; use --update to replace the complete decision")
-        document["ports"] = [entry if item is existing else item for item in document["ports"]]
-        if existing is None:
-            document["ports"].append(entry)
-        validate_ledger(document)
-        result = {"command": "record", "dry_run": args.dry_run, "ledger": str(path),
-                  "changed": existing != entry, "entry": entry}
-        if args.dry_run or existing == entry:
-            return result
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=path.parent,
                                          prefix=path.name + ".", suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
@@ -149,10 +152,73 @@ def record(repo: Path, args, git, resolve) -> dict:
             raise ValueError("Ledger changed during recording; retry after reviewing the other edit")
         os.replace(temporary, path)
         temporary = None
-        return result
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
         if lock_fd is not None:
             os.close(lock_fd)
             lock.unlink()
+
+
+def ledger_path(repo: Path, requested) -> Path:
+    path = requested or Path("ports.yaml")
+    if not path.is_absolute():
+        path = repo / path
+    if path.is_symlink() or not path.resolve().is_relative_to(repo):
+        raise ValueError("record requires a regular ledger inside the inspected repository")
+    return path
+
+
+def record(repo: Path, args, git, resolve) -> dict:
+    path = ledger_path(repo, args.ledger)
+    entry = build_entry(repo, args.upstream_commit, args.status, args.fork_commit,
+                        args.reason, args.remaining, git, resolve)
+    ledger = load_ledger(path, required=True)
+    document = {key: value for key, value in ledger.items() if key not in {"path", "present"}}
+    existing = next((item for item in document["ports"] if item["upstream_sha"] == entry["upstream_sha"]), None)
+    document["ports"] = merge_entries(document, [entry], args.update)
+    validate_ledger(document)
+    result = {"command": "record", "dry_run": args.dry_run, "ledger": str(path),
+              "changed": 0 if existing == entry else 1, "entries": [entry]}
+    if args.dry_run or existing == entry:
+        return result
+    write_ledger(path, document)
+    return result
+
+
+def record_batch(repo: Path, args, git, resolve) -> dict:
+    path = ledger_path(repo, args.ledger)
+    source = args.batch if args.batch.is_absolute() else repo / args.batch
+    try:
+        raw = json.loads(source.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"Cannot read batch file {source}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in batch file {source}: {exc}") from exc
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("Batch file must be a nonempty JSON array of ledger entries")
+    entries = []
+    for number, item in enumerate(raw, 1):
+        if not isinstance(item, dict) or set(item) != {"upstream_sha", "status", "fork_commits",
+                                                      "reason", "remaining"}:
+            raise ValueError(f"Batch entry {number} requires exactly:"
+                             " upstream_sha, status, fork_commits, reason, remaining")
+        for key in ("upstream_sha", "status", "reason"):
+            if not isinstance(item[key], str):
+                raise ValueError(f"Batch entry {number}: {key} must be a string")
+        for key in ("fork_commits", "remaining"):
+            if not isinstance(item[key], list) or any(not isinstance(value, str) for value in item[key]):
+                raise ValueError(f"Batch entry {number}: {key} must be an array of strings")
+        entries.append(build_entry(repo, item["upstream_sha"], item["status"], item["fork_commits"],
+                                   item["reason"], item["remaining"], git, resolve))
+    ledger = load_ledger(path, required=True)
+    document = {key: value for key, value in ledger.items() if key not in {"path", "present"}}
+    document["ports"] = merge_entries(document, entries, args.update)
+    validate_ledger(document)
+    changed = sum(1 for entry in entries if entry not in ledger["ports"])
+    result = {"command": "record", "dry_run": args.dry_run, "ledger": str(path),
+              "changed": changed, "entries": entries}
+    if args.dry_run:
+        return result
+    write_ledger(path, document)
+    return result

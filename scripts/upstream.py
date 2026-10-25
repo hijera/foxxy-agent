@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan, prepare and record upstream ports; Python 3.10+, Git and PyYAML."""
+"""Plan, preview, prepare and record upstream ports; Python 3.10+, Git and PyYAML."""
 
 from __future__ import annotations
 
@@ -12,19 +12,18 @@ import sys
 
 from upstream_ledger import OPEN_STATUSES, load_ledger
 from upstream_ledger import STATUSES
-from upstream_actions import prepare, record
+from upstream_actions import prepare, record, record_batch
+from upstream_apply import apply_markdown, apply_preview
+from upstream_branding import BRAND_REPLACEMENTS, MODULE_REPLACEMENTS, REPOSITORY_REPLACEMENTS, fork_path
+from upstream_overlap import build_overlap, overlap_markdown
+from upstream_preview import build_preview, bundle_path, preview_markdown, write_bundle
+from upstream_rebrand import build_report as build_rebrand, rebrand_markdown
+from upstream_verify import build_plan, run_plan, verify_markdown
+from upstream_wave import build_waves, wave_markdown
 
 
 REGISTRY = ".cursor/rules/upstream-divergences.mdc"
 MARKER = re.compile(r"//[^\n]*?fork\(([a-z0-9-]+)\)")
-BRAND_REPLACEMENTS = {"coddy": "foxxycode", "Coddy": "FoxxyCode", "CODDY": "FOXXYCODE"}
-
-
-def fork_path(path: str) -> str:
-    """Map product branding in directory and file names to the fork spelling."""
-    for source, replacement in BRAND_REPLACEMENTS.items():
-        path = path.replace(source, replacement)
-    return path
 
 
 class PortError(Exception):
@@ -59,6 +58,13 @@ def local_text(repo: Path, path: str) -> str:
     if not file.resolve().is_relative_to(repo) or not file.is_file():
         return ""
     return file.read_text(encoding="utf-8", errors="replace")
+
+
+def local_bytes(repo: Path, path: str) -> bytes | None:
+    file = repo / path
+    if not file.resolve().is_relative_to(repo) or not file.is_file():
+        return None
+    return file.read_bytes()
 
 
 def changes(repo: Path, *args: str) -> list[dict]:
@@ -224,13 +230,26 @@ def build_report(repo: Path, args: argparse.Namespace) -> dict:
             "target": target, "fork_head": fork_ref or resolve(repo, "HEAD"), "commits": commits,
             "ledger": ledger, "pending_commits": pending, "backlog": backlog,
             "files": ordered_files, "fork_files": fork_files, "path_mappings": mappings,
-            "branding": {"replacements": BRAND_REPLACEMENTS, "scope": "code and paths"},
+            "branding": {"replacements": BRAND_REPLACEMENTS, "scope": "code and paths",
+                         "module_replacements": MODULE_REPLACEMENTS, "repository_replacements": REPOSITORY_REPLACEMENTS},
             "divergences": divergences,
             "obligations": obligations(review_files), "warnings": warnings,
             "tests_executed": False}
 
 
 def markdown(report: dict) -> str:
+    if report["command"] == "preview":
+        return preview_markdown(report)
+    if report["command"] == "apply":
+        return apply_markdown(report)
+    if report["command"] == "overlap":
+        return overlap_markdown(report)
+    if report["command"] == "wave":
+        return wave_markdown(report)
+    if report["command"] == "rebrand-check":
+        return rebrand_markdown(report)
+    if report["command"] == "verify":
+        return verify_markdown(report)
     if report["command"] in {"prepare", "record"}:
         return "```json\n" + json.dumps(report, ensure_ascii=False, indent=2) + "\n```\n"
     if report["command"] == "ledger-check":
@@ -256,6 +275,9 @@ def markdown(report: dict) -> str:
                   "Apply when porting: " + ", ".join(f"`{old}` -> `{new}`" for old, new in report["branding"]["replacements"].items()), ""])
     for item in report["path_mappings"]:
         lines.append(f"- {json.dumps(item['upstream'], ensure_ascii=False)} -> {json.dumps(item['fork'], ensure_ascii=False)}")
+    lines.extend(["", "Content owner mappings (preview and prepared UTF-8 hunks):", ""])
+    for mapping in (report["branding"]["module_replacements"], report["branding"]["repository_replacements"]):
+        lines.extend(f"- `{source}` -> `{destination}`" for source, destination in mapping.items())
     lines.extend(["", "## Divergences to review", ""])
     if not report["divergences"]:
         lines.append("No direct match. This does not prove behavioral equivalence.")
@@ -275,37 +297,109 @@ def main() -> int:
     scan = commands.add_parser("scan", help="Inventory an explicit upstream range without fetching or applying it")
     scan.add_argument("--from", dest="from_ref", required=True)
     scan.add_argument("--to", default="upstream/main")
+    preview = commands.add_parser("preview", help="Preview normalized three-way merges of committed blobs; never applies results")
+    preview.add_argument("--from", dest="from_ref", required=True)
+    preview.add_argument("--to", default="upstream/main")
+    preview.add_argument("--fork-base", default="HEAD")
+    preview.add_argument("--bundle", type=Path, help="Save inputs, merged candidates and reports in a new directory")
+    apply_command = commands.add_parser("apply", help="Write clean preview dispositions into the working tree; never stages or commits")
+    apply_command.add_argument("--from", dest="from_ref", required=True)
+    apply_command.add_argument("--to", default="upstream/main")
+    apply_command.add_argument("--fork-base", default="HEAD")
+    apply_command.add_argument("--dry-run", action="store_true")
+    overlap = commands.add_parser("overlap", help="Report which net-range files already match the fork")
+    overlap.add_argument("--from", dest="from_ref", required=True)
+    overlap.add_argument("--to", default="upstream/main")
+    overlap.add_argument("--fork-base", default="HEAD")
+    wave = commands.add_parser("wave", help="Partition an upstream range into reviewable waves at release boundaries")
+    wave.add_argument("--from", dest="from_ref", required=True)
+    wave.add_argument("--to", default="upstream/main")
+    wave.add_argument("--max-commits", type=int, default=60, help="Cut at a release tag once a wave reaches this many commits")
+    wave.add_argument("--max-tags", type=int, default=5, help="Cut at a release tag once a wave covers this many tags")
+    rebrand = commands.add_parser("rebrand-check", help="Flag leftover upstream branding; exit 1 on structural errors")
+    rebrand.add_argument("--base", dest="from_ref", help="Scan the files changed since this fork revision")
+    rebrand.add_argument("--all", action="store_true", help="Scan every tracked file")
+    rebrand.add_argument("--strict", action="store_true", help="Also fail on notes, not only structural errors")
+    rebrand.add_argument("paths", nargs="*", help="Files or directories to scan")
+    verify = commands.add_parser("verify", help="Plan guard tests for a port review; --run executes them")
+    verify.add_argument("--base", required=True)
+    verify.add_argument("--run", action="store_true", help="Execute the planned go test commands")
     check = commands.add_parser("check", help="Plan review and checks for changes since a fork base; does not run tests")
     check.add_argument("--base", required=True)
     ledger_check = commands.add_parser("ledger-check", help="Validate ledger structure without fetching or verifying commits")
-    for command in (scan, check, ledger_check):
-        command.add_argument("--ledger", type=Path, help="Ledger path relative to the inspected repository (default: ports.yaml)")
+    for command in (scan, check, ledger_check, preview, apply_command, overlap, wave, rebrand, verify):
         command.add_argument("--format", choices=("markdown", "json"), default="markdown")
         command.add_argument("--output", type=Path, help="Create a UTF-8 report; refuse to overwrite an existing file")
+    for command in (scan, check, ledger_check):
+        command.add_argument("--ledger", type=Path, help="Ledger path relative to the inspected repository (default: ports.yaml)")
     prep = commands.add_parser("prepare", help="Create a new worktree and save original/adapted review patches; never applies them")
     prep.add_argument("--wave", required=True)
     prep.add_argument("--from", dest="from_ref", required=True)
     prep.add_argument("--to", default="upstream/main")
     prep.add_argument("--fork-base", default="HEAD")
     prep.add_argument("--worktree", type=Path, required=True)
-    rec = commands.add_parser("record", help="Atomically record one reviewed commit in an existing ledger")
-    rec.add_argument("--upstream-commit", required=True)
-    rec.add_argument("--status", choices=sorted(STATUSES), required=True)
+    rec = commands.add_parser("record", help="Atomically record reviewed commits in an existing ledger")
+    rec.add_argument("--batch", type=Path, help="JSON array of ledger entries to record in one atomic write")
+    rec.add_argument("--upstream-commit")
+    rec.add_argument("--status", choices=sorted(STATUSES))
     rec.add_argument("--fork-commit", action="append", default=[])
-    rec.add_argument("--reason", required=True)
+    rec.add_argument("--reason")
     rec.add_argument("--remaining", action="append", default=[])
-    rec.add_argument("--update", action="store_true", help="Replace an existing entry using all supplied fields")
+    rec.add_argument("--update", action="store_true", help="Replace existing entries using all supplied fields")
     for command in (prep, rec):
         command.add_argument("--ledger", type=Path)
         command.add_argument("--dry-run", action="store_true")
         command.add_argument("--format", choices=("markdown", "json"), default="markdown")
     args = parser.parse_args()
+    status = 0
     try:
         repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").strip()).resolve()
-        if args.command == "prepare":
-            report = prepare(repo, args, git, resolve, build_report, markdown, BRAND_REPLACEMENTS, fork_path)
+        if getattr(args, "output", None):
+            args.output = bundle_path(repo, args.output.absolute(), git, "Report")
+        if args.command in {"preview", "apply", "overlap"}:
+            base, target, fork = (resolve(repo, ref) for ref in (args.from_ref, args.to, args.fork_base))
+            try:
+                git(repo, "merge-base", "--is-ancestor", base, target)
+            except PortError as exc:
+                raise PortError("--from must be an ancestor of --to; choose an explicit upstream range.") from exc
+            if args.command == "apply":
+                report = apply_preview(repo, base, target, fork, git, changes, fork_path, dry_run=args.dry_run)
+            elif args.command == "overlap":
+                report = build_overlap(repo, base, target, fork, changes, fork_path)
+            else:
+                destination = bundle_path(repo, args.bundle, git) if args.bundle else None
+                report, artifacts = build_preview(repo, base, target, fork, git, changes, fork_path)
+                if destination:
+                    write_bundle(destination, report, artifacts)
+                else:
+                    for row in report["files"]:
+                        row.pop("artifacts")
+        elif args.command == "wave":
+            base, target = (resolve(repo, ref) for ref in (args.from_ref, args.to))
+            try:
+                git(repo, "merge-base", "--is-ancestor", base, target)
+            except PortError as exc:
+                raise PortError("--from must be an ancestor of --to; choose an explicit upstream range.") from exc
+            ledger = load_ledger(repo / "ports.yaml")
+            recorded = {entry["upstream_sha"]: entry for entry in ledger["ports"]}
+            report = build_waves(repo, base, target, args.max_commits, args.max_tags, git, changes,
+                                 paths_in, risks, recorded)
+        elif args.command == "rebrand-check":
+            report, status = rebrand_check(repo, args)
+        elif args.command == "verify":
+            report, status = verify_checks(repo, args)
+        elif args.command == "prepare":
+            report = prepare(repo, args, git, resolve, build_report, markdown, BRAND_REPLACEMENTS, fork_path, changes)
         elif args.command == "record":
-            report = record(repo, args, git, resolve)
+            if args.batch:
+                report = record_batch(repo, args, git, resolve)
+            else:
+                missing = [name for name, value in (("--upstream-commit", args.upstream_commit),
+                                                    ("--status", args.status), ("--reason", args.reason))
+                           if not value]
+                if missing:
+                    raise PortError("record needs --batch or " + ", ".join(missing))
+                report = record(repo, args, git, resolve)
         else:
             report = build_report(repo, args)
         content = json.dumps(report, ensure_ascii=False, indent=2) + "\n" if args.format == "json" else markdown(report)
@@ -314,13 +408,68 @@ def main() -> int:
                 stream.write(content)
         else:
             sys.stdout.write(content)
-        return 0
+        return status
     except (PortError, OSError, ValueError) as exc:
         print(f"upstream: {exc}", file=sys.stderr)
         return 2
 
 
+def rebrand_check(repo: Path, args) -> tuple[dict, int]:
+    paths = []
+    if args.paths:
+        for name in args.paths:
+            found = git(repo, "ls-files", "--", name).splitlines()
+            if not found:
+                raise PortError(f"No tracked files under {name!r}")
+            paths.extend(found)
+    elif args.from_ref:
+        base = resolve(repo, args.from_ref)
+        paths = sorted(paths_in(changes(repo, base)))
+        paths.extend(filter(None, git(repo, "ls-files", "--others", "--exclude-standard", "-z").split("\0")))
+    elif args.all:
+        paths = [path for path in git(repo, "ls-files", "-z").split("\0") if path]
+    else:
+        raise PortError("rebrand-check needs explicit paths, --base <rev> or --all")
+    warnings = [
+        "Structural errors are paths, URLs and import/module references that keep upstream branding.",
+        "Notes are bare mentions of the upstream name, including compatibility values such as"
+        " `engine: coddy`, the compaction engine and provenance citations; review them by hand.",
+        "Allowlisted paths keep naming the upstream project on purpose: the ledger, journal,"
+        " registry rules, helper scripts, docs, README attribution and changelogs.",
+        "Semantic values, aliases and repository owners outside the explicit mappings still need review.",
+    ]
+    report = build_rebrand(lambda path: local_bytes(repo, path), sorted(set(paths)),
+                           scope=args.all and "all tracked files" or
+                           (f"changes since {args.from_ref}" if args.from_ref else "explicit paths"),
+                           warnings=warnings)
+    failing = report["findings"] if args.strict else report["errors"]
+    return report, 1 if failing else 0
+
+
+def verify_checks(repo: Path, args) -> tuple[dict, int]:
+    base = resolve(repo, args.base)
+    files = paths_in(changes(repo, base))
+    files.update(filter(None, git(repo, "ls-files", "--others", "--exclude-standard", "-z").split("\0")))
+    matched, warnings = risks(repo, sorted(files | {fork_path(path) for path in files}), base, None, None)
+    plan = build_plan(matched)
+    report = {"schema_version": 1, "command": "verify", "base": base,
+              "divergences": [entry["id"] for entry in matched],
+              "commands": plan["commands"], "tests_executed": False,
+              "warnings": ["Planning only unless --run is given; the helper does not run tests by default.",
+                           "A successful go test that matched no tests is not validation; check no_tests results.",
+                           "Registry integrity is not behavior: run the full regression before accepting a port."]
+              + warnings}
+    if not args.run:
+        return report, 0
+    report["commands"] = run_plan(plan["commands"], repo)
+    report["tests_executed"] = True
+    report["result"] = "passed" if all(item["status"] == "passed" for item in report["commands"]) else "failed"
+    report["warnings"] = ["Executed commands report what actually ran; read the status of each command."]
+    return report, 0 if report["result"] == "passed" else 1
+
+
 if __name__ == "__main__":
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     raise SystemExit(main())

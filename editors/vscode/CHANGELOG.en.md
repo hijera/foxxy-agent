@@ -10,6 +10,11 @@
 
 ## Unreleased — 2026-10-25
 
+**Safer preparation of Coddy updates.**
+Maintainers can preview upstream changes against FoxxyCode, split the port into consecutive waves and apply changes that merge cleanly. The helper preserves local edits and ignored files, checks for leftover Coddy naming and runs guards for retained FoxxyCode behavior on explicit request. Reviewed porting decisions can be recorded in one batch.
+
+## 0.3.35 — 2026-10-25
+
 **Preparing the interface for Coddy updates.**
 Styles for SVN cards, onboarding, provider import and export, and the VS Code panel now live in separate files. This makes future Coddy ports easier while preserving the interface's appearance.
 
