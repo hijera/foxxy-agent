@@ -1,5 +1,6 @@
 """Normalized three-way trials over committed Git blobs, without applying results."""
 
+from bisect import bisect_left
 from collections import Counter
 import json
 from pathlib import Path
@@ -34,6 +35,53 @@ def check_mappings(entries: dict, fork_path) -> None:
         if destination in mapped:
             raise ValueError(f"Rebranding collision: {mapped[destination]} and {path} -> {destination}")
         mapped[destination] = path
+    for destination in mapped:
+        parts = destination.split("/")
+        for end in range(1, len(parts)):
+            parent = "/".join(parts[:end])
+            if parent in mapped:
+                raise ValueError(f"Rebranding collision: {mapped[parent]} and {mapped[destination]} "
+                                 f"-> file/directory overlap at {parent}")
+
+
+def path_blockers(path: str, entries: set[str], ordered: list[str]) -> list[str]:
+    parts = path.split("/")
+    blockers = [parent for end in range(1, len(parts))
+                if (parent := "/".join(parts[:end])) in entries]
+    prefix = path + "/"
+    index = bisect_left(ordered, prefix)
+    while index < len(ordered) and ordered[index].startswith(prefix):
+        blockers.append(ordered[index])
+        index += 1
+    return sorted(blockers)
+
+
+def classify_path_conflicts(rows: list[dict], ours: dict, artifacts: dict) -> None:
+    # A clean deletion or rename can make room for a file/directory transition.
+    # Reconsider removals when a rename is itself blocked: its source must remain.
+    while True:
+        removed = {row["ours_path"] for row in rows if row["status"] == "delete_clean" or
+                   (row["status"] in {"clean", "add_add_equal"} and
+                    row["ours_path"] != row["fork_path"])}
+        remaining = set(ours) - removed
+        ordered = sorted(remaining)
+        blocked = False
+        for row in rows:
+            if not row["objects"]["theirs"] or row["status"] == "path_conflict":
+                continue
+            blockers = path_blockers(row["fork_path"], remaining, ordered)
+            if not blockers:
+                continue
+            row["status"] = "path_conflict"
+            row["blocking_paths"] = blockers
+            row["conflicts"] = 0
+            row.pop("merged_mode", None)
+            candidate = row["artifacts"].pop("merged", None)
+            if candidate:
+                artifacts.pop(candidate)
+            blocked = True
+        if not blocked:
+            return
 
 
 def read_blobs(repo: Path, objects: list[dict]) -> dict[str, bytes]:
@@ -145,6 +193,7 @@ def build_preview(repo: Path, base: str, target: str, fork: str, git, changes, f
                     "add_add_equal" if b is None else "clean")
                 row["merged_mode"] = modes["theirs"] if modes["ours"] == modes["base"] else modes["ours"]
                 save("merged", merged, "txt")
+    classify_path_conflicts(rows, ours, artifacts)
     report = {"schema_version": 1, "command": "preview", "base": base, "target": target, "fork_head": fork,
               "normalization": {"line_endings": "CRLF to LF on all text inputs",
                                 "upstream_replacements": CONTENT_REPLACEMENTS,
@@ -173,6 +222,9 @@ def preview_markdown(report: dict) -> str:
                      f"{json.dumps(row['fork_path'], ensure_ascii=False)}: {row['status']} ({row['conflicts']} blocks)")
         if "old_path" in row:
             lines.append("  Renamed from: " + json.dumps(row["old_path"], ensure_ascii=False))
+        if row.get("blocking_paths"):
+            lines.append("  Blocked by: " + ", ".join(json.dumps(path, ensure_ascii=False)
+                                                    for path in row["blocking_paths"]))
     return "\n".join(lines) + "\n"
 
 
