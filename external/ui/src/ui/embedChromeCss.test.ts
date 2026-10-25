@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+// @ts-ignore -- shared source composition is plain JavaScript.
+import { readStyleSource } from "../../postcss-fork-styles.mjs";
 
 // Both editor hosts share the flat "native input field" chrome, but only the
 // JCEF panel (Chromium 104) needs the transcript-row containment opt-out, so
@@ -11,10 +10,9 @@ import { expect, test } from "vitest";
 // Electron webview down for nothing. (The panel's reduced animations and glass
 // are keyed on [data-effects], not on the host: reducedEffectsCss.test.ts.)
 
-const cssPath = join(dirname(fileURLToPath(import.meta.url)), "../styles.css");
 
 function ruleBlocks(): Array<{ selector: string; body: string }> {
-  const noComments = readFileSync(cssPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const noComments = readStyleSource().replace(/\/\*[\s\S]*?\*\//g, "");
   const out: Array<{ selector: string; body: string }> = [];
   for (const m of noComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     out.push({ selector: m[1]!.trim(), body: m[2]! });
