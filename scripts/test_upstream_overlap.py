@@ -76,8 +76,9 @@ class OverlapTests(GitRepoCase):
         self.write("script.sh", "coddy echo\n")
         self.commit("base script")
         base = self.git("rev-parse", "HEAD").strip()
+        # Do not let a later `git add .` reset the index mode from the working tree.
         self.git("update-index", "--chmod=+x", "script.sh")
-        self.commit("upstream executable")
+        self.git("commit", "-qm", "upstream executable")
         target = self.git("rev-parse", "HEAD").strip()
         self.git("checkout", "-q", "--detach", base)
         self.write("script.sh", "foxxycode echo\n")
