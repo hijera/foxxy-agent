@@ -23,6 +23,8 @@ func Family(providerType, modelID string) string {
 		return "gemma"
 	case strings.Contains(m, "qwen"):
 		return "qwen"
+	case strings.Contains(m, "kimi"):
+		return "kimi"
 	case strings.Contains(m, "claude") || p == "anthropic":
 		return "anthropic"
 	case isOpenAIModel(m) || p == "openai":
