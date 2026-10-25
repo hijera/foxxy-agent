@@ -6,6 +6,16 @@ Purpose: authoritative reference for the embedded SPA built from `external/ui/`.
 
 Store the design reference images under `docs/assets/` and link to the specific file when describing a pixel sensitive UI detail. Navbar parity with Cursor - style mockups lives in [`docs/assets/INDEX.md`](docs/assets/INDEX.md) (see Navbar section).
 
+## Stylesheet composition
+
+Keep the shared upstream stylesheet at `external/ui/src/styles.css`. Fork-owned
+SVN, onboarding/tour, provider-transfer and IDE embed rules live under
+`external/ui/src/styles/fork/`; `foxxycode:styles` comment markers retain their
+original cascade positions. Build-time expansion precedes theme color resolution
+and produces the same single embedded stylesheet. Extraction alone must preserve
+the built CSS byte for byte. See [Fork-owned SPA styles](docs/contributing/build.md#fork-owned-spa-styles)
+for the build and test contract.
+
 ## Foundations
 
 ### Color
