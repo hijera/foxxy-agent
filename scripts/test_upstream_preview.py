@@ -271,7 +271,8 @@ class PreviewTests(GitRepoCase):
         self.git("update-index", "--chmod=+x", "script.sh")
         self.git("commit", "-qm", "upstream executable addition")
         target = self.git("rev-parse", "HEAD").strip()
-        self.git("checkout", "-q", "--detach", self.base)
+        # The executable mode was changed only in the disposable index.
+        self.git("checkout", "-q", "-f", "--detach", self.base)
         self.write("script.sh", "echo same\n")
         self.commit("fork non-executable addition")
         report = json.loads(self.preview(self.base, target, "--bundle", str(self.root / "modes")).stdout)
