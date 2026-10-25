@@ -10,7 +10,7 @@ import tempfile
 
 from upstream_ledger import load_ledger, validate_ledger
 from upstream_branding import CONTENT_REPLACEMENTS
-from upstream_preview import build_preview, write_bundle
+from upstream_preview import build_preview, check_mappings, tree, write_bundle
 
 
 def raw_git(repo: Path, *args: str) -> bytes:
@@ -71,12 +71,7 @@ def prepare(repo: Path, args, git, resolve, build_report, markdown, replacements
     report = build_report(repo, argparse.Namespace(command="scan", from_ref=args.from_ref,
                           to=args.to, ledger=args.ledger, fork_ref=fork_base))
     for rev in (report["base"], report["target"]):
-        mapped = {}
-        for path in filter(None, git(repo, "ls-tree", "-r", "--name-only", "-z", rev).split("\0")):
-            destination = fork_path(path)
-            if destination in mapped:
-                raise ValueError(f"Rebranding collision: {mapped[destination]} and {path} -> {destination}")
-            mapped[destination] = path
+        check_mappings(tree(repo, rev), fork_path)
     original = raw_git(repo, "diff", "--binary", "--full-index", "--no-renames", "--no-ext-diff",
                        "--no-textconv", report["base"], report["target"], "--")
     adapted, warnings = adapt_patch(original, replacements)
