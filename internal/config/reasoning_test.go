@@ -32,6 +32,12 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 		{"neuraldeep/kimi-k2.6", []string{"low", "medium", "high"}},
 		{"moonshot/kimi-k2", []string{"low", "medium", "high"}},
 		{"moonshot/kimi-latest", []string{"low", "medium", "high"}},
+		// Vendor-namespace ids classify as kimi in prompts.Family and must offer
+		// the same levels there.
+		{"openai/moonshotai/Kimi-K2-Instruct", []string{"low", "medium", "high"}},
+		{"moonshot/moonshotai/kimi-k2.7-code", []string{"low", "medium", "high"}},
+		// moonshot-v1 has no thinking mode: family kimi, but no levels.
+		{"moonshot/moonshot-v1-128k", nil},
 		// Non-reasoning models: no levels.
 		{"openai/gpt-4o", nil},
 		{"openai/gpt-4o-mini", nil},

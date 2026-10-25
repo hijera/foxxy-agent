@@ -34,6 +34,8 @@ func TestFamily(t *testing.T) {
 		{"kimi k3.1 pro via neuraldeep", "neuraldeep", "kimi-k3.1-pro", "kimi"},
 		{"kimi via openai compatible API", "openai", "kimi-k2-0905-preview", "kimi"},
 		{"kimi model namespace and case", "openai", "  moonshotai/Kimi-K2-Instruct  ", "kimi"},
+		{"moonshot ids without kimi", "openai", "moonshot-v1-128k", "kimi"},
+		{"moonshot short ids", "openai", "moonshot-v1-8k", "kimi"},
 		{"neuraldeep local fallback", "neuraldeep", "some-local-model", "neuraldeep"},
 		{"case-insensitive", "", "Claude-Sonnet", "anthropic"},
 		{"empty is fallback", "", "", ""},

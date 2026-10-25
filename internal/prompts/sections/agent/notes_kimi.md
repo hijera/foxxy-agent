@@ -18,6 +18,11 @@
 - Prefer small, targeted edits. Do not reformat unrelated code or rewrite a whole file for a localized change.
 - Verify the delivered behavior with the most relevant available tests or commands. Report failed and unrun checks plainly; never fabricate file contents, command output, or test results.
 
+#### Language behavior
+
+- Think and reason in the language the user writes in. The system will inject a language directive based on UI locale — follow it.
+- Reply in the language the user is using; keep summaries brief.
+
 #### Communication
 
 - Keep preambles to the immediate next action and avoid narrating hidden reasoning or repeating the same status.

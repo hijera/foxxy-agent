@@ -6,8 +6,8 @@ import "strings"
 // slug used to select a provider-tuned system prompt file (agent.<family>.md).
 //
 // Model-id patterns take precedence over the provider type because open models
-// (qwen/gemma/gpt-oss) are frequently served through OpenAI-compatible or neuraldeep
-// endpoints, so the provider type alone would misclassify them.
+// (qwen/gemma/gpt-oss/kimi) are frequently served through OpenAI-compatible or
+// neuraldeep endpoints, so the provider type alone would misclassify them.
 //
 // Returns "" when no family matches; callers fall back to the shared base prompt.
 func Family(providerType, modelID string) string {
@@ -23,7 +23,9 @@ func Family(providerType, modelID string) string {
 		return "gemma"
 	case strings.Contains(m, "qwen"):
 		return "qwen"
-	case strings.Contains(m, "kimi"):
+	// "moonshot" covers the moonshot-v1-* ids Moonshot's OpenAI-compatible API
+	// serves and the moonshotai/ vendor namespace; must win over p == "openai".
+	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
 		return "kimi"
 	case strings.Contains(m, "claude") || p == "anthropic":
 		return "anthropic"

@@ -295,8 +295,8 @@ prompts:
   #                           API-model slug (local/gpt-oss-20b -> gpt-oss-20b)
   #   <mode>.<family>.md      per-family (anthropic, openai, gemini, gpt-oss, qwen,
   #                           gemma, kimi, neuraldeep); family defaults are built in.
-  #                           Kimi model IDs select the kimi family through both
-  #                           NeuralDeep and OpenAI-compatible providers
+  #                           Kimi and Moonshot model IDs select the kimi family through
+  #                           both NeuralDeep and OpenAI-compatible providers
   #   <mode>.md               shared fallback
   # Place custom variants in dir. Set enable: false to always use the shared prompt.
   per_provider:

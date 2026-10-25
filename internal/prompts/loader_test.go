@@ -644,13 +644,17 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
+// knownFamilies lists every prompt family with a notes_<family>.md fragment.
+// Shared by the family render tests below so a new family is added once and
+// covered by all of them; keep it in sync with prompts.Family.
+var knownFamilies = []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "neuraldeep"}
+
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
-	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "neuraldeep"}
 	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fam := range families {
+	for _, fam := range knownFamilies {
 		t.Run(fam, func(t *testing.T) {
 			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
@@ -675,29 +679,6 @@ func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 				t.Errorf("family %q prompt carries a wall clock reading", fam)
 			}
 		})
-	}
-}
-
-func TestEmbeddedKimiAgentVariant(t *testing.T) {
-	got, err := prompts.RenderForFamily("agent", "kimi", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
-		CWD:    "/home/user/project",
-		UTCNow: fixtureUTC,
-	})
-	if err != nil {
-		t.Fatalf("render Kimi agent prompt: %v", err)
-	}
-	for _, want := range []string{
-		"Model-family notes (Kimi)",
-		"Reading and searching (context is limited)",
-		"Background commands (`run_command` with `background: true`)",
-		"/home/user/project",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("Kimi agent prompt should contain %q", want)
-		}
-	}
-	if strings.Contains(got, fixtureUTC) {
-		t.Error("Kimi agent prompt must not carry a wall clock reading")
 	}
 }
 
@@ -796,8 +777,7 @@ func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
 	// "Background commands" sections. After the section-assembly refactor every
 	// family variant must render those shared sections, because they come from a
 	// single shared fragment.
-	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "neuraldeep"}
-	for _, fam := range families {
+	for _, fam := range knownFamilies {
 		t.Run(fam, func(t *testing.T) {
 			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",

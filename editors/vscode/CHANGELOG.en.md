@@ -8,7 +8,12 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-25
+## Unreleased — 2026-10-26
+
+**Guidance for Kimi models.**
+Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers.
+
+## 0.3.36 — 2026-10-25
 
 **Safer preparation of Coddy updates.**
 Maintainers can preview upstream changes against FoxxyCode, split the port into consecutive waves and apply changes that merge cleanly. The helper preserves local edits and ignored files, checks for leftover Coddy naming and runs guards for retained FoxxyCode behavior on explicit request. Reviewed porting decisions can be recorded in one batch.
