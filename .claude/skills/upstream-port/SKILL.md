@@ -24,6 +24,8 @@ full SHA so the wave does not change while work is in progress.
 
 ```bash
 python scripts/upstream.py scan --from <upstream-base-sha> --to <target-sha>
+python scripts/upstream.py wave --from <upstream-base-sha> --to <target-sha>
+python scripts/upstream.py overlap --from <upstream-base-sha> --to <target-sha> --fork-base HEAD
 ```
 
 `scan` inventories candidates, including merge commits, and annotates them from
@@ -31,6 +33,12 @@ python scripts/upstream.py scan --from <upstream-base-sha> --to <target-sha>
 unported. Cross-check the journal and fork history, especially partial and out-of-order
 ports such as `deferred-351`. A merge's first-parent diff can overlap the branch
 commits listed with it. Choose coherent changes, not every patch in the report.
+
+For a range of many releases, plan with `wave` before selecting anything: it
+cuts the range into waves ending at release tag boundaries, with commit, file,
+divergence and unreviewed counts per wave and PR merges grouped with their
+commits. `overlap` then drops the files the fork already matches, so the review
+list is only what actually differs.
 
 The script maps product branding in paths and checks both upstream and fork
 paths for markers and registry sites. Inspect other renames and mapping
@@ -56,6 +64,13 @@ Review binary/non-UTF-8 payloads separately; their contents are not rebranded.
 After manual review, use `git apply --check <bundle>/adapted.patch` in the new
 worktree before applying selected changes. Adapted text patches cannot use
 `--3way` because their upstream blob IDs no longer describe the rebranded text.
+
+Prefer `preview` and `apply` over hand-applying hunks. `preview` runs the
+normalized three-way merge and reports conflicts as divergence candidates;
+`apply` writes only its clean dispositions into the working tree, never staging
+or committing, and skips paths with uncommitted edits. Structural and conflicted
+rows stay manual. After the mechanical step, run `rebrand-check` and the
+divergence guard tests before recording.
 
 Follow `.cursor/rules/workflow.mdc` and the scoped rules for touched files.
 Keep substantive project rules there; this skill does not supersede them.
@@ -87,6 +102,8 @@ Keep substantive project rules there; this skill does not supersede them.
 
 ```bash
 python scripts/upstream.py check --base <fork-base-sha>
+python scripts/upstream.py rebrand-check --base <fork-base-sha>
+python scripts/upstream.py verify --base <fork-base-sha> --run
 python scripts/upstream.py ledger-check
 go test ./internal/forkguard -count=1
 ```
@@ -96,6 +113,10 @@ untracked paths and recovers registry sites/markers from the base revision.
 Run the identified behavioral guards in their owning packages with appropriate
 build tags; a successful Go invocation that runs zero matching tests is not
 validation. Registry integrity alone does not prove behavior survived.
+`verify` builds exactly those guard commands and, with `--run`, executes them
+and reports `passed`/`failed`/`no_tests`/`unavailable` per command.
+`rebrand-check` is the mechanical gate for leftover upstream branding; it
+exits 1 on any finding outside the allowlisted compatibility values.
 
 Complete the applicable workflow checks: HTTP/OpenAPI, configuration schema,
 CLI packaging, UI rebuild/i18n/screenshots, documentation, Windows and build-tag
@@ -111,7 +132,12 @@ exist. For example, from the checkout containing the helper:
 
 ```bash
 python scripts/upstream.py --repo <fork-worktree> record --upstream-commit <source> --status adapted --fork-commit <result> --reason "Adapted to fork behavior" --dry-run
+python scripts/upstream.py --repo <fork-worktree> record --batch reviewed.json --dry-run
 ```
+
+`--batch` takes a JSON array of the same entries and records them in one atomic
+write; a large range should be recorded that way rather than one invocation per
+commit. The batch is all-or-nothing against the existing ledger.
 
 Remove `--dry-run` to write the existing ledger. Repeat `--fork-commit` for
 multiple commits, and `--remaining` for unfinished items. Updating a different
