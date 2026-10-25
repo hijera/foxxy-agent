@@ -250,3 +250,128 @@ class PreviewTests(GitRepoCase):
         patch = (bundle / "adapted.patch").read_text()
         self.assertIn("github.com/hijera/foxxycode-agent/internal/config", patch)
         self.assertNotIn("github.com/EvilFreelancer/foxxycode-agent", patch)
+
+    def test_preview_reports_file_directory_conflicts_without_merge_candidates(self):
+        self.write("parent/child.txt", "upstream addition\n")
+        self.write("leaf.txt", "upstream file\n")
+        self.commit("upstream additions")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "--detach", self.base)
+        self.write("parent", "fork file blocks directory\n")
+        self.write("leaf.txt/child.txt", "fork child blocks file\n")
+        self.commit("fork blockers")
+        bundle = self.root / "structural"
+        report = json.loads(self.preview(self.base, target, "--bundle", str(bundle)).stdout)
+        rows = {row["path"]: row for row in report["files"]}
+        for name, blockers in (("parent/child.txt", ["parent"]),
+                               ("leaf.txt", ["leaf.txt/child.txt"])):
+            with self.subTest(path=name):
+                row = rows[name]
+                self.assertEqual(row["status"], "path_conflict")
+                self.assertEqual(row["blocking_paths"], blockers)
+                self.assertNotIn("merged", row["artifacts"])
+                self.assertNotIn("merged_mode", row)
+        self.assertEqual(report["counts"], {"path_conflict": 2})
+        self.assertIn('Blocked by: "parent"', (bundle / "preview.md").read_text())
+        expected = {bundle / "preview.json", bundle / "preview.md"}
+        expected.update(bundle / name for row in rows.values() for name in row["artifacts"].values())
+        self.assertEqual({path for path in bundle.rglob("*") if path.is_file()}, expected)
+
+    def test_preview_allows_clean_file_directory_transitions_but_keeps_modified_blockers(self):
+        self.write("entry", "original\n")
+        self.commit("upstream file")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("rm", "entry")
+        self.write("entry/child.txt", "different content\n")
+        self.commit("file becomes directory")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "--detach", base)
+        clean = json.loads(self.preview(base, target).stdout)
+        self.assertEqual(clean["counts"], {"add_clean": 1, "delete_clean": 1})
+        self.write("entry", "fork modification\n")
+        self.commit("modified blocker")
+        report = json.loads(self.preview(base, target).stdout)
+        self.assertEqual(report["counts"], {"delete_modify": 1, "path_conflict": 1})
+
+    def test_preview_rejects_branding_file_directory_collisions_before_writing(self):
+        self.write("coddy", "upstream file\n")
+        self.write("foxxycode/child.txt", "upstream child\n")
+        self.commit("branding prefix collision")
+        bundle = self.root / "not-created"
+        result = self.preview(self.base, "HEAD", "--bundle", str(bundle), expected=2)
+        self.assertIn("collision", result.stderr.lower())
+        self.assertFalse(bundle.exists())
+        worktree = self.root / "worktrees" / "not-created"
+        for flags in ((), ("--dry-run",)):
+            with self.subTest(flags=flags):
+                self.run_script("prepare", "--wave", "prefix", "--from", self.base, "--to", "HEAD",
+                                "--worktree", str(worktree), *flags, expected=2)
+                self.assertFalse(worktree.exists())
+                self.assertNotIn("codex/upstream-prefix", self.git("branch", "--list"))
+
+    def test_preview_allows_directory_to_file_transition_unless_fork_added_children(self):
+        self.write("entry/old.txt", "old child\n")
+        self.commit("upstream directory")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("rm", "entry/old.txt")
+        self.write("entry", "new parent file\n")
+        self.commit("directory becomes file")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "--detach", base)
+        clean = json.loads(self.preview(base, target).stdout)
+        self.assertEqual(clean["counts"], {"add_clean": 1, "delete_clean": 1})
+        self.write("entry/local.txt", "fork-only child\n")
+        self.commit("fork child")
+        report = json.loads(self.preview(base, target).stdout)
+        row = next(row for row in report["files"] if row["path"] == "entry")
+        self.assertEqual(row["status"], "path_conflict")
+        self.assertEqual(row["blocking_paths"], ["entry/local.txt"])
+
+    def test_preview_allows_rename_into_source_directory(self):
+        self.write("entry", "original\n")
+        self.commit("upstream file")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("mv", "entry", "temporary")
+        (self.root / "entry").mkdir()
+        self.git("mv", "temporary", "entry/child.txt")
+        self.commit("rename into directory")
+        target = self.git("rev-parse", "HEAD").strip()
+        report = json.loads(self.preview(base, target, "--fork-base", base).stdout)
+        row, = report["files"]
+        self.assertEqual(row["old_path"], "entry")
+        self.assertEqual(row["status"], "clean")
+
+    def test_preview_keeps_source_of_blocked_rename_as_a_blocker(self):
+        self.write("old", "original\n")
+        self.commit("upstream file")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("mv", "old", "new")
+        self.write("old/child.txt", "unrelated addition\n")
+        self.commit("rename and reuse source directory")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "--detach", base)
+        self.write("new/local.txt", "fork owns destination directory\n")
+        self.commit("fork blocker")
+        report = json.loads(self.preview(base, target).stdout)
+        rows = {row["path"]: row for row in report["files"]}
+        self.assertEqual(rows["new"]["status"], "path_conflict")
+        self.assertEqual(rows["new"]["blocking_paths"], ["new/local.txt"])
+        self.assertEqual(rows["old/child.txt"]["status"], "path_conflict")
+        self.assertEqual(rows["old/child.txt"]["blocking_paths"], ["old"])
+
+    def test_preview_refuses_common_and_private_metadata_from_linked_worktree(self):
+        worktree = self.root / "linked"
+        self.git("worktree", "add", "--detach", str(worktree), self.base)
+        common = self.root / ".git"
+        private = Path(self.git("-C", str(worktree), "rev-parse", "--absolute-git-dir").strip())
+        original_root = self.root
+        try:
+            self.root = worktree
+            for directory in (common, private):
+                with self.subTest(directory=directory):
+                    bundle = directory / "forbidden-preview"
+                    result = self.preview(self.base, self.base, "--bundle", str(bundle), expected=2)
+                    self.assertIn("Git metadata", result.stderr)
+                    self.assertFalse(bundle.exists())
+        finally:
+            self.root = original_root

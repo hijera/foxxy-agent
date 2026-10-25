@@ -486,12 +486,18 @@ raw/download URLs, semantic values, aliases and provenance still need review.
 Git's `merge-file --diff3` merges regular text blobs using the explicit upstream
 base. The Markdown and JSON reports distinguish clean merges, text conflicts,
 clean additions/deletions, add/add conflicts, modify/delete conflicts, rename
-destination collisions, binary files, non-UTF-8 content, and special Git entries
-such as symlinks and submodules. Renames use Git's similarity detection; both
+destination collisions, file/directory conflicts, binary files, non-UTF-8 content,
+and special Git entries such as symlinks and submodules. Renames use Git's similarity detection; both
 paths, input object IDs and modes are retained. The proposed executable mode is
 recorded for merged candidates. An upstream rename whose old and destination
 paths both exist in the fork requires manual review. No external decoder is
 used for Git blobs; undecodable content is retained as raw bytes.
+
+`path_conflict` rows name the fork files that block a destination in
+`blocking_paths` and have no merged candidate. Clean deletions and renames can
+make room for a file/directory transition; modified or blocked sources remain
+blockers. Branding mappings that turn an upstream file into the parent of
+another upstream file are rejected before any bundle or worktree is created.
 
 Without `--bundle`, the command writes only its report to stdout or an exclusive
 `--output` file. With `--bundle`, it creates a new directory relative to the
