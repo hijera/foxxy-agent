@@ -8,7 +8,12 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-23
+## Unreleased — 2026-10-25
+
+**Preparing the interface for Coddy updates.**
+Styles for SVN cards, onboarding, provider import and export, and the VS Code panel now live in separate files. This makes future Coddy ports easier while preserving the interface's appearance.
+
+## 0.3.34 — 2026-10-23
 
 **Attachments returned by the remote console.**
 Taking a queued message back with /queue drop restores the attachment contents together with its text, so sending it again keeps the files.
