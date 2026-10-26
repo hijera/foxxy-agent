@@ -7,7 +7,21 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-25
+## Unreleased — 2026-10-26
+
+**Images read directly from project files.**
+The agent can read a picture with the read tool and show a preview beneath its call. The picture stays with the chat, survives a restart and appears in exports that include tools.
+
+**Continuing background subagents.**
+Subagents and scheduled jobs have a separate connection recovery budget: five continuations with increasing pauses. A finished subagent can resume with its existing transcript.
+
+**Faster startup with MCP.**
+Servers connect concurrently in the background. The interface stays available, a prompt shows when it is waiting for tools, and an initialization timeout gets one retry.
+
+**HTTP headers, skill marketplaces and Codex models.**
+HTTP request settings can provide default headers. Adding a marketplace no longer installs all its skills: choose the plugin to install separately. The Codex catalog supplies available models and their context windows. Composer suggestions and the environment menu work more reliably in a narrow panel.
+
+## 0.3.36 — 2026-10-25
 
 **Safer preparation of Coddy updates.**
 Maintainers can preview upstream changes against FoxxyCode, split the port into consecutive waves and apply changes that merge cleanly. The helper preserves local edits and ignored files, checks for leftover Coddy naming and runs guards for retained FoxxyCode behavior on explicit request. Reviewed porting decisions can be recorded in one batch.

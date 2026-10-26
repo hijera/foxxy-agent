@@ -65,7 +65,7 @@ The `background_*` tools are registered only while `tools.background` is enabled
 
 ## Browser
 
-The interactive browser drives a real Chrome or Chromium through chromedp and hands screenshots back to the model ([Browser tool](../features/browser-tool.md)). The tools exist only in a model with `models[].multimodal: true` as a picture, up to 3.75 MB and 8000 pixels a side and only a file whole to its end, a GIF as its first frame, and the web UI and a Telegram chat show it too ([Images](../features/images.md)); any other binary built with the `browser` tag and are registered while `browser.enable` is on (`internal/tools/browser`); a session gets its own browser process, closed with the session or by `foxxycode_browser_close`.
+The interactive browser drives a real Chrome or Chromium through chromedp and hands screenshots back to the model ([Browser tool](../features/browser-tool.md)). The tools exist only in a binary built with the `browser` tag and are registered while `browser.enable` is on (`internal/tools/browser`); a session gets its own browser process, closed with the session or by `foxxycode_browser_close`.
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|

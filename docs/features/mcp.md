@@ -143,8 +143,9 @@ nothing. A session in the middle of a turn keeps its tools for that turn: a serv
 off or no longer trusted is closed when the turn ends, and one switched on starts when the
 session's next turn starts. Saving or deleting a server through the API or Settings reaches
 live sessions the same way, and a server whose declaration was edited is started again from
-the new one. A server that does not answer its handshake within 30 seconds does not hold
-anything up: it is left out and the session's next turn tries it again.
+the new one. A configured server that does not answer its handshake within 20 seconds is
+left out; an initialization timeout gets one retry on the next prompt
+([Server lifecycle](#mcp-server-lifecycle)).
 
 ## Management API and UI
 
