@@ -8,6 +8,16 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.35 — 2026-10-26
+
+Checkpoint: `419c6930450a0e3107021ad7ad0b858542d0245b` (tag `1.2.35`), following `24bf9b367767bb0a76193c4dac57ab03b0203365` (`1.2.27`). The range contains 66 commits. Implementation: `2710b9ea32549cb1ccd8279079434955916548a0`; `ports.yaml` records 60 adapted commits and six redundant integration merges.
+
+- Ported concurrent MCP startup/progress and one initialization-timeout retry, finished-subagent resume, HTTP default headers, Android/Termux builds and tmux recommendations, archive/marketplace plugin installation, read-image transport/UI/Telegram/export and Codex catalog/context-window fixes.
+- Owner decisions: preserve asynchronous MCP on every surface; separate background continuation budget 5 with 5/20/80/120/120-second pauses; no max_turns spending, ordinary memory budget and shared llm_continue switch. Recapture changed surfaces only.
+- Preserved trust gates, shared text encoding, browser screenshots, localization, command pagination, both compaction engines and the fork's document export engine. Fixed obsolete MCP declaration publication and retained export attachments after moving a session bundle.
+- Validation: full Go tag suite; all 2,976 SPA tests; make lint, lint-windows, check-windows, test-cache and docs-check; real Chromium layout/menu/overflow and WebKit scroll checks. The late integration tests cover the background budgets and superseded MCP declarations. MCP binary/npx/HTTP/SSE end-to-end calls passed with npm on PATH.
+- Android NDK builds and the race detector require a C toolchain unavailable locally. CI retains those jobs. Scope, intentional media omissions and validation are recorded in `docs/plans/upstream-1.2.35-port.md`.
+
 ## Sync through upstream 1.2.27 — 2026-10-20
 
 Checkpoint: `24bf9b367767bb0a76193c4dac57ab03b0203365` (commit of annotated tag `1.2.27`, tag object `b871635452e2a9e37d00dcda960c889ae045a2c7`), following `a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5` (`1.2.18`). The range contains 45 commits, consolidated as a net-change port.
