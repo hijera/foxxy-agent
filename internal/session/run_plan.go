@@ -16,7 +16,7 @@ const runPlanUserText = "Implement the plan."
 // It does not modify the session todo checklist (SetPlan).
 func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
 	if sender == nil {
-		sender = m.server
+		sender = m.currentSender()
 	}
 	state := m.getSession(sessionID)
 	if state == nil {
@@ -54,7 +54,7 @@ func refuseAskModePlanRun(state *State, slug string) error {
 // admitted; ctx is that turn's context.
 func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, state *State, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
 	if sender == nil {
-		sender = m.server
+		sender = m.currentSender()
 	}
 	if err := refuseAskModePlanRun(state, slug); err != nil {
 		return nil, err

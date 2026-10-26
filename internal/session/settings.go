@@ -128,7 +128,7 @@ func (m *Manager) PublishSessionSettings(sessionID string, st *State, notice, so
 	m.readSettingsWindows(st, snap)
 	sender := st.TurnSender()
 	if sender == nil {
-		sender = m.server
+		sender = m.currentSender()
 	}
 	if sender != nil {
 		_ = sender.SendSessionUpdate(sessionID, update)
@@ -321,8 +321,8 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		}
 		st.ClearTurnOverride(name)
 	}
-	if modeChanged && m.server != nil {
-		if err := m.server.SendSessionUpdate(sessionID, acp.ModeUpdate{
+	if sender := m.currentSender(); modeChanged && sender != nil {
+		if err := sender.SendSessionUpdate(sessionID, acp.ModeUpdate{
 			SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
 			CurrentModeID: values[SettingMode],
 		}); err != nil {

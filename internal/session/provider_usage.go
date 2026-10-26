@@ -499,9 +499,10 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 			m.notifyUsageObservers("", delivered)
 			return
 		}
+		sender := m.currentSender()
 		for _, id := range waiters {
-			if m.server != nil {
-				_ = m.server.SendSessionUpdate(id, delivered)
+			if sender != nil {
+				_ = sender.SendSessionUpdate(id, delivered)
 			}
 			m.notifyUsageObservers(id, delivered)
 		}
@@ -736,8 +737,8 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
-		if m.server != nil {
-			_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+		if sender := m.currentSender(); sender != nil {
+			_ = sender.SendSessionUpdate(sessionID, *deliverNow)
 		}
 		// The HTTP server listens through the observers only: a deferred or
 		// backed-off turn end still has to reach its events stream.
@@ -752,7 +753,11 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 // however long the credential helper takes. Nothing waits here.
 func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	prov, ok := m.usageProviderForSession(st)
-	if !ok || m.server == nil {
+	if !ok {
+		return
+	}
+	sender := m.currentSender()
+	if sender == nil {
 		return
 	}
 	cfg := m.activeCfg()
@@ -776,7 +781,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
-		_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+		_ = sender.SendSessionUpdate(sessionID, *deliverNow)
 	}
 }
 

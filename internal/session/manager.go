@@ -29,7 +29,13 @@ type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlo
 
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
-	cfgAt      atomic.Pointer[config.Config]
+	cfgAt atomic.Pointer[config.Config]
+	// server is the surface the manager sends updates and permission prompts
+	// to (ACP server or HTTP bridge). SetServer injects it after construction,
+	// and it is read from request handlers and from the background MCP
+	// connect alike, so it is guarded: an interface value read while another
+	// goroutine writes it can tear.
+	serverMu   sync.RWMutex
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
 	// cfgObservers are told whenever the live configuration is replaced, from
@@ -411,7 +417,17 @@ func (m *Manager) SetPreferredSessionID(id string) {
 
 // SetServer injects the update sender (used when server and manager are constructed together).
 func (m *Manager) SetServer(server acp.UpdateSender) {
+	m.serverMu.Lock()
+	defer m.serverMu.Unlock()
 	m.server = server
+}
+
+// currentSender returns the registered surface sender (mirrors
+// remote.Handler.currentSender).
+func (m *Manager) currentSender() acp.UpdateSender {
+	m.serverMu.RLock()
+	defer m.serverMu.RUnlock()
+	return m.server
 }
 
 func (m *Manager) makePersist(st *State) func() {
@@ -748,8 +764,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			m.log.Warn("replay conversation", "error", err)
 		}
 
-		if len(st.GetPlan()) > 0 && m.server != nil {
-			_ = m.server.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
+		if sender := m.currentSender(); len(st.GetPlan()) > 0 && sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
 				SessionUpdate: acp.UpdateTypePlan,
 				Entries:       st.GetPlan(),
 			})
@@ -907,7 +923,7 @@ func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListPar
 }
 
 func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
-	return m.HandleSessionPromptWithSender(ctx, params, m.server, nil)
+	return m.HandleSessionPromptWithSender(ctx, params, m.currentSender(), nil)
 }
 
 // PromptRunOpts configures HandleSessionPromptWithSender for HTTP paths that acquire the
@@ -1226,7 +1242,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		m.log.DebugContext(ctx, "session.prompt.end", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
 	}()
 	if sender == nil {
-		sender = m.server
+		sender = m.currentSender()
 	}
 	state := m.getSession(params.SessionID)
 	if state == nil {
@@ -1594,8 +1610,12 @@ func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSet
 }
 
 func (m *Manager) sendConfigOptionUpdate(sessionID string, state *State) {
+	sender := m.currentSender()
+	if sender == nil {
+		return
+	}
 	opts := BuildACPConfigOptions(m.activeCfg(), state)
-	if err := m.server.SendSessionUpdate(sessionID, acp.ConfigOptionUpdate{
+	if err := sender.SendSessionUpdate(sessionID, acp.ConfigOptionUpdate{
 		SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
 		ConfigOptions: opts,
 	}); err != nil {
@@ -1678,7 +1698,8 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 }
 
 func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
-	if m.server == nil || st == nil {
+	sender := m.currentSender()
+	if sender == nil || st == nil {
 		return
 	}
 	sums := skills.ListSkills(st.GetSkills())
@@ -1706,7 +1727,7 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 		}
 		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
 	}
-	_ = m.server.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{
+	_ = sender.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{
 		SessionUpdate:     acp.UpdateTypeAvailableCommandsUpdate,
 		AvailableCommands: cmds,
 	})

@@ -263,7 +263,7 @@ func (m *Manager) supersedeBackgroundMCP(st *State) {
 // sendMCPConnectUpdate hands the current snapshot to the surface, if it
 // listens for control updates.
 func (m *Manager) sendMCPConnectUpdate(state *State) {
-	sender, ok := m.server.(controlUpdateSender)
+	sender, ok := m.currentSender().(controlUpdateSender)
 	if !ok {
 		return
 	}
