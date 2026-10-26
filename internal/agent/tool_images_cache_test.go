@@ -77,7 +77,7 @@ func TestPromptCacheToolImagesKeepThePrefix(t *testing.T) {
 		Models:    []config.ModelEntry{{Model: "fixture/model", MaxTokens: 100, Stream: &stream, Multimodal: true}},
 		Agent:     config.Agent{Model: "fixture/model", MaxTurns: 6, LoopGuard: &guard},
 		Tools:     config.Tools{PermissionMode: config.PermModeBypass},
-		Title: config.TitleConfig{Enabled: &guard},
+		Title:     config.TitleConfig{Enabled: &guard},
 	}
 	st := &session.State{ID: "sess_tool_images_cache", CWD: cwd, SessionDir: t.TempDir(), Mode: session.ModeAgent}
 	ag := NewAgent(cfg, st, resumePermissionSender{}, slog.New(slog.DiscardHandler))
