@@ -74,4 +74,6 @@ Edit `.cursor/rules/*.mdc` as before. The hook needs no change, but two things d
 
 This script and `.codex/hooks/attach_rules.py` share the same goal and most of their logic (`parse_rule`, `glob_to_regex`, per-session state, the `SessionStart`/`PreToolUse` split, fail-open). They differ in one place: how the edited file paths are recovered. The Codex variant parses an embedded `apply_patch` blob (`*** Update File:` lines); this ZCode variant walks the `tool_input` JSON fields. Keep the two in sync when changing shared logic, and test both after edits.
 
+The [Kimi Code adapter](kimi-code-hooks.md) follows this JSON-field variant. Its hook declarations live in a versioned `.kimi-code/hooks.toml` fragment because Kimi Code reads them from the user-level `config.toml`, not from project-local configuration.
+
 Upstream reference: ZCode hooks and configuration live under `~/.zcode/cli/config.json` (user scope) and `<repo>/.zcode/config.json` (workspace scope); the supported events are `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, and `Stop`.
