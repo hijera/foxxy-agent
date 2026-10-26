@@ -583,7 +583,8 @@ func isTransientTransportError(err error) bool {
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
-	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNABORTED) || isWinsockConnectionDrop(err) {
 		return true
 	}
 	// Winsock reports the same failures under its own numbers, which the
@@ -611,6 +612,12 @@ func isTransientTransportError(err error) bool {
 		// stopped answering: the request died with it, a new connection will not.
 		"http2: client connection lost",
 		"connection reset by peer",
+		// The same deaths as the Unix and Windows systems word them once an
+		// error has been flattened to its text: ECONNABORTED, then Winsock's
+		// WSAECONNRESET and WSAECONNABORTED (see isWinsockConnectionDrop).
+		"software caused connection abort",
+		"forcibly closed by the remote host",
+		"aborted by the software in your host machine",
 		"unexpected EOF",
 		// The connection opened but the server never finished the handshake,
 		// so the request itself was never sent.
@@ -621,6 +628,25 @@ func isTransientTransportError(err error) bool {
 		}
 	}
 	return false
+}
+
+// Winsock's codes for an established connection that died under the request:
+// WSAECONNABORTED when the local stack gave up on it, WSAECONNRESET when the
+// remote host forcibly closed it. Go's net package returns them on Windows as
+// a bare syscall.Errno, which matches neither syscall.ECONNRESET (on Windows
+// an invented value of Go's own) nor the "connection reset by peer" text, and
+// only the windows build of syscall names them; the values are spelled out
+// so every build classifies them, and no Unix errno comes near them.
+const (
+	wsaeConnAborted syscall.Errno = 10053
+	wsaeConnReset   syscall.Errno = 10054
+)
+
+// isWinsockConnectionDrop reports a Windows socket error that means the
+// connection died, not the request (issue #389).
+func isWinsockConnectionDrop(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && (errno == wsaeConnReset || errno == wsaeConnAborted)
 }
 
 // isDialFailure reports a connection that was never established: a dial

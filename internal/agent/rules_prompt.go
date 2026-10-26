@@ -69,17 +69,19 @@ func (a *Agent) standingPrompt(rendersRules bool) (rulesMD, instructionsMD strin
 
 // computeContextBreakdown estimates category sizes for the context UI.
 // fullSystem is the rendered system message; tools/skills/rules are subtracted for SystemPrompt.
+// readsImages says whether the pictures of the messages go out with them.
 func computeContextBreakdown(
 	fullSystem string,
 	skillsMD, toolsMD, rulesMD string,
 	messages []llm.Message,
+	readsImages bool,
 	toolDefs []llm.ToolDefinition,
 ) *session.ContextBreakdown {
 	toolsTok := session.EstimateTokens(toolsMD)
 	rulesTok := session.EstimateTokens(rulesMD)
 	skillsTok := session.EstimateTokens(skillsMD)
 	mcpTok := estimateMCPTokens(toolDefs)
-	convTok := session.EstimateTokens(conversationText(messages))
+	convTok := conversationTokens(messages, readsImages)
 	summaryTok := session.EstimateTokens(compactionSummaryText(messages))
 	fullTok := session.EstimateTokens(fullSystem)
 	sysTok := fullTok - toolsTok - rulesTok - skillsTok

@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -143,11 +144,13 @@ func (s *Server) foxxycodeSkillsSyncPost(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	// Optional ?source=<src>: sync only that marketplace; otherwise sync all.
+	// Optional ?source=<src>: only that source, or only what is installed from
+	// it when it is a marketplace added with `plugin marketplace add`;
+	// otherwise sync all.
 	var res *skills.SyncResult
 	var err error
 	if src := strings.TrimSpace(r.URL.Query().Get("source")); src != "" {
-		res, err = skills.SyncSource(r.Context(), s.activeCfg(), src)
+		res, _, err = skills.UpdateSource(r.Context(), s.activeCfg(), src)
 	} else {
 		res, err = skills.Sync(r.Context(), s.activeCfg())
 	}
@@ -195,7 +198,9 @@ func (s *Server) foxxycodeSkillsSourcesPost(w http.ResponseWriter, r *http.Reque
 
 	resp := map[string]interface{}{"ok": true, "added": added}
 	if req.Sync {
-		res, err := skills.Sync(r.Context(), s.activeCfg())
+		// The source just added, as documented; the others are refreshed by
+		// POST /foxxycode/skills/sync.
+		res, err := skills.SyncSource(r.Context(), s.activeCfg(), req.Source)
 		if err != nil {
 			body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 			http.Error(w, string(body), http.StatusInternalServerError)
@@ -285,6 +290,11 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	res, err := skills.InstallPlugin(r.Context(), s.activeCfg(), req.Source, req.Plugin)
+	if err == nil && len(res.Added)+len(res.Updated) == 0 && len(res.Failed) > 0 {
+		// Nothing installed: an archive refused, a plugin without skills. The
+		// client reports the reason instead of a success.
+		err = errors.New("install " + req.Plugin + ": " + res.Failed[0].Error)
+	}
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusBadRequest)

@@ -200,6 +200,132 @@ func TestCodexAuthDeviceHTTPFlow(t *testing.T) {
 	}
 }
 
+// A codex model measures its context against the window the Codex catalog
+// reports, and the web UI draws its ring against the same number from
+// GET /v1/models. A read of the catalog before the row signed in fails for
+// want of a credential, and a failed read is not repeated for minutes, so the
+// sign-in itself has to let the next GET /v1/models read the catalog again
+// instead of serving the 128000 fallback.
+func TestCodexSignInRereadsTheCatalogContextWindow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", t.TempDir())
+	var catalogReads atomic.Int64
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+		catalogReads.Add(1)
+		_, _ = fmt.Fprint(w, `{"models":[{"slug":"gpt-6-astra","visibility":"list","priority":1,"context_window":272000}]}`)
+	}))
+	defer backend.Close()
+	t.Setenv(llm.EnvCodexBaseURL, backend.URL)
+	idToken := codexHTTPTestJWT(map[string]any{"chatgpt_account_id": "acct-window"})
+	accessToken := codexHTTPTestJWT(map[string]any{"exp": 4_102_444_800})
+	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-window","user_code":"WINDOW","interval":"0"}`)
+		case "/api/accounts/deviceauth/token":
+			_, _ = fmt.Fprint(w, `{"authorization_code":"code-window","code_challenge":"challenge-window","code_verifier":"verifier-window"}`)
+		case "/oauth/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"id_token": idToken, "access_token": accessToken, "refresh_token": "refresh-window",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer issuer.Close()
+
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-6-astra"}},
+		Agent:     config.Agent{Model: "codex/gpt-6-astra"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.codexAuthIssuer = issuer.URL
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer func() { _ = mgr.WaitContextWindowsIdle(5 * time.Second) }()
+
+	window := func() int {
+		t.Helper()
+		res, err := http.Get(ts.URL + "/v1/models")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		var body struct {
+			Data []struct {
+				ID               string `json:"id"`
+				MaxContextTokens int    `json:"max_context_tokens"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range body.Data {
+			if m.ID == "codex/gpt-6-astra" {
+				return m.MaxContextTokens
+			}
+		}
+		t.Fatalf("GET /v1/models has no codex/gpt-6-astra row: %+v", body.Data)
+		return 0
+	}
+
+	if got := window(); got != config.DefaultContextWindowTokens {
+		t.Fatalf("window before the sign-in = %d, want the %d fallback", got, config.DefaultContextWindowTokens)
+	}
+	if n := catalogReads.Load(); n != 0 {
+		t.Fatalf("the catalog answered %d reads without a credential", n)
+	}
+
+	startRes, err := http.Post(ts.URL+"/foxxycode/providers/codex/codex-auth/device", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var start struct {
+		LoginID string `json:"login_id"`
+	}
+	err = json.NewDecoder(startRes.Body).Decode(&start)
+	_ = startRes.Body.Close()
+	if err != nil || start.LoginID == "" {
+		t.Fatalf("device start: %v %+v", err, start)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		res, err := http.Get(ts.URL + "/foxxycode/providers/codex/codex-auth/device/" + start.LoginID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var status struct {
+			Status string `json:"status"`
+		}
+		err = json.NewDecoder(res.Body).Decode(&status)
+		_ = res.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status.Status == "completed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("sign-in did not complete: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if got := window(); got != 272000 {
+		t.Fatalf("window right after the sign-in = %d, want the catalog's 272000 (catalog reads: %d)", got, catalogReads.Load())
+	}
+}
+
 // TestCodexAuthDeviceStartBypassesTheRowsProxyForLoopback pins the fork's
 // loopback bypass for a configured URL proxy, including OAuth device sign-in.
 func TestCodexAuthDeviceStartBypassesTheRowsProxyForLoopback(t *testing.T) {

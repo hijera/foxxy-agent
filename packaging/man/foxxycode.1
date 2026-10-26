@@ -217,11 +217,23 @@ takes an
 .IR owner/repo ,
 a git URL, or a marketplace URL.
 .TP
-.B "plugin marketplace list | add | remove | sync"
+.B "plugin marketplace add | list | update | remove"
 Manage skill marketplaces.
+.B add
+reads a marketplace and installs none of its plugins;
+.B update
+refreshes it and the plugins installed from it
+.RB ( sync
+is an alias).
 .TP
 .B "plugin install | remove | enable | disable"
 Manage installed plugins.
+.B install
+takes
+.I plugin@marketplace
+for one plugin of an added marketplace, or an
+.IR owner/repo ,
+a git URL or a marketplace URL to install every skill it publishes.
 .TP
 .B "mcp list | trust | untrust"
 List merged MCP servers and approve or revoke project\-local

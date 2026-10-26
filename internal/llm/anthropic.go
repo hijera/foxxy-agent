@@ -282,23 +282,7 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 
 		switch m.Role {
 		case RoleUser:
-			if len(m.ImageParts) > 0 {
-				var blocks []anthropic.ContentBlockParamUnion
-				if m.Content != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
-				}
-				for _, ip := range m.ImageParts {
-					if mediaType, b64, ok := splitImageDataURL(ip.DataURL); ok {
-						blocks = append(blocks, anthropic.NewImageBlockBase64(mediaType, b64))
-					}
-				}
-				if len(blocks) == 0 {
-					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
-				}
-				result = append(result, anthropic.NewUserMessage(blocks...))
-			} else {
-				result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
-			}
+			result = append(result, anthropic.NewUserMessage(anthropicUserBlocks(m)...))
 
 		case RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
@@ -329,6 +313,31 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 	}
 
 	return system, result
+}
+
+// anthropicUserBlocks is a user message as the Messages API takes it: the
+// text, with every attached file that is not a picture appended as a labelled
+// block the way the other providers carry it, then the pictures as image
+// blocks - base64 data from a data URL, an https address as it is. A message
+// of pictures alone sends no empty text block, which the API refuses.
+func anthropicUserBlocks(m Message) []anthropic.ContentBlockParamUnion {
+	text := m.Content
+	var images []anthropic.ContentBlockParamUnion
+	for _, ip := range m.ImageParts {
+		kind, mime, payload := sortAttachment(ip)
+		switch {
+		case kind == attachedPicture && payload != "":
+			images = append(images, anthropic.NewImageBlockBase64(mime, payload))
+		case kind == attachedPicture:
+			images = append(images, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: ip.DataURL}))
+		default:
+			text += attachmentText(ip, kind, mime)
+		}
+	}
+	if text == "" && len(images) > 0 {
+		return images
+	}
+	return append([]anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(text)}, images...)
 }
 
 func (p *anthropicProvider) buildParams(system string, messages []anthropic.MessageParam, tools []ToolDefinition) anthropic.MessageNewParams {

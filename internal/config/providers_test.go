@@ -33,6 +33,29 @@ func TestEffectiveAPIKeyContextErrReportsAHelperCutShort(t *testing.T) {
 	}
 }
 
+// A codex row signs in with ChatGPT and sends no API key, so its api_key,
+// api_key_command and <NAME>_API_KEY variable are never read: a helper left
+// on a row retyped to codex must not run at every turn and every read of the
+// row's model listing (this one would hold the caller until its deadline).
+func TestCodexRowResolvesNoAPIKey(t *testing.T) {
+	if _, err := exec.LookPath("sleep"); err != nil {
+		t.Skip("no sleep binary")
+	}
+	t.Setenv("CDX_API_KEY", "sk-from-env")
+	for _, p := range []*ProviderConfig{
+		{Name: "cdx", Type: "codex", APIKeyCommand: "sleep 30"},
+		{Name: "cdx", Type: "codex", APIKey: "sk-literal"},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		start := time.Now()
+		key, err := p.EffectiveAPIKeyContextErr(ctx)
+		cancel()
+		if key != "" || err != nil || time.Since(start) > time.Second {
+			t.Fatalf("codex row %+v: key=%q err=%v after %v, want no key and no helper run", p, key, err, time.Since(start))
+		}
+	}
+}
+
 // TestCLILoginRow pins which row the machine-wide CLI login of a type stands
 // in for: the only row of the type, or the row named after the type when
 // several share it. Every other row signs in itself.

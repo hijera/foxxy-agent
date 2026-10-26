@@ -267,7 +267,7 @@ func (a *Agent) refreshContextBreakdown(build *systemPromptBuild, turnCtx string
 	// the active compaction engine still replays.
 	sys := joinNonEmptyPromptBlocks(build.Content, turnCtx)
 	msgs := a.prunedForLLM(a.llmVisibleMessages())
-	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, build.ToolDefs), false)
+	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, a.modelReadsImages(), build.ToolDefs), false)
 }
 
 // languageDirective returns a system-prompt instruction telling the model which

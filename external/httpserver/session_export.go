@@ -82,12 +82,13 @@ func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id 
 	// asks for them, which is the one place this differs from /export.
 	opts := export.ExportOptions{NoTools: !queryFlag(r, "tools"), NoThinking: queryFlag(r, "no_thinking")}
 	doc := export.BuildExportDocument(export.ExportInput{
-		SessionID: id,
-		Title:     title,
-		CWD:       strings.TrimSpace(st.GetCWD()),
-		Model:     strings.TrimSpace(st.EffectiveModelID(s.activeCfg())),
-		Messages:  msgs,
-		Options:   opts,
+		SessionDir: st.GetPersistedSessionDir(),
+		SessionID:  id,
+		Title:      title,
+		CWD:        strings.TrimSpace(st.GetCWD()),
+		Model:      strings.TrimSpace(st.EffectiveModelID(s.activeCfg())),
+		Messages:   msgs,
+		Options:    opts,
 	})
 	// The readable formats embed pictures the session stored on disk; a session
 	// that was never persisted simply has none to embed.

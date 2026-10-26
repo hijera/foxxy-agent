@@ -15,7 +15,7 @@ Every variable the `foxxycode` binary reads, grouped by area, with the file that
 
 ## Providers and keys
 
-A provider's key is resolved in this order: the literal `api_key`, the stdout of `api_key_command`, then the variable `NAME_API_KEY`, where `NAME` is the provider name upper-cased with hyphens turned into underscores (`rpa` becomes `RPA_API_KEY`, `my-lab` becomes `MY_LAB_API_KEY`). The name is built by `config.ProviderAPIKeyEnvVarName` in `internal/config/providers.go`, and every surface that reports where a credential comes from (`foxxycode providers list`, the NeuralDeep sign-in over HTTP, the usage cache) calls the same function.
+A provider's key is resolved in this order: the literal `api_key`, the stdout of `api_key_command`, then the variable `NAME_API_KEY`, where `NAME` is the provider name upper-cased with hyphens turned into underscores (`rpa` becomes `RPA_API_KEY`, `my-lab` becomes `MY_LAB_API_KEY`). The name is built by `config.ProviderAPIKeyEnvVarName` in `internal/config/providers.go`, and every surface that reports where a credential comes from (`foxxycode providers list`, the NeuralDeep sign-in over HTTP, the usage cache) calls the same function. A `codex` row resolves no key: it signs in with ChatGPT, reads none of the three and runs no `api_key_command`.
 
 | Variable | Read by | Meaning | Documented in |
 |---|---|---|---|
@@ -78,9 +78,21 @@ MCP servers started over stdio get FoxxyCode's environment plus the `env` map of
 | `SSH_CONNECTION`, `SSH_TTY` | `external/cli/tui/terminal.go` | A lone Escape is resolved after 100 ms over SSH and 10 ms locally. | [Keyboard](keyboard.md) |
 | `COLUMNS` | `internal/skills/commands.go` | The width of the `foxxycode skills list` table; default 100, values under 40 are ignored. | [Skills](../features/skills.md) |
 
+## Android (Termux)
+
+Read by the Android build only (`internal/platform/android.go`, `android_init.go`), where Termux exports them. None needs setting by hand.
+
+| Variable | Read by | Meaning | Documented in |
+|---|---|---|---|
+| `TERMUX__PREFIX`, `PREFIX` | `internal/platform/android.go` | The Termux prefix, the first of the two that holds an absolute path; default `/data/data/com.termux/files/usr`. FoxxyCode takes `etc/tls/cert.pem` and `tmp` from it, and the programs of its `bin` for a `/bin/...` or `/usr/bin/...` path. | [Android (Termux)](../getting-started/android.md#what-foxxycode-adapts-on-android) |
+| `TERMUX_APP__DATA_DIR`, `TERMUX_APP__LEGACY_DATA_DIR` | `internal/platform/android.go` | The app data directory under both its names. A program under it is started through `/system/bin/linker64` when FoxxyCode itself was; without the variables, the directory the prefix sits in stands for it. | [Android (Termux)](../getting-started/android.md#what-foxxycode-adapts-on-android) |
+| `SSL_CERT_FILE` | Go's `crypto/x509` | Set to `$PREFIX/etc/tls/cert.pem` when unset and the file exists, so the Termux CA bundle is trusted next to Android's store. | [Android (Termux)](../getting-started/android.md#what-foxxycode-adapts-on-android) |
+| `TMPDIR` | Go's `os.TempDir` | Set to `$PREFIX/tmp` when unset: Go's Android default, `/data/local/tmp`, is not writable by an app. | [Android (Termux)](../getting-started/android.md#what-foxxycode-adapts-on-android) |
+| `TERMUX_EXEC__PROC_SELF_EXE` | the child process | Set for a program FoxxyCode starts through the system linker to that program's path, which `/proc/self/exe` does not name then; dropped for every other child. | [Android (Termux)](../getting-started/android.md#what-foxxycode-adapts-on-android) |
+
 ## Docker and compose
 
-These are read by the compose files and the `Dockerfile`, not by the binary. Inside the container the image sets `FOXXYCODE_HOME=/home/user/.foxxycode`, `FOXXYCODE_CWD=/workspace` and `FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml`, and `docker-compose.yml` overrides `FOXXYCODE_CONFIG` with the mounted `/home/user/.foxxycode/config.yaml`.
+These are read by the compose files and the `Dockerfile`, not by the binary. Inside the container the image sets `FOXXYCODE_HOME=/home/user/.foxxycode`, `FOXXYCODE_CWD=/workspace` and `FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml`, and both compose files override `FOXXYCODE_CONFIG` with the mounted `/home/user/.foxxycode/config.yaml`.
 
 | Variable | Read by | Meaning | Documented in |
 |---|---|---|---|

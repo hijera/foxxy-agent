@@ -9,6 +9,24 @@ export type TokenUsage = {
   totalTokens: number;
 };
 
+/**
+ * A file the transcript names: an attachment sent with a prompt, or a picture
+ * a tool call showed the model (`read` on an image file).
+ */
+export type TranscriptFile = {
+  name: string;
+  mimeType: string;
+  sizeBytes?: number;
+  /** Blob URL while optimistic; session asset URL after backend persistence. */
+  previewUrl?: string;
+  /**
+   * The full-size asset the preview card opens enlarged. Server-only:
+   * absent while the row is optimistic, on a message sent before the
+   * route existed, and once the asset has left the session bundle.
+   */
+  url?: string;
+};
+
 export type TranscriptItem =
   | {
       id: string;
@@ -51,19 +69,7 @@ export type TranscriptItem =
        */
       queued?: boolean;
       /** Inline file attachments sent with this message. */
-      files?: {
-        name: string;
-        mimeType: string;
-        sizeBytes?: number;
-        /** Thumbnail source: a local blob URL until the backend publishes a durable one. */
-        previewUrl?: string;
-        /**
-         * The full-size asset the preview card opens enlarged. Server-only:
-         * absent while the row is optimistic, on a message sent before the
-         * route existed, and once the asset has left the session bundle.
-         */
-        url?: string;
-      }[];
+      files?: TranscriptFile[];
     }
   | {
       /**
@@ -110,6 +116,9 @@ export type TranscriptItem =
       resultWasTruncated?: boolean;
       /** Final todo state saved with this call, so historical cards stay stable. */
       todoPlan?: TodoPlanEntry[];
+      /** Pictures the call showed the model (`read` on an image file), from
+       *  `_meta.foxxycode.images` live and the tool row's `files` after a reload. */
+      images?: TranscriptFile[];
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;

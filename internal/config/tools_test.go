@@ -2,6 +2,8 @@ package config
 
 import (
 	"net/url"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -162,5 +164,88 @@ func TestToolsValidateWantsABareHostForThePreviewServer(t *testing.T) {
 		if err := tools.Validate(); err == nil {
 			t.Errorf("public_host %q was accepted", host)
 		}
+	}
+}
+
+func TestHTTPDefaultHeadersValidate(t *testing.T) {
+	ok := Tools{HTTPRequest: ToolHTTPRequest{DefaultHeaders: map[string]string{
+		"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0",
+		"accept":     "application/manifest+json",
+		"X-Empty":    "",
+		"Cookie":     "session=1",
+	}}}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("a valid map was refused: %v", err)
+	}
+	if len(ok.HTTPRequest.DefaultHeaders) != 4 || ok.HTTPRequest.DefaultHeaders["accept"] != "application/manifest+json" {
+		t.Fatalf("validation changed the map: %v", ok.HTTPRequest.DefaultHeaders)
+	}
+	for _, c := range []struct {
+		headers map[string]string
+		names   string
+	}{
+		{map[string]string{"Host": "api.internal"}, "tools.http_request.default_headers.Host"},
+		{map[string]string{"content-type": "application/json"}, "tools.http_request.default_headers.content-type"},
+		{map[string]string{"Content-Length": "3"}, "tools.http_request.default_headers.Content-Length"},
+		{map[string]string{"Transfer-Encoding": "chunked"}, "tools.http_request.default_headers.Transfer-Encoding"},
+		{map[string]string{"proxy-authorization": "Basic dTpw"}, "tools.http_request.default_headers.proxy-authorization"},
+		{map[string]string{"Upgrade": "h2c"}, "tools.http_request.default_headers.Upgrade"},
+		{map[string]string{"connection": "close"}, "tools.http_request.default_headers.connection"},
+		{map[string]string{"TE": "trailers"}, "tools.http_request.default_headers.TE"},
+		{map[string]string{"Bad Name": "x"}, `"Bad Name"`},
+		{map[string]string{"User-Agent:": "x"}, `"User-Agent:"`},
+		{map[string]string{"": "x"}, `""`},
+		{map[string]string{"123": "x"}, `"123"`},
+		{map[string]string{"X.Trace": "x"}, `"X.Trace"`},
+		{map[string]string{"-": "x"}, `"-"`},
+		{map[string]string{"_X": "x"}, `"_X"`},
+		{map[string]string{"X-Split": "a\r\nInjected: b"}, "tools.http_request.default_headers.X-Split"},
+		{map[string]string{"User-Agent": "a", "user-agent": "b"}, "same header"},
+	} {
+		tools := Tools{HTTPRequest: ToolHTTPRequest{DefaultHeaders: c.headers}}
+		err := tools.Validate()
+		if err == nil {
+			t.Errorf("%v was accepted", c.headers)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.names) {
+			t.Errorf("%v: error %q does not name %s", c.headers, err, c.names)
+		}
+	}
+}
+
+func TestHTTPDefaultHeadersSurviveTheSettingsRoundTrip(t *testing.T) {
+	cfg := &Config{}
+	cfg.Tools.HTTPRequest.DefaultHeaders = map[string]string{"User-Agent": "", "Accept": "application/json"}
+	back := JSONDTOToConfig(ConfigToJSONDTO(cfg), Paths{})
+	if !reflect.DeepEqual(back.Tools.HTTPRequest.DefaultHeaders, cfg.Tools.HTTPRequest.DefaultHeaders) {
+		t.Fatalf("the settings document carries %v, want %v", back.Tools.HTTPRequest.DefaultHeaders, cfg.Tools.HTTPRequest.DefaultHeaders)
+	}
+	back.Tools.HTTPRequest.DefaultHeaders["Accept"] = "changed"
+	if cfg.Tools.HTTPRequest.DefaultHeaders["Accept"] != "application/json" {
+		t.Fatal("the settings document shares the config's map")
+	}
+
+	// An empty value is a statement of its own - leave the header out - and
+	// must come back from the file as one.
+	paths := testPathConfig(t, "tools:\n  http_request:\n    default_headers:\n      User-Agent: \"\"\n      X-Client: foxxycode-lab\n")
+	loaded, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := MarshalConfigYAMLForFile(loaded, paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.ConfigPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"User-Agent": "", "X-Client": "foxxycode-lab"}
+	if !reflect.DeepEqual(again.Tools.HTTPRequest.DefaultHeaders, want) {
+		t.Fatalf("after a save the file holds %v, want %v\n%s", again.Tools.HTTPRequest.DefaultHeaders, want, data)
 	}
 }

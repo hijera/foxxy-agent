@@ -515,6 +515,8 @@ type ExportInput struct {
 	// The chat command exports into the session workspace, the CLI into the
 	// shell directory or wherever --out points.
 	OutputRoot string
+	// SessionDir locates saved attachments after a session bundle moves.
+	SessionDir string
 }
 
 // ExportTokenUsage mirrors the session token counters.
@@ -555,7 +557,8 @@ type ExportToolCall struct {
 	// Result is the tool output; nil when the transcript holds no result for
 	// the call (the turn was cancelled or is still running), an empty string
 	// when the tool returned nothing.
-	Result *string `json:"result,omitempty"`
+	Result   *string            `json:"result,omitempty"`
+	Pictures []ExportAttachment `json:"pictures,omitempty"`
 }
 
 // ExportPlanDocument describes a plan document row.
@@ -786,7 +789,7 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 				if p.FilePath == "" && p.Name == "" {
 					continue
 				}
-				atts = append(atts, ExportAttachment{Path: p.FilePath, Name: p.Name})
+				atts = append(atts, ExportAttachment{Path: currentAssetPath(in.SessionDir, p.FilePath), Name: p.Name})
 			}
 			entries = append(entries, ExportEntry{Type: ExportEntryUser, CreatedAt: m.CreatedAt, Text: text, Attachments: atts})
 		case m.Role == llm.RoleAssistant:
@@ -813,6 +816,9 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 			if ref, ok := pending[m.ToolCallID]; ok {
 				result := m.Content
 				entries[ref.entry].ToolCalls[ref.call].Result = &result
+				for _, picture := range m.ImageParts {
+					entries[ref.entry].ToolCalls[ref.call].Pictures = append(entries[ref.entry].ToolCalls[ref.call].Pictures, ExportAttachment{Path: currentAssetPath(in.SessionDir, picture.FilePath), Name: picture.Name})
+				}
 				delete(pending, m.ToolCallID)
 				continue
 			}

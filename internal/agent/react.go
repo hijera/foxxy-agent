@@ -131,6 +131,9 @@ type Agent struct {
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
+	// callImages are the pictures the running tool call handed the model
+	// (Env.AttachImage, tool_images.go); they ride on that call's result.
+	callImages []llm.ImagePart
 
 	// loopPins names read/grep results the loop guard rescued from eviction after a
 	// re-read loop, so the content the model kept circling back for stays in the
@@ -417,7 +420,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
@@ -453,7 +455,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
 		PreviewServer:     previewServerSettings(a.cfg),
+		AttachImage:       a.attachToolImage,
+		ImageRefusal:      a.toolImageRefusal,
 	}
+	httpRequestEnv(toolEnv, a.cfg)
 	// The model's own model switch; a subagent runs on what its parent chose.
 	if a.subagent == nil && a.settings() != nil {
 		toolEnv.SwitchModel = a.switchModel
@@ -1157,7 +1162,7 @@ func (a *Agent) runReActLoop(
 
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
-		sendMessages := withTurnContext(withToolRules(a.prunedForLLM(messages)), turnCtx)
+		sendMessages := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), turnCtx)
 		if forceAnswer && len(sendMessages) > 0 && sendMessages[0].Role == llm.RoleSystem {
 			// One request with the tools withheld: its system prompt must not
 			// describe tools the model cannot call. Rendered for this request only
@@ -1361,7 +1366,7 @@ func (a *Agent) runReActLoop(
 				// fork(continue-path): the partial answer is kept either way; with
 				// agent.llm_continue off, or its budget at 0, the turn ends here and
 				// says why, which is what upstream 1.1.47 always does.
-				continueMax := a.cfg.Agent.EffectiveLLMContinueMax()
+				continueMax := a.continuationBudget()
 				if !a.cfg.Agent.LLMContinueEnabled() || continueMax == 0 {
 					return string(acp.StopReasonRefused), continueOffError(stallIdle)
 				}
@@ -1405,7 +1410,8 @@ func (a *Agent) runReActLoop(
 				case strings.TrimSpace(partialContent) == "":
 					nudge = stallNoTextNudge
 				}
-				pause := continueDelay(a.cfg.Agent.EffectiveLLMContinueStallDelays(), stallContinues)
+				pause := a.continuationPause(stallContinues-1, true, streamErr)
+				a.reportProviderRecovery(streamErr, pause, stallContinues, a.continuationBudget())
 				a.log.Warn("provider stopped sending data mid-answer; continuing",
 					"idle", stallIdle, "continuation", stallContinues, "restarts", attemptRestarts, "pause", pause)
 				// Tell the client the turn is parked. It is still showing the half-written
@@ -1510,7 +1516,7 @@ func (a *Agent) runReActLoop(
 			if hasAnyOutput && !stalled && ctx.Err() == nil && !a.state.IsUserCancelledTurn() &&
 				a.cfg.Agent.LLMContinueEnabled() && llm.IsTransientProviderError(streamErr) {
 				kept := a.keepInterruptedAnswer(transport.model, answerBuf.String(), reasoningBuf.String(), reasonClockStart, reasonClockEnd)
-				if stallContinues >= a.cfg.Agent.EffectiveLLMContinueMax() {
+				if stallContinues >= a.continuationBudget() {
 					return string(acp.StopReasonRefused), providerGaveUpError(streamErr, stallContinues)
 				}
 				seen, repeated := attemptRepeats.Observe(attemptFingerprint(reasoningBuf.String(), answerBuf.String(), nil))
@@ -1521,7 +1527,8 @@ func (a *Agent) runReActLoop(
 				retryAllowance = nil
 				nextCallReason = "continuation"
 				recoveryTurns++
-				pause := errorContinueDelay(&a.cfg.Agent, stallContinues-1, streamErr)
+				pause := a.continuationPause(stallContinues-1, false, streamErr)
+				a.reportProviderRecovery(streamErr, pause, stallContinues, a.continuationBudget())
 				a.log.Warn("provider failed mid-answer; carrying the answer on after a pause",
 					"error", streamErr, "pause", pause, "continuation", stallContinues,
 					"kept_partial_answer", kept, "restarts", attemptRestarts)
@@ -1940,7 +1947,7 @@ func (a *Agent) runReActLoop(
 			// AGENTS.md it would otherwise bring back.
 			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false, turn)
-			toolResultMsg := toolResultMessage(tc, result, execErr, callRules)
+			toolResultMsg := a.callResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
@@ -1982,7 +1989,7 @@ func (a *Agent) runReActLoop(
 			toolDefs = a.currentToolDefinitions(mode)
 			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
 			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
-			toolEnv.HTTPAllowlist = append([]string(nil), a.cfg.Tools.HTTPRequest.Allowlist...)
+			httpRequestEnv(toolEnv, a.cfg)
 			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
 			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
 			toolEnv.Background = a.backgroundPool(sd)
@@ -2190,6 +2197,7 @@ func loopAbortError(c loopAbortChannel) error {
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
+	a.callImages = nil
 	defer func() {
 		env.ToolCallID = ""
 		a.currentToolCallID = ""
@@ -2314,7 +2322,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if tc.Name == toolweb.ToolHTTPRequest {
 			// Raw arguments would bury the address and the files in JSON;
 			// the prompt shows the request as it would go out.
-			promptBody = permission.HTTPRequestPromptBody(tc.InputJSON, env.CWD)
+			promptBody = permission.HTTPRequestPromptBody(env, tc.InputJSON)
 		}
 		if tc.Name == "config_commit" {
 			// The commit call itself carries no arguments, so the dialog must
@@ -2503,6 +2511,13 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 		}
 	}
 	previewMeta = session.AttachTodoPlanMeta(previewMeta, todoPlanSnapshot)
+	if status == "completed" && execErr == nil {
+		// The pictures the call showed the model (read on an image file), for
+		// the surfaces that preview them: the web UI on the call's row, a
+		// Telegram chat as photos. After a reload they come from the result
+		// message itself, which keeps them.
+		previewMeta = session.ToolImagesMeta(previewMeta, toolImagesForSurfaces(sessionID, a.callImages))
+	}
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,

@@ -30,6 +30,12 @@ type ImagePart struct {
 	// ThumbnailPath is the absolute path of the persisted, bounded PNG preview
 	// used by transcript clients. Providers never receive this file directly.
 	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+	// MIMEType and Size describe the picture a part carries. A picture a tool
+	// call showed the model is kept as its file (FilePath) with no DataURL,
+	// and the agent builds the data URL from that file when a request goes
+	// out, so the history holds no second, base64 copy of it.
+	MIMEType string `json:"mime_type,omitempty"`
+	Size     int    `json:"size,omitempty"`
 }
 
 // Message is a single turn in a conversation.

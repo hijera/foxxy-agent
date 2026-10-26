@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -69,12 +70,18 @@ func SavePartsToAssets(parts []llm.ImagePart, sessionDir string) error {
 // preserving aspect ratio. Unsupported or unreasonably large images keep their
 // original asset but do not get a transcript preview.
 func makeImageThumbnail(data []byte) ([]byte, bool) {
+	return makeImageThumbnailWithin(data, assetThumbnailMaxPixels)
+}
+
+// makeImageThumbnailWithin is makeImageThumbnail for pictures of at most
+// maxPixels: the whole picture is decoded to make the preview.
+func makeImageThumbnailWithin(data []byte, maxPixels int64) ([]byte, bool) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, false
 	}
 	pixels := int64(cfg.Width) * int64(cfg.Height)
-	if pixels <= 0 || pixels > assetThumbnailMaxPixels {
+	if pixels <= 0 || pixels > maxPixels {
 		return nil, false
 	}
 	src, _, err := image.Decode(bytes.NewReader(data))
@@ -182,7 +189,16 @@ func writeReadOnly(path string, data []byte) error {
 	if err := os.Chmod(tmp, 0o444); err != nil {
 		return err
 	}
+	// Windows cannot replace a destination with the read-only attribute set.
+	if runtime.GOOS == "windows" {
+		if err := os.Chmod(path, 0o644); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	if err := os.Rename(tmp, path); err != nil {
+		if runtime.GOOS == "windows" {
+			_ = os.Chmod(path, 0o444)
+		}
 		return err
 	}
 	committed = true

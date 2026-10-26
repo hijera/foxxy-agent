@@ -31,6 +31,11 @@ type footer struct {
 	tokensOut int
 	// runningTasks is how many background tasks of the session run right now.
 	runningTasks int
+	// mcpConnected of mcpTotal configured MCP servers have answered; the
+	// segment shows only while mcpPending, i.e. while any is still connecting.
+	mcpConnected int
+	mcpTotal     int
+	mcpPending   bool
 	ctxPercent   float64
 	ctxMax       int
 
@@ -69,6 +74,14 @@ func (f *footer) ResetTokens() { f.tokensIn, f.tokensOut = 0, 0 }
 
 // SetRunningTasks updates how many background tasks of the session run right now.
 func (f *footer) SetRunningTasks(n int) { f.runningTasks = n }
+
+// SetMCP updates the count of connected configured MCP servers. The segment
+// is shown while pending and leaves the line once every server settled: the
+// header names the servers, the footer only says the console is not yet
+// holding all of their tools.
+func (f *footer) SetMCP(connected, total int, pending bool) {
+	f.mcpConnected, f.mcpTotal, f.mcpPending = connected, total, pending
+}
 
 // SetContext updates the context-window occupancy.
 func (f *footer) SetContext(percent float64, maxTokens int) {
@@ -188,13 +201,31 @@ func (f *footer) Render(width int) []string {
 	// of it that changes what the operator does next, so when the line does not fit it
 	// is the path and the title that give way - a macOS temp folder or a deep monorepo
 	// path would otherwise push the count off the screen.
-	if f.runningTasks > 0 {
-		tasks := " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
-		if room := width - tui.VisibleWidth(tasks); room >= 8 && tui.VisibleWidth(line1) > room {
-			line1 = tui.TruncateToWidth(line1, room, "...")
-		}
-		line1 += tasks
+	// The MCP count is transient - it is there while the servers come up
+	// after the first frame - and, like the tasks segment, it is what the
+	// operator reads. Both notes, and the permission mode after them, are
+	// kept whole together: only the path and the title give way.
+	notes := ""
+	if f.mcpPending {
+		notes += " • MCP " + itoa(f.mcpConnected) + "/" + itoa(f.mcpTotal)
 	}
+	if f.runningTasks > 0 {
+		notes += " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
+	}
+	perm := ""
+	if f.permission != "" && f.permission != "ask" {
+		perm = " • " + strings.ReplaceAll(f.permission, "_", " ")
+	}
+	if room := width - tui.VisibleWidth(notes) - tui.VisibleWidth(perm); tui.VisibleWidth(line1) > room {
+		// On a line too narrow for even a shortened path, the path goes and
+		// the notes stay.
+		if room >= 8 {
+			line1 = tui.TruncateToWidth(line1, room, "...")
+		} else if tui.VisibleWidth(notes)+tui.VisibleWidth(perm) <= width {
+			line1 = ""
+		}
+	}
+	line1 += notes
 
 	left := ""
 	if f.tokensIn > 0 || f.tokensOut > 0 {
@@ -226,14 +257,13 @@ func (f *footer) Render(width int) []string {
 	// one: bypass in the warning colour, so a session that approves
 	// everything never looks like one that asks.
 	first := th.Fg(roleDim, tui.TruncateToWidth(line1, width, "..."))
-	if f.permission != "" && f.permission != "ask" {
-		seg := " • " + strings.ReplaceAll(f.permission, "_", " ")
-		if room := width - tui.VisibleWidth(seg); room >= 8 {
+	if perm != "" {
+		if room := width - tui.VisibleWidth(perm); room >= 8 {
 			role := roleDim
 			if f.permission == "bypass" {
 				role = roleWarning
 			}
-			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + th.Fg(role, seg)
+			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + th.Fg(role, perm)
 		}
 	}
 	lines := []string{
@@ -264,6 +294,7 @@ func detectGitBranch(cwd string) string {
 	// pipe after the timeout killed git itself; do not wait for it either.
 	cmd.WaitDelay = time.Second
 	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

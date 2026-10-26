@@ -87,7 +87,7 @@ func (s *State) WaitMCPReady(ctx context.Context) error {
 		gate := s.mcpReady
 		s.mu.RUnlock()
 		if gate == nil {
-			return nil
+			return s.WaitMCPConnect(ctx)
 		}
 		select {
 		case <-gate.done:
@@ -103,7 +103,7 @@ func (s *State) WaitMCPReady(ctx context.Context) error {
 func (s *State) MCPReady() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.mcpReady == nil
+	return s.mcpReady == nil && s.mcpConnectDone == nil
 }
 
 // markMCPClosed settles the gate permanently: the session is going away, so a connect still in

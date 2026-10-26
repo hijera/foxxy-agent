@@ -571,9 +571,10 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 // enough to retry for a row whose key is produced by a command: the
 // fingerprint cannot see the command's output change, so time does.
 func (m *Manager) usageRejectionExpiredLocked(prov *config.ProviderConfig, e *providerUsageEntry, now time.Time) bool {
-	// The command is the credential in use only when no literal key outranks
-	// it (EffectiveAPIKey: api_key, then the command, then the env var).
-	if strings.TrimSpace(prov.APIKeyCommand) == "" || strings.TrimSpace(prov.APIKey) != "" {
+	// The command is the credential in use only when the row takes a key at
+	// all and no literal key outranks it (EffectiveAPIKey: api_key, then the
+	// command, then the env var).
+	if !prov.TakesAPIKey() || strings.TrimSpace(prov.APIKeyCommand) == "" || strings.TrimSpace(prov.APIKey) != "" {
 		return false
 	}
 	return !e.unauthorizedAt.IsZero() && now.Sub(e.unauthorizedAt) >= providerUsageCommandRetry

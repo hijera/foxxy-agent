@@ -139,6 +139,23 @@ func (s *schemaNode) lookup(path string) *schemaNode {
 	return cur
 }
 
+// lookupEntry is lookup for a path that may end on a key of a map: the key is
+// the operator's own (a header name, a label), so the schema that describes it
+// is the map's.
+func (s *schemaNode) lookupEntry(path string) *schemaNode {
+	if n := s.lookup(path); n != nil {
+		return n
+	}
+	i := strings.LastIndexByte(path, '.')
+	if i <= 0 {
+		return nil
+	}
+	if parent := s.lookup(path[:i]); parent != nil && parent.AdditionalProperties.schema != nil {
+		return parent
+	}
+	return nil
+}
+
 // enumStrings renders the enum for messages.
 func (s *schemaNode) enumStrings() []string {
 	out := make([]string, 0, len(s.Enum))

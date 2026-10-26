@@ -216,31 +216,49 @@ func loadedForm(existing []byte, paths Paths) *yaml.Node {
 // merge that follows finds the file's spelling for it, and the prune leaves it out when
 // the file never had the key. The walk goes key by key through mappings, so an edit of
 // one field leaves its neighbours to this rule; a list is one value, restored whole or
-// not at all, because its entries carry no key to pair them with. served and loaded are
-// renderings of the same struct as next (savedForm), so their keys are next's.
+// not at all, because its entries carry no key to pair them with.
+//
+// served and loaded are renderings of the same struct as next (savedForm), so for a
+// struct their keys are next's. The keys of a map are the operator's own (the headers
+// of tools.http_request.default_headers), and the file may have gained or lost one
+// since the client read it. A key the client was never served and does not send is
+// one written since: it stays. A key the client sent back as it was served that the
+// file no longer has was removed since: it stays removed. What the client added,
+// removed or changed itself is its edit and wins.
 func restoreUntouched(next, served, loaded *yaml.Node, paths Paths) {
 	if next == nil || served == nil || loaded == nil ||
 		next.Kind != yaml.MappingNode || served.Kind != yaml.MappingNode || loaded.Kind != yaml.MappingNode {
 		return
 	}
+	kept := make([]*yaml.Node, 0, len(next.Content))
 	for i := 0; i+1 < len(next.Content); i += 2 {
-		key, val := next.Content[i].Value, next.Content[i+1]
-		_, was, ok := mappingValue(served, key)
-		if !ok {
+		keyNode, val := next.Content[i], next.Content[i+1]
+		key := keyNode.Value
+		_, was, inServed := mappingValue(served, key)
+		_, says, inLoaded := mappingValue(loaded, key)
+		switch {
+		case inServed && !inLoaded && yamlNodesDeepEqual(val, was, paths):
 			continue
+		case inServed && inLoaded:
+			if val.Kind == yaml.MappingNode && was.Kind == yaml.MappingNode && says.Kind == yaml.MappingNode {
+				restoreUntouched(val, was, says, paths)
+			} else if yamlNodesDeepEqual(val, was, paths) && !yamlNodesDeepEqual(val, says, paths) {
+				val = cloneYAMLNode(says)
+			}
 		}
-		_, says, ok := mappingValue(loaded, key)
-		if !ok {
-			continue
-		}
-		if val.Kind == yaml.MappingNode && was.Kind == yaml.MappingNode && says.Kind == yaml.MappingNode {
-			restoreUntouched(val, was, says, paths)
-			continue
-		}
-		if yamlNodesDeepEqual(val, was, paths) && !yamlNodesDeepEqual(val, says, paths) {
-			next.Content[i+1] = cloneYAMLNode(says)
-		}
+		kept = append(kept, keyNode, val)
 	}
+	for i := 0; i+1 < len(loaded.Content); i += 2 {
+		key := loaded.Content[i].Value
+		if _, _, inServed := mappingValue(served, key); inServed {
+			continue
+		}
+		if _, _, inNext := mappingValue(next, key); inNext {
+			continue
+		}
+		kept = append(kept, cloneYAMLNode(loaded.Content[i]), cloneYAMLNode(loaded.Content[i+1]))
+	}
+	next.Content = kept
 }
 
 // parsePreviousDocument parses the file being replaced. Anything that is not a mapping

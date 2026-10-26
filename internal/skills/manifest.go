@@ -34,15 +34,18 @@ type MarketplacePlugin struct {
 }
 
 // PluginSource locates a plugin. In the agents standard the `source` field is
-// either an object ({"source":"github","repo":"owner/repo"} or
-// {"source":"url","url":"...","ref":"main"}) or a bare string ("./plugins/foo"
-// relative in-repo path, or a git URL).
+// either an object ({"source":"github","repo":"owner/repo"},
+// {"source":"url","url":"...","ref":"main"} or, in the shape Claude Code reads,
+// {"source":"archive","url":"https://.../plugin.zip","sha256":"..."}) or a bare
+// string ("./plugins/foo" relative in-repo path, or a git URL). A plugin is an
+// archive only when its object says so: a url ending in .zip is still a git URL.
 type PluginSource struct {
-	Kind string // "github" | "url" | "path"
-	Repo string // owner/repo (github)
-	URL  string // git/http URL (url)
-	Ref  string // branch or tag
-	Path string // relative path inside the marketplace repo (path)
+	Kind   string // "github" | "url" | "path" | "archive"
+	Repo   string // owner/repo (github)
+	URL    string // git/http URL (url), zip archive URL (archive)
+	Ref    string // branch or tag
+	Path   string // relative path inside the marketplace repo (path)
+	SHA256 string // expected sha256 of the archive, hex (archive, optional)
 }
 
 // UnmarshalJSON accepts both the object and string forms of `source`.
@@ -63,6 +66,7 @@ func (ps *PluginSource) UnmarshalJSON(data []byte) error {
 		URL    string `json:"url"`
 		Ref    string `json:"ref"`
 		Path   string `json:"path"`
+		SHA256 string `json:"sha256"`
 	}
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
@@ -72,6 +76,7 @@ func (ps *PluginSource) UnmarshalJSON(data []byte) error {
 	ps.URL = strings.TrimSpace(obj.URL)
 	ps.Ref = strings.TrimSpace(obj.Ref)
 	ps.Path = strings.TrimSpace(obj.Path)
+	ps.SHA256 = strings.TrimSpace(obj.SHA256)
 	if ps.Kind == "" {
 		switch {
 		case ps.Repo != "":

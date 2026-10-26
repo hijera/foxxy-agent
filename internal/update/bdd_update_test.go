@@ -149,6 +149,11 @@ type updateFeatureState struct {
 	out       bytes.Buffer
 	scheduled *windowsUpdateRequest
 	server    *httptest.Server
+
+	// decoyName and decoyArchive are another platform's build of the same
+	// release, listed first so that picking the asset by position fails.
+	decoyName    string
+	decoyArchive []byte
 }
 
 func (s *updateFeatureState) reset() {
@@ -195,11 +200,19 @@ func (s *updateFeatureState) releaseIsAvailable(goos, goarch string) error {
 
 	sum := sha256.Sum256(s.archive)
 	sums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
+	if s.decoyName != "" {
+		decoySum := sha256.Sum256(s.decoyArchive)
+		sums = fmt.Sprintf("%s  %s\n", hex.EncodeToString(decoySum[:]), s.decoyName) + sums
+	}
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/" + DefaultRepo + "/releases/latest":
-			_, _ = fmt.Fprintf(w, `{"tag_name":%q,"assets":[{"name":%q,"browser_download_url":"http://%s/asset"},{"name":%q,"browser_download_url":"http://%s/sums"}]}`,
-				featureReleaseTag, assetName, r.Host, checksumAssetName, r.Host)
+			decoy := ""
+			if s.decoyName != "" {
+				decoy = fmt.Sprintf(`{"name":%q,"browser_download_url":"http://%s/decoy"},`, s.decoyName, r.Host)
+			}
+			_, _ = fmt.Fprintf(w, `{"tag_name":%q,"assets":[%s{"name":%q,"browser_download_url":"http://%s/asset"},{"name":%q,"browser_download_url":"http://%s/sums"}]}`,
+				featureReleaseTag, decoy, assetName, r.Host, checksumAssetName, r.Host)
 		case "/repos/" + DefaultRepo + "/releases":
 			if !s.notes {
 				http.NotFound(w, r)
@@ -208,6 +221,8 @@ func (s *updateFeatureState) releaseIsAvailable(goos, goarch string) error {
 			_, _ = w.Write([]byte(featureReleaseList()))
 		case "/asset":
 			s.serveAsset(w, r)
+		case "/decoy":
+			_, _ = w.Write(s.decoyArchive)
 		case "/sums":
 			_, _ = w.Write([]byte(sums))
 		default:
@@ -253,6 +268,29 @@ func (s *updateFeatureState) newerReleaseIsAvailable() error {
 
 func (s *updateFeatureState) newerWindowsReleaseIsAvailable() error {
 	return s.releaseIsAvailable("windows", "amd64")
+}
+
+// newerAndroidReleaseIsAvailable publishes the Linux arm64 archive beside the
+// Android one, as CI does. The Linux binary cannot start under Termux, so an
+// update that took it would leave a phone with a FoxxyCode that does not run.
+func (s *updateFeatureState) newerAndroidReleaseIsAvailable() error {
+	name, err := AssetFileName(featureReleaseTag, "linux", "arm64")
+	if err != nil {
+		return err
+	}
+	s.decoyArchive, err = tarGzArchive(BinaryName("linux"), []byte("the Linux build of FoxxyCode"))
+	if err != nil {
+		return err
+	}
+	s.decoyName = name
+	return s.releaseIsAvailable("android", "arm64")
+}
+
+func (s *updateFeatureState) downloadsTheAndroidArchive() error {
+	if s.goos != "android" {
+		return fmt.Errorf("the scenario installs a %s release", s.goos)
+	}
+	return s.reports("Downloading " + s.assetName)
 }
 
 func (s *updateFeatureState) serverDropsTheFirstConnection() error {
@@ -452,6 +490,8 @@ func TestUpdateFeature(t *testing.T) {
 			})
 			sc.Step(`^a newer FoxxyCode release is available$`, s.newerReleaseIsAvailable)
 			sc.Step(`^a newer Windows FoxxyCode release is available$`, s.newerWindowsReleaseIsAvailable)
+			sc.Step(`^a newer FoxxyCode release with Linux and Android builds for arm64 is available$`, s.newerAndroidReleaseIsAvailable)
+			sc.Step(`^FoxxyCode downloads the Android archive$`, s.downloadsTheAndroidArchive)
 			sc.Step(`^the download server drops the first connection halfway$`, s.serverDropsTheFirstConnection)
 			sc.Step(`^the releases since the installed version carry their notes$`, s.releasesCarryTheirNotes)
 			sc.Step(`^the man page and the shell completions of the installed release sit beside the executable$`, s.extrasSitBesideTheExecutable)

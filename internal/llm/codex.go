@@ -438,23 +438,25 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 				instructions = append(instructions, m.Content)
 			}
 		case RoleUser:
+			// A picture goes as an input_image part, the way the Codex CLI
+			// attaches one; any other file is decoded into the text as a
+			// labelled block.
 			text := m.Content
+			var images responses.ResponseInputMessageContentListParam
 			for _, ip := range m.ImageParts {
-				// The Codex backend text path cannot carry binary attachments; inline a
-				// decoded, labelled block for non-image files and note image URLs.
-				if strings.HasPrefix(dataURLMIME(ip.DataURL), "image/") {
+				kind, mime, _ := sortAttachment(ip)
+				if kind != attachedPicture {
+					text += attachmentText(ip, kind, mime)
 					continue
 				}
-				label := ip.Name
-				if label == "" {
-					label = "file"
-				}
-				text += fmt.Sprintf("\n\n[File: %s]\n%s", label, decodeDataURL(ip.DataURL))
+				image := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+				image.OfInputImage.ImageURL = openai.String(ip.DataURL)
+				images = append(images, image)
 			}
-			items = append(items, responses.ResponseInputItemParamOfInputMessage(
-				responses.ResponseInputMessageContentListParam{
-					responses.ResponseInputContentParamOfInputText(text),
-				}, "user"))
+			content := responses.ResponseInputMessageContentListParam{
+				responses.ResponseInputContentParamOfInputText(text),
+			}
+			items = append(items, responses.ResponseInputItemParamOfInputMessage(append(content, images...), "user"))
 		case RoleAssistant:
 			// Reasoning items come first: they precede the output they produced,
 			// which is the order the Responses API expects them replayed in.

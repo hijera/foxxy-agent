@@ -151,30 +151,32 @@ type ModelJSON struct {
 // loop-guard counters, llm_retry_max (0 disables retries), and
 // llm_first_token_timeout_ms (0 disables the silence guard).
 type AgentJSON struct {
-	QueueMode                  string `json:"queue_mode,omitempty"`
-	Model                      string `json:"model"`
-	MaxTurns                   int    `json:"max_turns,omitempty"`
-	LLMRetryMax                *int   `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS             int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS           int    `json:"llm_min_interval_ms,omitempty"`
-	LLMFirstTokenTimeoutMS     *int   `json:"llm_first_token_timeout_ms,omitempty"`
-	LLMStreamIdleTimeoutMS     *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
-	LLMStallRetry              *bool  `json:"llm_stall_retry,omitempty"`
-	LLMStallRetryDelaysMS      []int  `json:"llm_stall_retry_delays_ms,omitempty"`
-	LLMStallRetryMaxWaitMS     *int   `json:"llm_stall_retry_max_wait_ms,omitempty"`
-	LLMContinue                *bool  `json:"llm_continue,omitempty"`
-	LLMContinueMax             *int   `json:"llm_continue_max,omitempty"`
-	LLMContinueStallDelaysMS   []int  `json:"llm_continue_stall_delays_ms,omitempty"`
-	LLMContinueErrorDelaysMS   []int  `json:"llm_continue_error_delays_ms,omitempty"`
-	LLMContinueRetryAfterMaxMS *int   `json:"llm_continue_retry_after_max_ms,omitempty"`
-	LoopGuard                  *bool  `json:"loop_guard,omitempty"`
-	LoopToolRepeatLimit        *int   `json:"loop_tool_repeat_limit,omitempty"`
-	LoopStreamRepeatCycles     *int   `json:"loop_stream_repeat_cycles,omitempty"`
-	LoopToolCycleRepeats       *int   `json:"loop_tool_cycle_repeats,omitempty"`
-	LoopStuckAction            string `json:"loop_stuck_action,omitempty"`
-	LoopNudgeMax               *int   `json:"loop_nudge_max,omitempty"`
-	WaitForLimitReset          bool   `json:"wait_for_limit_reset,omitempty"`
-	WaitForLimitResetMaxMS     *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	QueueMode                     string `json:"queue_mode,omitempty"`
+	Model                         string `json:"model"`
+	MaxTurns                      int    `json:"max_turns,omitempty"`
+	LLMRetryMax                   *int   `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS                int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS              int    `json:"llm_min_interval_ms,omitempty"`
+	LLMFirstTokenTimeoutMS        *int   `json:"llm_first_token_timeout_ms,omitempty"`
+	LLMStreamIdleTimeoutMS        *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
+	LLMStallRetry                 *bool  `json:"llm_stall_retry,omitempty"`
+	LLMStallRetryDelaysMS         []int  `json:"llm_stall_retry_delays_ms,omitempty"`
+	LLMStallRetryMaxWaitMS        *int   `json:"llm_stall_retry_max_wait_ms,omitempty"`
+	LLMContinue                   *bool  `json:"llm_continue,omitempty"`
+	LLMContinueMax                *int   `json:"llm_continue_max,omitempty"`
+	LLMContinueBackgroundMax      *int   `json:"llm_continue_background_max,omitempty"`
+	LLMContinueBackgroundDelaysMS []int  `json:"llm_continue_background_delays_ms,omitempty"`
+	LLMContinueStallDelaysMS      []int  `json:"llm_continue_stall_delays_ms,omitempty"`
+	LLMContinueErrorDelaysMS      []int  `json:"llm_continue_error_delays_ms,omitempty"`
+	LLMContinueRetryAfterMaxMS    *int   `json:"llm_continue_retry_after_max_ms,omitempty"`
+	LoopGuard                     *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit           *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles        *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopToolCycleRepeats          *int   `json:"loop_tool_cycle_repeats,omitempty"`
+	LoopStuckAction               string `json:"loop_stuck_action,omitempty"`
+	LoopNudgeMax                  *int   `json:"loop_nudge_max,omitempty"`
+	WaitForLimitReset             bool   `json:"wait_for_limit_reset,omitempty"`
+	WaitForLimitResetMaxMS        *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -268,9 +270,12 @@ type ToolWebSearchJSON struct {
 	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
 }
 
-// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs.
+// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs. DefaultHeaders
+// travels both ways, like brave_api_key: the settings screen edits the headers,
+// and config_get is what keeps their values from the model.
 type ToolHTTPRequestJSON struct {
-	Allowlist []string `json:"allowlist,omitempty"`
+	Allowlist      []string          `json:"allowlist,omitempty"`
+	DefaultHeaders map[string]string `json:"default_headers,omitempty"`
 }
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
@@ -557,30 +562,32 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
-		QueueMode:                  c.Agent.QueueMode,
-		Model:                      c.Agent.Model,
-		MaxTurns:                   c.Agent.MaxTurns,
-		LLMRetryMax:                c.Agent.LLMRetryMax,
-		LLMRetryBaseMS:             c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS:           c.Agent.LLMMinIntervalMS,
-		LLMFirstTokenTimeoutMS:     c.Agent.LLMFirstTokenTimeoutMS,
-		LLMStreamIdleTimeoutMS:     c.Agent.LLMStreamIdleTimeoutMS,
-		LLMStallRetry:              c.Agent.LLMStallRetry,
-		LLMStallRetryDelaysMS:      append([]int(nil), c.Agent.LLMStallRetryDelaysMS...),
-		LLMStallRetryMaxWaitMS:     c.Agent.LLMStallRetryMaxWaitMS,
-		LLMContinue:                c.Agent.LLMContinue,
-		LLMContinueMax:             c.Agent.LLMContinueMax,
-		LLMContinueStallDelaysMS:   append([]int(nil), c.Agent.LLMContinueStallDelaysMS...),
-		LLMContinueErrorDelaysMS:   append([]int(nil), c.Agent.LLMContinueErrorDelaysMS...),
-		LLMContinueRetryAfterMaxMS: c.Agent.LLMContinueRetryAfterMaxMS,
-		LoopGuard:                  c.Agent.LoopGuard,
-		LoopToolRepeatLimit:        c.Agent.LoopToolRepeatLimit,
-		LoopStreamRepeatCycles:     c.Agent.LoopStreamRepeatCycles,
-		LoopToolCycleRepeats:       c.Agent.LoopToolCycleRepeats,
-		LoopStuckAction:            c.Agent.LoopStuckAction,
-		LoopNudgeMax:               c.Agent.LoopNudgeMax,
-		WaitForLimitReset:          c.Agent.WaitForLimitReset,
-		WaitForLimitResetMaxMS:     cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		QueueMode:                     c.Agent.QueueMode,
+		Model:                         c.Agent.Model,
+		MaxTurns:                      c.Agent.MaxTurns,
+		LLMRetryMax:                   c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:                c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:              c.Agent.LLMMinIntervalMS,
+		LLMFirstTokenTimeoutMS:        c.Agent.LLMFirstTokenTimeoutMS,
+		LLMStreamIdleTimeoutMS:        c.Agent.LLMStreamIdleTimeoutMS,
+		LLMStallRetry:                 c.Agent.LLMStallRetry,
+		LLMStallRetryDelaysMS:         append([]int(nil), c.Agent.LLMStallRetryDelaysMS...),
+		LLMStallRetryMaxWaitMS:        c.Agent.LLMStallRetryMaxWaitMS,
+		LLMContinue:                   c.Agent.LLMContinue,
+		LLMContinueMax:                c.Agent.LLMContinueMax,
+		LLMContinueBackgroundMax:      c.Agent.LLMContinueBackgroundMax,
+		LLMContinueBackgroundDelaysMS: append([]int(nil), c.Agent.LLMContinueBackgroundDelaysMS...),
+		LLMContinueStallDelaysMS:      append([]int(nil), c.Agent.LLMContinueStallDelaysMS...),
+		LLMContinueErrorDelaysMS:      append([]int(nil), c.Agent.LLMContinueErrorDelaysMS...),
+		LLMContinueRetryAfterMaxMS:    c.Agent.LLMContinueRetryAfterMaxMS,
+		LoopGuard:                     c.Agent.LoopGuard,
+		LoopToolRepeatLimit:           c.Agent.LoopToolRepeatLimit,
+		LoopStreamRepeatCycles:        c.Agent.LoopStreamRepeatCycles,
+		LoopToolCycleRepeats:          c.Agent.LoopToolCycleRepeats,
+		LoopStuckAction:               c.Agent.LoopStuckAction,
+		LoopNudgeMax:                  c.Agent.LoopNudgeMax,
+		WaitForLimitReset:             c.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS:        cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
 	out.Prompts = PromptsJSON{
 		DocsPrompt: c.Prompts.DocsPrompt,
@@ -643,7 +650,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			PublicHost: c.Tools.PreviewServer.PublicHost,
 		},
 		HTTPRequest: ToolHTTPRequestJSON{
-			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
+			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
+			DefaultHeaders: cloneStringMap(c.Tools.HTTPRequest.DefaultHeaders),
 		},
 	}
 	out.Logger = LoggerJSON{
@@ -857,30 +865,32 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
-		QueueMode:                  j.Agent.QueueMode,
-		Model:                      j.Agent.Model,
-		MaxTurns:                   j.Agent.MaxTurns,
-		LLMRetryMax:                j.Agent.LLMRetryMax,
-		LLMRetryBaseMS:             j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS:           j.Agent.LLMMinIntervalMS,
-		LLMFirstTokenTimeoutMS:     j.Agent.LLMFirstTokenTimeoutMS,
-		LLMStreamIdleTimeoutMS:     j.Agent.LLMStreamIdleTimeoutMS,
-		LLMStallRetry:              j.Agent.LLMStallRetry,
-		LLMStallRetryDelaysMS:      append([]int(nil), j.Agent.LLMStallRetryDelaysMS...),
-		LLMStallRetryMaxWaitMS:     j.Agent.LLMStallRetryMaxWaitMS,
-		LLMContinue:                j.Agent.LLMContinue,
-		LLMContinueMax:             j.Agent.LLMContinueMax,
-		LLMContinueStallDelaysMS:   append([]int(nil), j.Agent.LLMContinueStallDelaysMS...),
-		LLMContinueErrorDelaysMS:   append([]int(nil), j.Agent.LLMContinueErrorDelaysMS...),
-		LLMContinueRetryAfterMaxMS: j.Agent.LLMContinueRetryAfterMaxMS,
-		LoopGuard:                  j.Agent.LoopGuard,
-		LoopToolRepeatLimit:        j.Agent.LoopToolRepeatLimit,
-		LoopStreamRepeatCycles:     j.Agent.LoopStreamRepeatCycles,
-		LoopToolCycleRepeats:       j.Agent.LoopToolCycleRepeats,
-		LoopStuckAction:            j.Agent.LoopStuckAction,
-		LoopNudgeMax:               j.Agent.LoopNudgeMax,
-		WaitForLimitReset:          j.Agent.WaitForLimitReset,
-		WaitForLimitResetMaxMS:     cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		QueueMode:                     j.Agent.QueueMode,
+		Model:                         j.Agent.Model,
+		MaxTurns:                      j.Agent.MaxTurns,
+		LLMRetryMax:                   j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:                j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:              j.Agent.LLMMinIntervalMS,
+		LLMFirstTokenTimeoutMS:        j.Agent.LLMFirstTokenTimeoutMS,
+		LLMStreamIdleTimeoutMS:        j.Agent.LLMStreamIdleTimeoutMS,
+		LLMStallRetry:                 j.Agent.LLMStallRetry,
+		LLMStallRetryDelaysMS:         append([]int(nil), j.Agent.LLMStallRetryDelaysMS...),
+		LLMStallRetryMaxWaitMS:        j.Agent.LLMStallRetryMaxWaitMS,
+		LLMContinue:                   j.Agent.LLMContinue,
+		LLMContinueMax:                j.Agent.LLMContinueMax,
+		LLMContinueBackgroundMax:      j.Agent.LLMContinueBackgroundMax,
+		LLMContinueBackgroundDelaysMS: append([]int(nil), j.Agent.LLMContinueBackgroundDelaysMS...),
+		LLMContinueStallDelaysMS:      append([]int(nil), j.Agent.LLMContinueStallDelaysMS...),
+		LLMContinueErrorDelaysMS:      append([]int(nil), j.Agent.LLMContinueErrorDelaysMS...),
+		LLMContinueRetryAfterMaxMS:    j.Agent.LLMContinueRetryAfterMaxMS,
+		LoopGuard:                     j.Agent.LoopGuard,
+		LoopToolRepeatLimit:           j.Agent.LoopToolRepeatLimit,
+		LoopStreamRepeatCycles:        j.Agent.LoopStreamRepeatCycles,
+		LoopToolCycleRepeats:          j.Agent.LoopToolCycleRepeats,
+		LoopStuckAction:               j.Agent.LoopStuckAction,
+		LoopNudgeMax:                  j.Agent.LoopNudgeMax,
+		WaitForLimitReset:             j.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS:        cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
 	cfg.Prompts = Prompts{
 		DocsPrompt: j.Prompts.DocsPrompt,
@@ -943,7 +953,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			PublicHost: j.Tools.PreviewServer.PublicHost,
 		},
 		HTTPRequest: ToolHTTPRequest{
-			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
+			Allowlist:      append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
+			DefaultHeaders: cloneStringMap(j.Tools.HTTPRequest.DefaultHeaders),
 		},
 	}
 	cfg.Logger = Logger{

@@ -9,6 +9,7 @@ import {
 import { parseSSEBlocks } from "./sse";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { queuedUserMessageItem } from "./queuedUserMessage";
+import { sessionMessageFiles } from "./sessionMessageFiles";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
@@ -38,6 +39,8 @@ type ToolCallStatusUpdate = {
     foxxycode?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
       todoPlan?: unknown;
+      /** Pictures the call showed the model, in the files shape of a message. */
+      images?: unknown;
     };
   };
 };
@@ -49,6 +52,14 @@ function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
 
 function todoPlanFromToolStatus(u: ToolCallStatusUpdate) {
   return normalizeTodoPlanSnapshot(u._meta?.foxxycode?.todoPlan);
+}
+
+/** The pictures a finished call showed the model (`read` on an image file). */
+function imagesFromToolStatus(u: ToolCallStatusUpdate) {
+  const raw = u._meta?.foxxycode?.images;
+  if (raw === undefined) return undefined;
+  const images = sessionMessageFiles(raw, "");
+  return images.length > 0 ? images : undefined;
 }
 
 /**
@@ -278,6 +289,7 @@ export async function consumeComposerSseReader(
               if (upd.fullResultText !== undefined)
                 it.fullResultText = upd.fullResultText;
               if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
+              if (upd.images !== undefined) it.images = upd.images;
               if (upd.startedAtMs !== undefined)
                 it.startedAtMs = upd.startedAtMs;
               if (upd.finishedAtMs !== undefined)
@@ -322,6 +334,7 @@ export async function consumeComposerSseReader(
             if (upd.fullResultText !== undefined)
               merged.fullResultText = upd.fullResultText;
             if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
+            if (upd.images !== undefined) merged.images = upd.images;
             arr[idx] = merged;
             next = arr;
           }
@@ -905,6 +918,7 @@ export async function consumeComposerSseReader(
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
                 const todoPlan = todoPlanFromToolStatus(u);
+                const images = imagesFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
@@ -912,6 +926,7 @@ export async function consumeComposerSseReader(
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
                   ...(todoPlan !== undefined ? { todoPlan } : {}),
+                  ...(images !== undefined ? { images } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -920,10 +935,12 @@ export async function consumeComposerSseReader(
                   status === "failed" ||
                   status === "cancelled"
                 ) {
+                  const images = imagesFromToolStatus(u);
                   toolQueue.push({
                     toolCallId: u.toolCallId,
                     status,
                     finishedAtMs: now,
+                    ...(images !== undefined ? { images } : {}),
                   });
                 } else if (status === "pending") {
                   // A pending update is a progress ping (streamed file
@@ -1186,6 +1203,7 @@ export async function consumeComposerSseReader(
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
                 const todoPlan = todoPlanFromToolStatus(u);
+                const images = imagesFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
@@ -1193,6 +1211,7 @@ export async function consumeComposerSseReader(
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
                   ...(todoPlan !== undefined ? { todoPlan } : {}),
+                  ...(images !== undefined ? { images } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -1201,10 +1220,12 @@ export async function consumeComposerSseReader(
                   status === "failed" ||
                   status === "cancelled"
                 ) {
+                  const images = imagesFromToolStatus(u);
                   toolQueue.push({
                     toolCallId: u.toolCallId,
                     status,
                     finishedAtMs: now,
+                    ...(images !== undefined ? { images } : {}),
                   });
                 } else {
                   toolQueue.push({

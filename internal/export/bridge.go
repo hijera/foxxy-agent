@@ -57,11 +57,11 @@ func dialogueFromDocument(doc ExportDocument, assetsDir string) exportDocument {
 			}
 			for _, tc := range e.ToolCalls {
 				if body := toolCallMarkdown(tc); body != "" {
-					out.Messages = append(out.Messages, exportMessage{
-						Role:      exportRoleTool,
-						Content:   body,
-						CreatedAt: e.CreatedAt,
-					})
+					msg := exportMessage{Role: exportRoleTool, Content: body, CreatedAt: e.CreatedAt}
+					for _, picture := range tc.Pictures {
+						msg.Attachments = append(msg.Attachments, exportAttachment{Name: picture.Name, Path: picture.Path})
+					}
+					out.Messages = append(out.Messages, msg)
 				}
 			}
 		case ExportEntryCompactionSummary, ExportEntrySystem:

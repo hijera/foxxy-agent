@@ -136,7 +136,14 @@ jobs:
               binname="foxxycode.exe"
             fi
             mkdir -p "$bindir"
-            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+            # Every build is pure Go but Android's, which the NDK the runner
+            # carries links against Bionic (scripts/android-cc.sh).
+            local cgo=0 cc=""
+            if [ "$goos" = "android" ]; then
+              cgo=1
+              cc="$(scripts/android-cc.sh "$goarch")"
+            fi
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" CC="$cc" \
               go build \
               -tags="${GO_BUILD_TAGS}" \
               -trimpath \
@@ -176,6 +183,12 @@ jobs:
 
           build_target linux amd64
           build_target linux arm64
+          # Termux on Android. GOOS=android with cgo makes the position-
+          # independent executable the Android system linker loads; the static
+          # linux build above is refused by it (`has unexpected e_type: 2`)
+          # where Termux runs programs through /system/bin/linker64.
+          build_target android arm64
+          build_target android amd64
           build_target windows amd64
           build_target darwin amd64
           build_target darwin arm64

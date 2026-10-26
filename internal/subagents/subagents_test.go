@@ -563,6 +563,18 @@ func TestPromptBlockSaysDetachedRunsWakeTheParent(t *testing.T) {
 	}
 }
 
+// A run that stopped before its report keeps its transcript, and the parent
+// reads in the catalog to continue it with resume instead of starting a second
+// subagent on the same task from an empty context (issue #389).
+func TestPromptBlockSaysAnUnfinishedRunIsResumed(t *testing.T) {
+	block := PromptBlock([]CatalogEntry{{Name: "general", Description: "General helper"}})
+	for _, want := range []string{"`resume`", "transcript", "instead of starting"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("prompt block lacks %q:\n%s", want, block)
+		}
+	}
+}
+
 // An approval surface decides on the bounds, not on the name: the catalog has
 // to carry what the definition declares about the child's reach. The role body
 // itself never travels - only its size - because a client would render it

@@ -1,10 +1,12 @@
 package agent
 
-// Godog harness for features/subagents.feature: a real session.Manager over a
-// temporary home and workspace, scripted LLM providers for the parent and for
-// every child it spawns, a recording parent client, the process-wide task pool,
-// and (for one scenario) the re-exec stdio MCP helper. The scenarios assert what
-// the parent model, the parent's client and the persisted bundles observe.
+// Godog harness for features/subagents.feature and
+// features/subagents_reconnect.feature: a real session.Manager over a temporary
+// home and workspace, scripted LLM providers for the parent and for every child
+// it spawns (a child's provider can drop its connection the way a real lane
+// does), a recording parent client, the process-wide task pool, and (for one
+// scenario) the re-exec stdio MCP helper. The scenarios assert what the parent
+// model, the parent's client and the persisted bundles observe.
 
 import (
 	"bufio"
@@ -13,11 +15,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -96,6 +101,12 @@ type scriptedProvider struct {
 	calls    int
 	requests [][]llm.Message
 	offered  [][]string
+	// fail, when set, decides whether a call breaks the way a lane that lost
+	// its connection does: the call streams partial, then fails with err. A
+	// failed call takes no step, so the script picks up where it stood once
+	// the lane answers again.
+	fail   func(call int) (partial string, err error)
+	failed int
 }
 
 func (p *scriptedProvider) Complete(ctx context.Context, messages []llm.Message, defs []llm.ToolDefinition) (*llm.Response, error) {
@@ -112,9 +123,19 @@ func (p *scriptedProvider) Stream(_ context.Context, messages []llm.Message, def
 		names = append(names, d.Name)
 	}
 	p.offered = append(p.offered, names)
+	if p.fail != nil {
+		if partial, err := p.fail(call); err != nil {
+			p.failed++
+			p.mu.Unlock()
+			if partial != "" {
+				onChunk(llm.StreamChunk{TextDelta: partial})
+			}
+			return nil, err
+		}
+	}
 	var step scriptStep
-	if call <= len(p.steps) {
-		step = p.steps[call-1]
+	if next := call - p.failed; next <= len(p.steps) {
+		step = p.steps[next-1]
 	}
 	p.mu.Unlock()
 	if step == nil {
@@ -224,6 +245,55 @@ func (b *featureDetachedBroker) seen() []DetachedPermissionRequest {
 	return append([]DetachedPermissionRequest(nil), b.requests...)
 }
 
+// resumeCall continues an earlier run of the session: ref is the task id or
+// the child session id a spawn_agent result named.
+func resumeCall(id, agent, ref, prompt string) llm.ToolCall {
+	b, _ := json.Marshal(map[string]interface{}{
+		"agent":       agent,
+		"resume":      ref,
+		"prompt":      prompt,
+		"description": "bdd task, resumed",
+	})
+	return llm.ToolCall{ID: id, Name: "spawn_agent", InputJSON: string(b)}
+}
+
+// ---- provider connection failures ----
+
+// The errors a real lane returns when its connection dies, as the openai
+// provider wraps them: a read on an established stream, a dial that finds
+// nobody listening. The addresses and the provider name are the ones of the
+// report in issue #389.
+var (
+	bddCockpitClient = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 53107}
+	bddCockpitServer = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 62557}
+)
+
+func bddCockpitError(op string, cause error) error {
+	opErr := &net.OpError{Op: op, Net: "tcp", Source: bddCockpitClient, Addr: bddCockpitServer, Err: cause}
+	if op == "dial" {
+		// A dial that failed never had a local end.
+		opErr.Source = nil
+	}
+	return fmt.Errorf(`provider "cockpit" (http://localhost:62557/v1): openai stream: %w`, opErr)
+}
+
+// windowsConnectionReset is the read Windows fails when the remote host
+// forcibly closed the connection: Winsock's WSAECONNRESET (10054), which Go
+// returns as a bare syscall.Errno named only in the windows build of syscall.
+func windowsConnectionReset() error {
+	return bddCockpitError("read", os.NewSyscallError("wsarecv", syscall.Errno(10054)))
+}
+
+// connectionReset is the same failure on Linux.
+func connectionReset() error {
+	return bddCockpitError("read", os.NewSyscallError("read", syscall.ECONNRESET))
+}
+
+// connectionRefused is a dial to a provider that is down.
+func connectionRefused() error {
+	return bddCockpitError("dial", os.NewSyscallError("connect", syscall.ECONNREFUSED))
+}
+
 // ---- recording parent client ----
 
 type recordingClient struct {
@@ -313,11 +383,16 @@ type subagentsFeatureState struct {
 	childProviders map[string]*scriptedProvider
 	childSteps     func() []scriptStep
 	release        chan struct{}
+	// childFail is handed to every child provider: which of its calls lose
+	// the connection. childOutage is the switch of a provider that is down.
+	childFail   func(call int) (partial string, err error)
+	childOutage atomic.Bool
 
-	spawnResults []string
-	waitResults  []string
-	lastChildID  string
-	lastTaskID   string
+	spawnResults  []string
+	waitResults   []string
+	lastChildID   string
+	lastTaskID    string
+	lastAgentName string
 
 	// broker stands in for a surface that can still show a prompt after
 	// the parent turn ended; nil means no such surface, which is the
@@ -346,11 +421,14 @@ func (s *subagentsFeatureState) reset() error {
 	s.parentProvider = nil
 	s.childProviders = map[string]*scriptedProvider{}
 	s.childSteps = nil
+	s.childFail = nil
+	s.childOutage.Store(false)
 	s.release = make(chan struct{})
 	s.spawnResults = nil
 	s.waitResults = nil
 	s.lastChildID = ""
 	s.lastTaskID = ""
+	s.lastAgentName = ""
 	s.broker = nil
 	s.parent = nil
 	s.client = &recordingClient{answer: "allow"}
@@ -409,8 +487,10 @@ func (s *subagentsFeatureState) buildConfig() *config.Config {
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd, ConfigPath: filepath.Join(s.home, "config.yaml")},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
-		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8},
-		Sessions:  config.Sessions{Dir: filepath.Join(s.root, "sessions")},
+		// A retry base of one millisecond keeps the pauses before a
+		// reconnect in milliseconds; the ladder itself is what is under test.
+		Agent:    config.Agent{Model: "fake/model", MaxTurns: 8, LLMRetryBaseMS: 1, LLMStallRetryDelaysMS: []int{0}, LLMContinueBackgroundDelaysMS: []int{0}},
+		Sessions: config.Sessions{Dir: filepath.Join(s.root, "sessions")},
 	}
 	cfg.Tools.PermissionMode = config.PermModeAsk
 	cfg.Subagents.ProjectTrust = s.trustPolicy
@@ -432,7 +512,7 @@ func (s *subagentsFeatureState) providerFor(st *session.State) llm.Provider {
 		if p, ok := s.childProviders[st.ID]; ok {
 			return p
 		}
-		p := &scriptedProvider{}
+		p := &scriptedProvider{fail: s.childFail}
 		if s.childSteps != nil {
 			p.steps = s.childSteps()
 		}
@@ -621,6 +701,7 @@ func (s *subagentsFeatureState) spawnBackground(agent, answer string) error {
 }
 
 func (s *subagentsFeatureState) spawnWith(agent string, background bool) error {
+	s.lastAgentName = agent
 	results, err := s.runParentTurn(toolStep(spawnCall("call_spawn", agent, background)), answerStep("parent done"))
 	if err != nil {
 		return err
@@ -630,6 +711,71 @@ func (s *subagentsFeatureState) spawnWith(agent string, background bool) error {
 		return fmt.Errorf("spawn_agent produced no tool result")
 	}
 	s.spawnResults = append(s.spawnResults, res)
+	s.noteLastAgentTask()
+	return nil
+}
+
+// ---- a child's provider losing its connection ----
+
+func (s *subagentsFeatureState) remoteHostClosesChildConnection(partial string) error {
+	s.childFail = func(call int) (string, error) {
+		if call == 1 {
+			return partial, windowsConnectionReset()
+		}
+		return "", nil
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childConnectionResetOnFirstCalls(n int) error {
+	s.childFail = func(call int) (string, error) {
+		if call <= n {
+			return "", connectionReset()
+		}
+		return "", nil
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childProviderDown() error {
+	s.childOutage.Store(true)
+	s.childFail = func(int) (string, error) {
+		if s.childOutage.Load() {
+			return "", connectionRefused()
+		}
+		return "", nil
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childProviderBack() error {
+	s.childOutage.Store(false)
+	return nil
+}
+
+// resumeHintCall matches the call a failed run's report tells the parent to make.
+var resumeHintCall = regexp.MustCompile(`spawn_agent with resume="([^"]+)"`)
+
+// resumeLastRun continues the child of the last spawn the way its failure
+// report says to, so the scenario also proves the hint is a call that works.
+func (s *subagentsFeatureState) resumeLastRun(prompt string) error {
+	res, err := s.lastSpawnResult()
+	if err != nil {
+		return err
+	}
+	m := resumeHintCall.FindStringSubmatch(res)
+	if m == nil {
+		return fmt.Errorf("the last spawn_agent result %q names no spawn_agent resume call", res)
+	}
+	results, err := s.runParentTurn(toolStep(resumeCall("call_resume", s.lastAgentName, m[1], prompt)), answerStep("parent done"))
+	if err != nil {
+		return err
+	}
+	out, ok := results["call_resume"]
+	if !ok {
+		return fmt.Errorf("the resuming spawn_agent produced no tool result")
+	}
+	s.spawnResults = append(s.spawnResults, out)
 	s.noteLastAgentTask()
 	return nil
 }
@@ -1294,6 +1440,139 @@ func (s *subagentsFeatureState) promptRefusedReadOnly() error {
 	return nil
 }
 
+func (s *subagentsFeatureState) spawnResultReportsStatus(status string) error {
+	return s.spawnResultContains(fmt.Sprintf("status=%q", status))
+}
+
+func (s *subagentsFeatureState) spawnResultTellsToResume() error {
+	res, err := s.lastSpawnResult()
+	if err != nil {
+		return err
+	}
+	m := resumeHintCall.FindStringSubmatch(res)
+	if m == nil {
+		return fmt.Errorf("spawn_agent result %q does not tell the parent to resume the subagent", res)
+	}
+	if m[1] != s.lastTaskID && m[1] != s.lastChildID {
+		return fmt.Errorf("the resume hint names %q, neither the task %q nor the child session %q", m[1], s.lastTaskID, s.lastChildID)
+	}
+	return nil
+}
+
+// childTaskLog is what the last agent task's output sink holds: the progress
+// log background_output and the Tasks panel show.
+func (s *subagentsFeatureState) childTaskLog() (string, error) {
+	if s.lastTaskID == "" {
+		return "", fmt.Errorf("no agent task known")
+	}
+	out, _, err := bgtask.Default().Output(s.parent.ID, s.lastTaskID, 0)
+	return out, err
+}
+
+// reconnectLines counts the log lines a run writes before each reconnect.
+func reconnectLines(log string) int {
+	n := 0
+	for _, line := range strings.Split(log, "\n") {
+		if strings.Contains(line, "reconnecting in") {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *subagentsFeatureState) childTaskLogSaysReconnecting() error {
+	log, err := s.childTaskLog()
+	if err != nil {
+		return err
+	}
+	if reconnectLines(log) == 0 {
+		return fmt.Errorf("the task log says nothing about reconnecting:\n%s", log)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childTaskLogCountsReconnects(n int) error {
+	log, err := s.childTaskLog()
+	if err != nil {
+		return err
+	}
+	if got := reconnectLines(log); got != n {
+		return fmt.Errorf("the task log counts %d reconnects, want %d:\n%s", got, n, log)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childTranscriptKeepsAndEndsWith(kept, last string) error {
+	snap, err := s.childSnapshot()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, m := range snap.Messages {
+		if m.Role == llm.RoleAssistant && strings.Contains(m.Content, kept) {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("the child transcript lost the partial answer %q", kept)
+	}
+	return s.childTranscriptEndsWith(last)
+}
+
+func (s *subagentsFeatureState) childTranscriptHoldsMessageAndEndsWith(prompt, last string) error {
+	snap, err := s.childSnapshot()
+	if err != nil {
+		return err
+	}
+	users := 0
+	found := false
+	for _, m := range snap.Messages {
+		if m.Role != llm.RoleUser {
+			continue
+		}
+		users++
+		if strings.Contains(m.Content, prompt) {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("the child transcript has no message %q", prompt)
+	}
+	if users < 2 {
+		return fmt.Errorf("the child transcript holds %d user message(s): the resumed run did not continue the first run's transcript", users)
+	}
+	return s.childTranscriptEndsWith(last)
+}
+
+func (s *subagentsFeatureState) parentRanSubagentRuns(runs, children int) error {
+	gotRuns := 0
+	sessions := map[string]bool{}
+	for _, t := range bgtask.Default().List(s.parent.ID) {
+		if t.Kind != bgtask.KindAgent || t.Agent == nil {
+			continue
+		}
+		gotRuns++
+		sessions[t.Agent.SessionID] = true
+	}
+	if gotRuns != runs || len(sessions) != children {
+		return fmt.Errorf("the parent session ran %d subagent runs on %d child sessions, want %d on %d", gotRuns, len(sessions), runs, children)
+	}
+	entries, err := os.ReadDir(filepath.Join(s.store.SessionPath(s.parent.ID), session.ChildSessionsDirName))
+	if err != nil {
+		return err
+	}
+	bundles := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			bundles++
+		}
+	}
+	if bundles != children {
+		return fmt.Errorf("the parent's bundle holds %d child bundles, want %d", bundles, children)
+	}
+	return nil
+}
+
 func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	s := &subagentsFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1375,6 +1654,20 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the child session is a read-only transcript$`, s.promptChildFromOutside)
 	sc.Step(`^the prompt is refused because subagent sessions are read-only$`, s.promptRefusedReadOnly)
 	sc.Step(`^the child session transcript still ends with "([^"]*)"$`, s.childTranscriptEndsWith)
+
+	// features/subagents_reconnect.feature
+	sc.Step(`^the remote host forcibly closes the child's provider connection after "([^"]*)" on its first call$`, s.remoteHostClosesChildConnection)
+	sc.Step(`^the child's provider connection is reset on its first (\d+) calls$`, s.childConnectionResetOnFirstCalls)
+	sc.Step(`^the child's provider refuses every connection$`, s.childProviderDown)
+	sc.Step(`^the child's provider accepts connections again$`, s.childProviderBack)
+	sc.Step(`^the parent model resumes that subagent with "([^"]*)"$`, s.resumeLastRun)
+	sc.Step(`^the spawn_agent tool result reports the status "([^"]*)"$`, s.spawnResultReportsStatus)
+	sc.Step(`^the spawn_agent tool result tells the parent to resume that subagent$`, s.spawnResultTellsToResume)
+	sc.Step(`^the child's task log says the subagent is reconnecting to its provider$`, s.childTaskLogSaysReconnecting)
+	sc.Step(`^the child's task log counts (\d+) reconnects$`, s.childTaskLogCountsReconnects)
+	sc.Step(`^the child session transcript keeps "([^"]*)" and ends with "([^"]*)"$`, s.childTranscriptKeepsAndEndsWith)
+	sc.Step(`^the child session transcript holds the message "([^"]*)" and ends with "([^"]*)"$`, s.childTranscriptHoldsMessageAndEndsWith)
+	sc.Step(`^the parent session ran (\d+) subagent runs? on (\d+) child sessions?$`, s.parentRanSubagentRuns)
 }
 
 func TestSubagentsFeature(t *testing.T) {
@@ -1383,7 +1676,7 @@ func TestSubagentsFeature(t *testing.T) {
 		ScenarioInitializer: initializeSubagentsScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/subagents.feature"},
+			Paths:    []string{"../../features/subagents.feature", "../../features/subagents_reconnect.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

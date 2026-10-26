@@ -1729,6 +1729,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.openTranscriptAria": "Показать транскрипт запуска {label}",
   "sessions.backgroundRunning": "Идут фоновые задачи",
   "messages.openAttachmentImage": "Открыть {fileName} крупнее",
+  "messages.toolImages": "Картинки, которые вызов показал модели",
+  "messages.openToolImage": "Открыть {fileName} крупнее",
   "composer.openAttachmentImage": "Открыть {fileName} крупнее",
   "settings.fieldHint.aria": "Пояснение: {label}",
   "settings.fieldHint.ariaGeneric": "Пояснение к полю",
@@ -1813,7 +1815,8 @@ export const messagesRu: Record<string, string> = {
   "structuredTool.tls": "Сертификат TLS",
   "structuredTool.tlsNotVerified": "не проверяется",
   "structuredTool.redirects": "Редиректы",
-  "structuredTool.redirectsFollowed": "выполняются в пределах того же источника",
+  "structuredTool.redirectsFollowed":
+    "выполняются в пределах того же источника",
   "structuredTool.responseHeaders": "Заголовки ответа",
   "structuredTool.outputFile": "Сохранено в",
   "structuredTool.status": "Ответ",
@@ -1830,7 +1833,8 @@ export const messagesRu: Record<string, string> = {
   "structuredTool.noTasks": "Фоновых задач нет",
   "structuredTool.noLeftovers": "Процессов от прошлого запуска не осталось",
   "structuredTool.stillRunning": "Ещё выполняется после ожидания {seconds} с",
-  "structuredTool.earlierDropped": "Начало вывода отброшено, полный лог лежит в бандле сессии",
+  "structuredTool.earlierDropped":
+    "Начало вывода отброшено, полный лог лежит в бандле сессии",
   "structuredTool.noOutput": "Вывода пока нет",
   "structuredTool.stops": "Остановка",
   "structuredTool.stopsAfter": "через {seconds} с после запуска",
@@ -1863,4 +1867,19 @@ export const messagesRu: Record<string, string> = {
   "skills.switch.disabledTitle": "Отключён - нажмите, чтобы включить",
   "skills.switch.disableAria": "Отключить {name}",
   "skills.switch.enableAria": "Включить {name}",
+
+  "settings.map.namePlaceholder": "Имя",
+  "settings.map.valuePlaceholder": "Значение",
+  "settings.map.nameAria": "{label} {n}, имя",
+  "settings.map.valueAria": "{label} {n}, значение",
+  "settings.schema.tools.http_request.label": "HTTP-запросы",
+  "settings.schema.tools.http_request.desc":
+    "Политика инструмента http_request, curl агента. Здесь задано, куда запрос идёт без вопроса и какие заголовки несёт каждый запрос. В режимах ask и accept_edits запрос спрашивает разрешение, если адрес не разрешён здесь и не одобрен в сессии, а bypass не спрашивает никогда.",
+  "settings.schema.tools.http_request.allowlist.label": "Белый список адресов",
+  "settings.schema.tools.http_request.allowlist.desc":
+    'Адреса, куда запрос идёт без вопроса. Хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/), а "*" разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат. Прокси нужна своя запись, а сохранение ответа в файл следует политике записи.',
+  "settings.schema.tools.http_request.default_headers.label":
+    "Заголовки по умолчанию",
+  "settings.schema.tools.http_request.default_headers.desc":
+    "Заголовки, которые уходят с каждым запросом, если вызов не задал их сам. Например, браузерный User-Agent для сайта, который не отдаёт файлы инструментам. Заголовки вызова важнее, пустое значение убирает заголовок. Они уходят на любой адрес, поэтому учётные данные здесь уместны только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization не принимаются, а webfetch и провайдеры моделей эти заголовки не отправляют.",
 };

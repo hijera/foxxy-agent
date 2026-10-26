@@ -64,6 +64,22 @@ describe("EnvironmentChip", () => {
     expect(screen.queryByTestId("composer-env-menu")).toBeNull();
   });
 
+  // In the swarm header of a relay the chip is the last thing on the right, so
+  // a menu hung from its left edge ran past the window at 1280 px.
+  it("stays inside the window when the chip is near the right edge", async () => {
+    render(<EnvironmentChip />);
+    const btn = screen.getByTestId("composer-env-btn");
+    const right = window.innerWidth - 80;
+    btn.getBoundingClientRect = () =>
+      new DOMRect(right - 76, 0, 76, 48);
+    fireEvent.click(btn);
+    const menu = await screen.findByTestId("composer-env-menu");
+    const width = Math.min(300, window.innerWidth - 24);
+    const left = parseFloat(menu.style.left);
+    expect(left + width).toBeLessThanOrEqual(window.innerWidth - 12);
+    expect(left).toBeGreaterThanOrEqual(12);
+  });
+
   it("localizes the add-remote form without changing its test ids", () => {
     setLocale("ru");
     render(<EnvironmentChip />);

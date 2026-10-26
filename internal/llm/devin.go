@@ -211,19 +211,15 @@ func devinPrompts(messages []Message, uid string) (string, []devinPrompt) {
 		case RoleUser:
 			pr := devinPrompt{source: devinSourceUser, text: m.Content}
 			for _, ip := range m.ImageParts {
-				mime := dataURLMIME(ip.DataURL)
-				if strings.HasPrefix(mime, "image/") {
-					if comma := strings.IndexByte(ip.DataURL, ','); comma > 0 && strings.Contains(ip.DataURL[:comma], ";base64") {
-						pr.images = append(pr.images, devinImage{base64: ip.DataURL[comma+1:], mime: mime})
-					}
-					continue
+				switch kind, mime, payload := sortAttachment(ip); {
+				case kind == attachedPicture && payload != "":
+					pr.images = append(pr.images, devinImage{base64: payload, mime: mime})
+				case kind == attachedPicture:
+					// An address: the prompt carries only pictures it holds.
+					pr.text += attachmentText(ip, attachedText, mime)
+				default:
+					pr.text += attachmentText(ip, kind, mime)
 				}
-				// Anything that is not an image travels as labelled text.
-				label := ip.Name
-				if label == "" {
-					label = "file"
-				}
-				pr.text += fmt.Sprintf("\n\n[File: %s]\n%s", label, decodeDataURL(ip.DataURL))
 			}
 			prompts = append(prompts, pr)
 		case RoleAssistant:

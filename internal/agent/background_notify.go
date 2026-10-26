@@ -358,6 +358,37 @@ func WakeInstruction(batch []bgtask.Snapshot) string {
 	b.WriteString("\nRead the output with background_output when you need it. ")
 	b.WriteString("Continue the work this task was part of, and report the outcome honestly: ")
 	b.WriteString("a task that failed, timed out, or was stopped did not succeed.")
+
+	// A subagent run that ended without its report kept its transcript, and
+	// the way on is that same child, not a second one on the same task
+	// (issue #389). Each child is judged by its latest run in the batch, which
+	// holds the tasks in the order they finished (Wake): a child whose latest
+	// run succeeded needs nothing, and a run whose child session was never
+	// created has nothing to continue.
+	latest := map[string]int{}
+	var children []string
+	for i, t := range batch {
+		if t.Kind != bgtask.KindAgent || t.Agent == nil || t.Agent.System || t.Agent.SessionID == "" {
+			continue
+		}
+		if _, seen := latest[t.Agent.SessionID]; !seen {
+			children = append(children, t.Agent.SessionID)
+		}
+		latest[t.Agent.SessionID] = i
+	}
+	var resumable []string
+	for _, child := range children {
+		t := batch[latest[child]]
+		if !t.Status.Finished() || t.Status == bgtask.StatusSucceeded || strings.HasPrefix(t.Error, errCreateChildSession) {
+			continue
+		}
+		resumable = append(resumable, fmt.Sprintf("spawn_agent with resume=%q and agent %q", t.ID, t.Agent.Name))
+	}
+	if len(resumable) > 0 {
+		b.WriteString(" A subagent that did not finish keeps its transcript: to go on with its task, call ")
+		b.WriteString(strings.Join(resumable, ", or "))
+		b.WriteString(" instead of starting a new subagent.")
+	}
 	return b.String()
 }
 
