@@ -85,6 +85,23 @@ const httpProxyCredentialHeader = "Proxy-Authorization"
 // position.
 var httpDefaultHeaderName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 
+// HTTPDefaultHeaderNameOK reports whether name is a header name
+// tools.http_request.default_headers accepts: letters, digits, "-" and "_",
+// starting with a letter. A call may send any other name in its own headers.
+func HTTPDefaultHeaderNameOK(name string) bool {
+	return httpDefaultHeaderName.MatchString(name)
+}
+
+// HTTPHeaderForbiddenAsDefault reports whether canonicalName is a header that
+// cannot stand as a default for every request: one the tool derives from each
+// call, a hop-by-hop header, or a proxy credential. The tool refuses them
+// where the request is built as well as the loader.
+func HTTPHeaderForbiddenAsDefault(canonicalName string) bool {
+	return httpHeadersOfOneRequest[canonicalName] ||
+		httpHeadersOfOneConnection[canonicalName] ||
+		canonicalName == httpProxyCredentialHeader
+}
+
 // validateHTTPDefaultHeaders refuses a name that is not a header name of that
 // shape, two spellings of one header, a header the tool derives from each
 // request and a value that would break the header line. The map is left as

@@ -121,12 +121,19 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 				}
 				for _, ip := range m.ImageParts {
 					// Every picture type goes as one: a local server behind this
-					// API may take more types than OpenAI does. An SVG is text.
-					if IsPicture(ip) {
+					// API may take more types than OpenAI does. An SVG is text,
+					// and a data URL whose payload is not base64 is not a
+					// picture any API takes - it is named instead, the way the
+					// other providers name a picture they cannot send.
+					if IsPicture(ip) && pictureHasSendableSource(ip.DataURL) {
 						parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
 							URL:    ip.DataURL,
 							Detail: "auto",
 						}))
+					} else if IsPicture(ip) {
+						kind, mime, _ := sortAttachment(ip)
+						parts = append(parts, openai.TextContentPart(
+							strings.TrimPrefix(attachmentText(ip, kind, mime), "\n")))
 					} else {
 						// Non-image data URL: decode and inject as labelled text block.
 						decoded := decodeDataURL(ip.DataURL)

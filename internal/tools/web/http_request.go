@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +26,7 @@ import (
 	"golang.org/x/net/html/charset"
 	"golang.org/x/net/http/httpguts"
 
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/netx"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
@@ -635,36 +635,11 @@ func describesTheClient(name string) bool {
 	return strings.HasPrefix(name, "Sec-Ch-Ua") || strings.HasPrefix(name, "Sec-Fetch-") || name == "Sec-Gpc"
 }
 
-// notForEveryRequest are the headers a default for every request cannot
-// stand for: the ones the tool takes from each call - the host of its address,
-// the type of its payload and the payload's framing - the hop-by-hop ones,
-// which describe one connection, and a proxy's credential, which an https
-// request would carry to the origin through the tunnel. The loader refuses
-// them in tools.http_request.default_headers; this is the same rule where the
-// request is built.
-var notForEveryRequest = map[string]bool{
-	"Host":                true,
-	"Content-Type":        true,
-	"Content-Length":      true,
-	"Transfer-Encoding":   true,
-	"Connection":          true,
-	"Keep-Alive":          true,
-	"Proxy-Connection":    true,
-	"Te":                  true,
-	"Trailer":             true,
-	"Upgrade":             true,
-	"Proxy-Authorization": true,
-}
-
-// defaultHeaderName is the shape of a default header's name, the one the loader
-// holds tools.http_request.default_headers to: letters, digits, "-" and "_",
-// starting with a letter.
-var defaultHeaderName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
-
 // applyDefaultHeaders adds the operator's default headers for the names the
 // call did not give, marking them given so the tool's own defaults stay out.
-// An empty value leaves the header out, as it does in a call. The names are
-// checked by the loader's rules again: this is where they meet the wire.
+// An empty value leaves the header out, as it does in a call. The names and
+// forbidden headers follow the loader's rules (config.HTTPDefaultHeaderNameOK,
+// config.HTTPHeaderForbiddenAsDefault) - this is where they meet the wire.
 func (r *HTTPRequest) applyDefaultHeaders(defaults map[string]string, given map[string]bool, removed *[]string) error {
 	names := make([]string, 0, len(defaults))
 	for name := range defaults {
@@ -674,7 +649,7 @@ func (r *HTTPRequest) applyDefaultHeaders(defaults map[string]string, given map[
 	spelled := make(map[string]string, len(names))
 	for _, rawName := range names {
 		name := strings.TrimSpace(rawName)
-		if !defaultHeaderName.MatchString(name) {
+		if !config.HTTPDefaultHeaderNameOK(name) {
 			return fmt.Errorf("default header %q is not a header name the configuration takes", rawName)
 		}
 		key := textproto.CanonicalMIMEHeaderKey(name)
@@ -682,7 +657,7 @@ func (r *HTTPRequest) applyDefaultHeaders(defaults map[string]string, given map[
 			return fmt.Errorf("default headers %q and %q name the same header", first, rawName)
 		}
 		spelled[key] = rawName
-		if notForEveryRequest[key] {
+		if config.HTTPHeaderForbiddenAsDefault(key) {
 			return fmt.Errorf("default header %s cannot be set for every request", key)
 		}
 		value := strings.TrimSpace(defaults[rawName])

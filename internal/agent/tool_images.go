@@ -266,6 +266,20 @@ func withToolImages(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 			continue
 		}
 		for j, p := range m.ImageParts {
+			// A result cannot carry a part at all - ImageParts is the
+			// user-message field, and every provider reads it only there - and
+			// a non-picture is text: write it into the result the way a
+			// prompt's text files reach the model, rather than leave it where
+			// nothing sends it or name it among the pictures.
+			if !llm.IsPicture(p) {
+				if p.DataURL == "" && load != nil {
+					if url, err := load(p); err == nil {
+						p.DataURL = url
+					}
+				}
+				m.Content += llm.AttachmentText(p)
+				continue
+			}
 			ref := fmt.Sprintf("%s (from call %s)", p.Name, m.ToolCallID)
 			url, ok := kept[pictureKey{i, j}]
 			switch {

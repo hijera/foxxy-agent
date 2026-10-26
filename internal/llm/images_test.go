@@ -102,6 +102,21 @@ func TestPicturesAProviderCannotTakeGoAsText(t *testing.T) {
 	}
 }
 
+// A data URL that is not base64 is not a picture any API takes. Every
+// provider names it instead of sending a request the API refuses - the
+// OpenAI-compatible path included, which otherwise sends every image type
+// (a local server may take more than OpenAI does).
+func TestANonBase64DataURLIsNamedNotSent(t *testing.T) {
+	msg := Message{Role: RoleUser, Content: "look", ImageParts: []ImagePart{
+		{Name: "raw.png", DataURL: "data:image/png,not-base64"},
+	}}
+	openai := newOpenAIProvider("gpt-4o", "key", "", nil, 0, 0, "")
+	raw, _ := json.Marshal(openai.buildParams([]Message{msg}, nil, false).Messages)
+	if s := string(raw); strings.Contains(s, "image_url") || !strings.Contains(s, "raw.png") {
+		t.Errorf("OpenAI sends a non-base64 data URL as %s", s)
+	}
+}
+
 // An SVG is text: no provider takes it as a picture, so every one of them
 // writes it out as a labelled file, OpenAI-compatible and Devin included.
 func TestAnSVGGoesAsTextToEveryProvider(t *testing.T) {

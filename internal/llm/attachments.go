@@ -42,6 +42,18 @@ func isPictureType(mime string) bool {
 	return strings.HasPrefix(mime, "image/") && mime != "image/svg+xml"
 }
 
+// pictureHasSendableSource reports whether the data URL of a picture names a
+// source a provider can fetch or decode: an https address, or a data URL whose
+// payload is base64. A data URL with any other payload is not a picture any
+// API takes, whatever its media type says.
+func pictureHasSendableSource(dataURL string) bool {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return strings.HasPrefix(dataURL, "https://")
+	}
+	_, isBase64, _ := parseDataURL(dataURL)
+	return isBase64
+}
+
 // parseDataURL splits a data URL (RFC 2397) into its media type, lower case
 // and without parameters, whether its payload is base64 - the flag is the
 // last parameter before the comma, spelled in any case - and the payload.
@@ -81,6 +93,20 @@ func sortAttachment(ip ImagePart) (kind int, mime, payload string) {
 		return attachedUnsendable, mime, ""
 	}
 	return attachedPicture, mime, payload
+}
+
+// AttachmentText is attachmentText for the part itself: the text an attached
+// part that does not go out as a picture adds to its message. A tool result,
+// which can carry no ImagePart at all (the field is the user-message one and
+// every provider ignores it elsewhere), writes this into its own content, so
+// a file a call brought in reaches the model the way a prompt's text files
+// do instead of being dropped.
+func AttachmentText(ip ImagePart) string {
+	if !IsPicture(ip) {
+		return attachmentText(ip, attachedText, "")
+	}
+	kind, mime, _ := sortAttachment(ip)
+	return attachmentText(ip, kind, mime)
 }
 
 // attachmentText is the text a part that is not sent as a picture adds to its

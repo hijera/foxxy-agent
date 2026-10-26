@@ -273,13 +273,21 @@ func connectedClients(results []mcpDialResult) []*mcp.Client {
 }
 
 // dialWarnings says, one line per server, why a configured server did not
-// start: held by the trust gate, or failed.
+// start: held by the trust gate, or failed. A held server names the command
+// that approves it, so the warning is one the operator can act on.
 func dialWarnings(results []mcpDialResult, held []mcpHeldServer) []string {
 	var warnings []string
 	for _, h := range held {
-		if h.Err != nil {
-			warnings = append(warnings, fmt.Sprintf("connect MCP %s: %v", h.Server.Config.Name, h.Err))
+		if h.Err == nil {
+			continue
 		}
+		if h.Blocked != nil {
+			warnings = append(warnings, fmt.Sprintf(
+				"MCP %s not started: project declaration is not approved for this workspace (approve with: foxxycode mcp trust %s)",
+				h.Server.Config.Name, h.Server.Config.Name))
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("connect MCP %s: %v", h.Server.Config.Name, h.Err))
 	}
 	for _, r := range results {
 		if r.Err != nil {

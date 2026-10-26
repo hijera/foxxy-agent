@@ -444,6 +444,37 @@ func TestWithToolImagesKeepsTheTextFilesOfAPromptForAModelWithoutImages(t *testi
 	}
 }
 
+// A text file a call brought in is text, not a picture left out of the
+// request: it is written into that call's result, the one place the model
+// reads it, since a result cannot carry a part of its own.
+func TestWithToolImagesWritesTheTextFileOfAResultIntoItsText(t *testing.T) {
+	notes := llm.ImagePart{DataURL: "data:text/plain;base64,aGVsbG8=", Name: "notes.txt"}
+	history := []llm.Message{
+		{Role: llm.RoleUser, Content: "look"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "r1", Name: "read"}}},
+		toolResultWith("r1", notes),
+	}
+	before, _ := json.Marshal(history)
+	out := withToolImages(history, true, noToolImageFile)
+	for i, m := range out {
+		if m.Role == llm.RoleTool && len(m.ImageParts) > 0 {
+			t.Fatalf("message %d: a tool result still carries %d part(s)", i, len(m.ImageParts))
+		}
+	}
+	if len(out) != 3 {
+		t.Fatalf("messages = %d, want 3 - a text file alone needs no note of its own", len(out))
+	}
+	if !strings.Contains(out[2].Content, "[File: notes.txt]") || !strings.Contains(out[2].Content, "hello") {
+		t.Errorf("the result %q does not write the text file out", out[2].Content)
+	}
+	if strings.Contains(out[2].Content, "picture") {
+		t.Errorf("the result %q calls the text file a picture", out[2].Content)
+	}
+	if after, _ := json.Marshal(history); string(after) != string(before) {
+		t.Error("the history itself was changed")
+	}
+}
+
 // Text files attached to a prompt go as text and take no picture slot; the
 // pictures attached to prompts are bounded with the rest, newest first, and
 // an older one left out is named in its own message.
