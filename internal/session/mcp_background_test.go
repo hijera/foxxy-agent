@@ -28,6 +28,34 @@ type controlCapture struct {
 	updates []MCPConnectUpdate
 }
 
+// The sender can be replaced after session/new while its background notifier
+// is still running, including on a session with no configured servers.
+func TestMCPNotificationsDuringSenderReplacement(t *testing.T) {
+	m := &Manager{}
+	st := &State{}
+	gen, _, _ := st.beginBackgroundMCP(nil)
+	st.finishBackgroundMCP(gen, nil)
+	capture := &controlCapture{}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 1000 {
+			m.SetServer(capture)
+			m.SetServer(nil)
+		}
+	}()
+	for range 1000 {
+		m.sendMCPConnectUpdate(st)
+	}
+	wg.Wait()
+	m.SetServer(capture)
+	m.sendMCPConnectUpdate(st)
+	if update, ok := capture.last(); !ok || !update.Done {
+		t.Fatal("the current sender did not receive the completed MCP snapshot")
+	}
+}
+
 func (c *controlCapture) SendControlUpdate(_ string, update any) error {
 	if u, ok := update.(MCPConnectUpdate); ok {
 		c.mu.Lock()
