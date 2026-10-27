@@ -387,6 +387,13 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		dialCtx, cancel := context.WithTimeout(ctx, subagentMCPDialTimeout)
 		m.connectConfiguredMCPServers(dialCtx, state)
 		m.connectSessionMCPServers(dialCtx, state, spec.ClientMCPServers)
+		// The configured servers dial in the background. A tool set resolved
+		// now must see their tools, or a server that is still starting is
+		// silently left out of the run. A dial that outlasts the budget
+		// resolves with what has connected; the turn still waits for the rest.
+		if spec.ResolveTools != nil {
+			_ = state.WaitMCPConnect(dialCtx)
+		}
 		cancel()
 	}
 	if err := ctx.Err(); err != nil {

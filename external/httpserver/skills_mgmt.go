@@ -182,7 +182,7 @@ func (s *Server) foxxycodeSkillsSourcesPost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req skillSourceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, `{"error":{"message":"invalid request body"}}`, http.StatusBadRequest)
 		return
 	}
@@ -285,7 +285,7 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req skillInstallRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, `{"error":{"message":"invalid request body"}}`, http.StatusBadRequest)
 		return
 	}
@@ -367,6 +367,12 @@ func (s *Server) foxxycodeSkillsSourcesDelete(w http.ResponseWriter, r *http.Req
 		return
 	}
 	removed, err := skills.RemoveSource(s.activeCfg(), source)
+	var notice skills.RemovalNotice
+	if errors.As(err, &notice) {
+		// The entry was dropped; the notice only says the built-in source stays.
+		slog.Info("skill source removed", "source", source, "notice", notice.Msg)
+		err = nil
+	}
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusBadRequest)

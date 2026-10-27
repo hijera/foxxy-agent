@@ -51,6 +51,11 @@ const toolImageStemMax = 80
 // the web UI previews the original.
 const toolImageThumbnailMaxPixels = 16_000_000
 
+// toolImageNameSafe replaces the characters a copy's name may not carry: the
+// separators of the asset address, and the colon, which NTFS reads as the start
+// of an alternate stream.
+var toolImageNameSafe = strings.NewReplacer("\\", "_", ":", "_")
+
 // toolImageExt names a copy by the type the model was sent, which is not
 // always the file's own: a GIF goes as the PNG of its first frame.
 var toolImageExt = map[string]string{
@@ -78,8 +83,10 @@ func SaveToolImageAsset(sessionDir, name, mimeType string, data []byte) (assetPa
 	}
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	// The asset name is also a segment of the asset address, which refuses a
-	// backslash on every host, while a Unix file name may hold one.
-	stem = strings.ReplaceAll(stem, "\\", "_")
+	// backslash on every host, while a Unix file name may hold one. A colon is
+	// refused too: on NTFS "name:stream" names an alternate stream of "name",
+	// not a file, so the copy would land somewhere else than it is read from.
+	stem = toolImageNameSafe.Replace(stem)
 	if stem == "" {
 		stem = "image"
 	}
@@ -91,7 +98,7 @@ func SaveToolImageAsset(sessionDir, name, mimeType string, data []byte) (assetPa
 	}
 	ext := toolImageExt[mimeType]
 	if ext == "" {
-		ext = filepath.Ext(base)
+		ext = toolImageNameSafe.Replace(filepath.Ext(base))
 	}
 	assetName := stem + "-" + toolImageDigest(data) + ext
 

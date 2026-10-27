@@ -158,6 +158,11 @@ const (
 	// side once a request holds more than 20 of them.
 	toolImagesMaxCount = 20
 	toolImagesMaxBytes = 20 << 20
+	// toolImagesMaxPictureBytes is the largest picture a request carries, on
+	// the encoded bytes partBytes measures: the 5 MiB per-image limit of the
+	// provider, which read_image's 3.75 MiB of raw data fills exactly. Prompt
+	// attachments are held to it too.
+	toolImagesMaxPictureBytes = 5 << 20
 )
 
 // pictureKey addresses a part of the history: the message, the part.
@@ -187,7 +192,10 @@ func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 				continue
 			}
 			n := partBytes(p)
-			if size+n > toolImagesMaxBytes {
+			// A picture past the per-picture limit is refused by the provider
+			// on every request it stays in the history, so it is left out
+			// here, the way an over-budget one is, instead of failing them all.
+			if n > toolImagesMaxPictureBytes || size+n > toolImagesMaxBytes {
 				continue
 			}
 			url := p.DataURL

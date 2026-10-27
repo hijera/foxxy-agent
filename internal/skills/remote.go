@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/gitws"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
@@ -382,6 +384,9 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 		if cloneURL == "" {
 			return fmt.Errorf("plugin %q: empty source url", p.Name)
 		}
+		if err := checkManifestCloneURL(cloneURL, src); err != nil {
+			return fmt.Errorf("plugin %q: %w", p.Name, err)
+		}
 		tmp, err := os.MkdirTemp("", "foxxycode-plugin-")
 		if err != nil {
 			return err
@@ -399,7 +404,10 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 		if repoRoot == "" {
 			return fmt.Errorf("plugin %q: relative path source requires a repository (not supported for API sources)", p.Name)
 		}
-		dir := filepath.Join(repoRoot, filepath.Clean("/"+p.Source.Path))
+		dir, err := containedPluginDir(repoRoot, p.Source.Path)
+		if err != nil {
+			return fmt.Errorf("plugin %q: %w", p.Name, err)
+		}
 		return installPluginDir(dir, p, entry, managedDir, lock, res)
 
 	case "archive":
@@ -408,6 +416,45 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 	default:
 		return fmt.Errorf("plugin %q: unsupported source kind %q", p.Name, p.Source.Kind)
 	}
+}
+
+// checkManifestCloneURL admits a clone URL a marketplace manifest names. The
+// manifest is remote content, so its clone targets are limited to https (which
+// safeClone vets against private hosts). A local file:// clone is admitted only
+// when the marketplace itself is local (src is file://), since the operator chose
+// that repository. Other transports (git://, ssh, scp-style, bare paths) could
+// reach internal hosts or read local repositories on the strength of a remote
+// file alone.
+func checkManifestCloneURL(cloneURL, src string) error {
+	low := strings.ToLower(strings.TrimSpace(cloneURL))
+	if strings.HasPrefix(low, "https://") {
+		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(src)), "file://") && strings.HasPrefix(low, "file://") {
+		return nil
+	}
+	return fmt.Errorf("clone url %q is not allowed from a marketplace manifest (only https://, or file:// for a local marketplace)", cloneURL)
+}
+
+// containedPluginDir resolves a manifest's relative path inside the marketplace
+// clone. Lexical cleaning alone is not enough: a symlink in the clone could
+// point the plugin directory at a host folder, so the resolved path must stay
+// under the resolved repository root.
+func containedPluginDir(repoRoot, rel string) (string, error) {
+	joined := filepath.Join(repoRoot, filepath.Clean("/"+rel))
+	realRoot, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(joined)
+	if err != nil {
+		return "", fmt.Errorf("plugin path %q: %w", rel, err)
+	}
+	inside, err := filepath.Rel(realRoot, resolved)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
+		return "", fmt.Errorf("plugin path %q leaves the marketplace repository", rel)
+	}
+	return resolved, nil
 }
 
 // An inline skills list scopes a plugin whose source is a shared repository.
@@ -462,6 +509,15 @@ func installSkillDirs(hits []skillHit, entry RemoteEntry, managedDir string, loc
 			_ = os.RemoveAll(tmpDst)
 			if firstErr == nil {
 				firstErr = err
+			}
+			continue
+		}
+		// Never swap in a copy without its SKILL.md: that would leave the
+		// installed skill in place of a working one with nothing to load.
+		if !hasRegularSkillFile(tmpDst) {
+			_ = os.RemoveAll(tmpDst)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("skill %q: its SKILL.md is not a regular file in the copy", name)
 			}
 			continue
 		}
@@ -532,13 +588,24 @@ func RecoverInterruptedInstalls(managedDir string) {
 		if err != nil {
 			continue
 		}
+		pid, err := strconv.Atoi(suffix[cut+1:])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		// A live owner may be mid-swap right now (a console and a serve on the
+		// same home): its backup is not an orphan, so it is left alone.
+		if platform.ProcessAlive(pid, time.Time{}) {
+			continue
+		}
 		bak := filepath.Join(managedDir, e.Name())
 		dst := filepath.Join(managedDir, name)
 		if _, err := os.Stat(dst); err == nil {
 			_ = os.RemoveAll(bak)
 			continue
 		}
-		_ = renameSkillDir(bak, dst)
+		if err := renameSkillDir(bak, dst); err != nil {
+			slog.Warn("could not restore an interrupted skill install", "skill", name, "backup", bak, "err", err)
+		}
 	}
 }
 
@@ -627,7 +694,7 @@ func locateSkillDirs(root string) []skillHit {
 		if err != nil {
 			return
 		}
-		if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err == nil {
+		if hasRegularSkillFile(dir) {
 			name := skillNameForDir(dir, root)
 			if name != "" {
 				if prev, ok := byName[name]; !ok || depth > depthOf[name] {
@@ -656,6 +723,15 @@ func locateSkillDirs(root string) []skillHit {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
+}
+
+// hasRegularSkillFile reports whether dir holds a SKILL.md that is a regular
+// file. A link named SKILL.md is not one: copySkillDir drops links, so a
+// directory accepted on the strength of one would be installed without its
+// SKILL.md and replace a working skill with an empty one.
+func hasRegularSkillFile(dir string) bool {
+	info, err := os.Lstat(filepath.Join(dir, "SKILL.md"))
+	return err == nil && info.Mode().IsRegular()
 }
 
 // skillNameForDir derives a skill's canonical name. Precedence: SKILL.md
@@ -1423,9 +1499,20 @@ func ListSources(cfg *config.Config) []string {
 	return out
 }
 
+// RemovalNotice is returned, together with removed == true, when the source
+// was dropped from skills.sources but the marketplace stays built in. It is
+// information about the outcome, not a failure: callers report the message
+// and succeed.
+type RemovalNotice struct {
+	Msg string
+}
+
+func (e RemovalNotice) Error() string { return e.Msg }
+
 // RemoveSource drops a source from skills.sources and persists config.yaml.
 // It reports whether a matching source was found and removed. A system source
 // is refused: it is not in the file, so there is nothing to take out of it.
+// A redundant system entry is removed and answered with a RemovalNotice.
 func RemoveSource(cfg *config.Config, source string) (bool, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
@@ -1440,10 +1527,11 @@ func RemoveSource(cfg *config.Config, source string) (bool, error) {
 		}
 		sourceMu.Lock()
 		defer sourceMu.Unlock()
-		if _, err := removeConfiguredSource(cfg, source); err != nil {
+		removed, err := removeConfiguredSource(cfg, source)
+		if err != nil {
 			return false, err
 		}
-		return false, fmt.Errorf("removed the redundant %s from skills.sources; the marketplace itself is built into FoxxyCode and stays in effect", source)
+		return removed, RemovalNotice{Msg: fmt.Sprintf("removed the redundant %s from skills.sources; the marketplace itself is built into FoxxyCode and stays in effect", source)}
 	}
 	sourceMu.Lock()
 	defer sourceMu.Unlock()

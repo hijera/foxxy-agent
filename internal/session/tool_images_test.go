@@ -99,6 +99,21 @@ func TestSaveToolImageAssetNamesTheCopyByItsType(t *testing.T) {
 	}
 }
 
+// A colon in a name is an NTFS alternate-stream separator: a copy named with one
+// would be written to another file than the one it is read back from.
+func TestSaveToolImageAssetNeverNamesACopyWithAColon(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"file:stream", "shot:1.png", "a:b:c"} {
+		asset, _, err := SaveToolImageAsset(dir, name, "image/png", pngBytes(t, 2, 2, color.Black))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if base := filepath.Base(asset); strings.Contains(base, ":") {
+			t.Errorf("asset %q for %q carries a colon", base, name)
+		}
+	}
+}
+
 func TestSaveToolImageAssetWithoutASessionDirectorySavesNothing(t *testing.T) {
 	asset, thumb, err := SaveToolImageAsset("", "shot.png", "image/png", []byte("x"))
 	if asset != "" || thumb != "" || err != nil {

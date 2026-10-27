@@ -191,7 +191,7 @@ A sync installs whatever version a source publishes at that moment, so `plugin m
 
 Because synced skills live in a normal skills directory, `enable` / `disable` work on them like on any other skill; `remove` deletes the copy, and the next sync installs it again unless the source is also dropped from `skills.sources`.
 
-Private repositories rely on your ambient `git` credentials. http(s) clone URLs - including the ones a marketplace manifest points at - and API URLs pass the same SSRF guard as the `webfetch` tool, so a manifest cannot make the server clone from loopback or private addresses; `file://` and `git@host:path` sources are the operator's own choice and are cloned as written.
+Private repositories rely on your ambient `git` credentials. http(s) clone URLs - including the ones a marketplace manifest points at - and API URLs pass the same SSRF guard as the `webfetch` tool, so a manifest cannot make the server clone from loopback or private addresses. A clone URL a marketplace manifest names must be `https://`; a `file://` clone is admitted only when the marketplace itself is a local `file://` source, and `git://`, `ssh://`, `git@host:path` and bare paths are refused for a manifest plugin. `file://` and `git@host:path` sources you add to `skills.sources` are the operator's own choice and are cloned as written.
 
 ---
 

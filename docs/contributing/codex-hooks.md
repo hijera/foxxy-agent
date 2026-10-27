@@ -20,7 +20,7 @@ This repository keeps its detailed rules in `.cursor/rules/*.mdc`. The previous 
 | `SessionStart` | `startup\|resume\|clear\|compact\|fork` | every rule whose frontmatter has `alwaysApply: true` |
 | `PreToolUse` | `^(apply_patch\|Edit\|Write)$` | rules whose `globs` cover a file in the pending patch |
 
-Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload. The default command uses `python3`; `commandWindows` uses `python`, because Windows may resolve `python3` to the Microsoft Store stub instead of the installed interpreter. Both commands require Python 3 on `PATH`.
+Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload. The default command uses `python3`; `commandWindows` uses `python`, because Windows may resolve `python3` to the Microsoft Store stub instead of the installed interpreter. Both commands require Python 3 on `PATH`. The `commandWindows` launcher walks up from the working directory to find `attach_rules.py` and exits 0 without attaching anything when it finds none, so a session outside the repository is not blocked by the hook.
 
 The Windows launcher uses `python -X utf8` and finds `.codex/hooks/attach_rules.py`
 by walking from Python's current directory through its parents. This keeps paths

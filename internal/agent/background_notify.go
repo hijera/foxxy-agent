@@ -191,10 +191,21 @@ func (w *BackgroundWaker) OnSnapshot(snap bgtask.Snapshot) {
 // startTurn, never by the loop: a task that finished has an outcome the model
 // was promised.
 func (w *BackgroundWaker) drain(sessionID string) {
-	defer func() {
-		w.mu.Lock()
+	// ended is set, under w.mu, in the same critical section that clears the
+	// draining flag. Clearing it apart from the check that found the queue
+	// empty opens a window where OnSnapshot appends a completion and sees the
+	// session still draining: nobody then wakes for it.
+	ended := false
+	end := func() {
+		ended = true
 		delete(w.draining, sessionID)
-		w.mu.Unlock()
+	}
+	defer func() {
+		if !ended {
+			w.mu.Lock()
+			end()
+			w.mu.Unlock()
+		}
 	}()
 
 	for {
@@ -204,10 +215,12 @@ func (w *BackgroundWaker) drain(sessionID string) {
 		batch := w.pending[sessionID]
 		delete(w.pending, sessionID)
 		if len(batch) == 0 {
+			end()
 			w.mu.Unlock()
 			return
 		}
 		if w.wakes[sessionID] >= maxWakesPerSession {
+			end()
 			w.mu.Unlock()
 			w.log.Warn("background_wake_capped",
 				"session_id", sessionID,
@@ -219,6 +232,9 @@ func (w *BackgroundWaker) drain(sessionID string) {
 		w.mu.Unlock()
 
 		if !w.startTurn(sessionID, batch) {
+			w.mu.Lock()
+			end()
+			w.mu.Unlock()
 			return
 		}
 	}

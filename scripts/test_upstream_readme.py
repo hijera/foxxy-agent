@@ -80,6 +80,14 @@ class ReadmeTests(GitRepoCase):
         report = json.loads(self.run_script("rebrand-check", "--all", "--strict", "--format", "json").stdout)
         self.assertEqual(report["findings"], [])
 
+    def test_only_readme_documents_are_exempt_from_code_rebranding(self):
+        from upstream_branding import CONTENT_REPLACEMENTS, content_replacements
+
+        for path in ("cmd/coddy/readme.go", "internal/readme.txt.go", "internal/readmes/main.go"):
+            self.assertEqual(content_replacements(path), CONTENT_REPLACEMENTS, path)
+        for path in ("README", "docs/readme.en.md", "editors/x/readme.ru.md", "cmd/coddy/README.md"):
+            self.assertEqual(content_replacements(path), {}, path)
+
     def test_readme_content_exception_does_not_hide_unported_code_paths(self):
         self.write("cmd/coddy/README.md", README)
         self.commit("upstream command path")

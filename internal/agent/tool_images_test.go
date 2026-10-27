@@ -253,22 +253,28 @@ func TestWithToolImagesSendsOnlyTheNewestPicturesARequestCanHold(t *testing.T) {
 		t.Errorf("the newest picture is not sent: %v", got)
 	}
 
+	// Five pictures of 4 MiB each (under the per-picture limit) overrun the
+	// 20 MiB budget with the fifth: the four newest go out, and the oldest is
+	// named as left out.
 	big := func(name string) llm.ImagePart {
 		p := imagePart(name)
-		p.DataURL = "data:image/png;base64," + strings.Repeat("A", 8<<20)
+		p.DataURL = "data:image/png;base64," + strings.Repeat("A", 4<<20)
 		return p
 	}
-	heavy := []llm.Message{
-		{Role: llm.RoleUser, Content: "look"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "a", Name: "read"}, {ID: "b", Name: "read"}, {ID: "c", Name: "read"}}},
-		toolResultWith("a", big("a.png")),
-		toolResultWith("b", big("b.png")),
-		toolResultWith("c", big("c.png")),
+	ids := []string{"a", "b", "c", "d", "e"}
+	calls := make([]llm.ToolCall, 0, len(ids))
+	heavy := []llm.Message{{Role: llm.RoleUser, Content: "look"}}
+	for _, id := range ids {
+		calls = append(calls, llm.ToolCall{ID: id, Name: "read"})
+	}
+	heavy = append(heavy, llm.Message{Role: llm.RoleAssistant, ToolCalls: calls})
+	for _, id := range ids {
+		heavy = append(heavy, toolResultWith(id, big(id+".png")))
 	}
 	out = withToolImages(heavy, true, noToolImageFile)
 	pictures := out[len(out)-1]
-	if got := imageNames(pictures); strings.Join(got, ",") != "b.png,c.png" {
-		t.Errorf("under the byte budget the request carries %v, want the two newest", got)
+	if got := imageNames(pictures); strings.Join(got, ",") != "b.png,c.png,d.png,e.png" {
+		t.Errorf("under the byte budget the request carries %v, want the four newest", got)
 	}
 	if !strings.Contains(pictures.Content, "a.png") || !strings.Contains(pictures.Content, "left out") {
 		t.Errorf("the step's message %q does not name a.png as left out", pictures.Content)
@@ -280,9 +286,9 @@ func TestWithToolImagesSendsOnlyTheNewestPicturesARequestCanHold(t *testing.T) {
 // the one left out, named in its own prompt, and a picture that does not fit
 // the bytes left is skipped for an older one that does.
 func TestWithToolImagesCountsTheAttachmentsAndSkipsWhatDoesNotFit(t *testing.T) {
-	sized := func(name string, mb int) llm.ImagePart {
+	sized := func(name string, kib int) llm.ImagePart {
 		p := imagePart(name)
-		p.DataURL = "data:image/png;base64," + strings.Repeat("A", mb<<20)
+		p.DataURL = "data:image/png;base64," + strings.Repeat("A", kib<<10)
 		return p
 	}
 	var attached []llm.ImagePart
@@ -307,17 +313,23 @@ func TestWithToolImagesCountsTheAttachmentsAndSkipsWhatDoesNotFit(t *testing.T) 
 		t.Errorf("the prompt %q does not name u00.png as left out", out[0].Content)
 	}
 
+	// Oldest first: 1 MiB, then four of 4.5 MiB and the newest of 4.5 MiB. The
+	// newest four fill 18 MiB; the next 4.5 MiB does not fit the 20 MiB budget
+	// and is skipped, while the 1 MiB picture older than it still does.
 	history = []llm.Message{
 		{Role: llm.RoleUser, Content: "look"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "a", Name: "read"}, {ID: "b", Name: "read"}, {ID: "c", Name: "read"}}},
-		toolResultWith("a", sized("small.png", 1)),
-		toolResultWith("b", sized("middle.png", 9)),
-		toolResultWith("c", sized("big.png", 12)),
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "a", Name: "read"}, {ID: "b", Name: "read"}, {ID: "c", Name: "read"}, {ID: "d", Name: "read"}, {ID: "e", Name: "read"}, {ID: "f", Name: "read"}}},
+		toolResultWith("a", sized("small.png", 1<<10)),
+		toolResultWith("b", sized("middle.png", 4608)),
+		toolResultWith("c", sized("c.png", 4608)),
+		toolResultWith("d", sized("d.png", 4608)),
+		toolResultWith("e", sized("e.png", 4608)),
+		toolResultWith("f", sized("big.png", 4608)),
 	}
 	out = withToolImages(history, true, noToolImageFile)
 	last := out[len(out)-1]
-	if got := imageNames(last); strings.Join(got, ",") != "small.png,big.png" {
-		t.Errorf("under the byte budget the request carries %v, want the newest and the small one that still fits", got)
+	if got := imageNames(last); strings.Join(got, ",") != "small.png,c.png,d.png,e.png,big.png" {
+		t.Errorf("under the byte budget the request carries %v, want the small one and the four newest that fit", got)
 	}
 	if !strings.Contains(last.Content, "middle.png") || !strings.Contains(last.Content, "left out") {
 		t.Errorf("the message %q does not name middle.png as left out", last.Content)

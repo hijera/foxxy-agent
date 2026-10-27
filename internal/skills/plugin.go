@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -245,6 +246,13 @@ func pluginMarketplaceRemove(cfg *config.Config, key string) (string, error) {
 		sourceKey = m.Source
 	}
 	removedSource, srcErr := RemoveSource(cfg, sourceKey)
+	// A RemovalNotice is an outcome to report, not a failure.
+	var notice RemovalNotice
+	noticeText := ""
+	if errors.As(srcErr, &notice) {
+		noticeText = notice.Msg
+		srcErr = nil
+	}
 	switch {
 	case wasAdded:
 		msg := fmt.Sprintf("Removed marketplace %q. Installed skills remain until removed.", m.Name)
@@ -255,11 +263,18 @@ func pluginMarketplaceRemove(cfg *config.Config, key string) (string, error) {
 			// A system source: its registration is gone, the source stays.
 			msg += " " + srcErr.Error() + "."
 		}
+		if noticeText != "" {
+			msg += " " + noticeText + "."
+		}
 		return msg, nil
 	case srcErr != nil:
 		return "", srcErr
 	case removedSource:
-		return fmt.Sprintf("Removed marketplace %q. Installed skills remain until removed.", key), nil
+		msg := fmt.Sprintf("Removed marketplace %q. Installed skills remain until removed.", key)
+		if noticeText != "" {
+			msg += " " + noticeText + "."
+		}
+		return msg, nil
 	default:
 		return fmt.Sprintf("Marketplace %q was not configured.", key), nil
 	}
