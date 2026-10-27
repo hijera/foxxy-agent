@@ -5,6 +5,7 @@ import {
   connectRemote,
   getRemoteToken,
   localFetch,
+  probeRemote,
   snapshotEnv,
   subscribeEnv,
 } from "../env/remoteEnv";
@@ -100,10 +101,11 @@ export function EnvironmentChip() {
     const key = normUrl(url);
     setHealth((h) => ({ ...h, [key]: "checking" }));
     const token = getRemoteToken(url);
-    localFetch(key + "/v1/models", {
-      headers: token ? { Authorization: "Bearer " + token } : {},
-      signal: AbortSignal.timeout(4000),
-    })
+    probeRemote(
+      key + "/v1/models",
+      token ? { Authorization: "Bearer " + token } : {},
+      4000,
+    )
       .then((res) =>
         setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" })),
       )

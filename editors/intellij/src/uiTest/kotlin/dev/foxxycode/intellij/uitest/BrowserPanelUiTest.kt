@@ -49,6 +49,23 @@ class BrowserPanelUiTest {
     }
 
     @Test
+    fun switchingThemesDoesNotRaiseAnInternalIdeError() {
+        fun writeUnsafeErrors(): Int = robot.callJs<String>(
+            "String(java.nio.file.Files.readString(java.nio.file.Paths.get(" +
+                "com.intellij.openapi.application.PathManager.getLogPath(), 'idea.log')))", true,
+        ).split("Write-unsafe context!").size - 1
+        val before = writeUnsafeErrors()
+        try {
+            IdeControl.setTheme(robot, false)
+            IdeControl.setTheme(robot, true)
+            val after = writeUnsafeErrors()
+            assertEquals("theme switching raised an internal IDE error", before, after)
+        } finally {
+            IdeControl.setTheme(robot, true)
+        }
+    }
+
+    @Test
     fun theBackendStartsAndTheBrowserSurfaceIsShown() {
         val panel = FoxxyCodeToolWindowFixture.find(robot)
         // Starting the bundled binary and polling it to readiness takes a few seconds on a cold

@@ -276,10 +276,23 @@ object IdeControl {
                 if (n.indexOf('$match') >= 0 && n.indexOf('high contrast') < 0) { chosen = all[i]; break; }
             }
             if (chosen == null) throw new java.lang.IllegalStateException('no $match theme installed');
-            laf.setCurrentLookAndFeel(chosen);
-            laf.updateUI();
+            // Robot's EDT callback is not a write-safe IDE activity. Queue the change
+            // with a concrete modality so switching the editor scheme may drop PSI caches.
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(
+                new java.lang.Runnable({ run: function () {
+                    laf.setCurrentLookAndFeel(chosen);
+                    laf.updateUI();
+                }}),
+                com.intellij.openapi.application.ModalityState.NON_MODAL
+            );
             """.trimIndent(),
             true,
         )
+        waitFor(Duration.ofSeconds(10), Duration.ofMillis(100), "the $match theme to apply") {
+            robot.callJs<String>(
+                "String(com.intellij.ide.ui.LafManager.getInstance().getCurrentLookAndFeel().getName()).toLowerCase()",
+                true,
+            ).contains(match)
+        }
     }
 }

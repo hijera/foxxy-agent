@@ -21,6 +21,9 @@ Servers connect concurrently in the background. The interface stays available, a
 **HTTP headers, skill marketplaces and Codex models.**
 HTTP request settings can provide default headers. Adding a marketplace no longer installs all its skills: choose the plugin to install separately. The Codex catalog supplies available models and their context windows. Composer suggestions and the environment menu work more reliably in a narrow panel.
 
+**Export, skill installation and remote environment fixes.**
+HTML, PDF and DOCX files created by /export retain pictures from tool results. Installing a selected plugin respects its skills list, including plugins sharing a repository root. Brief Windows directory locks no longer immediately abort installation. Working remote servers are no longer marked unreachable in older IntelliJ browsers.
+
 ## 0.3.36 — 2026-10-25
 
 **Safer preparation of Coddy updates.**

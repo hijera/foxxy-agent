@@ -59,3 +59,15 @@ Feature: Export the session history to a file with the /export command
     And the exported file contains the assistant reply "canned answer"
     And the exported file does not contain "README BODY"
     And the exported file does not contain "private thoughts"
+
+  Scenario Outline: Read pictures are embedded by the slash command
+    Given the transcript also holds a read picture stored in session assets
+    When the user sends "/export chat.<format>" as an export prompt
+    Then the file "chat.<format>" exists in the workspace
+    And the exported file embeds the read picture
+
+    Examples:
+      | format |
+      | html   |
+      | pdf    |
+      | docx   |

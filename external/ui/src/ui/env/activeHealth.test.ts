@@ -67,4 +67,11 @@ describe("probeEnvHealth", () => {
     expect(health).toBe("up");
     expect(asked.some((u) => u.includes("/swarm/info"))).toBe(false);
   });
+
+  it("probes a working remote in JCEF without AbortSignal.timeout", async () => {
+    vi.stubGlobal("AbortSignal", {});
+    const { health, asked } = await probeWith([["/v1/models", 200]]);
+    expect(health).toBe("up");
+    expect(asked).toHaveLength(1);
+  });
 });

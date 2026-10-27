@@ -252,6 +252,11 @@ foxxycode plugin install yandex-wordstat@neuraldeep
   name. It reads the marketplace again first, so a plugin the marketplace published after it was
   added installs without an update. A marketplace that is not added, or a plugin it does not list,
   is an error that says what to run.
+  When an entry supplies `skills` (a path or a list of paths relative to its source root), only
+  those skill folders are installed. This supports catalogues such as `anthropics/skills`,
+  where several plugins share `source: "./"` and select different skills. An invalid or empty
+  explicit list fails the install instead of falling back to the whole repository. Paths that
+  leave the source root, including symlinks to outside folders, are excluded.
 - **`marketplace update <marketplace>`** reads the marketplace again and reinstalls the plugins
   installed from it; the ones never installed stay so. It works per plugin: a skill removed with
   `plugin remove` comes back while another skill of the same plugin is still installed. Without a name it does that for every added
@@ -268,6 +273,10 @@ foxxycode plugin install yandex-wordstat@neuraldeep
 `skills.sources` as well, takes it out of there too; the skills installed from it stay until
 `plugin remove <name>`. `install` and `marketplace add` touch only what they name: another source
 that is unreachable does not fail them.
+
+On Windows an atomic skill-directory swap briefly retries sharing violations and access-denied
+errors caused by open reader handles (up to 450 ms per rename). A persistent failure is still
+reported; an update keeps the previous skill or reports the backup path if rollback also fails.
 
 **Changed in this release.** `plugin marketplace add` used to write the source into `skills.sources`
 and install every plugin it lists. It now only adds the marketplace; install its plugins one by one

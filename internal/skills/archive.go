@@ -120,7 +120,16 @@ func installArchivePlugin(ctx context.Context, p MarketplacePlugin, entry Remote
 	if err != nil {
 		return fmt.Errorf("plugin %q: %w", p.Name, err)
 	}
-	hits, err := archiveSkills(root, manifest)
+	paths, declared, err := decodeSkillPaths(p.Skills, "marketplace plugin "+p.Name)
+	if err != nil {
+		return err
+	}
+	var hits []skillHit
+	if declared {
+		hits, err = declaredSkillDirs(root, "marketplace.json", paths, true)
+	} else {
+		hits, err = archiveSkills(root, manifest)
+	}
 	if err != nil {
 		return fmt.Errorf("plugin %q: %w", p.Name, err)
 	}
@@ -550,6 +559,11 @@ func archiveSkills(root, manifest string) ([]skillHit, error) {
 	if err != nil {
 		return nil, err
 	}
+	return declaredSkillDirs(root, manifest, paths, declared)
+}
+
+// declaredSkillDirs shares component selection between archives and cloned plugins.
+func declaredSkillDirs(root, manifest string, paths []string, declared bool) ([]skillHit, error) {
 	byName := map[string]skillHit{}
 	var clash error
 	add := func(dir string) {
@@ -594,8 +608,17 @@ func archiveSkills(root, manifest string) ([]skillHit, error) {
 		if err != nil {
 			continue
 		}
-		if dir := filepath.Join(root, rel); isDir(dir) {
-			addFolder(dir, true)
+		if dir, err := filepath.EvalSymlinks(filepath.Join(root, rel)); err == nil && isDir(dir) {
+			canonicalRoot, err := filepath.EvalSymlinks(root)
+			if err != nil {
+				continue
+			}
+			within, err := filepath.Rel(canonicalRoot, dir)
+			if err == nil && within != ".." && !strings.HasPrefix(within, ".."+string(filepath.Separator)) {
+				// Preserve the caller's root spelling (notably Windows 8.3 temp
+				// paths), while resolving links before the containment check.
+				addFolder(filepath.Join(root, within), true)
+			}
 		}
 	}
 	if clash != nil {
@@ -648,12 +671,16 @@ func manifestSkillPaths(manifest string) (paths []string, declared bool, err err
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, false, fmt.Errorf("plugin manifest %s: %w", manifestName(manifest), err)
 	}
-	raw := strings.TrimSpace(string(m.Skills))
+	return decodeSkillPaths(m.Skills, "plugin manifest "+manifestName(manifest))
+}
+
+func decodeSkillPaths(data json.RawMessage, label string) (paths []string, declared bool, err error) {
+	raw := strings.TrimSpace(string(data))
 	if raw == "" || raw == "null" {
 		return nil, false, nil
 	}
 	var one string
-	if json.Unmarshal(m.Skills, &one) == nil {
+	if json.Unmarshal(data, &one) == nil {
 		if strings.TrimSpace(one) == "" {
 			// An empty path names nothing: the same as no field.
 			return nil, false, nil
@@ -661,10 +688,10 @@ func manifestSkillPaths(manifest string) (paths []string, declared bool, err err
 		return []string{one}, true, nil
 	}
 	var many []string
-	if json.Unmarshal(m.Skills, &many) == nil {
+	if json.Unmarshal(data, &many) == nil {
 		return many, true, nil
 	}
-	return nil, true, fmt.Errorf("plugin manifest %s: skills is neither a path nor a list of paths", manifestName(manifest))
+	return nil, true, fmt.Errorf("%s: skills is neither a path nor a list of paths", label)
 }
 
 // manifestName is a manifest's path as a plugin author writes it.
@@ -673,7 +700,7 @@ func manifestName(manifest string) string {
 }
 
 func hasSkillFile(dir string) bool {
-	fi, err := os.Stat(filepath.Join(dir, "SKILL.md"))
+	fi, err := os.Lstat(filepath.Join(dir, "SKILL.md"))
 	return err == nil && fi.Mode().IsRegular()
 }
 

@@ -55,6 +55,11 @@ The export is built before the `/export` row lands in the transcript, so the fil
 
 ## Formats
 
+HTML, PDF and DOCX exports made with `/export` or `foxxycode sessions export` embed pictures
+returned by tools from the session's stored assets, just like the HTTP export. Keeping tools
+in the export is required; `--no-tools` intentionally leaves their pictures out. The source
+image can be renamed or removed after `read` saved its copy with the session.
+
 **Markdown** (`md`): a header list, then `## User` and `## Assistant · <model> · <time>` sections. Reasoning sits in a collapsed `<details>` block, each tool call becomes `### Tool call: <name>` with fenced input (pretty-printed JSON) and result. Fences grow when the content itself holds backticks, so code in tool output stays intact.
 
 **HTML** (`html`): one self-contained page with inline CSS, light and dark palettes through `prefers-color-scheme`, no scripts. Every value is escaped and text is shown in pre-wrapped blocks; markdown in assistant replies is kept verbatim rather than rendered.

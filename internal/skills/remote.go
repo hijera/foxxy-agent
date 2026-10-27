@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -391,14 +393,14 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 		}
 		entry.Repo = cloneURL
 		entry.Ref = p.Source.Ref
-		return installFromDir(dst, entry, managedDir, lock, res)
+		return installPluginDir(dst, p, entry, managedDir, lock, res)
 
 	case "path":
 		if repoRoot == "" {
 			return fmt.Errorf("plugin %q: relative path source requires a repository (not supported for API sources)", p.Name)
 		}
 		dir := filepath.Join(repoRoot, filepath.Clean("/"+p.Source.Path))
-		return installFromDir(dir, entry, managedDir, lock, res)
+		return installPluginDir(dir, p, entry, managedDir, lock, res)
 
 	case "archive":
 		return installArchivePlugin(ctx, p, entry, managedDir, lock, res)
@@ -406,6 +408,22 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 	default:
 		return fmt.Errorf("plugin %q: unsupported source kind %q", p.Name, p.Source.Kind)
 	}
+}
+
+// An inline skills list scopes a plugin whose source is a shared repository.
+func installPluginDir(root string, p MarketplacePlugin, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
+	paths, declared, err := decodeSkillPaths(p.Skills, "marketplace plugin "+p.Name)
+	if err != nil {
+		return err
+	}
+	if !declared {
+		return installFromDir(root, entry, managedDir, lock, res)
+	}
+	hits, err := declaredSkillDirs(root, "marketplace.json", paths, true)
+	if err != nil {
+		return err
+	}
+	return installSkillDirs(hits, entry, managedDir, lock, res)
 }
 
 // installFromDir finds every skill dir under root and copies each into managedDir.
@@ -520,7 +538,7 @@ func RecoverInterruptedInstalls(managedDir string) {
 			_ = os.RemoveAll(bak)
 			continue
 		}
-		_ = os.Rename(bak, dst)
+		_ = renameSkillDir(bak, dst)
 	}
 }
 
@@ -536,16 +554,16 @@ func replaceSkillDir(managedDir, name, staged string) error {
 
 	movedAside := false
 	if _, err := os.Stat(dst); err == nil {
-		if err := os.Rename(dst, bak); err != nil {
+		if err := renameSkillDir(dst, bak); err != nil {
 			_ = os.RemoveAll(staged)
 			return err
 		}
 		movedAside = true
 	}
-	if err := os.Rename(staged, dst); err != nil {
+	if err := renameSkillDir(staged, dst); err != nil {
 		_ = os.RemoveAll(staged)
 		if movedAside {
-			if rbErr := os.Rename(bak, dst); rbErr != nil {
+			if rbErr := renameSkillDir(bak, dst); rbErr != nil {
 				// Both the swap and the rollback failed: keep the backup and
 				// surface where the previous copy is so it can be recovered.
 				return fmt.Errorf("install %q failed (%w) and rollback failed (%v); previous copy left at %s", name, err, rbErr, bak)
@@ -555,6 +573,23 @@ func replaceSkillDir(managedDir, name, staged string) error {
 	}
 	_ = os.RemoveAll(bak)
 	return nil
+}
+
+// Windows readers may briefly hold a directory without sharing delete. Keep
+// the atomic swap and its rollback, waiting at most 450 ms for those handles.
+func renameSkillDir(from, to string) error {
+	const (
+		accessDenied     = syscall.Errno(5)
+		sharingViolation = syscall.Errno(32)
+	)
+	for attempt := 0; ; attempt++ {
+		err := os.Rename(from, to)
+		if err == nil || runtime.GOOS != "windows" || attempt == 9 ||
+			(!errors.Is(err, accessDenied) && !errors.Is(err, sharingViolation)) {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
 }
 
 // skillDirVersion reads the optional version from a skill directory's SKILL.md

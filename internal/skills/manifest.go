@@ -27,10 +27,11 @@ type MarketplaceMetadata struct {
 // MarketplacePlugin is one entry in a marketplace manifest. Version is an
 // optional semantic version used for display and update detection.
 type MarketplacePlugin struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Version     string       `json:"version"`
-	Source      PluginSource `json:"source"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Version     string          `json:"version"`
+	Source      PluginSource    `json:"source"`
+	Skills      json.RawMessage `json:"skills,omitempty"`
 }
 
 // PluginSource locates a plugin. In the agents standard the `source` field is

@@ -62,3 +62,36 @@ Android NDK cross-builds were unavailable locally: no NDK or C compiler is
 installed. The race detector is likewise unavailable with this host's
 `CGO_ENABLED=0`. The Android build and race jobs remain in CI; no device or live
 provider validation is claimed by this port.
+
+## Acceptance follow-up (2026-10-27)
+
+Subsequent tests used IntelliJ IDEA Community 2022.2.1 with its bundled JCEF,
+an isolated Windows home, and an Android 14 x86_64 emulator running the native
+backend under Termux's UID. A deterministic local model supplied the responses.
+This follow-up supersedes the initial Android tooling limitation above; it
+does not claim validation against a live model provider.
+
+The acceptance run found and fixed four defects:
+
+- Slash/CLI HTML, PDF and DOCX export now resolves tool pictures against the
+  persisted session assets. Each of the six Windows/Android exports was
+  inspected and contains its picture.
+- Remote health probes use a bounded AbortController on older JCEF versions
+  without AbortSignal.timeout. The same IDE now shows the Android server as
+  available, without the false remote-down banner.
+- Marketplace entries sharing a repository root honor their declared skill
+  paths. Selecting claude-api installs one skill; updating preserves its
+  disabled state and does not install neighboring entries. Directory swaps
+  also retry transient Windows reader locks for at most 450 ms per rename.
+- The IntelliJ theme test helper queues look-and-feel changes in a write-safe
+  IDE activity. Seven real IDE tests pass, including the regression for new
+  TransactionGuard errors; the earlier red IDE notification came from this
+  helper.
+
+The updated SPA passes 2,979 tests and TypeScript checks; all 112 Kotlin tests
+pass through direct JUnit. Windows build/vet, Windows lint, regular lint,
+documentation checks and the Android x86_64 native build/vet pass. The IntelliJ
+test ZIP was rebuilt with all five desktop backends and its archive contents
+were checked. Before/after captures and focused results live on the orphan
+screenshots branch under upstream-1.2.35/acceptance-fixes. The PR records the
+final full-suite result. The race detector still requires CI's host compiler.

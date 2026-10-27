@@ -881,6 +881,9 @@ func ExportSession(in ExportInput, req ExportRequest) (*ExportResult, error) {
 	}
 	in.Options = req.Options
 	doc := BuildExportDocument(in)
+	if sd := strings.TrimSpace(in.SessionDir); sd != "" {
+		doc = doc.WithAssetsDir(session.AssetsPath(sd))
+	}
 	data, err := RenderExport(doc, f)
 	if err != nil {
 		return nil, err
