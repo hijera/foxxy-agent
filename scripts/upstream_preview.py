@@ -159,7 +159,8 @@ def build_preview(repo: Path, base: str, target: str, fork: str, git, changes, f
         special = any(obj and obj["mode"] not in {"100644", "100755"} for obj in objects.values())
         binary = any(b"\0" in content for content in contents.values())
         try:
-            normalized = {side: normalize(content, upstream=side in {"base", "theirs"})
+            normalized = {side: normalize(content, upstream=side in {"base", "theirs"},
+                                          paths=(row["path"], row.get("old_path", row["path"])))
                           for side, content in contents.items()} if not binary and not special else None
         except UnicodeDecodeError:
             normalized = None
@@ -197,6 +198,7 @@ def build_preview(repo: Path, base: str, target: str, fork: str, git, changes, f
     report = {"schema_version": 1, "command": "preview", "base": base, "target": target, "fork_head": fork,
               "normalization": {"line_endings": "CRLF to LF on all text inputs",
                                 "upstream_replacements": CONTENT_REPLACEMENTS,
+                                "readme_content": "No branding replacements; review prose and examples manually",
                                 "path_replacements": BRAND_REPLACEMENTS,
                                 "fork_content": "No branding replacements; UTF-8 and LF normalization only"},
               "counts": dict(sorted(Counter(row["status"] for row in rows).items())),

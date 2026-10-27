@@ -13,6 +13,15 @@ REPOSITORY_REPLACEMENTS = {
 CONTENT_REPLACEMENTS = {**REPOSITORY_REPLACEMENTS, **MODULE_REPLACEMENTS, **BRAND_REPLACEMENTS}
 
 
+def content_replacements(*paths: str) -> dict:
+    """README prose, provenance and examples need editorial review, not a rename."""
+    for path in paths:
+        name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if name == "readme" or name.startswith("readme."):
+            return {}
+    return CONTENT_REPLACEMENTS
+
+
 def fork_path(path: str) -> str:
     """Map only product tokens in paths; module owners are content mappings."""
     for source, replacement in BRAND_REPLACEMENTS.items():
@@ -20,10 +29,10 @@ def fork_path(path: str) -> str:
     return path
 
 
-def normalize(data: bytes, upstream: bool) -> bytes:
+def normalize(data: bytes, upstream: bool, paths: tuple[str, ...] = ()) -> bytes:
     """Normalize UTF-8 Git blobs; never guess or replace undecodable bytes."""
     text = data.decode("utf-8").replace("\r\n", "\n")
     if upstream:
-        for source, replacement in CONTENT_REPLACEMENTS.items():
+        for source, replacement in content_replacements(*paths).items():
             text = text.replace(source, replacement)
     return text.encode("utf-8")

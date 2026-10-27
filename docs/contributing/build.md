@@ -533,6 +533,15 @@ mappings distinguish the Go module
 JSON and apply to UTF-8 hunk contents in `prepare`'s adapted patch. Other owners,
 raw/download URLs, semantic values, aliases and provenance still need review.
 
+The content of `README` and `README.*` files, including localized and nested
+copies, is excluded from automatic branding replacements in `preview`, `apply`,
+`overlap` and `prepare`. Their upstream attribution, comparison wording and
+repository links must keep naming the actual upstream project. README changes
+still participate in the ordinary three-way merge; review product names and
+command examples manually. This exception does not disable branding of source
+code, module imports or file paths. `rebrand-check` also accepts upstream names
+in all of these README files instead of asking contributors to remove them.
+
 Git's `merge-file --diff3` merges regular text blobs using the explicit upstream
 base. The Markdown and JSON reports distinguish clean merges, text conflicts,
 clean additions/deletions, add/add conflicts, modify/delete conflicts, rename
