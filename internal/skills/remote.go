@@ -501,7 +501,7 @@ func installSkillDirs(hits []skillHit, entry RemoteEntry, managedDir string, loc
 			continue
 		}
 		dst := filepath.Join(managedDir, name)
-		_, existed := os.Stat(dst)
+		_, statErr := os.Stat(dst)
 		// Copy into a sibling temp dir, then let replaceSkillDir swap it in.
 		tmpDst := stagingDir(managedDir, name)
 		_ = os.RemoveAll(tmpDst)
@@ -532,7 +532,7 @@ func installSkillDirs(hits []skillHit, entry RemoteEntry, managedDir string, loc
 			ent.Version = skillDirVersion(h.dir)
 		}
 		lock[name] = ent
-		if existed == nil {
+		if statErr == nil {
 			res.Updated = append(res.Updated, name)
 		} else {
 			res.Added = append(res.Added, name)

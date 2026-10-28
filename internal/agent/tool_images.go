@@ -97,6 +97,19 @@ func partBytes(p llm.ImagePart) int {
 	return len("data:"+p.MIMEType+";base64,") + base64.StdEncoding.EncodedLen(p.Size)
 }
 
+// pictureEncodedBytes is the base64 payload of a picture, without the data URL
+// prefix. The provider's per-image limit applies to this payload, so the check
+// against toolImagesMaxPictureBytes must not count the prefix.
+func pictureEncodedBytes(p llm.ImagePart) int {
+	if p.DataURL != "" {
+		if i := strings.IndexByte(p.DataURL, ','); i >= 0 {
+			return len(p.DataURL) - i - 1
+		}
+		return len(p.DataURL)
+	}
+	return base64.StdEncoding.EncodedLen(p.Size)
+}
+
 // callResultMessage is toolResultMessage for the call that just returned,
 // carrying the pictures it attached. A failed call keeps none, and either way
 // the pictures are taken, so they never reach the next call's result.
@@ -195,7 +208,7 @@ func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 			// A picture past the per-picture limit is refused by the provider
 			// on every request it stays in the history, so it is left out
 			// here, the way an over-budget one is, instead of failing them all.
-			if n > toolImagesMaxPictureBytes || size+n > toolImagesMaxBytes {
+			if pictureEncodedBytes(p) > toolImagesMaxPictureBytes || size+n > toolImagesMaxBytes {
 				continue
 			}
 			url := p.DataURL

@@ -43,6 +43,7 @@ Usage:
   foxxycode skills add <owner/repo | git-url | marketplace-url>
   foxxycode skills sync
   foxxycode skills remove <name>
+  foxxycode plugin list
   foxxycode plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
   foxxycode plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
   foxxycode plugin remove <name>

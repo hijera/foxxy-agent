@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -603,23 +604,38 @@ func declaredSkillDirs(root, manifest string, paths []string, declared bool) ([]
 			}
 		}
 	}
+	// A declared path that cannot name a folder inside the plugin is dropped, as
+	// the rest of the list is still honoured (a path that leaves the plugin is
+	// never read). The drop is logged, so the operator can see which entry the
+	// manifest named and got nowhere; the install never falls back to the whole
+	// repository (installPluginDir).
 	for _, p := range paths {
+		skip := func(err error) {
+			slog.Warn("skipping a declared skills path of a plugin", "plugin", manifestName(manifest), "path", p, "err", err)
+		}
 		rel, err := archiveEntryPath(strings.TrimSpace(p))
 		if err != nil {
+			skip(err)
 			continue
 		}
-		if dir, err := filepath.EvalSymlinks(filepath.Join(root, rel)); err == nil && isDir(dir) {
-			canonicalRoot, err := filepath.EvalSymlinks(root)
-			if err != nil {
-				continue
-			}
-			within, err := filepath.Rel(canonicalRoot, dir)
-			if err == nil && within != ".." && !strings.HasPrefix(within, ".."+string(filepath.Separator)) {
-				// Preserve the caller's root spelling (notably Windows 8.3 temp
-				// paths), while resolving links before the containment check.
-				addFolder(filepath.Join(root, within), true)
-			}
+		dir, err := filepath.EvalSymlinks(filepath.Join(root, rel))
+		if err != nil || !isDir(dir) {
+			skip(fmt.Errorf("it names no folder in the plugin"))
+			continue
 		}
+		canonicalRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			skip(err)
+			continue
+		}
+		within, err := filepath.Rel(canonicalRoot, dir)
+		if err != nil || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
+			skip(fmt.Errorf("it leaves the plugin"))
+			continue
+		}
+		// Preserve the caller's root spelling (notably Windows 8.3 temp
+		// paths), while resolving links before the containment check.
+		addFolder(filepath.Join(root, within), true)
 	}
 	if clash != nil {
 		return nil, clash

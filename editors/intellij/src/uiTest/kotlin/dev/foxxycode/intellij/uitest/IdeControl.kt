@@ -266,6 +266,13 @@ object IdeControl {
     /** Switches the IDE theme; a hardcoded color in the plugin's UI shows up immediately. */
     fun setTheme(robot: RemoteRobot, dark: Boolean) {
         val match = if (dark) "darcula" else "light"
+        // The change is queued, so the current look and feel already matches when
+        // the theme is the one asked for. Waiting on the name would pass before the
+        // queued change ran, and the test would read the log too early. The queued
+        // runnable therefore stamps this token into a system property once it has
+        // applied the theme, and the wait looks for that stamp.
+        val token = System.nanoTime()
+        val stamp = "foxxycode.uitest.theme"
         robot.runJs(
             """
             var laf = com.intellij.ide.ui.LafManager.getInstance();
@@ -278,10 +285,12 @@ object IdeControl {
             if (chosen == null) throw new java.lang.IllegalStateException('no $match theme installed');
             // Robot's EDT callback is not a write-safe IDE activity. Queue the change
             // with a concrete modality so switching the editor scheme may drop PSI caches.
+            java.lang.System.setProperty('$stamp', 'pending:$token');
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(
                 new java.lang.Runnable({ run: function () {
                     laf.setCurrentLookAndFeel(chosen);
                     laf.updateUI();
+                    java.lang.System.setProperty('$stamp', 'applied:$token');
                 }}),
                 com.intellij.openapi.application.ModalityState.NON_MODAL
             );
@@ -290,9 +299,9 @@ object IdeControl {
         )
         waitFor(Duration.ofSeconds(10), Duration.ofMillis(100), "the $match theme to apply") {
             robot.callJs<String>(
-                "String(com.intellij.ide.ui.LafManager.getInstance().getCurrentLookAndFeel().getName()).toLowerCase()",
+                "String(java.lang.System.getProperty('$stamp'))",
                 true,
-            ).contains(match)
+            ) == "applied:$token"
         }
     }
 }

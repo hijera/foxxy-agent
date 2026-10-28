@@ -57,7 +57,21 @@ export async function probeEnvHealth(env: FoxxyCodeEnv): Promise<EnvHealth> {
   }
 }
 
-async function tick(): Promise<void> {
+// One probe at a time: the interval and the focus event can fire while a probe
+// is still waiting, and two interleaved runs would publish "checking" after a
+// result that already arrived. A tick that finds a probe in flight joins it.
+let inFlight: Promise<void> | null = null;
+
+function tick(): Promise<void> {
+  if (!inFlight) {
+    inFlight = runTick().finally(() => {
+      inFlight = null;
+    });
+  }
+  return inFlight;
+}
+
+async function runTick(): Promise<void> {
   const env = getEnv();
   if (env.mode !== "remote") {
     set("up");

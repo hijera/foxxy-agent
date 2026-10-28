@@ -97,8 +97,15 @@ export function EnvironmentChip() {
   }, []);
 
   // Probe a remote's reachability (cross-origin, so it also verifies CORS + the saved token).
+  // Each probe takes a sequence number; an answer that arrives after a newer probe
+  // of the same remote started is dropped, so an older, slower reply cannot
+  // overwrite the state of the probe the menu asked for last.
+  const probeSeq = useRef<Record<string, number>>({});
   const probe = (url: string) => {
     const key = normUrl(url);
+    const seq = (probeSeq.current[key] ?? 0) + 1;
+    probeSeq.current[key] = seq;
+    const current = () => probeSeq.current[key] === seq;
     setHealth((h) => ({ ...h, [key]: "checking" }));
     const token = getRemoteToken(url);
     probeRemote(
@@ -106,10 +113,12 @@ export function EnvironmentChip() {
       token ? { Authorization: "Bearer " + token } : {},
       4000,
     )
-      .then((res) =>
-        setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" })),
-      )
-      .catch(() => setHealth((h) => ({ ...h, [key]: "down" })));
+      .then((res) => {
+        if (current()) setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" }));
+      })
+      .catch(() => {
+        if (current()) setHealth((h) => ({ ...h, [key]: "down" }));
+      });
   };
 
   const openMenu = () => {
@@ -175,7 +184,7 @@ export function EnvironmentChip() {
                 }}
               />
               <div
-                className={`mode-menu mode-menu--env ${useSheet ? "mode-menu--sheet" : "mode-menu--portal opens-up"}`}
+                className={`mode-menu mode-menu--env ${useSheet ? "mode-menu--sheet" : `mode-menu--portal ${opensUp ? "opens-up" : "opens-down"}`}`}
                 role="menu"
                 data-testid="composer-env-menu"
                 style={

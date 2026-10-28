@@ -8,6 +8,10 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+# The jobs only read the repository and upload artifacts, which needs no token scope.
+permissions:
+  contents: read
+
 defaults:
   run:
     shell: bash
@@ -323,7 +327,7 @@ jobs:
             if [ -n "$extra" ]; then echo "::error::$bin needs libraries Android does not ship: $extra"; exit 1; fi
           done
 
-      - name: Pack them the way the release does
+      - name: Pack them into the release archive layout
         run: |
           for arch in arm64 amd64; do
             mkdir -p "dist/android-$arch"

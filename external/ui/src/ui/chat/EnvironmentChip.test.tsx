@@ -80,6 +80,28 @@ describe("EnvironmentChip", () => {
     expect(left).toBeGreaterThanOrEqual(12);
   });
 
+  // A menu that opens downward carries only the downward class: with both
+  // classes the CSS sets top and bottom on the fixed menu, and its height
+  // collapses to zero.
+  it("opens downward and upward with one direction class each", async () => {
+    render(<EnvironmentChip />);
+    const btn = screen.getByTestId("composer-env-btn");
+
+    btn.getBoundingClientRect = () => new DOMRect(0, 0, 100, 48);
+    fireEvent.click(btn);
+    const down = await screen.findByTestId("composer-env-menu");
+    expect(down.classList.contains("opens-down")).toBe(true);
+    expect(down.classList.contains("opens-up")).toBe(false);
+    fireEvent.click(btn);
+
+    btn.getBoundingClientRect = () =>
+      new DOMRect(0, window.innerHeight - 60, 100, 48);
+    fireEvent.click(btn);
+    const up = await screen.findByTestId("composer-env-menu");
+    expect(up.classList.contains("opens-up")).toBe(true);
+    expect(up.classList.contains("opens-down")).toBe(false);
+  });
+
   it("localizes the add-remote form without changing its test ids", () => {
     setLocale("ru");
     render(<EnvironmentChip />);

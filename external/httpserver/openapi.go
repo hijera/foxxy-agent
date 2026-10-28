@@ -2197,6 +2197,20 @@ func openAPISpec() map[string]interface{} {
 							"description": "Output format.",
 							"schema":      map[string]interface{}{"type": "string", "enum": []string{"json", "html", "pdf", "docx"}},
 						},
+						map[string]interface{}{
+							"name":        "tools",
+							"in":          "query",
+							"required":    false,
+							"description": "Keep the tool calls and their output in the document (`tools=true` or `tools=1`). Off by default: the panel exports the dialogue alone.",
+							"schema":      map[string]interface{}{"type": "boolean", "default": false},
+						},
+						map[string]interface{}{
+							"name":        "no_thinking",
+							"in":          "query",
+							"required":    false,
+							"description": "Leave out the assistant's reasoning blocks (`no_thinking=true` or `no_thinking=1`).",
+							"schema":      map[string]interface{}{"type": "boolean", "default": false},
+						},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -2207,7 +2221,7 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"version": map[string]string{"type": "integer"},
-											"session": map[string]interface{}{"type": "object", "description": "Session metadata: id, title, exported_at, workspace, model and transcript counts."},
+											"session": map[string]interface{}{"type": "object", "description": "Session metadata: id, title, exported_at, cwd (the workspace), model and transcript counts."},
 											"entries": map[string]interface{}{"type": "array", "description": "Transcript entries; user uploads and tool pictures appear in attachments (path, optional name) when tool details are omitted.", "items": map[string]string{"type": "object"}},
 										},
 									},

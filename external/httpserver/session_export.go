@@ -79,7 +79,9 @@ func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id 
 		return exportRendered{}, false
 	}
 	// The panel exports the conversation: tool calls are off unless the request
-	// asks for them, which is the one place this differs from /export.
+	// asks for them, and the pictures tools returned stay as attachments even
+	// then. /export and `sessions export --no-tools` drop them with the calls
+	// (see AGENTS.md, the internal/export row).
 	opts := export.ExportOptions{
 		NoTools:          !queryFlag(r, "tools"),
 		NoThinking:       queryFlag(r, "no_thinking"),

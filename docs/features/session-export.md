@@ -56,14 +56,15 @@ The export is built before the `/export` row lands in the transcript, so the fil
 ## Formats
 
 HTML, PDF and DOCX exports made with `/export` or `foxxycode sessions export` embed pictures
-returned by tools from the session's stored assets. For these commands, keeping tools
-in the export is required; `--no-tools` intentionally leaves their pictures out. The source
+returned by tools from the session's stored assets. These commands keep tool calls by
+default, and `--no-tools` leaves tool calls and their pictures out. The source
 image can be renamed or removed after `read` saved its copy with the session.
 
 The **download arrow** in the web UI and editor panels keeps both uploaded images and
 pictures returned by tools in HTML, PDF and DOCX, while hiding tool arguments and output
-text. Tool pictures appear as assistant attachments in transcript order, including when
-the original call is no longer in the transcript. The browser download and the editor
+text. Tool pictures appear as assistant attachments in transcript order. A picture whose
+call is no longer in the transcript is kept only when tool calls are left out; with
+`tools=true` it is not shown. The browser download and the editor
 **save to file** route use the same renderer. JSON keeps attachment paths and names rather
 than image bytes. Local images must still exist in the session assets directory; the
 [HTTP export](../reference/http-api.md) never fetches remote images.

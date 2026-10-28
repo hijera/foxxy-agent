@@ -98,8 +98,10 @@ func (r *exportMediaResolver) load(src string) *exportImage {
 	if full == "" {
 		return nil
 	}
-	info, err := os.Stat(full)
-	if err != nil || info.IsDir() || info.Size() > exportImageMaxBytes {
+	// Lstat, and only a regular file: a device (on Windows CON, NUL, COM1 ...)
+	// or a link would otherwise be opened, and reading a console blocks.
+	info, err := os.Lstat(full)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > exportImageMaxBytes {
 		return nil
 	}
 	data, err := os.ReadFile(full) // #nosec G304 -- path is confined to the session assets dir by resolve
@@ -153,6 +155,9 @@ func (r *exportMediaResolver) resolve(src string) string {
 	if name == "" || name == "." || name == string(filepath.Separator) || strings.HasPrefix(name, ".") {
 		return ""
 	}
+	if windowsDeviceName(name) {
+		return ""
+	}
 
 	full := filepath.Join(r.assetsDir, name)
 	rel, err := filepath.Rel(r.assetsDir, full)
@@ -160,6 +165,24 @@ func (r *exportMediaResolver) resolve(src string) string {
 		return ""
 	}
 	return full
+}
+
+// windowsDeviceName reports whether name, with or without an extension, is a
+// device name Windows reserves (CON, PRN, AUX, NUL, COM1-9, LPT1-9). Opening
+// one of them names a device, not a file in the assets directory.
+func windowsDeviceName(name string) bool {
+	stem := strings.ToUpper(name)
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) {
+		return stem[3] >= '1' && stem[3] <= '9'
+	}
+	return false
 }
 
 // imageMIME maps the format name image.DecodeConfig reports onto a media type.
