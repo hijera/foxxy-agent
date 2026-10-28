@@ -247,6 +247,52 @@ func TestWakeInstructionReportsFailureHonestly(t *testing.T) {
 	}
 }
 
+// A subagent run that did not succeed kept its transcript, so the wake says to
+// continue that child with spawn_agent resume rather than start a new one on
+// the same task (issue #389); a run that succeeded and a shell command get no
+// such line.
+func TestWakeInstructionTellsHowToResumeASubagentThatDidNotSucceed(t *testing.T) {
+	end := time.Now()
+	agentRun := func(id string, status bgtask.Status) bgtask.Snapshot {
+		return bgtask.Snapshot{
+			ID: id, Kind: bgtask.KindAgent, Label: "agent general: translate", Status: status,
+			StartedAt: end.Add(-time.Minute), FinishedAt: &end,
+			Agent: &bgtask.AgentInfo{Name: "general", SessionID: "sess_" + id},
+		}
+	}
+	failed := agentRun("bg_5", bgtask.StatusFailed)
+	failed.Error = "LLM error: read tcp: wsarecv: An existing connection was forcibly closed by the remote host."
+	got := WakeInstruction([]bgtask.Snapshot{failed, agentRun("bg_6", bgtask.StatusSucceeded)})
+	if !strings.Contains(got, `spawn_agent with resume="bg_5"`) {
+		t.Fatalf("instruction %q does not say how to resume the failed subagent", got)
+	}
+	if strings.Contains(got, `resume="bg_6"`) {
+		t.Fatalf("instruction %q offers to resume a run that succeeded", got)
+	}
+	if got := WakeInstruction([]bgtask.Snapshot{finished("bg_1", "s1", bgtask.StatusFailed, true)}); strings.Contains(got, "resume=") {
+		t.Fatalf("instruction %q offers to resume a shell command", got)
+	}
+	// A run whose child session was never created left nothing to continue.
+	stillborn := agentRun("bg_7", bgtask.StatusFailed)
+	stillborn.Error = errCreateChildSession + ": subagent parent session is not live: sess_x"
+	if got := WakeInstruction([]bgtask.Snapshot{stillborn}); strings.Contains(got, "resume=") {
+		t.Fatalf("instruction %q offers to resume a child that was never created", got)
+	}
+	// A child that failed twice is named once, by its latest run.
+	again := agentRun("bg_8", bgtask.StatusFailed)
+	again.Agent.SessionID = failed.Agent.SessionID
+	got = WakeInstruction([]bgtask.Snapshot{failed, again})
+	if strings.Contains(got, `resume="bg_5"`) || strings.Count(got, "resume=") != 1 || !strings.Contains(got, `resume="bg_8"`) {
+		t.Fatalf("instruction %q does not name the child once, by its latest run", got)
+	}
+	// A child whose latest run in the batch succeeded needs nothing resumed.
+	recovered := agentRun("bg_9", bgtask.StatusSucceeded)
+	recovered.Agent.SessionID = failed.Agent.SessionID
+	if got := WakeInstruction([]bgtask.Snapshot{failed, recovered}); strings.Contains(got, "resume=") {
+		t.Fatalf("instruction %q offers to resume a child whose latest run succeeded", got)
+	}
+}
+
 func TestWakeInstructionCountsABatch(t *testing.T) {
 	batch := []bgtask.Snapshot{
 		finished("bg_1", "s1", bgtask.StatusSucceeded, true),

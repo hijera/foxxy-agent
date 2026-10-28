@@ -26,6 +26,7 @@ The messenger gateway lets you drive a FoxxyCode agent directly from a chat appl
   - [5. Wire into hub.Start()](#5-wire-into-hubstart)
 - [The same session in the chat and in the browser](#the-same-session-in-the-chat-and-in-the-browser)
 - [Woken turns land in the chat](#woken-turns-land-in-the-chat)
+- [Pictures the agent looked at](#pictures-the-agent-looked-at)
 - [Session lifecycle](#session-lifecycle)
 - [Security notes](#security-notes)
 
@@ -754,6 +755,27 @@ bot's: it runs in the web UI's relay, or with no surface at all through the
 manager, and the chat hears nothing of it. The bot takes a woken turn only
 while it is connected; a woken turn that finds the chat's own turn still
 running waits for it, as it does on every surface.
+
+## Pictures the agent looked at
+
+When the chat's agent reads an image file and the session's model reads images
+(`models[].multimodal: true`), the bot sends that picture into the chat as a
+photo, captioned with the file's name, as soon as the `read` finishes
+([Images](../features/images.md)). The person sees what the agent looked at
+before the answer comes, in private chats and groups alike. The photo is the
+copy FoxxyCode kept with the session, so it is the picture the model was shown
+even when the workspace file changed since. Without Rich Messages the live
+message the answer grows in was sent before the call ran, so the bot drops
+it once a photo is posted and the answer comes below the photo as a new
+reply to the question; the old message is deleted when Telegram allows it.
+
+A picture Telegram refuses as a photo - a side too long, a shape too narrow,
+photos not allowed in the chat - goes as a document instead; a rate limit, a
+failure on the way or a refusal about the chat itself is not retried as a
+document. Only the chat's own session sends
+pictures: what a subagent reads stays in its session, and the web UI shows it
+there. A model without `multimodal` is refused the picture, so nothing is sent
+and the `read` reports why.
 
 ## Session lifecycle
 

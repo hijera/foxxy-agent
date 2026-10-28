@@ -2,7 +2,7 @@
 
 import re
 
-from upstream_branding import BRAND_REPLACEMENTS
+from upstream_branding import BRAND_REPLACEMENTS, content_replacements
 
 TOKENS = tuple(BRAND_REPLACEMENTS)
 # Provenance, history and tooling that must keep naming the upstream project.
@@ -10,7 +10,7 @@ ALLOWED_PATHS = (
     "ports.yaml", "UPSTREAM_SYNC.md",
     ".cursor/", ".claude/", ".codex/",
     "scripts/upstream", "scripts/test_upstream",
-    "docs/", "README.md", "README.en.md",
+    "docs/",
 )
 ALLOWED_NAMES = ("CHANGELOG",)
 URL = re.compile(r"[a-z][a-z0-9+.-]*://\S*coddy\S*", re.IGNORECASE)
@@ -65,6 +65,9 @@ def build_report(read, paths: list[str], scope: str, warnings: list[str]) -> dic
         if any(token.lower() in path.lower() for token in TOKENS):
             findings.append({"path": path, "kind": "path", "severity": SEVERITY["path"],
                              "line": None, "text": "path keeps upstream branding"})
+        if not content_replacements(path):
+            skipped += 1
+            continue
         data = read(path)
         if data is None:
             continue

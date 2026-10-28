@@ -11,6 +11,10 @@
 # The `zap` stanza names ~/.foxxycode - sessions, skills, credentials and the
 # config. Only `brew zap` removes it; `brew uninstall` leaves it alone.
 #
+# tmux is recommended in `caveats` rather than declared: a cask's depends_on has
+# no optional form, and FoxxyCode runs without tmux, so the cask names it and
+# installs nothing. The deb and rpm suggest it the same way.
+#
 # Everything above the `cask` line is stripped when the file is rendered, so the
 # published cask stays comment-free the way homebrew/cask expects.
 
@@ -38,4 +42,10 @@ cask "foxxycode" do
   binary "foxxycode.zsh",  target: "#{HOMEBREW_PREFIX}/share/zsh/site-functions/_foxxycode"
 
   zap trash: "~/.foxxycode"
+
+  caveats <<~EOS
+    FoxxyCode does not need tmux, but its console runs well inside it: a session
+    there outlives a closed terminal or a dropped SSH connection. To add it:
+      brew install tmux
+  EOS
 end

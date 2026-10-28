@@ -3,11 +3,13 @@
 package gitws
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/platform"
 )
@@ -36,10 +38,20 @@ func GitAvailable() bool {
 	return err == nil
 }
 
+// gitTimeout bounds one git invocation. Remote operations (clone, fetch) run
+// while the caller may hold a lock, so a stalled host must not hold it forever.
+const gitTimeout = 3 * time.Minute
+
 func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	// A credential prompt has no terminal to answer it in a server or a
+	// console-less run; fail instead of waiting on stdin.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))

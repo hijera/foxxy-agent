@@ -7,6 +7,27 @@ Feature: A chat can be exported to different document formats
   Background:
     Given a running foxxycode HTTP server
 
+  Scenario Outline: The download arrow keeps uploaded and tool pictures without tool details
+    Given a chat with an uploaded picture and a picture returned by a tool
+    When the illustrated chat is exported as <format> through <delivery>
+    Then the export embeds both pictures
+    And the illustrated export contains no tool arguments or text output
+
+    Examples:
+      | format | delivery |
+      | html   | download |
+      | pdf    | download |
+      | docx   | download |
+      | html   | file     |
+      | pdf    | file     |
+      | docx   | file     |
+
+  Scenario: The JSON download keeps picture references without tool details
+    Given a chat with an uploaded picture and a picture returned by a tool
+    When the illustrated chat is exported as json through download
+    Then the JSON export references both pictures
+    And the illustrated export contains no tool arguments or text output
+
   Scenario: The transcript is exported as JSON
     Given a chat with a user question and an assistant answer
     When the panel exports the chat as json

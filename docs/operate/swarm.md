@@ -81,7 +81,8 @@ node.
 
 **Tunnel** — leave `advertise_url` out. The node dials the relay, the relay takes over that
 connection, and from then on the relay sends requests down it while the node answers them.
-This is the only way in when a network accepts no inbound connections.
+This is the only way in when a network accepts no inbound connections, a phone on a mobile
+network among them ([Android phones as swarm nodes](../tutorials/swarm-android-nodes.md)).
 
 The tunnel is prior-knowledge HTTP/2 over a connection that started as an ordinary HTTP
 request, so there is no bespoke frame protocol and no new dependency. Everything above the

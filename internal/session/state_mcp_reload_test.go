@@ -184,6 +184,7 @@ func newMCPToggleSession(t *testing.T, servers map[string]config.MCPJSONServer) 
 	}
 	runner := func(context.Context, *State, []acp.ContentBlock, acp.UpdateSender) (string, error) { return "", nil }
 	mgr := NewManager(cfg, mcpTurnSender{}, runner, slog.Default(), cwd, nil)
+	mgr.SetMCPConnectTimeoutForTest(mcpStartTimeout)
 	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
 	if err != nil {
 		t.Fatal(err)
@@ -723,6 +724,7 @@ func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
 	if configuredClient(st, "alpha") == nil {
 		t.Fatal("a hung neighbour kept the healthy server from starting")
 	}
+	st.moveMCPRetriesToPending()
 	if configuredClient(st, "hang") != nil || !st.hasPendingMCPServers() {
 		t.Fatalf("the hung server was not parked for the first turn: clients %+v", st.GetMCPClients())
 	}

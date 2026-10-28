@@ -15,8 +15,8 @@ import (
 // foxxycodeSessionExportGet renders a session transcript into one of the
 // supported document formats (json, html, pdf, docx) and returns it as a
 // downloadable attachment. The dialogue surface is the user/assistant turns
-// plus any assistant reasoning blocks; tool and system rows are skipped so the
-// exported document reads as a conversation.
+// plus any assistant reasoning blocks and pictures returned by tools; tool
+// details and system rows are skipped so the document reads as a conversation.
 //
 // The export contract is documented in external/httpserver/openapi.go (and the
 // served /docs/) and in docs/reference/http-api.md — keep those in sync when the query
@@ -79,15 +79,22 @@ func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id 
 		return exportRendered{}, false
 	}
 	// The panel exports the conversation: tool calls are off unless the request
-	// asks for them, which is the one place this differs from /export.
-	opts := export.ExportOptions{NoTools: !queryFlag(r, "tools"), NoThinking: queryFlag(r, "no_thinking")}
+	// asks for them, and the pictures tools returned stay as attachments even
+	// then. /export and `sessions export --no-tools` drop them with the calls
+	// (see AGENTS.md, the internal/export row).
+	opts := export.ExportOptions{
+		NoTools:          !queryFlag(r, "tools"),
+		NoThinking:       queryFlag(r, "no_thinking"),
+		KeepToolPictures: true,
+	}
 	doc := export.BuildExportDocument(export.ExportInput{
-		SessionID: id,
-		Title:     title,
-		CWD:       strings.TrimSpace(st.GetCWD()),
-		Model:     strings.TrimSpace(st.EffectiveModelID(s.activeCfg())),
-		Messages:  msgs,
-		Options:   opts,
+		SessionDir: st.GetPersistedSessionDir(),
+		SessionID:  id,
+		Title:      title,
+		CWD:        strings.TrimSpace(st.GetCWD()),
+		Model:      strings.TrimSpace(st.EffectiveModelID(s.activeCfg())),
+		Messages:   msgs,
+		Options:    opts,
 	})
 	// The readable formats embed pictures the session stored on disk; a session
 	// that was never persisted simply has none to embed.

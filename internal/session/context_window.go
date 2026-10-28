@@ -61,6 +61,13 @@ type providerContextWindows interface {
 type ModelListerFunc func(ctx context.Context, in llm.ProviderInput) ([]llm.ModelEntry, error)
 
 type contextWindowEntry struct {
+	// provider names the row whose listing this is.
+	provider string
+	// gen counts the credential changes of the row (ForgetContextWindows): a
+	// read that returns under another gen than it started with is dropped.
+	gen int
+	// cancel calls off the running read; nil while idle.
+	cancel context.CancelFunc
 	// windows maps the API model id to its reported window; nil until the
 	// listing answered once.
 	windows   map[string]int
@@ -73,8 +80,12 @@ type contextWindowEntry struct {
 type contextWindowState struct {
 	mu      sync.Mutex
 	entries map[string]*contextWindowEntry
-	list    ModelListerFunc
-	now     func() time.Time
+	// detached holds the reads a credential change called off
+	// (ForgetContextWindows) until they return: no entry waits for them any
+	// more, but WaitContextWindowsIdle still does.
+	detached map[chan struct{}]struct{}
+	list     ModelListerFunc
+	now      func() time.Time
 }
 
 // resolveContextWindow applies the resolution order for modelRef. tokens is 0
@@ -102,13 +113,14 @@ func resolveContextWindow(cfg *config.Config, modelRef string, reported provider
 // worth asking for context windows: the NeuralDeep hub reports them, an
 // OpenAI-compatible server behind an explicit api_base (vLLM, OpenRouter,
 // LM Studio, the hub itself on type openai) may, the Devin catalog reports one
-// per family, and api.openai.com, Anthropic and Codex do not.
+// per family, the Codex catalog one per model, and api.openai.com and
+// Anthropic do not.
 func providerListsContextWindows(p *config.ProviderConfig) bool {
 	if p == nil {
 		return false
 	}
 	switch strings.TrimSpace(p.Type) {
-	case "neuraldeep", "devin":
+	case "neuraldeep", "devin", "codex":
 		return true
 	case "openai":
 		return strings.TrimSpace(p.APIBase) != ""
@@ -238,7 +250,7 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 	}
 	e := w.entries[key]
 	if e == nil {
-		e = &contextWindowEntry{}
+		e = &contextWindowEntry{provider: prov.Name}
 		w.entries[key] = e
 	}
 	if e.inflight != nil {
@@ -256,14 +268,16 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 	}
 	done := make(chan struct{})
 	e.inflight = done
+	gen := e.gen
 	list := w.list
 	if list == nil {
 		list = llm.ListModels
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	ctx, cancel := context.WithTimeout(context.Background(), contextWindowFetchTimeout)
+	e.cancel = cancel
 	go func() {
 		defer close(done)
-		ctx, cancel := context.WithTimeout(context.Background(), contextWindowFetchTimeout)
 		defer cancel()
 		models, err := list(ctx, llm.ProviderInput{
 			Name:     prov.Name,
@@ -277,7 +291,15 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 		})
 		w.mu.Lock()
 		defer w.mu.Unlock()
+		if e.gen != gen {
+			// A credential change called this read off and let it go: what it
+			// brought describes the previous credential, and the entry may
+			// already run the read of the new one, which this one leaves alone.
+			delete(w.detached, done)
+			return
+		}
 		e.inflight = nil
+		e.cancel = nil
 		if err != nil {
 			e.failedAt = w.nowLocked()
 			m.log.Debug("provider model listing unavailable; context windows fall back to max_context_tokens or the default",
@@ -306,6 +328,39 @@ func (w *contextWindowState) nowLocked() time.Time {
 		return w.now()
 	}
 	return time.Now()
+}
+
+// ForgetContextWindows makes the next reader of the provider row named
+// providerName read its model listing again, instead of trusting the last
+// read for the rest of its hour or waiting out the retry backoff of a failed
+// one. The credential handlers call it after a login or a logout: a read that
+// failed for want of a sign-in says nothing once the row signs in, and a
+// listing read with another account may lack the models this one is offered.
+// The windows already read keep serving until the next read lands, since a
+// model's window does not depend on the account asking. A read still out asks
+// with the previous credential: it is called off and let go, so the next
+// reader starts the read of the new credential at once instead of waiting for
+// it, and whatever it brings is dropped.
+func (m *Manager) ForgetContextWindows(providerName string) {
+	w := &m.windows
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, e := range w.entries {
+		if e.provider != providerName {
+			continue
+		}
+		e.gen++
+		e.fetchedAt = time.Time{}
+		e.failedAt = time.Time{}
+		if e.inflight != nil {
+			e.cancel()
+			if w.detached == nil {
+				w.detached = make(map[chan struct{}]struct{})
+			}
+			w.detached[e.inflight] = struct{}{}
+			e.inflight, e.cancel = nil, nil
+		}
+	}
 }
 
 // SetContextWindowLister replaces how provider listings are read (and the
@@ -342,7 +397,8 @@ func (m *Manager) WaitContextWindowsIdle(timeout time.Duration) error {
 	}
 }
 
-// inflightContextWindowFetches snapshots the fetches running right now.
+// inflightContextWindowFetches snapshots the fetches running right now, the
+// ones a credential change called off included.
 func (m *Manager) inflightContextWindowFetches() []chan struct{} {
 	m.windows.mu.Lock()
 	defer m.windows.mu.Unlock()
@@ -351,6 +407,9 @@ func (m *Manager) inflightContextWindowFetches() []chan struct{} {
 		if e.inflight != nil {
 			out = append(out, e.inflight)
 		}
+	}
+	for ch := range m.windows.detached {
+		out = append(out, ch)
 	}
 	return out
 }

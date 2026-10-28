@@ -34,6 +34,7 @@ type Sender struct {
 	bot     *tgbotapi.BotAPI
 	chatID  int64
 	replyTo int // original user message ID; zeroed after first send
+	askedID int // the user message the turn answers, kept after replyTo is spent
 
 	log *slog.Logger
 
@@ -42,6 +43,10 @@ type Sender struct {
 	// asks is where a subagent's permission request waits for a tap; nil
 	// (a sender built outside a bot) refuses such a request instead.
 	asks *chatPermissions
+
+	// pictures is the chat's session, whose saved copies of the pictures its
+	// agent was shown are sent into the chat (pictures.go); nil sends none.
+	pictures pictureSession
 
 	mu          sync.Mutex
 	responseBuf strings.Builder      // LLM text only — sent in Flush()
@@ -61,7 +66,7 @@ type richConfig struct {
 }
 
 func newSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, log *slog.Logger, rich richConfig) *Sender {
-	return &Sender{bot: bot, chatID: chatID, replyTo: replyTo, log: log, rich: rich,
+	return &Sender{bot: bot, chatID: chatID, replyTo: replyTo, askedID: replyTo, log: log, rich: rich,
 		toolByID: make(map[string]*toolCall)}
 }
 
@@ -99,7 +104,7 @@ func toolResultText(items []acp.ToolCallResultItem) string {
 }
 
 // SendSessionUpdate handles streaming events from the agent.
-func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
+func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 	switch u := update.(type) {
 
 	case acp.BackgroundWakeUpdate:
@@ -188,6 +193,9 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 			}
 		}
 		s.mu.Unlock()
+		if u.Status == "completed" {
+			s.sendPictures(sessionID, session.ToolImagesFromMeta(u.Meta))
+		}
 	}
 	return nil
 }

@@ -14,7 +14,9 @@ notes: 'Historical decisions migrated from the local UPSTREAM_SYNC.md journal an
   1.2.10), completing the partial/deferred PR #351 records. The 2026-10-16 wave covers the next 67 commits through
   a9ed5bbc88916fb7b95f27fa9558104c7ddee1f5 (tag 1.2.18). The 2026-10-20 wave covers the next 45 commits through
   24bf9b367767bb0a76193c4dac57ab03b0203365 (commit of annotated tag 1.2.27): 41 adapted constituent/PR-merge records
-  and 4 redundant integration merges skipped. Commits after that checkpoint remain unreviewed unless listed individually.'
+  and 4 redundant integration merges skipped. The 2026-10-26 wave covers the next 66 commits through
+  419c6930450a0e3107021ad7ad0b858542d0245b (tag 1.2.35): 60 adapted records and 6 redundant integration
+  merges skipped. Commits after that checkpoint remain unreviewed unless listed individually.'
 ports:
 - upstream_sha: 11cc5e9fb1584f3cc2e765ba5be8f5d13442453d
   status: adapted
@@ -10994,4 +10996,586 @@ ports:
   reason: 'Consolidated 1.2.18-to-1.2.27 net-change port: Merge pull request #392 from coddy-project/fix/webui-escape-closes-rail-screens.
     Adapted to FoxxyCode branding, trust gates, configurable send shortcut, asynchronous MCP lifecycle and registered
     fork divergences; owner decisions and validation are recorded in UPSTREAM_SYNC.md.'
+  remaining: []
+- upstream_sha: 259d2e8be6b24ddab78a3a60fa78648338140b7f
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(cli,session,mcp): draw the console before its
+    MCP servers connect, pin npx packages on registration (#319). Adapted to FoxxyCode branding, asynchronous
+    MCP startup, trust gates, separate background continuation budgets, localization, browser vision and the
+    export engine. Bulk documentation media replacement was intentionally omitted; changed surfaces were recaptured.
+    Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 29d4400fdae8e1d7e38d79296675c430a695070f
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: docs(plans): record the startup measurements behind
+    #319 and the scripts that produced them. Adapted to FoxxyCode branding, asynchronous MCP startup, trust
+    gates, separate background continuation budgets, localization, browser vision and the export engine. Bulk
+    documentation media replacement was intentionally omitted; changed surfaces were recaptured. Scope and
+    validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: b16204ea46cba171723175a11e8bf9c3aca67668
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: review(cli,mcp): record startup and pinning findings.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 64ec3ab1387184f134c38bfad2c103924d7ffb91
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(mcp,cli): answer the Codex review - npx option
+    forms, update generations, benchmark rigour. Adapted to FoxxyCode branding, asynchronous MCP startup, trust
+    gates, separate background continuation budgets, localization, browser vision and the export engine. Bulk
+    documentation media replacement was intentionally omitted; changed surfaces were recaptured. Scope and
+    validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: a57610d3de2c4a0d6b88c593846a83045da71ca0
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: docs(plans): the fixed console measured on the operator''s
+    real configuration. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 2f87694df77ad61898890b041f68e64663bc0f61
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: bench(cli): wait for every MCP server to settle and
+    report the outcome. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: bbebfd7cdbe45578d6fd3d7c326eefbb659bdc6b
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the constituent records and consolidated
+    implementation 2710b9ea32549cb1ccd8279079434955916548a0.
+  remaining: []
+- upstream_sha: 687c5af037077e41e182d3423dd356d2cb724f53
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: chore: drop the review record from the branch. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation budgets,
+    localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 19e6b58e47bde525327f43e8aad6319c7624304b
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: test(cli,http): trust and caches through the deferred
+    dial, the startup benchmarks as make targets. Adapted to FoxxyCode branding, asynchronous MCP startup,
+    trust gates, separate background continuation budgets, localization, browser vision and the export engine.
+    Bulk documentation media replacement was intentionally omitted; changed surfaces were recaptured. Scope
+    and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 6cb9473db44ed906529d8379e7c718dc7cf4a888
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(mcp,cli): honor npx registry and restore session
+    warnings. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 1b6d928be1ef2937e6175c46dab90864390d96ac
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: revert(mcp): drop the npx pinning, how a server starts
+    is the operator''s. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: cf37417fd0f0327b433e6504da47240ced3d8756
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the constituent records and consolidated
+    implementation 2710b9ea32549cb1ccd8279079434955916548a0.
+  remaining: []
+- upstream_sha: 820b52bc53264b3c8540345eec6b29755b886761
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: test(mcp,cli): a server of every kind through a real
+    turn, skills at startup (#319). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate
+    background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: f177fa7eae80c8935829003f1f3a740c147cd6ed
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(session): a server that did not answer in time
+    gets one more try. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 7d08fd43b8d93dab7b8521db41bb9677179a9095
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(session,cli): answer the cross-review of the
+    MCP rework. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 97f20416801511d0bad3995ae1877137e8bc87d7
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(session,cli): second review round - snapshot
+    order, record upkeep, test bounds. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates,
+    separate background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 7b1f9c3f6569250bc45c066a7c55152960592ec1
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(subagents): ride out dropped provider connections
+    and resume a finished run (#389). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates,
+    separate background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: d6a048b8f659cfb3d5705181e402536ea77c1054
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #393 from coddy-project/feat/issue-389-subagent-reconnect.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 2cb178d462f93e05bbca0709c93c6bfd4b43680e
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(session,cli): two races CI found in the MCP startup
+    tests. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 8c29313af706d9ac33e51c39e5637120c1ddf1eb
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #375 from viktor-drobek/fix/319-console-first-frame-before-mcp.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 55118f39c852b2836ef8986a7050a681eca13926
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(http_request): headers every request sends,
+    from tools.http_request.default_headers (#383). Adapted to FoxxyCode branding, asynchronous MCP startup,
+    trust gates, separate background continuation budgets, localization, browser vision and the export engine.
+    Bulk documentation media replacement was intentionally omitted; changed surfaces were recaptured. Scope
+    and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 843ef22323b2f2f35fbd09c14e354e670ef4d48a
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(http_request): act on the cross-review of the
+    default headers (#383). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate
+    background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: b9c80018f1163ef07d63cb3147f32fcb156c6271
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(http_request): second review round of the default
+    headers (#383). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: bb1d6fb5b21b4afb4f4c5b51e662f82c892651cb
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(http_request): the last review notes on the default
+    headers (#383). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 6b0fc6aac93c483fdcde0b9af85d624fda8f5b29
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #395 from coddy-project/feat/issue-383-http-default-headers.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 9311f2d3d74c1379b16570c084fa5b5e979a9235
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(android): an Android build for Termux and the
+    adjustments a Go binary needs there (#327). Adapted to FoxxyCode branding, asynchronous MCP startup, trust
+    gates, separate background continuation budgets, localization, browser vision and the export engine. Bulk
+    documentation media replacement was intentionally omitted; changed surfaces were recaptured. Scope and
+    validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 1e1874e48d3020a1715cdef80c70c299d575341f
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the constituent records and consolidated
+    implementation 2710b9ea32549cb1ccd8279079434955916548a0.
+  remaining: []
+- upstream_sha: 22af5e5db24e22976718ac07f3395b5d12f0f535
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(packaging): suggest tmux in the deb and rpm,
+    recommend it in the cask (#326). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates,
+    separate background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: c562173c76652e08eac3b475ffde28830da2fd3c
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(tools): view_image shows an image file to the
+    model. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 45869d858cb9d11f9d970b774d1dca656d4c1221
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(tools): view_image tells the image type by content,
+    not by name. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 709e688606df2a12f14e1ed8504739ef3fe6ee60
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: docs(config): note that multimodal also offers view_image
+    in the example config. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 7e91f2af78bdb4a89d448938d9eab614af178dbf
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(android): link the Android build with the NDK,
+    and publish it for x86_64 too (#327). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates,
+    separate background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 4e0062d83c7347450644e55cd303ce500f454e61
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(platform): keep the Android start-up helpers
+    out of the Windows build. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate
+    background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 388e304c366fe926f18b0e62c351295aa3101845
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #396 from coddy-project/feat/android-termux-build.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 3b4eacc5643eb329d35d5952771a5e3ee673109e
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(ui): close the completion menu when the draft
+    is sent. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 655ed8d360d69abfc383f823902d3b1cd0430798
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: docs: recapture the screenshots on 1.2.31 and bring
+    the wording up to date. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate
+    background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: d0ee7bf05fbc230561025631e1555c7125e5598e
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(ui): keep the environment menu inside the window.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 5e1af7e4a961e62fec2c0b24c080d57de97f0dea
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(docker): read the mounted config in the dev compose
+    stand. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 11dfecb1cb42c51e66544663d219004d2e16cb22
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: docs: re-record the console and web UI videos on
+    1.2.31, add Android swarm nodes. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates,
+    separate background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: f481e53577256051941f59a3a92136f551af67cb
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: docs: play the 1.2.31 recordings on the console,
+    web UI and Android pages. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate
+    background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: ae98db0409710c2aff8941dbb41d3ca260d5c7fe
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #398 from coddy-project/docs/refresh-screenshots-and-videos.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: f0ffef652dd0d6dcb85f1715a4cc6a34bcbad030
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the constituent records and consolidated
+    implementation 2710b9ea32549cb1ccd8279079434955916548a0.
+  remaining: []
+- upstream_sha: 6291baa5a4d5a8d21f6177a525acb2389aa4609d
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(skills): плагины из zip-архива и установка плагина
+    по имени маркетплейса. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 9e3621befdf2f1ecbe9b04afa4951d009131599f
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(tools): read shows an image file to the model,
+    view_image folded in. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 02518ea567814115bb1fe99354da9b19abf4dc32
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(llm): Anthropic and Codex send the pictures
+    of a user message. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 34e22723dce22f4b36c844271d78f0683a42c3a3
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(http): a tool row names the pictures its call
+    showed the model. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 5660384df99080529c78ddcecd16c24ce5f14ea1
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(skills): плагин, который целиком один навык,
+    ставится из архива. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 24395c434fc34bc7815b5c07d9554a1fbd5f1a77
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(ui): the web UI previews a picture a read showed
+    the model. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 625864e0008e17e59bb8d74198d4acfbca43b7eb
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: feat(gateway): a Telegram chat sees the pictures
+    the agent looked at. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 539f01db6100f51c125806a956596750816b834e
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(tools): bound what pictures cost a request and
+    a GIF costs memory. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 7b08b91803020dd52f65f96982a09165abf365ef
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: test(agent): the pictures a read showed keep the
+    prompt cache prefix. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: a336d2203a75882870cce2e6f47cd051f61db427
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #399 from coddy-project/feat/plugin-archive-source.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 0712d8c6f1812de27456ea77b5185501c89ad908
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(tools): the first cross-review of the read pictures.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 065d983ae1c85e00f34e1708c828325e0a23399b
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(tools): the second part of the read pictures
+    review. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: a3d4e3fcad0a5063309dbd9aa9713aa1b4e7e06b
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(codex): list the models only recent Codex releases
+    are offered (#394). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: eb723869f13fd79b2e8297435a195ef3af2b8331
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(codex): measure a codex model against the window
+    its catalog reports. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: cb106e3d9c600e4eff21e4d13548441abe73bb94
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(tools): the second cross-review round of the
+    read pictures. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background
+    continuation budgets, localization, browser vision and the export engine. Bulk documentation media replacement
+    was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 2f1150efa710481d9c2f3f2bc37963b1d8a464ef
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the constituent records and consolidated
+    implementation 2710b9ea32549cb1ccd8279079434955916548a0.
+  remaining: []
+- upstream_sha: ba375479c3e78cfc6e202158c3067f4f126ecbe3
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(codex): act on the cross-review of the catalog
+    fix (#394). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 55230a662c97f857f86895367281118bb9b99f09
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(tools): read skips stray bytes between the segments
+    of a JPEG. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: df5ec25d4dc672709bcf28af2ed842fad20ae07b
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(session): an export names the saved copies where
+    the session directory is now. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate
+    background continuation budgets, localization, browser vision and the export engine. Bulk documentation
+    media replacement was intentionally omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: ee0f2e83c2b5bc6296fc29ad0324faa9a5e65ae5
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(codex): second review round of the catalog fix
+    (#394). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: caffde59d25ae1b969778c2f18cb2410d14b6c40
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #397 from ErshovVE/feat/view-image-tool.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: bf3cbd451c6a61eb0bd146ac45c0a93524cee6aa
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: fix(codex): third review round of the catalog fix
+    (#394). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 84e3b11c9528e6760f236ea17813b968797a6c83
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the constituent records and consolidated
+    implementation 2710b9ea32549cb1ccd8279079434955916548a0.
+  remaining: []
+- upstream_sha: 419c6930450a0e3107021ad7ad0b858542d0245b
+  status: adapted
+  fork_commits:
+  - 2710b9ea32549cb1ccd8279079434955916548a0
+  reason: 'Consolidated 1.2.27-to-1.2.35 net-change port: Merge pull request #400 from coddy-project/fix/codex-catalog-client-version.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
+    budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
+    omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
   remaining: []

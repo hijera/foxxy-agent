@@ -17,10 +17,18 @@ This repository keeps its detailed rules in `.cursor/rules/*.mdc`. The previous 
 
 | Event | Matcher | What is injected |
 |---|---|---|
-| `SessionStart` | `startup\|resume\|clear\|compact` | every rule whose frontmatter has `alwaysApply: true` |
+| `SessionStart` | `startup\|resume\|clear\|compact\|fork` | every rule whose frontmatter has `alwaysApply: true` |
 | `PreToolUse` | `^(apply_patch\|Edit\|Write)$` | rules whose `globs` cover a file in the pending patch |
 
-Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload. The default command uses `python3`; `commandWindows` uses `python`, because Windows may resolve `python3` to the Microsoft Store stub instead of the installed interpreter. Both commands require Python 3 on `PATH`.
+Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload. The default command uses `python3`; `commandWindows` uses `python`, because Windows may resolve `python3` to the Microsoft Store stub instead of the installed interpreter. Both commands require Python 3 on `PATH`. The `commandWindows` launcher walks up from the working directory to find `attach_rules.py` and exits 0 without attaching anything when it finds none, so a session outside the repository is not blocked by the hook.
+
+The Windows launcher uses `python -X utf8` and finds `.codex/hooks/attach_rules.py`
+by walking from Python's current directory through its parents. This keeps paths
+in Unicode, works from a nested directory and avoids passing a path through a
+native command's stdout. In particular, Windows PowerShell can decode the UTF-8
+output of `git rev-parse` with its OEM code page, turning a Cyrillic username into
+a different path before Python starts. A successful probe in a terminal with a
+UTF-8 profile does not establish that Codex's hook runner can launch that command.
 
 For this repository that currently means `architecture`, `code-style`, `testing` and `russian-wording` arrive at session start. Scoped rules attach on demand, including `workflow` for Go, documentation and UI edits. A patch touching `external/httpserver/server.go` pulls in `api-layer`, `implementation-order`, `workflow` and `upstream-divergences`; one touching `external/ui/src/` pulls in `ui-spa`, `ui-verification`, `workflow` and `implementation-order`.
 
@@ -70,6 +78,25 @@ rm -rf "${TMPDIR:-/tmp}/codex-foxxycode-rules"
 ```
 
 If a hook produces nothing inside a real session, check `/hooks` first. Trust is the usual cause.
+
+The hook statistics distinguish a skipped hook from a failed launch. If a row says
+`hook exited with code 1`, the hook ran and failed; approving it again does not fix
+the command. Expand the row to inspect its output. The old Windows launcher could
+fail with this generic error before reaching `attach_rules.py`, even though
+running that script directly succeeded. Update both Windows commands to the
+launcher in this checkout, review the changed definitions in `/hooks`, and resume
+or restart the session so `SessionStart` can deliver its always-on rules again.
+
+Run the launcher regression checks on Windows:
+
+```powershell
+python -X utf8 scripts/test_codex_hooks.py
+```
+
+They run the configured commands through both `cmd.exe` and Windows PowerShell
+with OEM decoding, in a temporary checkout with spaces and Cyrillic in its path.
+They check session-start rules, a scoped rule from a nested directory with a
+Unicode absolute file path, duplicate suppression and the `fork` start matcher.
 
 ## Adding or changing a rule
 

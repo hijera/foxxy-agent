@@ -13,6 +13,12 @@ Feature: FoxxyCode self-update
     Then the installed executable is the one from the release
     And FoxxyCode reports the release it installed
 
+  Scenario: Installing the Android build on Android
+    Given a newer FoxxyCode release with Linux and Android builds for arm64 is available
+    When FoxxyCode installs the update
+    Then the installed executable is the one from the release
+    And FoxxyCode downloads the Android archive
+
   Scenario: Verifying the download against the published checksums
     Given a newer FoxxyCode release is available
     When FoxxyCode installs the update

@@ -76,6 +76,13 @@ func checkIPAllowed(ip net.IP) error {
 		if ip4[0] == 169 && ip4[1] == 254 {
 			return fmt.Errorf("%w: metadata range %s", ErrDisallowedURL, ip)
 		}
+		// RFC 6598 shared address space, 100.64.0.0/10: carrier-grade NAT and
+		// tailnets, never the public internet, and Alibaba Cloud answers
+		// instance metadata at 100.100.100.200 in it. Go's IsPrivate leaves it
+		// out; internal/netx refuses it the same way.
+		if ip4[0] == 100 && ip4[1]&0xc0 == 64 {
+			return fmt.Errorf("%w: shared address space %s", ErrDisallowedURL, ip)
+		}
 	}
 	return nil
 }

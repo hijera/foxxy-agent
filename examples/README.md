@@ -102,3 +102,16 @@ python3 examples/httpserver/http_smoke_gateway.py
 **`http_e2e_scheduler_agent.py`** expects an already running **`foxxycode http`** and **`BASE_URL`**, **`FOXXYCODE_HOME`**, **`WORK_DIR`** matching that process (as set by **`test_httpserver.sh`**).
 
 The offline console checks `cli/cli_e2e_queue.py` and `cli/cli_e2e_mcp.py` cover both queue modes and live MCP management with a scripted provider. They require a Unix pty.
+
+
+Startup timing and the MCP connect: `cli/cli_e2e_startup.py` holds the bounds CI enforces (the
+first frame with a stdio server that never answers, and with 300 skills plus a skill source that
+never answers, which the start must not contact), `cli/bench_tui_startup.py` times the
+console from spawn to its first frame in the same pty (the demo config with
+an empty, a real and a synthetic skill set), `cli/bench_tui_real.py` does it
+on a private copy of the operator's `~/.foxxycode` (the home itself is never
+written), and `cli/capture_mcp.py` renders the two captures of the console
+connecting its servers after the first frame, with `cli/mcp_stub_server.py`
+as the stdio server that answers at once or never. The numbers behind the
+change are in `docs/plans/console-mcp-startup.md`, and the result file of the
+demo-config run it quotes is committed under `cli/bench_results/`.

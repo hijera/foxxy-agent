@@ -58,6 +58,11 @@ published, and **`SHA256SUMS`** beside them covers the packages too:
 sha256sum -c --ignore-missing SHA256SUMS
 ```
 
+The packages suggest **`tmux`** and do not install it. FoxxyCode runs without it, and its console runs
+well inside it: a session there outlives a closed terminal or a dropped SSH connection. **`apt`**
+lists it under *Suggested packages*; add it with **`sudo apt-get install tmux`** or
+**`sudo dnf install tmux`**.
+
 ### What the package installs
 
 | Path | What |
@@ -133,7 +138,9 @@ brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/downlo
 
 Every release publishes **`foxxycode.rb`** beside the archives, rendered with the checksums of the macOS
 archives of that same tag. The cask installs the same **`foxxycode`** binary the macOS archive carries,
-plus **`man foxxycode`** and the bash and zsh completions. Removal goes through Homebrew:
+plus **`man foxxycode`** and the bash and zsh completions. It does not install **`tmux`**: its caveats,
+printed after the install and by **`brew info --cask foxxycode`**, recommend **`brew install tmux`**
+for a console session that outlives the terminal. Removal goes through Homebrew:
 
 ```bash
 brew uninstall --cask foxxycode      # brew zap --cask foxxycode also removes ~/.foxxycode
@@ -154,6 +161,18 @@ privileged shortcut there.
 
 If macOS blocks the first run because the binary is not notarised, clear the quarantine flag:
 **`xattr -d com.apple.quarantine "$(which foxxycode)"`**.
+
+## Android (Termux)
+
+Download the **Android** archive from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases), unpack it and put `foxxycode` on `PATH`. Full commands are on [Android (Termux)](android.md#install).
+
+Choose **`foxxycode_X.Y.Z_android_arm64.tar.gz`** on a
+64-bit ARM device and **`foxxycode_X.Y.Z_android_amd64.tar.gz`** on x86_64. The Linux archive does not
+start there: a Termux that targets Android 10 or later runs every
+program through Android's linker, which turns a static executable away with
+**`has unexpected e_type: 2`**. Use **`~/.local/bin`** for the binary and **`~/.local/share`** for the man page and completions, and add the binary directory to `PATH` in **`~/.bashrc`**. What differs
+on the device (the programs FoxxyCode starts, certificates, running **`foxxycode serve`** in the background)
+is on its own page: [Android (Termux)](android.md).
 
 ## After install
 

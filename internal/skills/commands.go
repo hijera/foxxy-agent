@@ -189,5 +189,31 @@ func sanitizeSkillName(skillName string) (string, error) {
 	if filepath.Dir(name) != "." {
 		return "", fmt.Errorf("skill name must be a single name, not a path (got %q)", skillName)
 	}
+	// Windows strips a trailing dot or space, so "foo." is the directory "foo",
+	// and it reserves the device names whatever their extension. A skills
+	// directory shared across hosts must not carry names that alias others.
+	if strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") {
+		return "", fmt.Errorf("skill name %q must not end with a dot or a space", skillName)
+	}
+	if windowsReservedName(name) {
+		return "", fmt.Errorf("skill name %q is a reserved device name on Windows", skillName)
+	}
 	return name, nil
+}
+
+// windowsReservedName reports whether name, up to its first dot, is one of the
+// device names Windows reserves (CON, PRN, AUX, NUL, COM1-9, LPT1-9).
+func windowsReservedName(name string) bool {
+	stem := strings.ToUpper(name)
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) {
+		return stem[3] >= '1' && stem[3] <= '9'
+	}
+	return false
 }

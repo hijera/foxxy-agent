@@ -39,6 +39,14 @@ description: |
   and reads project rules, skills, subagents and hooks from the repository it
   is working in.
 
+# tmux is suggested, not required: FoxxyCode runs without it, and its console runs
+# well inside it, where a session outlives a closed terminal or a dropped SSH
+# connection. A suggestion is named and never installed: apt and zypper list it
+# during the install, and it stays in the package metadata for dnf
+# (rpm -q --suggests). The Homebrew cask says the same in its caveats.
+suggests:
+  - tmux
+
 contents:
   - src: foxxycode
     dst: /usr/bin/foxxycode

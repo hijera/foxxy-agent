@@ -34,6 +34,9 @@ groups:
       - path: getting-started/homebrew.md
         title: Homebrew
         summary: The cask against the formula, which Homebrew repository takes what, the homebrew/core submission.
+      - path: getting-started/android.md
+        title: Android (Termux)
+        summary: The Android build for Termux, why the Linux archive does not start there, and what FoxxyCode adapts on the device.
       - path: getting-started/troubleshooting.md
         title: Troubleshooting
         summary: What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build.
@@ -120,10 +123,13 @@ groups:
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
       - path: features/http-requests.md
         title: HTTP requests
-        summary: The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+        summary: The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request, headers the configuration adds to every request - and the permission prompt that shows where a request goes and what it carries.
       - path: features/mentions.md
         title: Mentions
         summary: Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
+      - path: features/images.md
+        title: Images
+        summary: The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat.
       - path: features/built-in-docs.md
         title: Built-in documentation
         summary: This documentation inside the binary - the web UI's reader, F1 in the console, foxxycode docs, the agent's foxxycode_docs tools and @foxxycode:<page> mentions - searched with BM25, with no site involved.
@@ -204,6 +210,9 @@ groups:
       - path: tutorials/swarm-remote-nodes.md
         title: Working with remote nodes
         summary: Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what.
+      - path: tutorials/swarm-android-nodes.md
+        title: Android phones as swarm nodes
+        summary: A phone running FoxxyCode in Termux joins a relay on a laptop or a server and is driven from the relay's web UI and the console, with no open port on the phone.
   - id: contributing
     title: Contributing
     summary: How FoxxyCode is built, tested, documented and released.

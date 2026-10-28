@@ -64,6 +64,44 @@ describe("EnvironmentChip", () => {
     expect(screen.queryByTestId("composer-env-menu")).toBeNull();
   });
 
+  // In the swarm header of a relay the chip is the last thing on the right, so
+  // a menu hung from its left edge ran past the window at 1280 px.
+  it("stays inside the window when the chip is near the right edge", async () => {
+    render(<EnvironmentChip />);
+    const btn = screen.getByTestId("composer-env-btn");
+    const right = window.innerWidth - 80;
+    btn.getBoundingClientRect = () =>
+      new DOMRect(right - 76, 0, 76, 48);
+    fireEvent.click(btn);
+    const menu = await screen.findByTestId("composer-env-menu");
+    const width = Math.min(300, window.innerWidth - 24);
+    const left = parseFloat(menu.style.left);
+    expect(left + width).toBeLessThanOrEqual(window.innerWidth - 12);
+    expect(left).toBeGreaterThanOrEqual(12);
+  });
+
+  // A menu that opens downward carries only the downward class: with both
+  // classes the CSS sets top and bottom on the fixed menu, and its height
+  // collapses to zero.
+  it("opens downward and upward with one direction class each", async () => {
+    render(<EnvironmentChip />);
+    const btn = screen.getByTestId("composer-env-btn");
+
+    btn.getBoundingClientRect = () => new DOMRect(0, 0, 100, 48);
+    fireEvent.click(btn);
+    const down = await screen.findByTestId("composer-env-menu");
+    expect(down.classList.contains("opens-down")).toBe(true);
+    expect(down.classList.contains("opens-up")).toBe(false);
+    fireEvent.click(btn);
+
+    btn.getBoundingClientRect = () =>
+      new DOMRect(0, window.innerHeight - 60, 100, 48);
+    fireEvent.click(btn);
+    const up = await screen.findByTestId("composer-env-menu");
+    expect(up.classList.contains("opens-up")).toBe(true);
+    expect(up.classList.contains("opens-down")).toBe(false);
+  });
+
   it("localizes the add-remote form without changing its test ids", () => {
     setLocale("ru");
     render(<EnvironmentChip />);

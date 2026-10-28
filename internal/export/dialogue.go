@@ -116,7 +116,9 @@ func readableExportDocument(doc exportDocument) exportDocument {
 	out := doc
 	out.Messages = make([]exportMessage, 0, len(doc.Messages))
 	for _, m := range doc.Messages {
-		m.Attachments = parseExportAttachments(m.Content)
+		if m.Attachments == nil {
+			m.Attachments = parseExportAttachments(m.Content)
+		}
 		m.Content = strings.TrimSpace(session.StripContextBlocks(
 			m.Content,
 			session.TagIDEContext,

@@ -213,6 +213,13 @@ func configSchemaType(tokens []configPathToken) (reflect.Type, error) {
 					return nil, fmt.Errorf("unknown selector field %q at %q", token.selector.field, token.key)
 				}
 			}
+		case reflect.Map:
+			// A map's keys are the operator's own (a header name, a label), so
+			// any key addresses one of its values.
+			if token.selector != nil {
+				return nil, fmt.Errorf("selectors must be attached to a sequence field")
+			}
+			typ = typ.Elem()
 		case reflect.Slice, reflect.Array:
 			if token.selector != nil {
 				return nil, fmt.Errorf("selectors must be attached to a sequence field")
@@ -465,18 +472,63 @@ func cloneYAMLNode(node *yaml.Node) *yaml.Node {
 	return &copy
 }
 
+// configPathKeys drops the positions of a path - a list index, the "-" that
+// appends - and keeps its keys, the names secret-shaped paths are judged by.
+// Which token is which follows the config's own types: a token that addresses
+// a map (a default header, a label) is a key even when it reads as a number.
+// Past a segment the types do not know, a number or "-" counts as a position,
+// as it always did.
 func configPathKeys(tokens []configPathToken) []string {
 	keys := make([]string, 0, len(tokens))
+	typ := reflect.TypeOf(Config{})
 	for _, token := range tokens {
-		if token.key == "-" {
-			continue
+		for typ != nil && typ.Kind() == reflect.Pointer {
+			typ = typ.Elem()
 		}
-		if _, err := strconv.Atoi(token.key); err == nil {
-			continue
+		switch {
+		case typ != nil && typ.Kind() == reflect.Struct:
+			keys = append(keys, token.key)
+			field, ok := yamlStructField(typ, token.key)
+			if !ok {
+				typ = nil
+				continue
+			}
+			typ = field.Type
+			if token.selector != nil {
+				// A selector picks one entry of the list it is attached to.
+				for typ.Kind() == reflect.Pointer {
+					typ = typ.Elem()
+				}
+				if typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array {
+					typ = typ.Elem()
+				} else {
+					typ = nil
+				}
+			}
+		case typ != nil && typ.Kind() == reflect.Map:
+			keys = append(keys, token.key)
+			typ = typ.Elem()
+		case typ != nil && (typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array) && isListPosition(token.key):
+			typ = typ.Elem()
+		default:
+			typ = nil
+			if isListPosition(token.key) {
+				continue
+			}
+			keys = append(keys, token.key)
 		}
-		keys = append(keys, token.key)
 	}
 	return keys
+}
+
+// isListPosition reports whether a path token can stand for an entry of a
+// list: an index, or the "-" that appends.
+func isListPosition(token string) bool {
+	if token == "-" {
+		return true
+	}
+	_, err := strconv.Atoi(token)
+	return err == nil
 }
 
 func redactConfigNode(node *yaml.Node, path []string) bool {
@@ -516,6 +568,13 @@ func configSecretPath(path []string) bool {
 	if len(path) == 0 {
 		return false
 	}
+	// A default header of http_request goes to every destination the tool
+	// reaches, and nothing tells a credential among them from a User-Agent:
+	// every value is kept from the model, the way an MCP server's header
+	// values are. The names stay readable.
+	if len(path) >= 2 && strings.EqualFold(path[len(path)-2], "default_headers") {
+		return true
+	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
 	// A key for a service of its own (tools.websearch.brave_api_key) is as much a
 	// credential as a provider's api_key.
@@ -539,8 +598,13 @@ func configSecretPath(path []string) bool {
 
 // publicConfigValue reports whether a value under a secret-shaped key is no
 // secret after all: a proxy that says inherit, none or nothing names a route,
-// not a credential, and a permission prompt or config_get shows it as it is.
+// not a credential, and an empty default header says the header is left out,
+// which the model may need to know (a site that sees no User-Agent). A
+// permission prompt or config_get shows such a value as it is.
 func publicConfigValue(path []string, value string) bool {
+	if len(path) >= 2 && strings.EqualFold(path[len(path)-2], "default_headers") {
+		return strings.TrimSpace(value) == ""
+	}
 	if len(path) == 0 || !strings.EqualFold(path[len(path)-1], "proxy") {
 		return false
 	}

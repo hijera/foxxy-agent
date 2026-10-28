@@ -26,6 +26,11 @@ type Env struct {
 	// http_request call reaches without a permission prompt.
 	HTTPAllowlist []string
 
+	// HTTPDefaultHeaders is tools.http_request.default_headers: headers every
+	// http_request call sends unless the call names them itself. An empty
+	// value leaves the header out. Nothing but http_request reads them.
+	HTTPDefaultHeaders map[string]string
+
 	// SessionID is the current session identifier (used by plan tools).
 	SessionID string
 
@@ -153,6 +158,21 @@ type Env struct {
 	// means the built-in defaults.
 	WebSearch *WebSearchSettings
 
+	// AttachImage hands the model a picture together with the result of the
+	// running tool call: read calls it for a PNG, JPEG, GIF or WebP file. The
+	// agent keeps the picture on that call's result, where every surface finds
+	// it (the web UI previews it, a Telegram chat is sent it), keeps a copy
+	// with the session's assets, and refuses when the session's model does not
+	// read images (models[].multimodal). Nil where no agent runs the call, and
+	// read then refuses the file as binary.
+	AttachImage func(name, mimeType string, data []byte) error
+
+	// ImageRefusal says why the session cannot take a picture now - its model
+	// does not read images - or nil when it can. read asks it before any other
+	// check of a picture, so a model that cannot see one is told that, not how
+	// to make the file smaller. Nil means no refusal beyond AttachImage's own.
+	ImageRefusal func() error
+
 	// PreviewServer is the resolved tools.preview_server section the
 	// preview_server tool reads its bind host from. Like WebSearch it travels
 	// on the environment so a config reload reaches the next call. Nil means
@@ -235,6 +255,11 @@ type SpawnRequest struct {
 	ExpectedSeconds int
 	TimeoutSeconds  int
 	NotifyOnFinish  bool
+	// Resume names an earlier run of this session to continue instead of
+	// starting a new child: the task id or the child session id a spawn_agent
+	// result named. The child keeps its transcript and takes Prompt as its
+	// next message.
+	Resume string
 }
 
 // CompactRequest is one compact_context call.

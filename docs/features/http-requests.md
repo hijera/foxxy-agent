@@ -61,7 +61,7 @@ A multipart body is laid out before it is sent, with the files as parts of known
 
 ## Headers
 
-A header named in `headers` replaces whatever the tool would have sent under that name, `User-Agent`, `Content-Type` and `Host` included. An empty value removes a header the tool would otherwise send: `"User-Agent": ""` sends none, and `"Content-Type": ""` leaves a JSON body without one.
+A header named in `headers` replaces whatever the tool would have sent under that name: its own `User-Agent`, the `Content-Type` of the payload, the `Host` of the address, and a [default header](#default-headers) the operator configured. An empty value removes a header the tool would otherwise send: `"User-Agent": ""` sends none, and `"Content-Type": ""` leaves a JSON body without one.
 
 Three headers are checked rather than passed through:
 
@@ -70,6 +70,60 @@ Three headers are checked rather than passed through:
 - `Host` cannot be removed, only replaced.
 
 The tool sends no `Accept-Encoding` of its own. When a request asks for `gzip` or `deflate` itself, the body is decoded for reading and saved to `output_file` as it arrived.
+
+## Default headers
+
+Some headers belong to every request rather than to one call. A site behind a hosting front may serve its files to browsers only: `https://match3.drobek.online/app.webmanifest` answers the tool's own `User-Agent` with `415 Unsupported Media Type` and an HTML page, and a Chrome `User-Agent` with the manifest. An internal service may expect an `Accept` or a client header on every call. `tools.http_request.default_headers` names such headers once:
+
+```yaml
+tools:
+  http_request:
+    default_headers:
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      Accept: application/json
+```
+
+The tool builds the headers of a request in three layers, and a later layer wins:
+
+1. the tool's own defaults: the `foxxycode-agent` `User-Agent`, and the `Content-Type` of the payload, which `default_headers` cannot take (see below);
+2. `default_headers`;
+3. the call's `headers`.
+
+A header the call names replaces the configured one, however the call spells its name, and an empty value in the call removes it: `"User-Agent": ""` then sends no `User-Agent` at all. An empty value in `default_headers` leaves that header out of every call that does not set it, so `User-Agent: ""` stops the tool from introducing itself. Without the key the requests go out exactly as before.
+
+`Host`, `Content-Type`, `Content-Length` and `Transfer-Encoding` are refused: the tool derives them from each call - its address, its payload and the payload's framing - and a call that needs another value sets it in its own `headers`. So are the hop-by-hop headers - `Connection`, `Keep-Alive`, `Proxy-Connection`, `TE`, `Trailer` and `Upgrade` - which describe one connection rather than the client; set for every request they break them (HTTP/2 refuses a request that carries `Upgrade`). `Proxy-Authorization` is refused too: an `https` request goes through a proxy as a tunnel and carries its headers inside it to the origin, so a proxy's credential set here would reach every destination; it belongs in the proxy address (`HTTPS_PROXY`, or a call's `proxy` as `http://user:password@host:3128`). A name has the shape of every header in use - letters, digits, `-` and `_`, starting with a letter - because it is also a segment of a config path, where a dot would split it and a number would read as a list position; a call can still send any other name in its own `headers`. Two spellings of one header and a value with a line break in it are refused as well. The loader refuses such a configuration at startup, and `foxxycode -t` names the header in its report.
+
+A configured header acts as if the call had written it: an `Accept-Encoding: gzip` here, for example, gets every body decoded for reading and saved to `output_file` as it arrived.
+
+Only `http_request` sends these headers. `webfetch`, the page an `@https://...` mention reads, and the requests to the model providers keep their own.
+
+In the web UI the map is the **Default headers** block of **HTTP requests** on the **Tools and permissions** tab of Settings: a row per header, its name and its value, with **Add** under the rows.
+
+![The default headers of http_request in the web UI settings](../assets/http-requests/http-request-default-headers-settings-dark-1280.png)
+
+*The HTTP requests block of the Tools and permissions tab: the allowlist, then a row per default header.*
+
+### What the prompt shows
+
+The permission prompt lists the configured headers among the ones that go out and names them on a line of their own, so the operator can tell them from the headers the model wrote; a header the configuration leaves out with an empty value is named there too, as `User-Agent (not sent)`:
+
+```text
+GET https://match3.drobek.online/app.webmanifest
+Headers:
+  Accept: application/json
+  User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
+Headers from tools.http_request.default_headers: Accept, User-Agent
+```
+
+The prompt shows the configured value of a header that says who the client is or what it accepts - `User-Agent`, the `Accept` family, `Cache-Control`, `Pragma`, `DNT`, `Origin`, `Upgrade-Insecure-Requests`, and the `Sec-Ch-Ua` client hints and `Sec-Fetch-` metadata a browser adds. Any other configured header shows its name with `<redacted>` for the value: a credential can sit under any name (`X-Auth`, `X-Session`), and the prompt also reaches a Telegram chat, a notification hook and whoever looks at the screen. A header the model wrote into the call itself is shown as written, the way it stands in the transcript.
+
+The headers are part of the configuration, and a grant does not record them: an approved or allowlisted destination gets its requests with whatever `default_headers` holds at the time. A prompt that waits across a restart of `foxxycode serve` is answered for the request it showed: when `default_headers` has changed by the time the answer arrives, the call asks again with the request it would send now instead of running under the old answer.
+
+### Credentials
+
+Every request of the tool carries these headers, to every destination the model reaches with it: the service you had in mind, a page a search turned up, an address a prompt injection asked for. An `Authorization`, a `Cookie` or an API key header set here goes to all of them, without a prompt under `bypass` or to an allowlisted destination. Keep credentials out of `default_headers` unless that is the intent, for example on a machine that talks to one service; otherwise let the call carry the credential, where the prompt shows it for the one destination it is meant for.
+
+`config_get` shows the model which default headers are configured and never their values, the way it treats the header values of an MCP server - an empty one excepted, which says the header is left out; the file and the Settings screen show them. A value the model stages back as it read it, `<redacted>`, is refused rather than written over the header.
 
 ## The answer
 
@@ -131,7 +185,7 @@ An always answer also approves the files it uploads, the proxy and the file it s
 
 *The web UI card: the request as it would go out, the uploaded file, and one button per grant it can leave behind.*
 
-Arguments the tool would refuse still ask, with the reason the call will fail at the end of the prompt.
+Arguments the tool would refuse still ask, with the reason the call will fail at the end of the prompt. The headers the configuration adds are listed with the rest and named on a line of their own ([What the prompt shows](#what-the-prompt-shows)).
 
 ### What an answer approves
 
@@ -181,7 +235,8 @@ Unlike `webfetch`, `http_request` does not refuse localhost or private networks:
 - the address is checked against the SSRF guard - no localhost, `.local` names, private, link-local or metadata addresses, no credentials in the URL - and so is every redirect before it is followed;
 - every redirect is followed, up to ten;
 - the transport asks for gzip and decodes it;
-- a non-2xx status is an error, the page is capped at 4 MiB and the answer is run through readability into Markdown.
+- a non-2xx status is an error, the page is capped at 4 MiB and the answer is run through readability into Markdown;
+- the [default headers](#default-headers) are not sent: the request carries the tool's own `User-Agent`.
 
 It needs no permission because none of that can be steered by the model beyond the URL.
 
@@ -190,4 +245,4 @@ It needs no permission because none of that can be steered by the model beyond t
 [Tools](../reference/tools.md) - every built-in tool, its arguments and its permission class;
 [Security and trust](../operate/security.md#permission-modes-and-prompts) - permission modes and what each of them asks about;
 [Web search](web-search.md) - `websearch`, and `webfetch` for reading a page;
-[config.yaml reference](../reference/config.md) - `tools.http_request.allowlist` and `tools.output_limits`.
+[config.yaml reference](../reference/config.md) - `tools.http_request.allowlist`, `tools.http_request.default_headers` and `tools.output_limits`.

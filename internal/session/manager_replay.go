@@ -9,7 +9,8 @@ import (
 )
 
 func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string) error {
-	if m.server == nil {
+	sender := m.currentSender()
+	if sender == nil {
 		return nil
 	}
 
@@ -23,12 +24,12 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 		// The synthetic summary message stands in for the compacted turns: show it as a distinct
 		// compaction note followed by its summary text.
 		if msg.CompactionSummary {
-			_ = m.server.SendSessionUpdate(sessionID, acp.CompactionUpdate{
+			_ = sender.SendSessionUpdate(sessionID, acp.CompactionUpdate{
 				SessionUpdate: acp.UpdateTypeCompaction,
 				Phase:         acp.CompactionPhaseDone,
 			})
 			if txt := strings.TrimSpace(msg.Content); txt != "" {
-				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "agent_message_chunk",
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: txt},
 				})
@@ -43,7 +44,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 			// showed live - nothing, or a one-line note - instead of a
 			// message from the user.
 			if msg.BackgroundWake != nil {
-				_ = m.server.SendSessionUpdate(sessionID, BackgroundWakeUpdate(msg.BackgroundWake))
+				_ = sender.SendSessionUpdate(sessionID, BackgroundWakeUpdate(msg.BackgroundWake))
 				continue
 			}
 			// The attachments a message was sent with ride in its content;
@@ -51,7 +52,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 			// (mention.ForDisplay, the web UI's stripFoxxyCodeAttachments twin).
 			content := UserMessageDisplayText(msg.Content)
 			if content != "" {
-				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
 				})
@@ -59,13 +60,13 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 
 		case llm.RoleAssistant:
 			if txt := strings.TrimSpace(msg.Content); txt != "" {
-				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "agent_message_chunk",
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: txt},
 				})
 			}
 			for _, tc := range msg.ToolCalls {
-				_ = m.server.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
+				_ = sender.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    tc.ID,
 					Title:         tc.Name,
@@ -88,7 +89,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 						{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: display}},
 					}
 				}
-				_ = m.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+				_ = sender.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: acp.UpdateTypeToolCallUpdate,
 					ToolCallID:    tm.ToolCallID,
 					Status:        "completed",
@@ -114,7 +115,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 					{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: display}},
 				}
 			}
-			_ = m.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+			_ = sender.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    msg.ToolCallID,
 				Status:        "completed",

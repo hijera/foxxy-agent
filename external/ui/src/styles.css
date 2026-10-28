@@ -3955,6 +3955,49 @@ a.rail-brand {
   color: var(--foxxycode-md-inline-code-fg);
 }
 
+/* The pictures a tool call showed the model (read on an image file) stand under
+   its row, open or closed, at the inset of the row's label: the preview is the
+   point, so it is not folded into the details. They hang close under the row
+   they belong to, and below them the transcript's own gap between rows is the
+   whole space, as after any other row. A card has the size and the manner of a
+   sent attachment, and a click opens the original enlarged. */
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0 14px;
+}
+
+.tool-image-card {
+  display: block;
+  width: 128px;
+  height: 96px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  cursor: zoom-in;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.tool-image-card:hover,
+.tool-image-card:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.tool-image-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 .foxxycode-memory-copilot-flat-banner {
   cursor: default;
   pointer-events: none;
@@ -8849,6 +8892,14 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .settings-array-remove {
   flex: 0 0 auto;
+}
+
+/* A map row (tools.http_request.default_headers): the name and the value side
+   by side in the field block, the value wider; each is the list's bare input. */
+.settings-map-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
 }
 
 /* --- Tabbed settings layout: vertical nav + content (desktop), horizontal tab strip (mobile) --- */
@@ -15331,6 +15382,18 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
 
   .chat-header-tasks.has-tasks .chat-header-tasks-label {
     display: none;
+  }
+
+  /* Settings maps (the default headers): a name and a value side by side left
+     the name 82px at 390px, User-Agent cut to "User-Ag". The value goes under
+     the name, the trash stays beside the pair, and the pairs stand further
+     apart than the two fields of one pair. */
+  .settings-map-entry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-map {
+    gap: 16px;
   }
 }
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {

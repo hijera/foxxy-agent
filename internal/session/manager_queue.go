@@ -234,7 +234,7 @@ func (m *Manager) PublishMessageQueue(sessionID string, st *State) {
 	}
 	sender := st.TurnSender()
 	if sender == nil {
-		sender = m.server
+		sender = m.currentSender()
 	}
 	if sender != nil {
 		_ = sender.SendSessionUpdate(sessionID, update)

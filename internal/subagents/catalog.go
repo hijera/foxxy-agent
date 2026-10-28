@@ -101,10 +101,11 @@ func PromptBlock(entries []CatalogEntry) string {
 	var b strings.Builder
 	b.WriteString("## Subagents\n\n")
 	b.WriteString("You can delegate a bounded, self-contained piece of work to a subagent with the **`spawn_agent`** tool: ")
-	b.WriteString("pass the agent name and a prompt that carries everything the child needs, because it starts with an empty context and sees none of this conversation. ")
+	b.WriteString("pass the agent name and a prompt that carries everything the child needs, because a new child starts with an empty context and sees none of this conversation. ")
 	b.WriteString("Only its final report comes back to you; the user does not see it, so repeat what matters in your own reply. ")
 	b.WriteString("Delegate when the work would flood this context (a long investigation, reviewing several modules, researching several options) or when independent pieces can run in parallel with **`background: true`**; ")
-	b.WriteString("detached runs wake you with their outcome by default where something can wake you - the call's result says whether it will - so you can end the turn while they work. Collect a result yourself with **`background_wait`** or **`background_output`**, or stop it with **`background_stop`**; those actions prevent a redundant wake. Do not delegate a one-step task you can do directly.\n\n")
+	b.WriteString("detached runs wake you with their outcome by default where something can wake you - the call's result says whether it will - so you can end the turn while they work. Collect a result yourself with **`background_wait`** or **`background_output`**, or stop it with **`background_stop`**; those actions prevent a redundant wake. Do not delegate a one-step task you can do directly. ")
+	b.WriteString("A run that stopped before its report (a provider failure, its timeout, its turn limit) keeps its transcript: continue that child with **`resume`** set to its task id and a prompt that says only what to do next, instead of starting a new subagent on the same task.\n\n")
 	b.WriteString("Available subagents:\n\n")
 	for _, e := range visible {
 		if e.NeedsApproval {
