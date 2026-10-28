@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-26
 
+**Android and Termux.**
+Native builds are available for Android arm64 and x86_64. The console and web UI run in Termux, with command execution, certificates and temporary files adapted to Android.
+
 **Pictures in exports from the download button.** HTML, PDF and DOCX retain uploaded images and pictures returned by tools while keeping tool arguments and output text hidden. JSON retains picture paths.
 
 **Images read directly from project files.**
