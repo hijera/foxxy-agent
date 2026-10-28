@@ -84,3 +84,51 @@ func TestExportToolPictureFollowsMovedSessionBundle(t *testing.T) {
 		}
 	}
 }
+
+func TestDialogueToolPicturesOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options ExportOptions
+		want    int
+	}{
+		{"command no tools", ExportOptions{NoTools: true}, 0},
+		{"panel dialogue", ExportOptions{NoTools: true, KeepToolPictures: true, NoThinking: true}, 2},
+		{"full transcript", ExportOptions{KeepToolPictures: true}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			doc := BuildExportDocument(ExportInput{SessionDir: dir, Options: tc.options, Messages: []llm.Message{
+				{Role: llm.RoleAssistant, Reasoning: "private reasoning", ToolCalls: []llm.ToolCall{{ID: "read_1", Name: "read", InputJSON: `{"path":"private argument"}`}}},
+				{Role: llm.RoleTool, ToolCallID: "read_1", Content: "private result", CreatedAt: "first", ImageParts: []llm.ImagePart{{}, {Name: "first.png", FilePath: filepath.Join("old", "assets", "first.png")}}},
+				{Role: llm.RoleTool, ToolCallID: "missing_call", Content: "orphan result", CreatedAt: "second", ImageParts: []llm.ImagePart{{Name: "second.png", FilePath: "second.png"}}},
+				{Role: llm.RoleTool, Content: "no images", ImageParts: []llm.ImagePart{{}}},
+			}})
+			var names []string
+			for _, row := range dialogueFromDocument(doc, "").Messages {
+				for _, a := range row.Attachments {
+					if a.Name != "" {
+						names = append(names, a.Name)
+					}
+				}
+			}
+			if len(names) != tc.want {
+				t.Fatalf("pictures = %v, want %d", names, tc.want)
+			}
+			if tc.options.NoTools && tc.options.KeepToolPictures {
+				if strings.Join(names, ",") != "first.png,second.png" || len(doc.Entries) != 2 {
+					t.Fatalf("picture order or empty rows: %+v", doc.Entries)
+				}
+				if doc.Entries[0].CreatedAt != "first" || doc.Entries[0].Attachments[0].Path != filepath.Join(dir, "assets", "first.png") {
+					t.Fatalf("picture lost timestamp or moved bundle path: %+v", doc.Entries[0])
+				}
+				data, err := RenderExport(doc, ExportFormatMarkdown)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(data), "first.png") || !strings.Contains(string(data), "second.png") || strings.Contains(string(data), "private") || strings.Contains(string(data), "orphan result") {
+					t.Fatalf("dialogue markdown lost pictures or leaked tool details: %s", data)
+				}
+			}
+		})
+	}
+}

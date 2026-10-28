@@ -47,13 +47,17 @@ func dialogueFromDocument(doc ExportDocument, assetsDir string) exportDocument {
 			}
 			out.Messages = append(out.Messages, msg)
 		case ExportEntryAssistant:
-			if strings.TrimSpace(e.Text) != "" || strings.TrimSpace(e.Reasoning) != "" {
-				out.Messages = append(out.Messages, exportMessage{
+			if strings.TrimSpace(e.Text) != "" || strings.TrimSpace(e.Reasoning) != "" || len(e.Attachments) > 0 {
+				msg := exportMessage{
 					Role:      "assistant",
 					Content:   e.Text,
 					Reasoning: e.Reasoning,
 					CreatedAt: e.CreatedAt,
-				})
+				}
+				for _, a := range e.Attachments {
+					msg.Attachments = append(msg.Attachments, exportAttachment{Name: a.Name, Path: a.Path})
+				}
+				out.Messages = append(out.Messages, msg)
 			}
 			for _, tc := range e.ToolCalls {
 				if body := toolCallMarkdown(tc); body != "" {

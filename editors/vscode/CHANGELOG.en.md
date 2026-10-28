@@ -10,6 +10,8 @@
 
 ## Unreleased — 2026-10-26
 
+**Pictures in download-arrow exports.** HTML, PDF and DOCX retain uploaded images and pictures returned by tools while keeping tool arguments and output text hidden. JSON retains picture paths.
+
 **Images read directly from project files.**
 The agent can read a picture with the read tool and show a preview beneath its call. The picture stays with the chat, survives a restart and appears in exports that include tools.
 

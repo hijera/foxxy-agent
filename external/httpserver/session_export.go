@@ -15,8 +15,8 @@ import (
 // foxxycodeSessionExportGet renders a session transcript into one of the
 // supported document formats (json, html, pdf, docx) and returns it as a
 // downloadable attachment. The dialogue surface is the user/assistant turns
-// plus any assistant reasoning blocks; tool and system rows are skipped so the
-// exported document reads as a conversation.
+// plus any assistant reasoning blocks and pictures returned by tools; tool
+// details and system rows are skipped so the document reads as a conversation.
 //
 // The export contract is documented in external/httpserver/openapi.go (and the
 // served /docs/) and in docs/reference/http-api.md — keep those in sync when the query
@@ -80,7 +80,11 @@ func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id 
 	}
 	// The panel exports the conversation: tool calls are off unless the request
 	// asks for them, which is the one place this differs from /export.
-	opts := export.ExportOptions{NoTools: !queryFlag(r, "tools"), NoThinking: queryFlag(r, "no_thinking")}
+	opts := export.ExportOptions{
+		NoTools:          !queryFlag(r, "tools"),
+		NoThinking:       queryFlag(r, "no_thinking"),
+		KeepToolPictures: true,
+	}
 	doc := export.BuildExportDocument(export.ExportInput{
 		SessionDir: st.GetPersistedSessionDir(),
 		SessionID:  id,

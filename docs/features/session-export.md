@@ -56,9 +56,20 @@ The export is built before the `/export` row lands in the transcript, so the fil
 ## Formats
 
 HTML, PDF and DOCX exports made with `/export` or `foxxycode sessions export` embed pictures
-returned by tools from the session's stored assets, just like the HTTP export. Keeping tools
+returned by tools from the session's stored assets. For these commands, keeping tools
 in the export is required; `--no-tools` intentionally leaves their pictures out. The source
 image can be renamed or removed after `read` saved its copy with the session.
+
+The **download arrow** in the web UI and editor panels keeps both uploaded images and
+pictures returned by tools in HTML, PDF and DOCX, while hiding tool arguments and output
+text. Tool pictures appear as assistant attachments in transcript order, including when
+the original call is no longer in the transcript. The browser download and the editor
+**save to file** route use the same renderer. JSON keeps attachment paths and names rather
+than image bytes. Local images must still exist in the session assets directory; the
+[HTTP export](../reference/http-api.md) never fetches remote images.
+
+![An HTML download with a user upload and a tool picture](../assets/session-export/download-images-dark-1280.png)
+*A document saved through the download arrow in IntelliJ: both pictures remain, with tool arguments and output text hidden. Dark theme, 1280 px.*
 
 **Markdown** (`md`): a header list, then `## User` and `## Assistant · <model> · <time>` sections. Reasoning sits in a collapsed `<details>` block, each tool call becomes `### Tool call: <name>` with fenced input (pretty-printed JSON) and result. Fences grow when the content itself holds backticks, so code in tool output stays intact.
 
