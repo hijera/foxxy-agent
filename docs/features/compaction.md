@@ -25,7 +25,9 @@ Over HTTP the same action is `POST /foxxycode/sessions/{id}/compact` with an opt
 
 ## Automatic compaction
 
-The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the context window of the session's model. When the estimate reaches `compaction.threshold_percent` of the window (80 by default) the history is compacted before the call: once before the first model call of a turn, a turn resumed after a permission answer included, again between rounds when tool results grew the context past the threshold mid-turn, and before the first request to a model the session switched to, whose window may be smaller ([Session settings](session-settings.md#what-happens-when-you-send-one)). Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+The agent compares context usage with the session model's window. After a model call reports `input_tokens`, the next check uses that count plus an estimate of content added since the call. When the provider reports no count, the estimate includes the system prompt, tool definitions and schemas, rules, skills, MCP, message text, tool arguments, reasoning and images. The estimate budgets more room for code and non-ASCII text than the old runes/4 rule. At `compaction.threshold_percent` (80 by default), older history is compacted before the next model call: before the first call of a turn, after a permission answer, between rounds as tool results grow the context, and before the first call to a newly selected model whose window may be smaller ([Session settings](session-settings.md#what-happens-when-you-send-one)). Set `compaction.auto_enable: false` to keep manual compaction while disabling this trigger. Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+
+![The Context compaction settings with separate master and automatic switches](../assets/compaction/compaction-settings-auto-dark-1280.png)
 
 ### The context window
 
@@ -90,6 +92,11 @@ The summary row is a user-role message flagged `compaction_summary` that starts 
 
 After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /foxxycode/sessions/{id}/stats` returns the same breakdown by category. Every client of a shared session reads the smaller number: the tab that sent the turn from its own stream, another tab watching the turn from `GET /foxxycode/sessions/{id}/composer-stream` (the same frames), and a tab that only views the session from the stats it reloads when `turn_ended` arrives. A compaction folds the turns before the kept tail, so the numbers fall when the bulk of the context sits in older turns; a large last message stays verbatim until newer turns push it past `keep_recent_turns`.
 
+The Context popover places a manual compaction action beside its title. With automation enabled it shows the configured threshold, such as **Compact at 95%**; with `auto_enable: false` it shows **Compact now**. Clicking starts the same `POST /foxxycode/sessions/{id}/compact` action as `/compact`, shows progress and refreshes the transcript and context indicator when it finishes.
+
+![Context popover with the manual compaction action and configured threshold](../assets/compaction/context-popover-threshold-dark-1280.png)
+*Context popover rendered from the running web UI at 1280px.*
+
 The web UI also updates the session's context window from `usage_update.size` on either stream. If a provider listing arrives after `/v1/models` returned the 128000 fallback, the ring adopts the reported window without a reload. Stats refreshes preserve that live window; selecting a different model or saving the configuration uses the model listing until a fresh usage update arrives. A window received for one session never changes another session's ring.
 
 ![Context using the fallback window](../assets/compaction/context-window-before-dark-1280.png)
@@ -128,6 +135,7 @@ Eviction is the second projection over the same history: the persisted transcrip
 compaction:
   engine: coddy            # coddy (default) or opencode, see Two engines
   enable: true             # master switch: the command and the automatic trigger
+  auto_enable: true        # false keeps manual compaction and disables the threshold trigger
   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
   keep_recent_turns: 2     # user turns kept verbatim; 0 summarises everything
   model: ""                # models[].model for the summariser; empty = the session's model
@@ -142,6 +150,8 @@ compaction:
 |---|---|---|
 | `engine` | `coddy` | the implementation: `coddy` inserts a summary row, `opencode` flags and filters older messages |
 | `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
+| `auto_enable` | `true` | automatic threshold trigger; manual actions remain available when false |
+| `auto_enable` | `true` | automatic threshold trigger; manual actions remain available when false |
 | `threshold_percent` | `80` (`85` for opencode) | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `max_tokens` | `4096` | the completion cap of the opencode engine's summary |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |

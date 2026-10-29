@@ -323,7 +323,7 @@ func (w *pollingWorld) close() {
 	}
 	if w.done != nil {
 		select {
-		case <-w.done:
+		case <-w.done: //nolint:errcheck // Only completion is needed here.
 		case <-time.After(pollingStopFor):
 		}
 	}

@@ -45,9 +45,10 @@ type Runtime struct {
 	// background task starts (wake.go).
 	wakes wakeSurfaces
 
-	// cfg is what the process loaded. Once a manager exists it owns the live
-	// pointer, because every reload path replaces it there.
-	cfg *config.Config
+	// live holds the configuration while no manager exists, and every reload
+	// of it (liveconfig.go). Once a manager exists it owns the live pointer,
+	// because every reload path replaces it there.
+	live liveConfig
 }
 
 // Cfg returns the live configuration.
@@ -55,7 +56,7 @@ func (r *Runtime) Cfg() *config.Config {
 	if r.Mgr != nil {
 		return r.Mgr.Cfg()
 	}
-	return r.cfg
+	return r.live.load()
 }
 
 // SetTurnMirror installs (or with nil clears) the surface that mirrors turns
@@ -221,7 +222,7 @@ func (r *Runtime) Init(opts Options) error {
 	}
 	r.Paths = paths
 	r.Log = log
-	r.cfg = opts.Cfg
+	r.live.replace(opts.Cfg)
 	if !opts.NeedsSessions {
 		return nil
 	}
@@ -242,6 +243,9 @@ func (r *Runtime) Init(opts Options) error {
 	}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
+			return mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
+		})
 		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})

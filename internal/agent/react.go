@@ -97,14 +97,17 @@ type SessionState interface {
 
 // Agent runs the ReAct loop for a single session turn.
 type Agent struct {
-	cfg             *config.Config
-	state           SessionState
-	server          acp.UpdateSender
-	log             *slog.Logger
-	registry        *tools.Registry
-	environment     platform.Environment
-	providerFactory func(llm.ProviderInput) (llm.Provider, error)
-	configReloader  func(context.Context) ([]string, error)
+	cfg                  *config.Config
+	state                SessionState
+	server               acp.UpdateSender
+	log                  *slog.Logger
+	registry             *tools.Registry
+	environment          platform.Environment
+	providerFactory      func(llm.ProviderInput) (llm.Provider, error)
+	configReloader       func(context.Context) ([]string, error)
+	workspaceSwitcher    func(context.Context, string) error
+	workspaceContextCWD  string
+	workspaceContextText string
 
 	// titleOnce keeps the session-title pass to a single launch per turn, whichever
 	// exit path reaches it first.
@@ -227,6 +230,28 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 		return
 	}
 	a.configReloader = reload
+}
+
+// SetWorkspaceSwitcher connects worktree_create to the session manager's
+// workspace reload path. Child sessions cannot move their inherited workspace.
+func (a *Agent) SetWorkspaceSwitcher(switchTo func(context.Context, string) error) {
+	if a != nil {
+		a.workspaceSwitcher = switchTo
+	}
+}
+
+func (a *Agent) wireWorkspaceTool(env *tools.Env) {
+	if a.workspaceSwitcher == nil || a.subagent != nil {
+		return
+	}
+	env.SwitchWorkspace = func(ctx context.Context, dir string) error {
+		if err := a.workspaceSwitcher(ctx, dir); err != nil {
+			return err
+		}
+		a.resetHooks()
+		a.workspaceContextCWD = ""
+		return nil
+	}
 }
 
 // Run executes the ReAct loop and returns the stop reason.
@@ -459,6 +484,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageRefusal:      a.toolImageRefusal,
 	}
 	httpRequestEnv(toolEnv, a.cfg)
+	a.wireWorkspaceTool(toolEnv)
 	// The model's own model switch; a subagent runs on what its parent chose.
 	if a.subagent == nil && a.settings() != nil {
 		toolEnv.SwitchModel = a.switchModel
@@ -1178,6 +1204,19 @@ func (a *Agent) runReActLoop(
 			"messages": len(sendMessages),
 			"tools":    len(callDefs),
 		})
+		// The estimate the provider's incoming input_tokens is anchored to is
+		// taken here, while the breakdown still describes the prompt about to
+		// be sent - anything persisted or refreshed during the call must not
+		// move it.
+		estimateAtSend := 0
+		if rs, ok := a.state.(rulesState); ok {
+			if b := rs.GetLastContextBreakdown(); b != nil {
+				estimateAtSend = b.EstimatedTotal
+			}
+		}
+		// The call's own clock: when it went out, when the first chunk came
+		// back and how many followed. It names the silence in the errors
+		// below and is the debug-level account of every call.
 		callStart := time.Now()
 		a.log.Debug("llm call started",
 			"session", sessionID, "turn", turn, "call", llmCalls,
@@ -1656,6 +1695,7 @@ func (a *Agent) runReActLoop(
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
+		a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
 
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
@@ -1980,6 +2020,15 @@ func (a *Agent) runReActLoop(
 			messages = a.buildMessages(sys.Content)
 			turnCtx = a.buildTurnContext(sys)
 			a.refreshContextBreakdown(sys, turnCtx)
+		}
+		if toolEnv.WorkspaceChanged {
+			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
+			toolDefs = a.currentToolDefinitions(mode)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
+			a.refreshContextBreakdown(sys, turnCtx)
+			toolEnv.WorkspaceChanged = false
 		}
 		if toolEnv.ConfigReloaded {
 			// config_commit or config_rollback replaced the live configuration.
@@ -2564,6 +2613,15 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 		available = filtered
 	}
 	defs := FilterToolDefinitions(available, toolSet)
+	if a.workspaceSwitcher == nil || a.subagent != nil {
+		filtered := defs[:0]
+		for _, def := range defs {
+			if def.Name != tools.ToolWorktreeCreate {
+				filtered = append(filtered, def)
+			}
+		}
+		defs = filtered
+	}
 	if ModeAllowsMCPTools(mode) {
 		defs = append(defs, a.mcpToolDefinitions()...)
 	}
@@ -2709,7 +2767,7 @@ func (a *Agent) applySkillSettings(ctx context.Context, name string, sk *skills.
 	if ap == nil {
 		return
 	}
-	ch := session.SettingsChange{Source: "skill:" + name}
+	ch := session.SettingsChange{Source: session.SettingsSourceSkill + name}
 	if m := sk.Model; m != "" && a.state.TurnSetting(session.SettingModel) == "" {
 		ch.Model = &m
 	}
@@ -2893,7 +2951,7 @@ func (a *Agent) switchModel(ctx context.Context, req tooling.ModelSwitch) (strin
 	if ap == nil {
 		return "", fmt.Errorf("switch_model is not available in this session")
 	}
-	ch := session.SettingsChange{Source: "model"}
+	ch := session.SettingsChange{Source: session.SettingsSourceModel}
 	if req.Model != "" {
 		ch.Model = &req.Model
 	}

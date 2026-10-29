@@ -236,7 +236,8 @@ type HTTPHeaderJSON struct {
 
 // MCPJSON mirrors MCP for JSON APIs.
 type MCPJSON struct {
-	ProjectTrust string `json:"project_trust,omitempty"`
+	ProjectTrust       string `json:"project_trust,omitempty"`
+	IdleTimeoutSeconds *int   `json:"idle_timeout_seconds,omitempty"`
 }
 
 // ToolsJSON mirrors Tools for JSON APIs.
@@ -361,6 +362,7 @@ type MemoryJSON struct {
 type CompactionJSON struct {
 	Engine           string `json:"engine,omitempty"`
 	Enabled          *bool  `json:"enable,omitempty"`
+	AutoEnabled      *bool  `json:"auto_enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
@@ -443,10 +445,14 @@ type HTTPCORSJSON struct {
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
-// HTTPRemoteJSON mirrors HTTPRemote.
+// HTTPRemoteJSON mirrors HTTPRemote. Token travels both ways, like a provider's
+// api_key: it is a credential for another server that the page itself presents
+// when it switches to that remote, not one that grants access to this server,
+// which is what the write-only fields are. config_get still redacts it.
 type HTTPRemoteJSON struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
 // SwarmJSON mirrors SwarmConfig. Every credential is write-only: reading the
@@ -622,7 +628,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		}
 		out.MCPServers = append(out.MCPServers, mj)
 	}
-	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
+	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust(), IdleTimeoutSeconds: cloneIntPtr(c.MCP.IdleTimeoutSeconds)}
 	out.Tools = ToolsJSON{
 		PermissionMode:           c.Tools.ResolvedPermMode(),
 		CommandAllowlist:         append([]string(nil), c.Tools.CommandAllowlist...),
@@ -672,6 +678,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Compaction = CompactionJSON{
 		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
+		AutoEnabled:      cloneBoolPtr(c.Compaction.AutoEnabled),
 		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
 		MaxTokens:      c.Compaction.MaxTokens,
 		FallbackModels: append([]string(nil), c.Compaction.FallbackModels...),
@@ -925,7 +932,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		}
 		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
-	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
+	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust, IdleTimeoutSeconds: cloneIntPtr(j.MCP.IdleTimeoutSeconds)}
 	cfg.Tools = Tools{
 		PermissionMode:           j.Tools.PermissionMode,
 		CommandAllowlist:         append([]string(nil), j.Tools.CommandAllowlist...),
@@ -977,6 +984,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Compaction = CompactionConfig{
 		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
+		AutoEnabled:      cloneBoolPtr(j.Compaction.AutoEnabled),
 		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
 		MaxTokens:      j.Compaction.MaxTokens,
 		FallbackModels: append([]string(nil), j.Compaction.FallbackModels...),

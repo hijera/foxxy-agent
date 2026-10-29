@@ -1,0 +1,20 @@
+# Upstream 1.2.45: IntelliJ acceptance checks
+
+Install the generated `foxxycode-intellij-0.0.0-dev-upstream-1.2.45.zip` with **Settings > Plugins > gear > Install Plugin from Disk**, then restart the IDE. This development ZIP contains the Windows x64 server built from this branch. Use an IntelliJ-platform IDE 2022.2 or newer with its bundled JCEF runtime. Keep the released ZIP available if a rollback is needed.
+
+## Essential checks in the IDE
+
+1. **Startup and persistence.** Open FoxxyCode in a project, check the server version below the empty composer, send a message, restart the IDE and reopen the conversation. Confirm the project directory, transcript and selected model survive. Verify both configured send-shortcut modes, Stop, and a queued message during an active turn.
+2. **Worktrees.** In a disposable Git repository, ask the agent to create a feature worktree and edit a file there. Confirm the new session directory, the file location and History grouping under the main project. Run a command with an explicit `cwd`; its output should identify that directory. Move between the original and worktree conversations and check that file tools and project MCP servers use the active location.
+3. **Context and compaction.** Open the context breakdown and inspect its token categories and threshold. Disable automatic compaction, save and reopen settings, then run manual compaction. The transcript must remain usable and a following turn must work. If both engines are configured, repeat with `coddy` and `opencode`; check Summary separately.
+4. **Shared MCP lifecycle.** With one global stdio MCP server configured, open two conversations and call its tool in each. Check that the server is shared rather than launched for every conversation. Close one conversation and call the tool in the other. Switch to a workspace with an untrusted project definition, verify the trust prompt, then approve and call its tool. Exercise a failing server and retry/toggle errors in Settings. After all leases are released, check idle cleanup at the configured timeout (300 seconds by default).
+5. **Settings feedback.** Change model, reasoning and compaction settings through the UI; verify their controls update without a duplicate settings message. Ask the agent to change an allowed setting itself; this change should produce a transcript notice. Reopen the conversation and check that the feedback is still consistent.
+
+## Checks requiring additional services
+
+- **Authenticated remote:** configure a remote URL and token, connect, then try a wrong token and an unreachable URL. Check that the connection banner explains the failure and that correcting the token reconnects immediately. Switch between local and remote environments; drafts, history and configuration must remain scoped to the selected environment. Repeat inside the IDE's JCEF rather than only a standalone browser.
+- **Swarm:** connect to a relay, inspect graph navigation and select a node, then return to the relay settings. Check pan/zoom, the environment menu, node reachability and relay CORS settings. A standalone relay-capable server is required; the IntelliJ host binary retains its existing build-tag set.
+- **Crossreview:** inspect the bundled skill and reviewer in the catalog. With at least one supported reviewer CLI installed and authenticated, request a crossreview and confirm the review completes. A trusted built-in/user `spawns` definition may launch its allowed child one generation beyond `subagents.max_depth`; a project definition must not gain that exception.
+- **Interrupted provider stream:** if a controllable proxy or scripted provider is available, cut a JSON tool frame mid-stream. The incomplete tool must not execute; retries/continuation should recover without repeating already executed tools. Automated BDD and unit tests cover this case when manual fault injection is unavailable.
+
+Report the IDE/JBR version, steps, expected and actual behavior, and the relevant server log or screenshot. Avoid posting provider or remote tokens in the report.

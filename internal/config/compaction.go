@@ -62,6 +62,8 @@ type CompactionConfig struct {
 	// preserved. Use CompactionEnabled to read the effective value. Auto-compaction only fires
 	// when real prompt tokens approach the context window, so leaving it on is a safe default.
 	Enabled *bool `yaml:"enable"`
+	// AutoEnabled controls the threshold trigger independently of manual compaction.
+	AutoEnabled *bool `yaml:"auto_enable"`
 
 	// Model selects a cfg.models entry for the summarization pass. Empty uses agent.model.
 	Model string `yaml:"model"`
@@ -153,6 +155,11 @@ func (c *CompactionConfig) CompactionEnabled() bool {
 
 // IsEnabled is an alias for CompactionEnabled used by the coddy engine call sites.
 func (c *CompactionConfig) IsEnabled() bool { return c.CompactionEnabled() }
+
+// IsAutoEnabled reports whether either engine may compact automatically.
+func (c *CompactionConfig) IsAutoEnabled() bool {
+	return c.IsEnabled() && (c.AutoEnabled == nil || *c.AutoEnabled)
+}
 
 // EngineIsOpenCode reports whether the opencode engine is selected.
 func (c *CompactionConfig) EngineIsOpenCode() bool {

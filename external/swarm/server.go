@@ -34,6 +34,9 @@ type Server struct {
 	// discovery, so it must be per process rather than per name.
 	uuid      string
 	startedAt time.Time
+	// hostName is the name this relay goes by when the configuration gives it
+	// none (relayName).
+	hostName string
 
 	mu          sync.RWMutex
 	extraTokens []string
@@ -55,6 +58,7 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		registry:  NewRegistry(time.Duration(cfg.Swarm.EffectiveLeaseTTLSeconds()) * time.Second),
 		uuid:      uuid[:32],
 		startedAt: time.Now(),
+		hostName:  swarmdto.HostNodeName(),
 	}
 	s.routes()
 	// An advertised address is somebody else's claim about where to dial, so
@@ -107,6 +111,13 @@ func writeSPANotice(w http.ResponseWriter, msg string) {
 	_, _ = w.Write([]byte(msg))
 }
 
+// Close releases what outlives the relay's HTTP server: the tunnels its nodes
+// opened. A node sees its connection close and dials again, so a relay rebuilt
+// on new settings (issue #401) or restarted is joined again within seconds.
+func (s *Server) Close() {
+	s.registry.CloseTransports()
+}
+
 // Handler returns the relay's HTTP handler with CORS and the auth gate applied.
 func (s *Server) Handler() http.Handler {
 	return s.corsMiddleware(s.authGate(s.mux))
@@ -149,13 +160,9 @@ func (s *Server) seedUpstreams() error {
 // ---- handlers ----
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(s.cfg.Swarm.Name)
-	if name == "" {
-		name = "swarm"
-	}
 	writeJSON(w, http.StatusOK, swarmdto.Info{
 		Swarm:     true,
-		Name:      name,
+		Name:      s.relayName(),
 		UUID:      s.uuid,
 		Version:   version.Get(),
 		NodeCount: s.registry.Len(),

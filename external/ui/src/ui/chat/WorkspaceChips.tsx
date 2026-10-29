@@ -151,7 +151,7 @@ export function WorkspaceChips(props: Props) {
           type="button"
           className="workspace-chip"
           data-testid="composer-workspace-chip"
-          title={ctx.path}
+          title={ctx.is_worktree && ctx.repo_root ? ctx.repo_root : ctx.path}
           aria-haspopup="menu"
           disabled={locked}
           onClick={(e) => toggleMenu("folder", e.currentTarget)}

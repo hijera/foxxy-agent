@@ -375,9 +375,14 @@
       "additionalProperties": false,
       "description": "Summarize older turns when the conversation approaches the model context window.",
       "properties": {
+        "auto_enable": {
+          "description": "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.",
+          "title": "Automatic compaction",
+          "type": "boolean"
+        },
         "enable": {
           "default": true,
-          "description": "Turns on auto-compaction; only fires near the context window.",
+          "description": "Master switch for manual and automatic compaction. Defaults to true.",
           "title": "Enabled",
           "type": "boolean"
         },
@@ -463,6 +468,7 @@
       "x-foxxycode-property-order": [
         "engine",
         "enable",
+        "auto_enable",
         "model",
         "fallback_models",
         "threshold_percent",

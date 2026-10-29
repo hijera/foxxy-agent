@@ -27,12 +27,14 @@ test("the ask pill is as tall as the close control beside it", () => {
 });
 
 // On a wide window the sheet is as wide as its columns, so the outline sits
-// right after the text instead of drifting to the far edge.
+// right after the text instead of drifting to the far edge. The width is the
+// one every dock over the chat shares (the swarm map's too).
 test("the reader sheet is no wider than its three columns", () => {
   const dock = rule(".docs-dock-cluster");
   const layout = rule(".docs-layout");
   const view = rule(".docs-view");
-  const sheet = Number(/width:\s*min\((\d+)px/.exec(dock)?.[1]);
+  expect(dock).toMatch(/width:\s*var\(--foxxycode-dock-width\)/);
+  const sheet = Number(/--foxxycode-dock-width:\s*min\(\s*(\d+)px/.exec(css)?.[1]);
   const cols = /grid-template-columns:\s*minmax\(\d+px,\s*(\d+)px\)\s*minmax\(0,\s*1fr\)\s*minmax\(\d+px,\s*(\d+)px\)/.exec(layout);
   const article = px(rule(".docs-article"), "max-width");
   const gap = px(layout, "gap");

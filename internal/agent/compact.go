@@ -239,6 +239,7 @@ func (a *Agent) compactSession(ctx context.Context, instructions string, force b
 	// prompt, and a rule the summary folded away comes back with the next
 	// tool call or mention that matches it.
 	a.rereadRules()
+	a.clearProviderInputTokens()
 	a.refreshConversationContextUsage(true)
 	a.runPostCompactHooks(ctx, mode, trigger, summary)
 
@@ -447,7 +448,7 @@ func (a *Agent) addUserCommandMessage(text string) {
 // outgoing message slice must be rebuilt.
 func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	comp := &a.cfg.Compaction
-	if !comp.IsEnabled() {
+	if !comp.IsAutoEnabled() {
 		return false
 	}
 	window, source := a.contextWindow()
@@ -462,7 +463,14 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	if b == nil || b.EstimatedTotal <= 0 {
 		return false
 	}
-	if b.EstimatedTotal*100 < comp.EffectiveThresholdPercent()*window {
+	used := b.EstimatedTotal
+	if b.ProviderInputTokens > 0 {
+		measured := b.ProviderInputTokens + max(0, b.EstimatedTotal-b.ProviderEstimateTokens)
+		if measured > used {
+			used = measured
+		}
+	}
+	if used*100 < comp.EffectiveThresholdPercent()*window {
 		return false
 	}
 	res, err := a.CompactSession(ctx, CompactOptions{})
@@ -474,7 +482,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 			if !a.autoCompactSkipLogged {
 				a.autoCompactSkipLogged = true
 				a.log.Info("auto-compaction skipped: no earlier turn to fold, the prompt being answered stays verbatim",
-					"estimatedTokens", b.EstimatedTotal,
+					"contextTokens", used,
 					"contextWindow", window,
 					"contextWindowSource", source,
 					"thresholdPercent", comp.EffectiveThresholdPercent())
@@ -487,7 +495,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 		return false
 	}
 	a.log.Info("auto-compacted session context",
-		"estimatedTokens", b.EstimatedTotal,
+		"contextTokens", used,
 		"contextWindow", window,
 		"contextWindowSource", source,
 		"thresholdPercent", comp.EffectiveThresholdPercent(),

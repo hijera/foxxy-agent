@@ -476,7 +476,7 @@ func TestConfigWritersSerializeFileAndRuntimeApplication(t *testing.T) {
 		})
 	}()
 	select {
-	case <-putDone:
+	case <-putDone: //nolint:errcheck // Only completion is needed here.
 		t.Fatal("second writer entered while the commit transaction still held the lock")
 	case <-time.After(100 * time.Millisecond):
 	}

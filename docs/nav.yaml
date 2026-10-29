@@ -96,7 +96,10 @@ groups:
         summary: Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
       - path: features/sessions.md
         title: Sessions
-        summary: Session bundles on disk, resuming, in-place history rewind on edit, todo lists, the sessions CLI.
+        summary: Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
+      - path: features/worktrees.md
+        title: Git worktrees
+        summary: Fresh feature branches from origin, session moves, the web composer and project grouping.
       - path: features/rules.md
         title: Rules and instructions
         summary: Rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
@@ -201,6 +204,9 @@ groups:
       - path: tutorials/a-skill-of-your-own.md
         title: A skill of your own
         summary: A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
+      - path: tutorials/swarm-across-machines.md
+        title: A swarm across your machines
+        summary: Workers on several machines join one relay, and a laptop drives any of them from its own web UI and console, with the relay and its agents in the environment menu and the map one click away.
       - path: tutorials/swarm-relay-and-nodes.md
         title: A relay and its nodes in Docker
         summary: A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
@@ -232,6 +238,9 @@ groups:
       - path: contributing/build.md
         title: Build from source
         summary: Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
+      - path: contributing/security-scanning.md
+        title: AppSec scanning
+        summary: Trivy and semgrep locally and in CI through one script, the severity gate, triage and suppression.
       - path: contributing/custom-tools.md
         title: Custom tools
         summary: Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.

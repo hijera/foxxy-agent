@@ -115,6 +115,9 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
 	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
+	ag.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
+		return s.mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
+	})
 	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
 		if err == nil {

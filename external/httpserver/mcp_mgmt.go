@@ -107,7 +107,13 @@ func (s *Server) probeMCPServer(ctx context.Context, gate *mcp.TrustGate, srv mc
 
 	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
-	tools, err := gate.Probe(probeCtx, srv, cwd, s.log)
+	var tools []mcp.ToolInfo
+	var err error
+	if s.mgr != nil {
+		tools, err = s.mgr.ProbeMCPServer(probeCtx, srv, cwd)
+	} else {
+		tools, err = gate.Probe(probeCtx, srv, cwd, s.log)
+	}
 	entry = mcpProbeEntry{fingerprint: fp, tools: tools}
 	if err != nil {
 		entry.err = err.Error()

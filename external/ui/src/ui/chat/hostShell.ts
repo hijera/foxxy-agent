@@ -3,6 +3,8 @@
 // session, so it lives here as a process-wide value the way the locale does -
 // threading it through five components to label one card would be worse.
 
+import { onEnvironmentSwitch } from "../env/remoteEnv";
+
 let hostShellPath = "";
 const listeners = new Set<() => void>();
 
@@ -13,6 +15,9 @@ export function setHostShell(path: unknown): void {
   hostShellPath = next;
   for (const listener of listeners) listener();
 }
+
+// Another server has a host of its own; its context says which shell it runs.
+onEnvironmentSwitch(() => setHostShell(""));
 
 /** Current interpreter path, or "" before the workspace context has answered. */
 export function snapshotHostShell(): string {

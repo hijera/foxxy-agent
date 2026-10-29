@@ -556,7 +556,7 @@ Sessions list interactions
 
 ### Repo links
 
-Repo links appear as plain text links (**`API docs`**, **`Website`**) on the left of the **Settings footer**, before the Reload and Save buttons (**`.settings-footer-link`**; the last one takes **`margin-right: auto`**). **API docs** (**`/docs/`**) and **Website** (**`https://hijera.github.io/foxxy-agent/`**) open in a **new tab** (`target="_blank" rel="noopener"`). Inside the VS Code embed the webview blocks new windows, so **`embedExternalLinks.ts`** claims such clicks and posts **`{ type: "foxxycode:openExternal", url }`** to the host; the IntelliJ panel cancels the JCEF popup and opens the system browser.
+The start screen includes a fixed footer with **GitHub | API docs | server version**, centered 16px from the bottom (`chat/HeroFooter.tsx`). GitHub points at the FoxxyCode repository. API docs points at `/docs/`. A release version `X.Y.Z` links to its release notes; a development version stays plain text. All links open in a new tab with `rel="noopener"`. The active environment supplies the version via `/foxxycode/info`; switching it refreshes the footer. Settings retains its API documentation and Website links, including the VS Code host's external-link handling.
 
 ### Tool timeline
 
@@ -677,7 +677,7 @@ Current block types:
   - Final assistant output for the turn. UI keeps it last and reconciles it from **`GET /foxxycode/sessions/{id}/messages`** when streaming ends or after a refetch. After **Stop** mid-stream, that **`GET`** can lag the partial row already on screen; **`mergeTranscriptPreferLocalSuffix`** (see **Multi-session streaming and Stop** above) preserves visible text until the server catches up.
 
 - `system_notice`
-  - A UI-only row from the session's `uiLog` (never sent to the model), rendered by **`SystemNoticeMessage`** with the uppercase **SYSTEM** label, a monospace `pre-wrap` body, the copy control and the timestamp. The action row (**`.msg-system-foot`**) sits below the bordered card and is inset by the card's horizontal padding (**`14px`**), so its copy control starts at the same x as the one under an assistant row; covered by **`systemNoticeFootCss.test.ts`**. Two levels: **`error`** (a failed request or turn; red family, `role="alert"`, and a **refresh** control on the last row that re-runs the turn) and **`notice`** (information the operator should see once, such as a project hooks file held until approved; blue family via **`.msg-system-notice`** / **`.msg-system-stack-notice`** in both dark and light themes, `role="status"`, **no refresh control** even on the last row). Rows of any other level are dropped by the client rather than mis-rendered. A row sits at the end of the turn it is stamped with: the server stamps the number of user-role messages the history held, compaction summaries and background wakes included, and the client counts the same rows (**`chat/uiLogNotices.ts`**), so an error of a compacted session does not disappear when the saved transcript replaces the live turn; a row stamped past the end of the history is shown after the last message.
+  - A UI-only row from the session's `uiLog` (never sent to the model), rendered by **`SystemNoticeMessage`** with the uppercase **SYSTEM** label, a monospace `pre-wrap` body, the copy control and the timestamp. The action row (**`.msg-system-foot`**) sits below the bordered card and is inset by the card's horizontal padding (**`14px`**), so its copy control starts at the same x as the one under an assistant row; covered by **`systemNoticeFootCss.test.ts`**. Two levels: **`error`** (a failed request or turn; red family, `role="alert"`, and a **refresh** control on the last row that re-runs the turn) and **`notice`** (information the operator should see once, such as a project hooks file held until approved, or a settings change the agent made itself with **`switch_model`** or a skill's frontmatter - a change the user made is on the composer's selectors and leaves no row; blue family via **`.msg-system-notice`** / **`.msg-system-stack-notice`** in both dark and light themes, `role="status"`, **no refresh control** even on the last row). Rows of any other level are dropped by the client rather than mis-rendered. A row sits at the end of the turn it is stamped with: the server stamps the number of user-role messages the history held, compaction summaries and background wakes included, and the client counts the same rows (**`chat/uiLogNotices.ts`**), so an error of a compacted session does not disappear when the saved transcript replaces the live turn; a row stamped past the end of the history is shown after the last message.
 
 Ordering rules:
 
@@ -706,18 +706,17 @@ Functional contract and endpoints: **`docs/surfaces/web-ui.md`** (**Message edit
 
 Muted **Auto** pill tracks future modality toggles; UI copy stays English everywhere.
 
-### Composer workspace chips (folder / branch / worktree / svn)
 ### Composer permission chip and turn overrides
 
 - **Permission chip** (**`composer-tab mode-btn mode-permission`**, **`data-testid="composer-permission"`**) sits right after the **Mode** tab and names the session's permission mode: **Ask** / **Accept edits** / **Bypass** (**Спрашивать** / **Правки без вопросов** / **Без вопросов**). Its **`title`** names the configuration's mode, the one a restart returns to. Ask is the quiet default (the plain tab recipe); **`perm-accept_edits`** takes an amber hairline (**`rgba(234,179,8,.6)`**); **`perm-bypass`** takes the danger tone - red text (**`#b91c1c`** light, **`#f87171`** on every dark canvas), a **`rgba(239,68,68,.7)`** border and a **3px** **14%** red glow, the family of the plan/ask mode outlines - so a session that approves everything never looks like one that asks. The menu is the **`mode-menu`** family (anchored portal on desktop, bottom sheet on narrow shells); the bypass row carries the same red text. Hidden in a subagent's read-only transcript.
 - **Turn overrides** (**`.composer-overrides`**, **`data-testid="composer-overrides"`**) follow the selectors when **`--once`** / **`--count=N`**, a skill or the model's **`switch_model`** changed a setting for some turns: **11px**, **62%** muted, one line (**`max-width: 240px`**, ellipsis) naming the first override ("gpt-oss-120b this turn and 2 more", "off, 1 turn left") with **`+N`** for the rest; the **`title`** lists them all. Nothing renders without overrides.
 - Both mirror the session's settings snapshot (**`event: session_settings`**): a change made anywhere - a command, the permission dialog, a console - shows up in every tab.
 
-### Composer workspace chips (folder / branch / worktree)
+### Composer workspace chips (folder / branch / worktree / svn)
 
 A context row (**`.composer-context-row`**) renders as the **first child** of **`.composer-card`**, above attachments and the field. It holds the environment chip, the workspace chips (**`.composer-context-chips`** is **`display: contents`**, so every chip is a direct flex item and only the overflow wraps), and the 24×24px improve-prompt button pinned to its right edge (outside the horizontally scrolling chip strip on phones) — mirroring Claude Desktop's workspace chips. Implemented by **`WorkspaceChips.tsx`** (helpers in **`chat/workspaceContext.ts`**); data from **`GET /foxxycode/workspace/context`** (session header, or **`?path=`** preview before a session exists).
 
-- **Folder chip** (**`composer-workspace-chip`**) — folder icon plus workspace basename (full path in **`title`**). Click opens the **Recent** menu (**`workspace-folder-menu`**, **`mode-menu`** family, Claude Desktop style): a **`Recent`** header, MRU folder rows from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**, cap 8) with the current workspace marked by a **✓** (**`is-selected`**), a separator, and **`Open folder…`** at the bottom.
+- **Folder chip** (**`composer-workspace-chip`**) — folder icon plus the main repository basename for a linked worktree, otherwise the workspace basename (the main repository path in **`title`** for a worktree). Click opens the **Recent** menu (**`workspace-folder-menu`**, **`mode-menu`** family, Claude Desktop style): a **`Recent`** header, MRU folder rows from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**, cap 8) with the current workspace marked by a **✓** (**`is-selected`**), a separator, and **`Open folder…`** at the bottom.
 - **Open folder…** opens the project-styled **folder browser modal** (**`WorkspaceFolderModal.tsx`**, **`workspace-modal`**, centered over a dim backdrop): editable path field, **`..`** row, subfolder rows from **`GET /foxxycode/workspace/folders`** (row click **navigates into** the folder), footer **Cancel** / **Open** (picks the currently browsed folder). The browser starts at the **parent** of the current workspace. **Escape** folds an open new-folder row first and then cancels the dialog, as **Cancel** does.
   - **Path field** (**`workspace-modal-path`**, an **`input`** on the **`.mode-menu-filter`** token recipe — never **`direction: rtl`**, which breaks the caret): **Enter** browses to the typed path. While it holds a path that has not been visited, the primary button reads **Go** and navigates; otherwise it reads **Open** and picks.
   - **Drive level** (Windows) — a drive root has no parent directory, so the server answers **`"parent": ":drives:"`** and **`?path=:drives:`** lists the volumes (**`drives: true`**, drive glyph rows, `No drives` empty state, **Open** disabled). This is the only way out of a drive in the SPA; hosts without drive letters never see the level.
@@ -725,9 +724,23 @@ A context row (**`.composer-context-row`**) renders as the **first child** of **
 - **Worktree checkbox** (**`composer-worktree-chip`** label + real **`input[type=checkbox]`** **`composer-worktree-checkbox`**) — the **open-branch-switches-in-a-worktree** preference. When the session already runs inside a worktree it is **checked and disabled** (state, not a choice). Branches already checked out in another worktree jump there regardless of the checkbox.
 - **SVN chip** (**`composer-svn-chip`**) — package icon plus the Subversion branch (**`trunk`**, **`branches/<name>`**), URL and revision in **`title`**; rendered **only** when **`is_svn_repo`**, immediately **after** the git branch chip. Detection is independent of git, so a branch folder that also holds a git repository shows **both** chips. Click opens the svn branch list (**`workspace-svn-menu`**), current branch first, then **`trunk`**. Picking a branch posts **`{"branch", "worktree": <checkbox>, "vcs": "svn"}`**.
 - **SVN branch-folder checkbox** (**`composer-svn-folder-chip`** label + **`composer-svn-folder-checkbox`**) — Subversion has no worktrees, so this is the **check-the-branch-out-into-its-own-folder** preference: off switches the working copy in place (**`svn switch`**), on checks the branch out under **`<home>/worktrees/<wc>/`** and moves the session there.
-- **Chosen once** — folder, branch, and worktree are fixed at session start. As soon as the conversation has messages the chips **lock** (**`workspaceLocked`**: controls disabled, menus do not open); the server enforces the same rule with **409** on **`POST .../workspace`**.
+- **Chosen once** — folder, branch, and worktree are fixed at session start. As soon as the conversation has messages the chips **lock** (**`workspaceLocked`**: controls disabled, menus do not open); the server enforces the same rule with **409** on **`POST .../workspace`**. The agent may still create a feature worktree during its turn through `worktree_create`; the folder chip keeps the main project name and History groups that session by `repoRoot`.
 - **Pre-session (draft/home)** — chips show the server-default workspace. Choices are kept client-side (**pending**) and previewed via **`GET /foxxycode/workspace/context?path=`**; the first send applies them to the fresh session id (**`POST .../workspace`**) before **`POST /v1/responses`**. Navigating to another session drops pending choices.
 - Menus follow the **`Mode`**/**`Model`** conventions: anchored **`mode-menu--portal`** (**`opens-down`** on the hero, **`opens-up`** when docked) on desktop, full-width bottom sheet (**`mode-menu--sheet`**) on narrow shells.
+### Composer environment chip and menu
+
+The first chip of **`.composer-context-row`** says which FoxxyCode the page drives (**`EnvironmentChip.tsx`**, **`.workspace-chip--env`**): **Local**, or a remote's name, with the active environment's dot on its right (**`.env-status`**, 8px: green **up** and **local**, red **down**, amber **checking**, driven by **`useActiveEnvHealth`**). On a relay's home the composer is not on screen and the swarm header carries the chip (**Swarm screen**, **Header**).
+
+- **The menu** (**`mode-menu--env`**, the **`mode-menu`** family: an anchored portal on the desktop, **`opens-up`** from the composer and **`opens-down`** from the swarm header, a bottom sheet over a scrim on the stacked shell) reads **Environment** with **Local**, then **Remote** with every entry of the page's own **`httpserver.remotes`** (read past the environment shim, **`env/configuredRemotes.ts`**: the list of places to go does not travel with the place you are), then **Connect to…**. The list is read on first use, again every time the menu opens and on every **`config_reloaded`**, so a remote a save or the agent's **`config_commit`** added is in the next menu without a reload.
+- **One remote is a row, a hint and its agents** (**`.mode-env-entry`**, **`data-reach`**). The row: the dot, the name, and on the right the host, or **relay · N agents** once a relay let this browser in. The name is the entry's own, else the one the remote reports (**`reportedName`**: a relay's **`/swarm/info`** name, an agent's **`/foxxycode/info`** host name), else the address; the host on the right is left out when it is the name already, and choosing the row names the environment the same way. Every remote is probed while the menu is open (**`probeRemote`** in **`env/remoteProbe.ts`**), again whenever the list changes, and an answer from an older opening is dropped. A red remote says why on a line under its name (**`.mode-env-hint`**, 11.5px, a **62%** text tint, indented past the dot to the name's edge): it does not answer, it refuses the token (the key named for an agent or for a relay, or the configuration's own entry when that carries the token), or the browser keeps the answer from the page, naming this page's origin, which is how a CORS list that leaves the origin out looks from here. A remote that refuses its token and has none in the configuration offers **Enter token** (**`.mode-env-hint-action`**, a 999px pill), which opens the form filled in with that remote's name and address and the focus in the token field.
+- **A relay's agents** hang under its row once it accepts the token (**`.mode-env-nodes`**, 16px in, 12.5px rows 7px tall in padding), from **`GET /swarm/topology`** every hop deep: the dot says online, a node behind another relay shows its route, an offline one says so. A click enters that node through the relay (**`connectSwarmNode`**), with the relay's token.
+- **The menu fits the window.** An anchored menu is **300px** wide, hangs from the chip's left edge and is pulled back inside the window with a **12px** margin; it is as tall as the room between the chip and the window's edge less **12px** (at least **160px**, **`roomFor`**) and scrolls past it (**`overflow-y: auto`**, **`overscroll-behavior: contain`**); the sheet stops at **80vh**. A relay with many agents on a phone used to push **Connect to…** off the screen with nothing to scroll.
+- **Connect to…** (**`composer.env.addRemote`**) opens the form in place: a name, the address and a password field for the token, then **Connect** and **Cancel**; **Enter** in the token field connects. A token typed there is kept for that address in this browser (**`foxxycode_env_tokens`**); a token the configuration carries wins over it and is never copied into the browser, so a rotated one is used from the next read.
+- **Select = connect**: a row switches the environment at once: between two remotes in place (**A switch does not blink**, **Swarm screen**), to or from Local with a reload. The route is remembered per environment (**`foxxycode_env_routes`**, written by **`switchTo`** in **`env/remoteEnv.ts`**): back on Local the page opens where Local was left, a remote where it was left or at its home, and a relay's map never follows the app to an agent. Choosing the environment the page is on starts it over, which is the way to read everything again after that remote came back; the swarm map, a place rather than a menu, does not (**Swarm screen**).
+- **The alert** (**`EnvHealthBanner`**, **`.env-health-banner`**, **`role="alert"`**): while the active remote is red, a red strip across the top of the page says why in the menu's three cases and names the setting that fixes it as code (the agent's or the relay's token key, the CORS key with this origin; a node reached through a relay is answered by the relay's CORS), with **Switch to Local** as a pill on the right. It is fixed at the top of the window on the desktop. On the stacked shell the rail is a bar fixed at the top (**`--foxxycode-mobile-bar-h`**), and the alert hangs **under** it at **`z-index: 75`**, over the backdrop and the drawers and under the bar; it publishes its height as **`--foxxycode-env-banner-h`** on the root (a **`ResizeObserver`** follows a wrap), which **`--foxxycode-mobile-top-inset`** adds, so the page and every dock placed by the inset start below both. Under the bar it used to be covered by it.
+
+Tests: **`EnvironmentChip.test.tsx`** (the list read again on open, the hints, **Enter token**, the configuration's token, the relay's agents, the room and the scroll, the placement at either end of the window), **`remoteProbe.test.ts`**, **`envRoutes.test.ts`**, **`EnvHealthBanner.test.tsx`**, **`activeHealth.test.ts`**, **`phoneLayoutCss.test.ts`** (the alert under the bar), **`features/web_ui_menus.feature`**.
+
 ### Composer context meter
 
 Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`ContextUsageRing`**: inner stroke always visible; outer progress arc only when usage **> 0**, flat color (no gradient or shadow), fill from **12 o'clock** clockwise. Colors use **`--foxxycode-context-ring-inner`** and **`--foxxycode-context-ring-fg`** (both themes in **`styles.css`**). Dark outer arc **`#f5f3ff`** (logo stroke); light outer arc **`var(--accent)`**.
@@ -776,7 +789,7 @@ A long conversation keeps a bounded slice of its rows in the DOM and holds only 
 A turn in flight no longer locks the composer. The configured send key (`ui.send_mode`) queues in the saved `agent.queue_mode`, Tab in the other mode; the first use asks for the send preference. Each waiting card shows whether it steers the current turn or starts after it, and a click changes the mode. Text and attached images travel together. Behaviour and the wire contract: **`docs/features/message-queue.md`**, functional checklist: **`docs/surfaces/web-ui.md`** (**Composer message queue**).
 
 - **Placement** — the queue is a **`ul.composer-queue`** (**`data-testid="composer-queue"`**) inside **`composer-wrap`**, directly **above** **`.composer-card`** and below the transcript, with **`6px`** between it and the card. It renders only when something is waiting; an empty queue draws nothing at all (no header, no placeholder).
-- **A card** — **`li.composer-queue-item`** (**`data-testid="composer-queue-item"`**) is cut from the **frosted glass panel** the composer card is cut from (**`--foxxycode-glass-panel-bg`**, **`--foxxycode-glass-panel-backdrop`**, its border and shadow), **`12px`** radius, **`6px 6px 6px 12px`** padding, **12px** type at **1.45** line height in a **78%** text tint. It used to be a 6% wash of the text colour, nearly transparent over a dark transcript, so the words scrolling under the queue read through it. The rows stack in **reading order** with a **`4px`** gap: the top card is the one the agent reads first.
+- **A card** — **`li.composer-queue-item`** (**`data-testid="composer-queue-item"`**) is cut from the **frosted glass panel** the composer card is cut from (**`--foxxycode-glass-panel-bg`**, **`--foxxycode-glass-panel-backdrop`**, its border and shadow), **`12px`** radius, **`6px 12px`** padding, **12px** type at **1.45** line height in a **78%** text tint. The **12px** on the right is the composer context row's own inset, so the card's **×** stands on the vertical line of the improve-prompt button of the card below - the same 24px control at the same inset from the same edge (pinned by **`composerQueueCss.test.ts`**). It used to be a 6% wash of the text colour, nearly transparent over a dark transcript, so the words scrolling under the queue read through it. The rows stack in **reading order** with a **`4px`** gap: the top card is the one the agent reads first.
 - **The text** clamps to **3 lines** (**`-webkit-line-clamp`**) and wraps on anything (**`overflow-wrap: anywhere`**), so a pasted path cannot widen the composer.
 - **The cross** — **`button.sessions-close.composer-queue-remove`** (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) is **the app's close control** (see **Close control** below) at **24×24px** with an **8px** radius and a **15px** **×**, in the card's **top-right corner** (**`align-self: flex-start`**). The text carries **3px** of top padding, which centres its first line on the 24px control: a one-line message sits level with its **×** at a **38px** card, a longer one hangs from the same line. Besides it the card holds one more control, the mode; the text itself is not clickable.
 - **The mode** — **`button.composer-queue-mode`** (**`data-testid="composer-queue-mode-<id>"`**) names the message's mode, **Steer** or **After turn**, in the frame the first-use buttons share (the glass panel's border and fill, **8px** radius, **3px 8px** padding), and its title says what a click does; a click switches the mode through **`PATCH /foxxycode/sessions/{id}/queue/{message_id}`**.
@@ -964,21 +977,60 @@ Shown at **`#/swarm`** in any environment that answers **`GET /swarm/info`**, an
 screen** when the environment is a relay itself. It is the only screen a relay has, and the map
 is the screen: there is no list of nodes under it, because everything the list did the map does.
 
-- **Relay as home.** A relay serves no **`/foxxycode/*`** at all: it holds no sessions, no workspace and
-  no model. **`App.tsx`** tracks this as **`atSwarmRoot`** (the swarm probe answered and the
-  environment is not a node reached *through* a relay). While it is true the composer and
-  **`ChatScreen`** are not rendered, and the rail hides **History** and **Scheduler** - a drawer of
-  sessions that cannot exist is furniture for a room nobody can enter.
-- **The map is the way in.** Clicking a node in the graph connects to it: the app repoints at that
-  node through the relay (**`connectSwarmNode`**) and every ordinary screen - chat, History,
-  Scheduler - then works against it. The attached relay and a node with no route are not
-  clickable. Enter and Space do what a click does, and an enterable node takes a visible focus
-  ring.
-- **Where we are, and how we got there.** **`returnToSwarm`** carries the node last entered back to
-  the relay environment as **`swarmFrom`**, so the map can mark it: that node is drawn as *you are
-  here* and every edge on its route from the attached relay is drawn as the live path, with
-  everything off the route receding. Hovering or focusing another node previews its route the
-  same way, weaker.
+- **Relay as home.** A relay serves no sessions, no workspace and no model - of an agent's API it
+  serves only its own settings (**`/foxxycode/config*`**, see **The relay's own Settings** under **Settings drawer**). **`App.tsx`**
+  tracks this as **`atSwarmRoot`** (the swarm probe answered and the environment is not a node
+  reached *through* a relay). While it is true the composer and **`ChatScreen`** are not rendered,
+  and the rail hides **History** and **Scheduler** - a drawer of sessions that cannot exist is
+  furniture for a room nobody can enter. The map is the home screen: the **Swarm** entry of the
+  rail stays lit while the map is on screen, whichever address shows it, and the brand, which
+  starts a new chat on an agent, leads to the map (a relay has no chat to start). A relay that
+  serves its own page has no documentation either, so there the rail leaves **Docs** out (the
+  reader reads the page's own server, see **Documentation screen**).
+- **The map is the way in.** Clicking a node in the graph switches the app to it: the app repoints
+  at that node through the relay (**`connectSwarmNode`**, landing on **`#/swarm`**) and the map
+  stays open over it, the node now ringed; every ordinary screen - chat, History, Scheduler,
+  Settings - then works against it, and what to do there is the person's next click. The click
+  does nothing more: not even a node that asks a question opens that session by itself. A relay on
+  the map opens as a relay (**`connectSwarmRelay`**), never as a node whose screens it does not
+  have: one chained under this one opens on its own map through this one's mount, and the relay
+  the map is drawn for is enterable only from a map opened over a node, where a click on it
+  connects to the relay. Where the app already is - the node it is on, the relay on its own map -
+  is not a button: a click there would go nowhere. A node with no route is not clickable either.
+  Enter and Space do what a click does, and an enterable node takes a visible focus ring.
+- **A switch does not blink.** Between two remotes (a node and another node, a node and its relay)
+  the page is not reloaded: **`switchTo`** (**`env/remoteEnv.ts`**) sets the environment and the
+  address and runs what the modules that hold something of the old one registered with
+  **`onEnvironmentSwitch`** (the Settings copy, the server's version, the host shell, the active
+  environment's health), and **`EnvScope`** (**`main.tsx`**) starts **`App`** over, keyed by the
+  events stream's scope (**`serverEventsScope`**: the server and a fingerprint of its token) and
+  the count of switches in place, so the same remote chosen again and a token rotated under the
+  one in use start it over as well. What would otherwise start as "not known yet" and pop in a moment later is
+  kept for the life of the page (**`env/pageMemory.ts`**): the page's own server and its host name,
+  which remotes are relays, whether the scheduler answered, and the last picture of each relay's
+  map, which a remounted map draws at once and then reads again. To or from **Local** the page
+  still reloads, since the sign-in of the page's own origin comes and goes with it.
+- **The map over a node.** Inside a node the **Swarm** entry opens the relay's map over the node
+  without leaving it: the environment stays the node's mount, the map reads the relay directly
+  (**`SwarmView`** **`relay`**, **`swarm/api.ts`** **`RelayTarget`**: the relay's address and the
+  client token the mount takes), and History, Scheduler and the chat stay where they are, so
+  nothing reloads and nothing blinks. History and Scheduler lie under the map in the stack of
+  the rail's screens, so opening either from the rail closes the map rather than opening out of
+  sight under it.
+- **Where we are, and how we got there.** Inside a node the map marks it (**`env.swarmNode`**): it
+  carries a ring, and every edge on its route is drawn as the live path, with everything
+  off the route receding. The ring is the mark: no line of words says it again. On the relay
+  itself (**`rootCurrent`**, the app on the relay's home) the relay's card carries the ring, and
+  the wire from this machine, when the map draws it, is the live path. Hovering or focusing another node previews its route the same way,
+  weaker.
+- **The machine the page runs on.** When the page's own server is an agent (not a relay serving its
+  own page) and the app is on a remote environment, the map draws that machine one tier above the
+  relay, wired to it - it is where the connection starts: a disc with a screen glyph, named by its
+  host name (**`GET /foxxycode/info`** of the page's server; **Local** when the system reports none),
+  on a tier the spine calls *this machine*. The live route to the node the app is on starts there. A click on it
+  goes back to Local (**`connectLocal`**). Layout: **`layoutTopology(topology, {client})`**
+  (**`swarm/layout.ts`**) lifts every tier of the swarm by one and adds the client and its wire,
+  which leaves the disc below its name and address, not through them.
 - **What the swarm is doing.** **`GET /swarm/sessions`** carries **`turnActive`** and
   **`permissionPending`** per session; **`nodeActivity`** (**`swarm/routes.ts`**, pure and tested)
   folds them per node path. Under each node's meta line: nothing when it holds no sessions,
@@ -989,21 +1041,39 @@ is the screen: there is no list of nodes under it, because everything the list d
   is driven by that live data and by nothing else, and
   **`@media (prefers-reduced-motion: reduce)`** removes all of it, leaving the states carried by
   the copy and a static ring.
+- **Dock.** The map opens in a dock as wide as the documentation reader's and centred the same way:
+  both take **`width: var(--foxxycode-dock-width)`**, defined once on **`.shell`** as
+  **`min(1350px, …)`**, and the map fills its dock (**`.swarm-view`** has no width cap of its own),
+  so a wide screen shows no bare strips beside it. Pinned by **`SwarmView.test.tsx`** (**opens in a
+  dock as wide as the documentation reader's**) and **`docsReaderCss.test.ts`**.
 - **Dock on a phone.** Below **1200px** the shell's backdrop rises to **`z-index: 60`** and **`#/swarm`** opens it, so **`.swarm-dock-cluster`** takes **70** there, like the settings drawer and the documentation reader, and starts under the top bar the rail becomes (**`top: calc(var(--foxxycode-mobile-top-inset) + 6px)`**, the side insets clearing the safe area). Under the backdrop every tap on the map, the search box or a node landed on the backdrop and closed the screen. Pinned by **`SwarmView.test.tsx`** (**takes taps on a phone**) and **`features/swarm_web_ui.feature`**.
 - **Header.** Title (relay name) and a subtitle counting relays, agents and offline nodes, then
-  **`.swarm-header-actions`** holding the **`headerSlot`** - **`App.tsx`** passes
-  **`<EnvironmentChip/>`** there at the relay root, because the composer that normally carries it
-  is not on screen. There the chip is the last thing on the right, so its menu, which hangs from
-  the chip's left edge, is kept inside the window with a **12px** margin (its **300px** width is
-  known from the stylesheet); hung from the chip alone it ran past the window at 1280 px and hid
-  the entries a token is added with. Pinned by **`EnvironmentChip.test.tsx`** and
-  **`features/web_ui_menus.feature`**.
-- **The click lands on the question.** Spotting on the map that a box is asking is half the job:
-  clicking a node whose sessions include one waiting on a permission prompt opens *that* session,
-  then one with a turn in flight, freshest first; only a node with neither opens its own home
-  (**`sessionToOpen`** in **`swarm/routes.ts`**, pure and tested). The graph box also scrolls
-  itself to the current node, so a narrow shell opens on the branch you are on rather than on an
-  empty gutter.
+  **`.swarm-header-actions`** holding the **`headerSlot`**. **`App.tsx`** passes
+  **`<EnvironmentChip/>`** there on every Swarm screen, including its empty and error states: the
+  selector must remain available when the composer is absent or a relay needs a token. The chip is
+  the last thing on the right, so its menu, which hangs from the chip's left edge, is kept inside
+  the window with a **12px** margin (its **300px** width is known from the stylesheet); hung from
+  the chip alone it ran past the window at 1280 px and hid the entries a token is added with.
+  Pinned by **`EnvironmentChip.test.tsx`** and **`features/web_ui_menus.feature`**.
+- **Canvas layout and persistence.** The graph opens in **Tree layout**: the rooted, tiered view
+  with its hop spine. **Graph layout** is a deterministic rooted graph for reading rings and
+  cross-links. It trends down by shortest-route depth without placing every hop on a rigid row, and
+  draws its links as smooth curves. Its fixed, UUID-ordered solver makes the same topology land in
+  the same places on every poll rather than jittering as the relay enumerates it. The relay is the
+  pinned root, or the local computer is the root when that connection-start node is present. The
+  choice is browser state only, stored in localStorage as **`foxxycode_swarm_layout`**; a saved legacy
+  `star` value migrates to Graph, and an absent, blocked or invalid value means Tree. It never
+  changes server configuration or another browser's choice.
+- **Canvas camera.** The graph is fitted into its viewport on first open and whenever the relay or
+  layout changes. The **Tree** and **Graph** controls select the layout; **Zoom out**, **Fit graph**
+  and **Zoom in** control the camera. Pointer-wheel zoom is centred on the pointer, dragging pans
+  across both axes even in the fitted view, and a two-finger pinch zooms around the pinch midpoint;
+  a drag or pinch never also enters a node. When the canvas has focus, **`+`** / **`=`** zoom in,
+  **`-`** zooms out and **`0`** fits. Zoom never goes below the fitted view or above three times
+  that scale, and panning remains clamped so the graph cannot vanish completely. The controls are
+  **40px** touch targets on the stacked shell. A polling update fits an untouched graph to its new
+  bounds, but preserves a manually panned or zoomed camera (clamping it only if the bounds moved);
+  Fit explicitly resets that manual view.
 - **Search, not filter.** The box goes to the relay, which fans out, so a query reaches machines
   this browser cannot dial. With a query, matching sessions appear as rows under the map, each
   naming its node and route, and a row opens that session on that node. With no query there are
@@ -1015,18 +1085,30 @@ is the screen: there is no list of nodes under it, because everything the list d
 - **The topology graph** is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in
   **`swarm/layout.ts`**). A relay is a card carrying an accent-filled tile with the router mark; an
   agent is a circle with its name on a chip below. Hops are orthogonal elbows that leave the
-  bottom, turn on a rail shared by the children of one parent, and arrive at the top with an
-  arrowhead; a same-tier link between peers is a bow that leaves and arrives at the sides, with
-  its name at the apex; a link that skips a row goes round the outside in a lane clear of every
-  card. Depth is stated in the left gutter - a dashed upright with a tick, a hop caption and a
-  node count per tier. Every state is said twice, never in colour alone: the route in use is solid
-  with a filled head, a way round a ring is dotted with an open chevron, a link into an offline
-  node is coarsely dashed and dimmed, and a node that dials out carries a badge as well as a
-  dotted wire. Because **`role="img"`** collapses the subtree, the SVG is described by a visually
-  hidden paragraph naming each tier, its nodes, where the app is and what is running; marker ids
-  are **`useId()`**-scoped so two graphs on one page cannot collide. The SVG keeps its intrinsic
-  size and scrolls inside **`.swarm-graph-scroll`** rather than scaling its labels below
+  bottom, turn on a rail shared by the children of one parent, and arrive at the top, with no
+  arrowheads: the tiers say which way a hop runs. A same-tier link between peers is a bow that
+  leaves and arrives at the sides; a link that skips a row goes round the outside in a lane clear
+  of every card. A wire is named (a chip on it) only when the relay reaches the node under a mount
+  name other than the node's own, which the chip under the node already shows. Depth is stated in
+  the left gutter - a dashed upright with a tick, a hop caption and a node count per tier. Every
+  state is said twice, never in colour alone: the route in use is solid, heavier and in the
+  accent, a way round a ring is grey and dashed, a link into an offline node is coarsely dashed and
+  dimmed, and a node that dials out carries a badge as well as a dotted wire. Every relay on the
+  active route is outlined, while the current relay has the stronger current-node ring. The SVG is a
+  **`role="group"`** labelled by the map's name - not **`role="img"`**, which would collapse the
+  subtree and hide the interactive per-node controls it carries - and a visually hidden paragraph
+  added through **`aria-describedby`** names each tier, its nodes, where the app is and what is
+  running. The SVG keeps its intrinsic
+  size and scrolls inside **`.swarm-graph-viewport`** rather than scaling its labels below
   legibility on a phone, and the legend below it wraps instead of setting a minimum width.
+- **Words on the map are for what the drawing cannot say.** Under a node there is a line of words
+  only for trouble - *offline*, *no route* - and on a relay's card, how many links it carries
+  (**N links**, the wire from this machine not counted). The rest is drawn: the card or the disc
+  says relay or agent, the ring where the app is, the badge and the dotted wire a node that dials
+  out, the screen glyph and the tier this machine. With no line of words under a node its work
+  (a session count, *running*, *needs an answer*) takes that line. A hover still spells it all
+  out in the node's tooltip (**`<title>`**: name, what it is, the line, the work). Pinned by
+  **`SwarmView.test.tsx`**.
 
 The relay serves this SPA from its own address when built with **`-tags "swarm ui"`**
 (**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
@@ -1132,3 +1214,5 @@ MCP rows and permission previews name the server and tool. The live line uses co
 Image preview cards in the composer and sent messages open the shared viewer. Wheel and pinch zoom around the pointer, drag pans, Escape closes, and leaving the documentation screen closes its viewer. Old messages without a full-size asset URL use their thumbnail. Regular session assets remain downloadable; symlinks are refused.
 
 Codex and Devin subscription quotas share the provider usage section and banner with NeuralDeep. Empty or failed quota reads say **Quota data unavailable**, with a stale last snapshot when available. The provider panel switch disables both display and reads. Credentials remain server-side.
+
+The Context popover offers manual compaction independently of `compaction.auto_enable`, shows its threshold and retains the fork's separate Summary segment. The hero footer includes GitHub, API documentation and the version of the active server. All labels use the app locale.

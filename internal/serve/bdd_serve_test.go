@@ -31,6 +31,9 @@ type serveFeatureState struct {
 
 	mu     sync.Mutex
 	starts map[Kind]int
+	stops  map[Kind]int
+	// startedWith is the configuration each surface was last started from.
+	startedWith map[Kind]*config.Config
 
 	sup     *Supervisor
 	cancel  context.CancelFunc
@@ -41,6 +44,9 @@ type serveFeatureState struct {
 	// what decides between exiting for a replacement and logging that a restart
 	// is due.
 	restartable bool
+	// sessionless is a process started as a bare relay, which opened no
+	// session store.
+	sessionless bool
 	runErr      error
 }
 
@@ -50,6 +56,8 @@ func (s *serveFeatureState) reset() {
 	s.ready = nil
 	s.err = nil
 	s.starts = make(map[Kind]int)
+	s.stops = make(map[Kind]int)
+	s.startedWith = make(map[Kind]*config.Config)
 	s.subs = s.describe(true)
 }
 
@@ -57,7 +65,7 @@ func (s *serveFeatureState) stopSupervisor() {
 	if s.cancel != nil {
 		s.cancel()
 		select {
-		case <-s.done:
+		case <-s.done: //nolint:errcheck // Only completion is needed here.
 		case <-time.After(5 * time.Second):
 		}
 		s.cancel = nil
@@ -67,27 +75,33 @@ func (s *serveFeatureState) stopSupervisor() {
 // describe builds the same four descriptors the CLI does, over surfaces that
 // only record that they ran.
 func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
-	block := func(kind Kind) func(context.Context) error {
-		return func(ctx context.Context) error {
+	block := func(kind Kind) func(context.Context, *config.Config) error {
+		return func(ctx context.Context, cfg *config.Config) error {
 			s.mu.Lock()
 			s.starts[kind]++
+			s.startedWith[kind] = cfg
 			s.mu.Unlock()
 			<-ctx.Done()
+			s.mu.Lock()
+			s.stops[kind]++
+			s.mu.Unlock()
 			return nil
 		}
 	}
 	return []Subsystem{
 		{
 			Kind: KindHTTP, ConfigKey: "httpserver.enable", BuildTag: "http", Available: true,
-			Enabled:    func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
-			RestartKey: func(c *config.Config) string { return c.HTTPServer.DefaultListenPortString() },
-			Run:        block(KindHTTP),
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
+			RestartKey:    func(c *config.Config) string { return c.HTTPServer.DefaultListenPortString() },
+			Run:           block(KindHTTP),
 		},
 		{
 			Kind: KindGateway, ConfigKey: "gateways.telegram.enable", BuildTag: "gateway", Available: gatewayAvailable,
-			Enabled:     func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
-			Fingerprint: func(c *config.Config) string { return c.Gateways.Telegram.Token },
-			Run:         block(KindGateway),
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
+			Fingerprint:   func(c *config.Config) string { return c.Gateways.Telegram.Token },
+			Run:           block(KindGateway),
 		},
 		{
 			Kind: KindSwarm, ConfigKey: "swarm.enable", BuildTag: "swarm", Available: true,
@@ -96,9 +110,10 @@ func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 		},
 		{
 			Kind: KindScheduler, ConfigKey: "scheduler.enable", BuildTag: "scheduler", Available: true,
-			Enabled:     func(c *config.Config) bool { return c.Scheduler.Enabled },
-			Fingerprint: func(c *config.Config) string { return c.Scheduler.Dir },
-			Run:         block(KindScheduler),
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.Scheduler.Enabled },
+			Fingerprint:   func(c *config.Config) string { return c.Scheduler.Dir },
+			Run:           block(KindScheduler),
 		},
 	}
 }
@@ -107,6 +122,30 @@ func (s *serveFeatureState) startCount(kind Kind) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.starts[kind]
+}
+
+func (s *serveFeatureState) stopCount(kind Kind) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stops[kind]
+}
+
+// settle returns once the supervisor is done with every configuration sent
+// before it, instead of sleeping and hoping it was. The reloads channel holds
+// one configuration and the supervisor takes the next only after applying the
+// last, so the second of two sends of cfg - a configuration that changes
+// nothing - goes through only when everything before them has been applied.
+func (s *serveFeatureState) settle(cfg *config.Config) error {
+	for i := 0; i < 2; i++ {
+		select {
+		case s.reloads <- cfg:
+		case <-s.done: //nolint:errcheck // Only completion is needed here.
+			return fmt.Errorf("the runtime stopped: %v", s.runErr)
+		case <-time.After(5 * time.Second):
+			return errors.New("the supervisor did not take the next configuration")
+		}
+	}
+	return nil
 }
 
 func (s *serveFeatureState) kind(name string) (Kind, error) {
@@ -181,6 +220,7 @@ func (s *serveFeatureState) launch() error {
 	s.reloads = make(chan *config.Config, 1)
 	s.sup = NewSupervisor(slog.New(slog.NewTextHandler(io.Discard, nil)), s.subs)
 	s.sup.Restartable = s.restartable
+	s.sup.Sessionless = s.sessionless
 	go func() {
 		defer close(s.done)
 		s.runErr = s.sup.Run(ctx, s.cfg, s.reloads)
@@ -266,6 +306,41 @@ func (s *serveFeatureState) subsystemStopped(name string) error {
 	}
 	if s.isRunning(kind) {
 		return fmt.Errorf("%s is still running", kind)
+	}
+	return nil
+}
+
+// httpBackAtPort turns the HTTP surface off, and on again at another port,
+// the way an operator moves a surface they took down for a while.
+func (s *serveFeatureState) httpBackAtPort(port int) error {
+	s.reload(func(c *config.Config) {
+		off := false
+		c.HTTPServer.Enabled = &off
+	})
+	if err := waitFor(func() bool { return !s.isRunning(KindHTTP) }); err != nil {
+		return fmt.Errorf("the httpserver was not stopped: %w", err)
+	}
+	s.reload(func(c *config.Config) {
+		on := true
+		c.HTTPServer.Enabled = &on
+		c.HTTPServer.Port = port
+	})
+	return waitFor(func() bool { return s.startCount(KindHTTP) == 2 })
+}
+
+func (s *serveFeatureState) startedFromPort(name string, port string) error {
+	kind, err := s.kind(name)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	cfg := s.startedWith[kind]
+	s.mu.Unlock()
+	if cfg == nil {
+		return fmt.Errorf("%s was started from no configuration", kind)
+	}
+	if got := cfg.HTTPServer.DefaultListenPortString(); got != port {
+		return fmt.Errorf("%s was started from a configuration with port %s, want %s", kind, got, port)
 	}
 	return nil
 }
@@ -391,6 +466,7 @@ func initializeServeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the scheduler is enabled through the configuration$`, s.schedulerEnabled)
 	sc.Step(`^the telegram gateway is disabled through the configuration$`, s.gatewayDisabled)
 	sc.Step(`^the httpserver is disabled through the configuration$`, s.httpDisabled)
+	sc.Step(`^the httpserver is turned off and back on at port (\d+) through the configuration$`, s.httpBackAtPort)
 
 	sc.Step(`^the "([^"]*)" subsystem is enabled$`, s.subsystemEnabled)
 	sc.Step(`^the "([^"]*)" subsystem is disabled$`, s.subsystemDisabled)
@@ -401,6 +477,7 @@ func initializeServeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the "([^"]*)" subsystem keeps running$`, s.subsystemKeepsRunning)
 	sc.Step(`^the "([^"]*)" subsystem is running$`, s.subsystemRunning)
 	sc.Step(`^the "([^"]*)" subsystem is stopped$`, s.subsystemStopped)
+	sc.Step(`^the "([^"]*)" subsystem is started from a configuration with port (\d+)$`, s.startedFromPort)
 }
 
 func TestServeSubsystemsFeature(t *testing.T) {
@@ -468,7 +545,7 @@ func (s *dispatcherFeatureState) stop() {
 	if s.cancel != nil {
 		s.cancel()
 		select {
-		case <-s.done:
+		case <-s.done: //nolint:errcheck // Only completion is needed here.
 		case <-time.After(5 * time.Second):
 		}
 		s.cancel = nil
@@ -695,7 +772,7 @@ func (s *serveFeatureState) bindAddressChanged() error {
 
 func (s *serveFeatureState) asksForARestart() error {
 	select {
-	case <-s.done:
+	case <-s.done: //nolint:errcheck // Only completion is needed here.
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("the runtime kept running instead of asking for a restart")
 	}
@@ -749,5 +826,159 @@ func TestServeDispatcherFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("serve dispatcher feature suite failed")
+	}
+}
+
+// A process started as a bare relay opened no session store, and a surface
+// that runs agent turns cannot start without one. A reload that enables such a
+// surface there asks for a fresh process when something will start one, and
+// otherwise says a restart is due - never starting the surface on nothing,
+// which failed it and took the relay down with it.
+func TestReloadEnablingASessionSurfaceInARelayOnlyProcess(t *testing.T) {
+	for _, restartable := range []bool{false, true} {
+		s := &serveFeatureState{}
+		s.reset()
+		s.restartable = restartable
+		s.sessionless = true
+		off := false
+		s.cfg.HTTPServer.Enabled = &off
+		s.cfg.Swarm.Enabled = true
+		if err := s.launch(); err != nil {
+			t.Fatal(err)
+		}
+		next := *s.cfg
+		on := true
+		next.HTTPServer.Enabled = &on
+		s.reloads <- &next
+		if restartable {
+			select {
+			case <-s.done: //nolint:errcheck // Only completion is needed here.
+				if !errors.Is(s.runErr, ErrRestartRequested) {
+					t.Errorf("run ended with %v, want a restart request", s.runErr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("a restartable relay-only process did not ask for a restart")
+			}
+		} else if err := s.settle(s.cfg); err != nil {
+			t.Fatal(err)
+		}
+		if n := s.startCount(KindHTTP); n != 0 {
+			t.Errorf("restartable=%v: the HTTP surface was started %d times without a session store", restartable, n)
+		}
+		s.stopSupervisor()
+	}
+}
+
+// The fresh process a sessionless relay asks for has to be able to start: a
+// reload that also enables a surface this binary was built without would make
+// the replacement refuse its configuration at the pre-flight, again and
+// again, with no relay serving. That reload is refused where it stands.
+func TestSessionlessRelayDoesNotRestartIntoAConfigurationItCannotRun(t *testing.T) {
+	s := &serveFeatureState{}
+	s.reset()
+	s.subs = s.describe(false) // no gateway in this build
+	s.restartable = true
+	s.sessionless = true
+	off := false
+	s.cfg.HTTPServer.Enabled = &off
+	s.cfg.Swarm.Enabled = true
+	if err := s.launch(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.stopSupervisor()
+	next := *s.cfg
+	on := true
+	next.HTTPServer.Enabled = &on
+	next.Gateways.Telegram.Enabled = true
+	s.reloads <- &next
+	if err := s.settle(s.cfg); err != nil {
+		t.Fatalf("a configuration its replacement cannot run: %v", err)
+	}
+	if n := s.startCount(KindSwarm); n != 1 {
+		t.Errorf("the relay was started %d times, want it left running", n)
+	}
+}
+
+// The same holds for a listener that moved: a restart into a configuration the
+// fresh process's pre-flight refuses would take the relay down for good. The
+// reload is refused and the relay keeps its address.
+func TestListenerRestartIsNotRequestedIntoAConfigurationItCannotRun(t *testing.T) {
+	s := &serveFeatureState{}
+	s.reset()
+	s.subs = s.describe(false) // no gateway in this build
+	for i := range s.subs {
+		if s.subs[i].Kind == KindSwarm {
+			s.subs[i].RestartKey = func(c *config.Config) string { return fmt.Sprint(c.Swarm.Port) }
+		}
+	}
+	s.restartable = true
+	s.sessionless = true
+	off := false
+	s.cfg.HTTPServer.Enabled = &off
+	s.cfg.Swarm.Enabled = true
+	s.cfg.Swarm.Port = 12346
+	if err := s.launch(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.stopSupervisor()
+	next := *s.cfg
+	next.Swarm.Port = 12400
+	next.Gateways.Telegram.Enabled = true
+	s.reloads <- &next
+	if err := s.settle(s.cfg); err != nil {
+		t.Fatalf("a configuration its replacement cannot run: %v", err)
+	}
+}
+
+// A change that needs a fresh process is weighed before anything moves. One
+// the fresh process could not start on is refused as a whole: a surface the
+// same change turned off keeps running, instead of being stopped on the way to
+// the refusal, and the next change is read against the surfaces as they are.
+func TestARefusedRestartLeavesEverySurfaceAsItWas(t *testing.T) {
+	s := &serveFeatureState{}
+	s.reset()
+	s.subs = s.describe(false) // no gateway in this build
+	for i := range s.subs {
+		if s.subs[i].Kind == KindSwarm {
+			s.subs[i].RestartKey = func(c *config.Config) string { return fmt.Sprint(c.Swarm.Port) }
+		}
+	}
+	s.restartable = true
+	s.cfg.Swarm.Enabled = true
+	s.cfg.Swarm.Port = 12346
+	if err := s.launch(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.stopSupervisor()
+
+	refused := *s.cfg
+	off := false
+	refused.HTTPServer.Enabled = &off
+	refused.Gateways.Telegram.Enabled = true
+	refused.Swarm.Port = 12400
+	s.reloads <- &refused
+	if err := s.settle(s.cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.stopCount(KindHTTP); n != 0 {
+		t.Errorf("the refused change stopped the HTTP surface (%d stops)", n)
+	}
+	if n := s.startCount(KindHTTP); n != 1 {
+		t.Errorf("the HTTP surface was started %d times, want it left running (1)", n)
+	}
+
+	// The HTTP surface is still on the address it started with, so moving it
+	// is a change for a fresh process, not one to start in place.
+	moved := *s.cfg
+	moved.HTTPServer.Port = 23456
+	s.reloads <- &moved
+	select {
+	case <-s.done: //nolint:errcheck // Only completion is needed here.
+		s.cancel = nil
+		if !errors.Is(s.runErr, ErrRestartRequested) {
+			t.Errorf("run ended with %v, want a restart request", s.runErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("moving the HTTP address did not ask for a fresh process")
 	}
 }

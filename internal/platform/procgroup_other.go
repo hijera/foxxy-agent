@@ -24,6 +24,14 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// KillTreeOnClose is a Windows job object elsewhere: on unix the process
+// group DetachProcessGroup set up already reaches a child that outlived its
+// parent, so there is nothing to attach and the returned function does
+// nothing.
+func KillTreeOnClose(*exec.Cmd) (func(), error) {
+	return func() {}, nil
+}
+
 // TerminateProcessGroup signals the group started by cmd to exit and escalates
 // to a forced kill when grace elapses. A process that already exited is not an
 // error.

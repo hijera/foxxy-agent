@@ -1,0 +1,90 @@
+# AppSec gate (issue #374): trivy and semgrep over the checkout.
+#
+# One implementation runs everywhere: this workflow calls `make security`,
+# which is `scripts/security-scan.sh` — the same versions, flags and gate a
+# developer gets locally, so a failure here reproduces on a dev machine with
+# one command. A separate workflow on purpose: it also runs weekly (a clean
+# dependency gains a CVE without any commit) and on pushes to main (keeps a
+# fresh SARIF baseline so code scanning shows pull-request deltas), both of
+# which the PR-only tests-on-pr.yaml cannot cover.
+
+name: Security scan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays 04:17 UTC
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  security-scan:
+    name: AppSec scanners
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The docker fallback of scripts/security-scan.sh: the runner ships
+      # docker, the images are pinned tag@sha256 in the script.
+      - name: Run trivy and semgrep
+        env:
+          # Optional: fork pull requests receive no repository secrets, which
+          # is fine because semgrep is report-only until its backlog is triaged.
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: make security
+
+      # SARIF goes to code scanning only from trusted events: a fork
+      # pull_request token cannot write security-events, and a fork must
+      # never inject findings into the base repo's code-scanning history.
+      # always() so a gate failure still publishes the report that tripped
+      # it; a real upload failure on a trusted event fails visibly rather
+      # than hiding behind continue-on-error.
+      - name: Upload trivy SARIF
+        if: >-
+          always() &&
+          !(github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name != github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: dist/security/trivy.sarif
+          category: trivy
+
+      - name: Upload semgrep SARIF
+        if: >-
+          always() &&
+          !(github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name != github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: dist/security/semgrep.sarif
+          category: semgrep
+
+      # Findings are still reachable on fork PRs (and by anyone who wants the
+      # raw JSON) as a plain artifact.
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: dist/security/
+          include-hidden-files: false
+          retention-days: 30
+
+      - name: Job summary
+        if: always()
+        run: cat dist/security/summary.md >> "$GITHUB_STEP_SUMMARY" || true

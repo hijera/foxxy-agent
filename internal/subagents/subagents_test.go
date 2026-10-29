@@ -91,6 +91,77 @@ body
 	}
 }
 
+func TestParseReadsSpawns(t *testing.T) {
+	src := `---
+description: coordinator
+tools: [spawn_agent, run_command]
+spawns: [explore, "peer-*"]
+---
+body
+`
+	def, err := Parse("/w/.foxxycode/agents/coordinator.md", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(def.Spawns, ",") != "explore,peer-*" {
+		t.Fatalf("list spawns = %v", def.Spawns)
+	}
+
+	// The comma-separated spelling parses the same way tools does.
+	def, err = Parse("/w/.foxxycode/agents/c2.md", []byte("---\ndescription: c2\nspawns: explore, general\n---\nbody\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(def.Spawns, ",") != "explore,general" {
+		t.Fatalf("comma-separated spawns = %v", def.Spawns)
+	}
+}
+
+func TestEffectiveSpawnsIgnoresProjectScope(t *testing.T) {
+	def, err := Parse("/w/.foxxycode/agents/c.md", []byte("---\ndescription: c\nspawns: [explore]\n---\nbody\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def.EffectiveSpawns()) != 1 {
+		t.Fatalf("unset scope keeps the declared spawns: %v", def.EffectiveSpawns())
+	}
+	def.Scope = ScopeProject
+	if def.EffectiveSpawns() != nil {
+		t.Fatalf("project scope must not widen the depth guard: %v", def.EffectiveSpawns())
+	}
+	def.Scope = ScopeUser
+	if len(def.EffectiveSpawns()) != 1 {
+		t.Fatalf("user scope keeps the declared spawns: %v", def.EffectiveSpawns())
+	}
+}
+
+func TestMatchSpawns(t *testing.T) {
+	allow := []string{"explore", "peer-*"}
+	for _, ok := range []string{"explore", "peer-a", "peer-worker"} {
+		if !MatchSpawns(allow, ok) {
+			t.Fatalf("%q should be admitted by %v", ok, allow)
+		}
+	}
+	for _, bad := range []string{"general", "peer", ""} {
+		if MatchSpawns(allow, bad) {
+			t.Fatalf("%q must not be admitted by %v", bad, allow)
+		}
+	}
+	if !MatchSpawns([]string{"*"}, "anything") {
+		t.Fatal("bare * admits every name")
+	}
+	defs := []*Definition{
+		{Name: "explore"}, {Name: "general"}, {Name: "peer-a"}, nil,
+	}
+	got := DefinitionsMatching(defs, allow)
+	if len(got) != 2 || got[0].Name != "explore" || got[1].Name != "peer-a" {
+		t.Fatalf("DefinitionsMatching = %v", got)
+	}
+	if len(DefinitionsMatching(defs, nil)) != len(defs) {
+		t.Fatal("an empty allowlist admits every definition")
+	}
+}
+
 func TestParseNamesADirectoryDefinitionAfterTheDirectory(t *testing.T) {
 	def, err := Parse("/w/.foxxycode/agents/docs-writer/AGENT.md", []byte("---\ndescription: d\n---\nrole\n"))
 	if err != nil {

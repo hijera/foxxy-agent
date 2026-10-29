@@ -41,6 +41,9 @@ func (s *Server) workspaceContextPayload(ctx context.Context, cwd string) map[st
 	}
 	if info.IsGitRepo {
 		payload["repo_root"] = info.RepoRoot
+		if info.BaseBranch != "" {
+			payload["base_branch"] = info.BaseBranch
+		}
 		payload["branch"] = info.Branch
 		payload["branches"] = info.Branches
 		wts := make([]map[string]interface{}, 0, len(info.Worktrees))
@@ -403,6 +406,16 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 		return http.StatusBadRequest, fmt.Errorf("workspace is not a git repository: %s", cwd)
 	}
 	branch = strings.TrimSpace(branch)
+	if useWorktree {
+		path, _, err := gitws.EnsureWorktree(info.RepoRoot, branch)
+		if err != nil {
+			return http.StatusConflict, err
+		}
+		if err := s.mgr.SetSessionWorkspace(ctx, st, path); err != nil {
+			return http.StatusBadRequest, err
+		}
+		return 0, nil
+	}
 	if branch == info.Branch {
 		return 0, nil
 	}
@@ -413,16 +426,6 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 			}
 			return 0, nil
 		}
-	}
-	if useWorktree {
-		path, _, err := gitws.EnsureWorktree(info.RepoRoot, branch)
-		if err != nil {
-			return http.StatusConflict, err
-		}
-		if err := s.mgr.SetSessionWorkspace(ctx, st, path); err != nil {
-			return http.StatusBadRequest, err
-		}
-		return 0, nil
 	}
 	if err := gitws.Checkout(cwd, branch); err != nil {
 		return http.StatusConflict, err

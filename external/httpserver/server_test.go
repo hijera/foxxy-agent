@@ -1899,6 +1899,55 @@ func TestFoxxyCodeMessagesIncludesUILogAfterAgentError(t *testing.T) {
 	}
 }
 
+// A session saved before only the agent's own settings changes were noted
+// holds a notice of every change: the model and the mode `foxxycode -p` started it
+// with, a command. A reload of its transcript shows none of them and keeps
+// every other row.
+func TestFoxxyCodeMessagesHideTheOperatorsSettingsNotices(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sid := "sess_legacy_notices_1"
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"review this","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := ioReadAllClose(res.Body); res.StatusCode != http.StatusOK {
+		t.Fatalf("POST /v1/responses: %d %s", res.StatusCode, b)
+	}
+	st := mgr.SessionByID(sid)
+	st.AppendUILogNotice(1, "Model: openai/gpt-4o for this session")
+	st.AppendUILogNotice(1, "Mode: agent for this session")
+	st.AppendUILogNotice(1, "Hook (Stop): the checks passed")
+
+	ms, err := http.Get(ts.URL + "/foxxycode/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := ioReadAllClose(ms.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		UILog []struct {
+			Message string `json:"message"`
+		} `json:"uiLog"`
+	}
+	if err := json.Unmarshal(mb, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.UILog) != 1 || body.UILog[0].Message != "Hook (Stop): the checks passed" {
+		t.Fatalf("uiLog = %s, want only the hook's row", mb)
+	}
+}
+
 func TestResponsesMultiTurnHistory(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	ts := httptest.NewServer(srv.Handler())
@@ -3400,6 +3449,29 @@ func TestHTTPAuthHotReloadEnableRotateDisable(t *testing.T) {
 	srv.ReplaceConfig(cfgWithAuth(""))
 	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
 		t.Fatalf("after disable: %d want 200", got)
+	}
+}
+
+// A server handed a configuration the manager has already replaced follows
+// the manager. The replacement was announced before the server subscribed and
+// nobody announces it again, so a token rotated while `foxxycode serve` was
+// starting the server from an older snapshot stayed unenforced until the next
+// save (issue #401).
+func TestHTTPAuthFollowsAConfigurationReplacedBeforeTheServerSubscribed(t *testing.T) {
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	handed := cfgWithAuth("old-token")
+	mgr := session.NewManager(handed, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	mgr.ReplaceConfig(cfgWithAuth("new-token"))
+	srv := New(handed, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	if got := authGET(t, ts.URL+"/v1/models", "old-token"); got != http.StatusUnauthorized {
+		t.Fatalf("the replaced token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "new-token"); got != http.StatusOK {
+		t.Fatalf("the current token: status %d want 200", got)
 	}
 }
 

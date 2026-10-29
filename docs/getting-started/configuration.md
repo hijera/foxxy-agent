@@ -746,3 +746,11 @@ Transport failures, empty answers and first-token reissues share `agent.llm_retr
 `/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: coddy` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
 
 Provider account usage sources are `neuraldeep`, `codex` and `devin`. `usage_limits_panel: false` disables their reads as well as the UI and console display. Codex and Devin use their managed login; explicit credentials that shadow it do not report unrelated subscription quotas.
+
+## Automatic compaction and shared servers
+
+`compaction.auto_enable` defaults to `true`. Set it to `false` to disable the threshold trigger while retaining `/compact` and the Context popover action. `compaction.enable` remains the master switch for both. Both `coddy` and `opencode` engines support it.
+
+`mcp.idle_timeout_seconds` defaults to 300; 0 stops an unheld server immediately. Long-running surfaces keep global servers alive until process exit. Project and `${CWD}` declarations share a connection only within their canonical workspace.
+
+`httpserver.remotes[]` may specify `name`, `url` and an optional `token`, usually `${ENV}`. The configuration API returns that token to browsers; the console uses it unless `--remote-token` overrides it. A relay exposes only its `swarm` and `logger` settings and uses `swarm.cors` for browser origins.

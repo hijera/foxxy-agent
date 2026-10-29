@@ -292,6 +292,13 @@ mcp:
   # allow: start them automatically (only for workspaces you already trust)
   # deny:  never load project-local servers at all
   project_trust: ask
+  # Every session shares one running copy of a server: a global server is one
+  # process for the whole FoxxyCode process (foxxycode serve, the console and foxxycode acp
+  # start them at once and keep them up), a project server one per workspace.
+  # Seconds a server that no session holds any more keeps running before it is
+  # stopped, so the next session finds it up; 0 stops it at once. A server
+  # switched off, no longer approved or removed stops at once either way.
+  idle_timeout_seconds: 300
 
 tools:
   # Controls when the agent asks for user approval before running tools.
@@ -426,7 +433,8 @@ tools:
 #     - "${CWD}/.foxxycode/agents"       # project scope
 #   project_trust: ask              # ask | allow | deny
 #   max_concurrent: 4               # subagent runs in flight across the whole process
-#   max_depth: 1                    # 1 = children cannot spawn further; 0 = nobody spawns
+#   max_depth: 1                    # 1 = children cannot spawn further (a definition's
+                                   #   `spawns` allowlist excepted); 0 = nobody spawns
 #   default_timeout_seconds: 1800   # hard limit when the definition and the call give none
 #   max_turns: 0                    # 0 follows agent.max_turns
 
@@ -479,10 +487,25 @@ tools:
 #   allow_insecure: false   # silence the non-loopback-without-auth startup warning
 #   cors:
 #     enable: false
-#     allowed_origins: ["http://localhost:5173"]  # or ["*"] to allow any (bearer still applies)
-#   remotes:                # remote foxxycode http servers offered in the UI env selector
-#     - name: "staging"
-#       url: "https://foxxy.example.com"
+#     allowed_origins: ["http://localhost:12345"]
+#   # Remote foxxycode serve servers and swarm relays offered in the UI environment selector and
+#   # resolved by `foxxycode --remote <name>`. An entry may carry the token to present (usually a
+#   # ${ENV} reference): every browser that reads this config receives it, which is the choice
+#   # of whoever writes it here. Without one, the UI keeps the token in the browser per remote
+#   # and the console reads --remote-token or FOXXYCODE_REMOTE_TOKEN. A relay also has to list the
+#   # page's origin in its swarm.cors.allowed_origins.
+#   remotes:
+#     - name: "prod box"
+#       url: "https://box.example:12345"
+#     - name: "office relay"
+#       url: "http://relay.lan:12346"
+#       token: "${FOXXYCODE_RELAY_TOKEN}"   # the relay's client token (its swarm.auth_token)
+
+# Embedded web UI (only with -tags http,ui). Set enable: false to run an API-only server
+# (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
+# requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
+# ui:
+#   enable: true
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${FOXXYCODE_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
@@ -524,13 +547,14 @@ tools:
 # (models[].max_context_tokens, else the window the provider's model listing reports, else
 # 128000), older turns are summarized into one message so the session can continue. Enabled by default; it only fires near the window. compaction.model is used ONLY for
 # the summary pass — leave empty to reuse agent.model.
-# Two engines: "foxxycode" (default) keeps a summary row and replays only the window after it, and
+# Two engines: "coddy" (default) keeps a summary row and replays only the window after it, and
 # enables the manual /compact command; "opencode" flags older turns and filters them from the
 # payload. Both engines fold a history that outgrew the summarizer's own window in several
 # passes, walk the same fallback chain, and answer the model's own compact_context tool.
 # compaction:
-#   engine: foxxycode           # foxxycode (default) | opencode
+#   engine: coddy           # coddy (default) | opencode
 #   enable: true
+#   auto_enable: true      # false disables only the automatic threshold trigger
 #   model: ""
 #   fallback_models: []     # tried in order when the summarizer above them fails; the session
 #                           # model is the last resort whether or not it is listed
@@ -588,8 +612,8 @@ tools:
 # Full reference: docs/operate/swarm.md
 # ----------------------------------------------------------------------------
 # swarm:
-#   enable: false       # run the relay here; independent of the join list below
-#   name: "outer"
+#   enable: false        # run the relay here; independent of the join list below
+#   name: "outer"          # empty: the host name this relay runs on
 #   host: "0.0.0.0"
 #   port: 12346
 #   # A relay reaches every node with that node's own credential, so an open one
@@ -615,7 +639,7 @@ tools:
 #   # That symmetry is the whole of relay chaining.
 #   join:
 #     - url: "https://relay.example"
-#       name: "nas02"
+#       name: "nas02"      # empty: the host name, dots turned into dashes
 #       pairing_token: "${FOXXYCODE_SWARM_PAIRING_TOKEN}"
 #       # Where the relay can reach this process. Leave it out and this process
 #       # dials the relay instead, which is the only way in from a network that

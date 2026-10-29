@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,11 @@ type UILogEntry struct {
 	Message       string `json:"message"`
 	UserTurnIndex int    `json:"userTurnIndex"`
 	CreatedAt     string `json:"createdAt"`
+	// Source is set on the notice of a settings change the agent made
+	// itself: who made it (SettingsChange.Source). It is empty on every other
+	// row, and on the settings notices of a session saved before only the
+	// agent's changes were noted (VisibleUILog).
+	Source string `json:"source,omitempty"`
 }
 
 // CountUserTurns counts llm.RoleUser messages in order (matches memory copilot turn index).
@@ -64,7 +70,7 @@ func (s *State) AppendUILogError(userTurnIndex int, message string) {
 	if msg == "" {
 		msg = "Request failed"
 	}
-	s.appendUILog(UILogLevelError, userTurnIndex, msg)
+	s.appendUILog(UILogLevelError, userTurnIndex, msg, "")
 }
 
 // AppendUILogNotice records a user-visible notice tied to the given 1-based
@@ -74,10 +80,18 @@ func (s *State) AppendUILogNotice(userTurnIndex int, message string) {
 	if msg == "" {
 		return
 	}
-	s.appendUILog(UILogLevelNotice, userTurnIndex, msg)
+	s.appendUILog(UILogLevelNotice, userTurnIndex, msg, "")
 }
 
-func (s *State) appendUILog(level string, userTurnIndex int, msg string) {
+// appendSettingsNotice records the notice of a settings change the agent made
+// itself, with its source (noteSettingsChange).
+func (s *State) appendSettingsNotice(userTurnIndex int, message, source string) {
+	if msg := strings.TrimSpace(message); msg != "" {
+		s.appendUILog(UILogLevelNotice, userTurnIndex, msg, source)
+	}
+}
+
+func (s *State) appendUILog(level string, userTurnIndex int, msg, source string) {
 	if userTurnIndex < 1 {
 		userTurnIndex = 1
 	}
@@ -88,10 +102,89 @@ func (s *State) appendUILog(level string, userTurnIndex int, msg string) {
 		Message:       msg,
 		UserTurnIndex: userTurnIndex,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		Source:        source,
 	})
 	s.sidecarRev.uiLog++
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// switchModelTool is the tool the model changes its own settings with
+// (tools.ToolSwitchModel).
+const switchModelTool = "switch_model"
+
+// settingsNoticePart matches one part of a settings notice as settingsNotice
+// writes it, "<setting>: <value> <scope>", in every scope a change is made
+// for: the session, a number of turns (turnsScope), the rest of a turn
+// (ApplyTurnSettings).
+var settingsNoticePart = regexp.MustCompile(`^(Model|Reasoning|Mode|Permission mode): \S.* (for this session|for the next turn|for the next \d+ turns|for the rest of this turn)$`)
+
+// VisibleUILog returns the rows of a session's log a transcript shows: every
+// row but the notice of a settings change the operator made. Only the agent's
+// own changes are noted now, with their source on the row; a session saved
+// before holds a notice of every change, the model and the mode a console or
+// `foxxycode -p` started it with included, and those rows are told apart by their
+// text (operatorSettingsNotice).
+func VisibleUILog(msgs []llm.Message, log []UILogEntry) []UILogEntry {
+	if len(log) == 0 {
+		return nil
+	}
+	out := make([]UILogEntry, 0, len(log))
+	for _, e := range log {
+		if !operatorSettingsNotice(msgs, e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// operatorSettingsNotice reports whether a row with no source is the notice of
+// a settings change the operator made. The agent never changes the mode or the
+// permission mode, nor anything for a number of turns; a change for the rest of
+// a turn is its own (switch_model limited to the turn, a skill's frontmatter);
+// the model or the reasoning set for the session is its own when the turn the
+// row was logged in holds a switch_model call.
+func operatorSettingsNotice(msgs []llm.Message, e UILogEntry) bool {
+	if e.Source != "" || e.Level != UILogLevelNotice {
+		return false
+	}
+	for _, part := range strings.Split(e.Message, "; ") {
+		m := settingsNoticePart.FindStringSubmatch(part)
+		switch {
+		case m == nil:
+			return false
+		case m[2] == "for the rest of this turn":
+			return false
+		case m[2] != "for this session", m[1] == "Mode", m[1] == "Permission mode":
+			return true
+		}
+	}
+	return !turnCalledSwitchModel(msgs, e.UserTurnIndex)
+}
+
+// turnCalledSwitchModel reports whether the turn a row stamped t was logged in,
+// from the t-th user-role message to the next one, holds a switch_model call.
+func turnCalledSwitchModel(msgs []llm.Message, t int) bool {
+	t = max(t, 1)
+	users := 0
+	for _, m := range msgs {
+		if m.Role == llm.RoleUser {
+			users++
+			if users > t {
+				return false
+			}
+			continue
+		}
+		if users < t || m.Role != llm.RoleAssistant {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if tc.Name == switchModelTool {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // MarkHookNoticeShown records that the notice named by key (a held or invalid

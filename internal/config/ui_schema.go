@@ -748,8 +748,9 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
 					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
 				},
-				"enable": boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
-				"model":  strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
+				"enable":      boolProp("Enabled", "Master switch for manual and automatic compaction. Defaults to true."),
+				"auto_enable": boolProp("Automatic compaction", "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true."),
+				"model":       strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
 				"fallback_models": map[string]interface{}{
 					"type":        "array",
 					"items":       map[string]interface{}{"type": "string"},
@@ -770,7 +771,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enable", "keep_recent", "min_result_bytes", "start_percent"},
 					nil),
 			},
-			[]string{"engine", "enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
+			[]string{"engine", "enable", "auto_enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
@@ -953,8 +954,10 @@ func toIfaceOrder(keys []string) []interface{} {
 //
 //	httpserver - the surface the UI itself is served from; editing it there
 //	             would let the page cut its own connection.
-//	mcp        - edited in the MCP servers tab (POST /foxxycode/mcp/project-trust),
-//	             next to the servers the policy governs.
+//	mcp        - project_trust is edited in the MCP servers tab (POST
+//	             /foxxycode/mcp/project-trust), next to the servers the policy
+//	             governs; idle_timeout_seconds is set in the file and survives
+//	             every save of this form.
 //	swarm      - a relay's own deployment: bind address, credentials for a whole
 //	             fleet, and the parents this process joins. It is set in the file
 //	             or on the command line, not from a page one of its nodes serves.

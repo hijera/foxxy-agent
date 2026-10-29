@@ -24,6 +24,28 @@ export function llmModelNameOf(id: string): string {
   return i >= 0 && i < m.length - 1 ? m.slice(i + 1) : m;
 }
 
+/**
+ * Order backends the way the menu shows them: vendors in the order the list
+ * first names them (the configuration's order of providers), and inside each
+ * vendor the models by name, case-insensitively and with numbers compared as
+ * numbers, so gpt-5.6 comes before gpt-5.10 and both before gpt-6. A model
+ * appended to models[] later lands where its name puts it, not at the bottom
+ * of its group. Returns a new array.
+ */
+export function orderLlmModels(ids: readonly string[]): string[] {
+  const byName = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  return groupLlmModelsByVendor(ids).flatMap((group) =>
+    [...group.models].sort(
+      (a, b) =>
+        byName.compare(llmModelNameOf(a), llmModelNameOf(b)) ||
+        byName.compare(a, b),
+    ),
+  );
+}
+
 /** Whether the filter input should render for a list of this size. */
 export function shouldShowLlmFilter(count: number): boolean {
   return count > LLM_MENU_FILTER_THRESHOLD;

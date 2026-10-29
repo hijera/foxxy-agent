@@ -797,6 +797,16 @@ Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memor
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ```
 
+## AppSec scan
+
+**`make security`** runs the project's security gate over the checkout — trivy
+(dependency vulnerabilities, secrets; misconfig report-only) and semgrep (SAST)
+— with the same versions and thresholds the
+[**Security scan**](../../.github/workflows/security.yaml) workflow uses on
+pull requests. **`make sec-report`** scans without failing on findings. Reports
+land in **`dist/security/`**. Runner, gate knobs and triage:
+[AppSec scanning](security-scanning.md).
+
 ## **`go install` from upstream**
 
 ```bash

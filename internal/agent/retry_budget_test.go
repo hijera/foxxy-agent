@@ -86,6 +86,15 @@ func retryBudgetSSE(reply string, index int) string {
 	var out strings.Builder
 	event := func(kind, data string) { fmt.Fprintf(&out, "event: %s\ndata: %s\n\n", kind, data) }
 	event("message_start", `{"type":"message_start","message":{"id":"msg_fixture","type":"message","role":"assistant","model":"model","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`)
+	if reply == "json-cut" {
+		// Text reaches the loop, then a framed event whose JSON stops short:
+		// the SDK decoder dispatches it and fails at the end of its input
+		// (issue #384).
+		event("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello fr"}}`)
+		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","te`)
+		return out.String()
+	}
 	stop := "end_turn"
 	switch reply {
 	case "reasoning", "max_tokens":
@@ -190,6 +199,73 @@ func TestReActRetryBudget(t *testing.T) {
 				t.Errorf("stop = %s, err = %v; want %s, error=%v", f.stop, f.err, tc.stop, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestReActRecoversFromAnEventCutInsideItsJSON drives the real Anthropic
+// adapter, SDK and resilient wrapper: a framed event whose JSON stops short
+// after text reached the loop is a truncation the wrapper does not replay, and
+// the bounded provider recovery runs the step again with the delivered text
+// kept, asking the model to go on from where the answer broke off (issue
+// #384). Disabling continuation ends the turn with the error instead.
+func TestReActRecoversFromAnEventCutInsideItsJSON(t *testing.T) {
+	one := 1
+	f := newRetryBudgetFixture(t, &one, 10, "json-cut", "answer")
+	f.run()
+	if got := f.requestCount(); got != 2 {
+		t.Errorf("upstream requests = %d, want 2: one cut, one recovery", got)
+	}
+	if f.stop != string(acp.StopReasonEndTurn) || f.err != nil {
+		t.Errorf("stop = %s, err = %v; want end_turn without error", f.stop, f.err)
+	}
+	f.mu.Lock()
+	second := ""
+	if len(f.requests) > 1 {
+		second = f.requests[1]
+	}
+	f.mu.Unlock()
+	if !strings.Contains(second, "Continue exactly where it stopped") {
+		t.Errorf("the recovery request does not carry the continue nudge: %s", second)
+	}
+	// The text delivered before the cut travels as assistant history, not
+	// merely somewhere in the body, so the model continues its own answer.
+	var req struct {
+		Messages []struct {
+			Role    string
+			Content []struct {
+				Type string
+				Text string
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(second), &req); err != nil {
+		t.Fatalf("decode the recovery request: %v", err)
+	}
+	kept := false
+	for _, msg := range req.Messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, block := range msg.Content {
+			if strings.Contains(block.Text, "Hello fr") {
+				kept = true
+			}
+		}
+	}
+	if !kept {
+		t.Errorf("the recovery request does not carry the delivered text as an assistant message: %s", second)
+	}
+
+	zero := 0
+	f = newRetryBudgetFixture(t, &zero, 10, "json-cut")
+	noContinue := false
+	f.ag.cfg.Agent.LLMContinue = &noContinue
+	f.run()
+	if got := f.requestCount(); got != 1 {
+		t.Errorf("upstream requests with continuation off = %d, want 1", got)
+	}
+	if f.stop != string(acp.StopReasonRefused) || f.err == nil {
+		t.Errorf("stop = %s, err = %v; want refused with the truncation error", f.stop, f.err)
 	}
 }
 

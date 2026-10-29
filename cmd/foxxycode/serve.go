@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -215,14 +216,13 @@ func runServe(args []string) error {
 
 	rt := &serve.Runtime{}
 	all := subsystems(rt, subsystemDeps{
-		httpAddr:        httpAddr,
-		swarmAddr:       swarmAddr,
 		httpListenAddr:  httpListenAddr,
 		swarmListenAddr: swarmListenAddr,
 		home:            paths.Home,
 		httpAuthTokens:  httpTokens,
 		httpLogin:       outOfBandLogin(),
 		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
+		adjust:          applyProcessOverrides,
 	})
 	// Resolve is the pre-flight: it refuses a configuration this binary cannot
 	// honour before a single listener is opened, and reports what will run.
@@ -284,49 +284,45 @@ func runServe(args []string) error {
 	log.Info("starting foxxycode serve", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
 
+	if rt.Mgr != nil {
+		// The servers of the global configuration start with the process and
+		// stay up for every session of every surface; a project server runs
+		// once per workspace while a session there holds it. All of them stop
+		// with the process.
+		rt.Mgr.StartGlobalMCPServers()
+		defer rt.Mgr.CloseMCP()
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	reloads := make(chan *config.Config, 1)
-	if rt.Mgr != nil {
-		// Every reload path - the settings screen, the agent's config_commit
-		// tool, the console - lands in the manager, so watching it is how a
-		// remote edit reaches a subsystem that has to be rebuilt to honour it.
-		//
-		// Only the newest configuration is worth keeping: an observer must not
-		// block the goroutine that replaced it, and a queued older document is
-		// already wrong by the time the supervisor would read it.
-		removeObserver := rt.Mgr.AddConfigObserver(func(next *config.Config) {
-			for {
-				select {
-				case reloads <- next:
-					return
-				default:
-				}
-				select {
-				case <-reloads:
-				default:
-					return
-				}
-			}
-		})
-		defer removeObserver()
+	// Every reload path - the settings screen, the agent's config_commit tool,
+	// the console, a relay's own settings page - lands in the runtime (the
+	// session manager when the process has one), so watching it is how a remote
+	// edit reaches a subsystem that has to be rebuilt to honour it. A relay
+	// alone has no manager and used to have no reloads at all.
+	//
+	// Only the newest configuration is worth keeping: an observer must not
+	// block the goroutine that replaced it, and a queued older document is
+	// already wrong by the time the supervisor would read it.
+	removeObserver := rt.AddConfigObserver(func(next *config.Config) { offerNewest(reloads, next) })
+	defer removeObserver()
 
-		// Not every writer of config.yaml is this process. `foxxycode providers
-		// login` adds a provider and its models from another terminal, an
-		// operator edits the file by hand, a deployment drops a new one in.
-		// Watching the file turns all of those into the same swap the settings
-		// screen makes, so an open model picker, a chat surface and the
-		// supervisor see them together.
-		watcher := &config.FileWatcher{
-			Paths:   paths,
-			Live:    rt.Mgr.Cfg,
-			Install: rt.Mgr.ReplaceConfig,
-			Adjust:  applyProcessOverrides,
-			Log:     log,
-		}
-		go func() { _ = watcher.Run(ctx) }()
+	// Not every writer of config.yaml is this process. `foxxycode providers
+	// login` adds a provider and its models from another terminal, an
+	// operator edits the file by hand, a deployment drops a new one in.
+	// Watching the file turns all of those into the same swap the settings
+	// screen makes, so an open model picker, a chat surface and the
+	// supervisor see them together.
+	watcher := &config.FileWatcher{
+		Paths:   paths,
+		Live:    rt.Cfg,
+		Install: rt.ReplaceConfig,
+		Adjust:  applyProcessOverrides,
+		Log:     log,
 	}
+	go func() { _ = watcher.Run(ctx) }()
 
 	// The supervisor is handed every descriptor, not just the enabled ones, so
 	// a later configuration change can turn a surface on as well as off.
@@ -335,6 +331,9 @@ func runServe(args []string) error {
 	// over a configuration change. In the foreground the operator is the only
 	// one who would bring it back, so they are told instead.
 	sup.Restartable = serve.Supervised()
+	// A bare relay opened no session store; a reload that turns on a surface
+	// running agent turns needs a fresh process (Supervisor.Sessionless).
+	sup.Sessionless = rt.Mgr == nil
 	// The role is this process's, not its children's: a `foxxycode serve` the
 	// agent starts from a tool call must not believe a dispatcher or systemd
 	// will bring it back.
@@ -345,6 +344,22 @@ func runServe(args []string) error {
 		return serve.ExitCodeError{Code: serve.ExitRestart, Err: err}
 	}
 	return err
+}
+
+// offerNewest hands next to the supervisor through reloads, a channel with one
+// slot, replacing a configuration still waiting there. It never blocks - it
+// runs on the goroutine that replaced the configuration - and never drops next:
+// with one slot and one reader, the slot is either free to send into or holds
+// an older value to take out, and one select decides which. Checking the two in
+// turn let the supervisor empty the slot in between, and next was dropped.
+func offerNewest(reloads chan *config.Config, next *config.Config) {
+	for {
+		select {
+		case reloads <- next:
+			return
+		case <-reloads:
+		}
+	}
 }
 
 // typedServeFlags rebuilds the command line for the processes this one starts:
@@ -417,17 +432,20 @@ func httpAuthSummary(cfg *config.Config, extraAuth, extraLogin bool) string {
 
 // subsystemDeps are the already-resolved values the descriptors close over.
 type subsystemDeps struct {
-	httpAddr  string
-	swarmAddr string
-	// httpListenAddr and swarmListenAddr answer where a surface would bind under
-	// some other configuration, which is what tells a reload that moved an
-	// address from one that left it alone.
+	// httpListenAddr and swarmListenAddr answer where a surface binds under a
+	// configuration: the one it is started from, and the one a reload brings,
+	// which is what tells a reload that moved an address from one that left it
+	// alone. No address is captured at startup - a surface a reload turns on
+	// listens where that reload says.
 	httpListenAddr  func(*config.Config) string
 	swarmListenAddr func(*config.Config) string
 	home            string
 	httpAuthTokens  []string
 	httpLogin       httpserver.LoginCredentials
 	swarmAuthTokens []string
+	// adjust re-applies the command-line overrides to a configuration loaded
+	// from the file, the way the file watcher does, before it is installed.
+	adjust func(*config.Config) error
 }
 
 // subsystems describes every surface this binary knows about, available or not.
@@ -438,25 +456,26 @@ type subsystemDeps struct {
 func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	return []serve.Subsystem{
 		{
-			Kind:      serve.KindHTTP,
-			ConfigKey: "httpserver.enable",
-			BuildTag:  "http",
-			Available: httpserver.Available,
-			Enabled:   func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
+			Kind:          serve.KindHTTP,
+			ConfigKey:     "httpserver.enable",
+			BuildTag:      "http",
+			Available:     httpserver.Available,
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
 			// No Fingerprint: the listener is what the caller is talking
 			// through, so it is not rebuilt underneath them. Moving it takes a
 			// fresh process, which under a dispatcher is exactly what happens -
 			// that is how an operator changes the port of the very server whose
 			// settings screen they are typing into.
 			RestartKey: deps.httpListenAddr,
-			Run: func(ctx context.Context) error {
+			Run: func(ctx context.Context, cfg *config.Config) error {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
 				withdrawPrompts := func() {}
 				return httpserver.Serve(ctx, httpserver.Options{
-					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
+					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
-					ListenAddr: deps.httpAddr, ExtraAuthTokens: deps.httpAuthTokens,
+					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
 					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
@@ -474,18 +493,19 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			},
 		},
 		{
-			Kind:      serve.KindGateway,
-			ConfigKey: "gateways.telegram.enable",
-			BuildTag:  "gateway",
-			Available: gateway.Available,
-			Enabled:   func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
+			Kind:          serve.KindGateway,
+			ConfigKey:     "gateways.telegram.enable",
+			BuildTag:      "gateway",
+			Available:     gateway.Available,
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
 			// A bot is a client of somebody else's server, so it can be rebuilt
 			// in place: that is how a token rotated from the settings screen
 			// takes effect without anyone reaching the machine.
 			Fingerprint: gatewayFingerprint,
-			Run: func(ctx context.Context) error {
+			Run: func(ctx context.Context, cfg *config.Config) error {
 				return gateway.Serve(ctx, gateway.Options{
-					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
+					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Mirror: rt, Prompts: rt, Wakes: rt,
 				})
 			},
@@ -497,23 +517,42 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Available:  swarm.Available,
 			Enabled:    func(c *config.Config) bool { return c.Swarm.Enabled },
 			RestartKey: deps.swarmListenAddr,
-			Run: func(ctx context.Context) error {
+			// The relay reads its settings when it starts, so one whose
+			// settings moved - saved from its own page or edited in the file -
+			// is rebuilt on them. Its registry lives in memory: the nodes
+			// register and open their tunnels again within seconds.
+			Fingerprint: swarmFingerprint,
+			Run: func(ctx context.Context, cfg *config.Config) error {
 				return swarm.Serve(ctx, swarm.Options{
-					Cfg: rt.Cfg(), Log: rt.Log, Home: deps.home,
-					ListenAddr: deps.swarmAddr, ExtraAuthTokens: deps.swarmAuthTokens,
+					Cfg: cfg, Log: rt.Log, Home: deps.home,
+					ListenAddr: deps.swarmListenAddr(cfg), ExtraAuthTokens: deps.swarmAuthTokens,
+					// The relay's own settings page saves through the runtime,
+					// which the supervisor watches like every other reload.
+					Live: rt.Cfg,
+					Install: func(c *config.Config) error {
+						if deps.adjust != nil {
+							if err := deps.adjust(c); err != nil {
+								return err
+							}
+						}
+						rt.ReplaceConfig(c)
+						return nil
+					},
 				})
 			},
 		},
 		{
-			Kind:      serve.KindScheduler,
-			ConfigKey: "scheduler.enable",
-			BuildTag:  "scheduler",
-			Available: scheduler.Available,
-			Enabled:   func(c *config.Config) bool { return c.SchedulerEffectiveEnabled() },
+			Kind:          serve.KindScheduler,
+			ConfigKey:     "scheduler.enable",
+			BuildTag:      "scheduler",
+			Available:     scheduler.Available,
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.SchedulerEffectiveEnabled() },
 			// The daemon reads its jobs from disk, so a change to where it
 			// looks or how long a run may take needs a fresh one.
 			Fingerprint: schedulerFingerprint,
-			Run: func(ctx context.Context) error {
+			// The daemon follows the live configuration (rt.Cfg) itself.
+			Run: func(ctx context.Context, _ *config.Config) error {
 				return scheduler.Serve(ctx, scheduler.Options{
 					Cfg: rt.Cfg, Log: rt.Log, ProcessCWD: rt.Paths.CWD,
 					Mgr: rt.Mgr, Pool: bgtask.Default(),
@@ -521,6 +560,22 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			},
 		},
 	}
+}
+
+// swarmFingerprint is everything a rebuilt relay would read differently, apart
+// from its listen address, which RestartKey answers: a new address takes a new
+// process, anything else a new relay in this one.
+func swarmFingerprint(c *config.Config) string {
+	if c == nil {
+		return ""
+	}
+	s := c.Swarm
+	s.Host, s.Port = "", 0
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // gatewayFingerprint is everything a rebuilt bot would read differently.
@@ -558,7 +613,7 @@ func schedulerFingerprint(c *config.Config) string {
 // that only relays a swarm opens no session store and builds no manager.
 func needsSessions(enabled []serve.Subsystem) bool {
 	for _, sub := range enabled {
-		if sub.Kind != serve.KindSwarm {
+		if sub.NeedsSessions {
 			return true
 		}
 	}

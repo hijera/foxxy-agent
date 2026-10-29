@@ -45,7 +45,150 @@ func initRepo(t *testing.T) string {
 	mustGit(t, dir, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode",
 		"commit", "--allow-empty", "-m", "init")
 	mustGit(t, dir, "branch", "feature/login")
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	mustGit(t, dir, "clone", "--bare", dir, origin)
+	mustGit(t, dir, "remote", "add", "origin", origin)
+	mustGit(t, dir, "fetch", "origin")
+	mustGit(t, dir, "remote", "set-head", "origin", "-a")
 	return normPath(t, dir)
+}
+
+func TestEnsureWorktreeBranchesFromFreshOrigin(t *testing.T) {
+	dir := initRepo(t)
+	origin := mustGit(t, dir, "remote", "get-url", "origin")
+	publisher := filepath.Join(t.TempDir(), "publisher")
+	mustGit(t, dir, "clone", origin, publisher)
+	if err := os.WriteFile(filepath.Join(publisher, "fresh.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, publisher, "add", "fresh.txt")
+	mustGit(t, publisher, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "-m", "advance main")
+	mustGit(t, publisher, "push", "origin", "main")
+
+	path, created, err := EnsureWorktree(dir, "feature/fresh")
+	if err != nil || !created {
+		t.Fatalf("EnsureWorktree = %q, %t, %v", path, created, err)
+	}
+	want := mustGit(t, dir, "rev-parse", "origin/main")
+	if got := mustGit(t, path, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("worktree HEAD = %s, want fresh origin/main %s", got, want)
+	}
+	if got := mustGit(t, dir, "rev-parse", "main"); got != want {
+		t.Fatalf("clean local main = %s, want fast-forward %s", got, want)
+	}
+}
+
+func TestEnsureWorktreeKeepsDirtyLocalBaseWhileUsingFreshOrigin(t *testing.T) {
+	dir := initRepo(t)
+	old := mustGit(t, dir, "rev-parse", "main")
+	origin := mustGit(t, dir, "remote", "get-url", "origin")
+	publisher := filepath.Join(t.TempDir(), "publisher")
+	mustGit(t, dir, "clone", origin, publisher)
+	if err := os.WriteFile(filepath.Join(publisher, "fresh.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, publisher, "add", "fresh.txt")
+	mustGit(t, publisher, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "-m", "advance main")
+	mustGit(t, publisher, "push", "origin", "main")
+	if err := os.WriteFile(filepath.Join(dir, "local.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, _, err := EnsureWorktree(dir, "feature/fresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustGit(t, dir, "rev-parse", "main"); got != old {
+		t.Fatalf("dirty local main moved from %s to %s", old, got)
+	}
+	if got, want := mustGit(t, path, "rev-parse", "HEAD"), mustGit(t, dir, "rev-parse", "origin/main"); got != want {
+		t.Fatalf("feature HEAD = %s, want fresh origin/main %s", got, want)
+	}
+}
+
+func TestEnsureWorktreeRejectsBaseAndBranchesTrackingIt(t *testing.T) {
+	dir := initRepo(t)
+	for _, branch := range []string{"main", "origin/main"} {
+		if _, _, err := EnsureWorktree(dir, branch); err == nil || !strings.Contains(err.Error(), "default branch") {
+			t.Fatalf("EnsureWorktree(%q) error = %v, want default branch refusal", branch, err)
+		}
+	}
+	mustGit(t, dir, "branch", "--set-upstream-to=origin/main", "feature/login")
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err == nil || !strings.Contains(err.Error(), "tracks") {
+		t.Fatalf("tracking default branch error = %v", err)
+	}
+}
+
+func TestEnsureWorktreeRefusesFeatureCheckedOutInMainCheckout(t *testing.T) {
+	dir := initRepo(t)
+	mustGit(t, dir, "checkout", "feature/login")
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err == nil || !strings.Contains(err.Error(), "main checkout") {
+		t.Fatalf("error = %v, want main checkout refusal", err)
+	}
+}
+
+func TestEnsureWorktreeReusesExistingWorktreeOffline(t *testing.T) {
+	dir := initRepo(t)
+	path, created, err := EnsureWorktree(dir, "feature/login")
+	if err != nil || !created {
+		t.Fatalf("ensure worktree: %q, %t, %v", path, created, err)
+	}
+	// Reuse must not touch the network: once origin is gone, the existing
+	// worktree still comes back.
+	mustGit(t, dir, "remote", "remove", "origin")
+	again, createdAgain, err := EnsureWorktree(dir, "feature/login")
+	if err != nil {
+		t.Fatalf("offline reuse: %v", err)
+	}
+	if createdAgain {
+		t.Fatal("second call must reuse the worktree")
+	}
+	if normPath(t, again) != normPath(t, path) {
+		t.Fatalf("reused path %q != %q", again, path)
+	}
+}
+
+func TestEnsureWorktreeChecksOutRemoteOnlyBranch(t *testing.T) {
+	dir := initRepo(t)
+	origin := mustGit(t, dir, "remote", "get-url", "origin")
+	// A branch that exists on origin but has no local tip must be materialized
+	// at origin/<branch>, not silently redefined at origin/main.
+	mustGit(t, dir, "push", "origin", "feature/login")
+	mustGit(t, dir, "branch", "-D", "feature/login")
+	publisher := filepath.Join(t.TempDir(), "publisher")
+	mustGit(t, dir, "clone", origin, publisher)
+	if err := os.WriteFile(filepath.Join(publisher, "fresh.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, publisher, "add", "fresh.txt")
+	mustGit(t, publisher, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "-m", "advance main")
+	mustGit(t, publisher, "push", "origin", "main")
+
+	path, created, err := EnsureWorktree(dir, "feature/login")
+	if err != nil || !created {
+		t.Fatalf("ensure worktree: %q, %t, %v", path, created, err)
+	}
+	if got, want := mustGit(t, path, "rev-parse", "HEAD"), mustGit(t, dir, "rev-parse", "origin/feature/login"); got != want {
+		t.Fatalf("worktree HEAD = %s, want origin/feature/login %s", got, want)
+	}
+	if got := mustGit(t, path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); got != "origin/feature/login" {
+		t.Fatalf("worktree upstream = %q, want origin/feature/login", got)
+	}
+}
+
+func TestEnsureWorktreeRefusesSymlinkedWorktreesRoot(t *testing.T) {
+	dir := initRepo(t)
+	outside := t.TempDir()
+	foxxycode := filepath.Join(dir, ".foxxycode")
+	if err := os.Symlink(outside, foxxycode); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("error = %v, want a containment refusal", err)
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "worktrees")); !os.IsNotExist(err) {
+		t.Fatalf("worktrees dir materialized outside the checkout: %v", err)
+	}
 }
 
 func TestCloneAndPull(t *testing.T) {
@@ -99,6 +242,12 @@ func TestDescribeRepo(t *testing.T) {
 	}
 	if normPath(t, info.RepoRoot) != dir {
 		t.Fatalf("repo root = %q, want %q", info.RepoRoot, dir)
+	}
+	if info.BaseBranch != "main" {
+		t.Fatalf("base branch = %q, want main", info.BaseBranch)
+	}
+	if got := normPath(t, MainCheckoutRoot(dir)); got != dir {
+		t.Fatalf("main checkout root = %q, want %q", got, dir)
 	}
 	if !slices.Contains(info.Branches, "main") || !slices.Contains(info.Branches, "feature/login") {
 		t.Fatalf("branches = %v, want main and feature/login", info.Branches)
@@ -163,6 +312,9 @@ func TestEnsureWorktree(t *testing.T) {
 	}
 	if normPath(t, info.RepoRoot) != dir {
 		t.Fatalf("worktree repo root = %q, want main root %q", info.RepoRoot, dir)
+	}
+	if got := normPath(t, MainCheckoutRoot(path)); got != dir {
+		t.Fatalf("linked worktree main root = %q, want %q", got, dir)
 	}
 
 	again, createdAgain, err := EnsureWorktree(dir, "feature/login")

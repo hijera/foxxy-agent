@@ -234,6 +234,7 @@ func openAPISpec() map[string]interface{} {
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
 						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
 						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
+						"A row inside a git checkout also carries **repoRoot**, the main checkout path shared by its worktrees, so clients can group conversations by project. " +
 						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(foxxycodePagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
@@ -1279,10 +1280,36 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/info": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Which build serves this API, and where",
+					"description": "Names the version of the foxxycode binary serving this API, the same string `foxxycode -v` prints, and the host name of the machine it runs on. The web UI shows the version in the start screen's footer, for the server the page is talking to (the local one, a remote or a node reached through a relay), and names the machine the page runs on by its host name on the swarm map.",
+					"operationId": "foxxycodeInfoGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The build and the machine",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type":     "object",
+										"required": []string{"object", "version", "hostname"},
+										"properties": map[string]interface{}{
+											"object":   map[string]interface{}{"type": "string", "enum": []string{"foxxycode.info"}},
+											"version":  map[string]interface{}{"type": "string", "example": "1.2.35"},
+											"hostname": map[string]interface{}{"type": "string", "description": "The machine's host name; empty when the system does not say."},
+										},
+									},
+								},
+							},
+						},
+						"401": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers, and the **token** of an **`httpserver.remotes`** entry that carries one: the page presents it to that remote). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1674,8 +1701,8 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/subagents": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
-					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
-						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **role_bytes**) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**, and the hidden orchestrator **crossreview**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **spawns**, **role_bytes**; a bound the file does not declare is absent, which means it inherits) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. The role body itself is never served. Errors are **`{\"error\":{\"message\"}}`** JSON. " +
 						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
 					"operationId": "listSubagents",
 					"parameters": []interface{}{
@@ -2337,7 +2364,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself. Emits **event: session_rewound** with **`{object, sessionId, messagesRev}`** after a rewind, so watching clients reload their transcripts. Emits **event: session_settings** with **`{object, sessionId, settings, notice, source}`** whenever any surface changes session settings; **settings.version** lets clients discard older snapshots.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"foxxycode.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /foxxycode/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /foxxycode/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"foxxycode.session_rewound\", sessionId, messagesRev}`**) after a **POST /foxxycode/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"foxxycode.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /foxxycode/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"foxxycode.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /foxxycode/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /foxxycode/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"foxxycode.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /foxxycode/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -3765,7 +3792,11 @@ func openAPISpec() map[string]interface{} {
 						"timeout_seconds": map[string]string{"type": "integer", "description": "The definition's own run limit; absent defers to the call and subagents.default_timeout_seconds."},
 						"max_turns":       map[string]string{"type": "integer", "description": "Cap on the child's ReAct rounds; absent follows subagents.max_turns, then agent.max_turns."},
 						"background":      map[string]string{"type": "boolean", "description": "The definition forces detached runs whatever the call asks for."},
-						"role_bytes":      map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
+						"spawns": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Spawn allowlist from the frontmatter (same pattern syntax as tools): names the child may delegate to, including one level past subagents.max_depth. Honored for builtin and user scope only; a project definition's declaration is shown but ignored.",
+						},
+						"role_bytes": map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
 					},
 					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
 				},
@@ -4720,8 +4751,9 @@ func openAPISpec() map[string]interface{} {
 							"description": "Path of the interpreter run_command executes through on the server host.",
 							"example":     "/usr/bin/bash",
 						},
-						"repo_root": map[string]string{"type": "string"},
-						"branch":    map[string]string{"type": "string"},
+						"repo_root":   map[string]string{"type": "string"},
+						"base_branch": map[string]string{"type": "string"},
+						"branch":      map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]string{"type": "string"},

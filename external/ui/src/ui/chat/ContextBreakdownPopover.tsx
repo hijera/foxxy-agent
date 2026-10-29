@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
@@ -25,10 +32,26 @@ const SEGMENTS: {
   labelKey: string;
   cssVar: string;
 }[] = [
-  { key: "systemPrompt", labelKey: "chat.contextSegment.systemPrompt", cssVar: "--ctx-seg-system" },
-  { key: "toolDefinitions", labelKey: "chat.contextSegment.toolDefinitions", cssVar: "--ctx-seg-tools" },
-  { key: "rules", labelKey: "chat.contextSegment.rules", cssVar: "--ctx-seg-rules" },
-  { key: "skills", labelKey: "chat.contextSegment.skills", cssVar: "--ctx-seg-skills" },
+  {
+    key: "systemPrompt",
+    labelKey: "chat.contextSegment.systemPrompt",
+    cssVar: "--ctx-seg-system",
+  },
+  {
+    key: "toolDefinitions",
+    labelKey: "chat.contextSegment.toolDefinitions",
+    cssVar: "--ctx-seg-tools",
+  },
+  {
+    key: "rules",
+    labelKey: "chat.contextSegment.rules",
+    cssVar: "--ctx-seg-rules",
+  },
+  {
+    key: "skills",
+    labelKey: "chat.contextSegment.skills",
+    cssVar: "--ctx-seg-skills",
+  },
   { key: "mcp", labelKey: "chat.contextSegment.mcp", cssVar: "--ctx-seg-mcp" },
   { key: "subagents", labelKey: "chat.contextSegment.subagents", cssVar: "--ctx-seg-subagents" },
   { key: "conversation", labelKey: "chat.contextSegment.conversation", cssVar: "--ctx-seg-conversation" },
@@ -66,6 +89,11 @@ export function ContextBreakdownPopover(props: {
   /** Account usage of the selected model's provider, listed under the context window. */
   usage?: ProviderUsage | null;
   modelId?: string;
+  sessionId?: string | undefined;
+  compactAvailable?: boolean | undefined;
+  compactAutoEnabled?: boolean | undefined;
+  compactThreshold?: number | undefined;
+  onCompacted?: (() => void) | undefined;
 }) {
   const { t } = useT();
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -73,6 +101,49 @@ export function ContextBreakdownPopover(props: {
     null,
   );
   const useSheet = props.useSheet === true;
+  const [compacting, setCompacting] = useState(false);
+  const [compactState, setCompactState] = useState<
+    "idle" | "error" | "nothing"
+  >("idle");
+
+  const compactNow = async () => {
+    const sid = props.sessionId?.trim();
+    if (!sid || compacting) return;
+    setCompacting(true);
+    setCompactState("idle");
+    try {
+      const res = await fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/compact`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-FoxxyCode-Session-ID": sid,
+          },
+          body: "{}",
+          // A summarization round can legitimately take a while; the bound
+          // only keeps a dead request from pinning the button in
+          // "Compacting…" forever.
+          signal: AbortSignal.timeout(180_000),
+        },
+      );
+      if (!res.ok) throw new Error(`compact: ${res.status}`);
+      const payload = (await res.json().catch(() => null)) as {
+        compacted?: boolean;
+      } | null;
+      if (payload && payload.compacted === false) {
+        // The endpoint answers 200 with compacted:false when nothing
+        // could be folded - report that instead of a fake success.
+        setCompactState("nothing");
+        return;
+      }
+      props.onCompacted?.();
+    } catch {
+      setCompactState("error");
+    } finally {
+      setCompacting(false);
+    }
+  };
 
   const measureFloat = () => {
     if (useSheet || !props.open) {
@@ -161,7 +232,10 @@ export function ContextBreakdownPopover(props: {
     tokens: b ? Math.max(0, b[s.key] || 0) : 0,
   }));
   const totalFromParts = rows.reduce((sum, r) => sum + r.tokens, 0);
-  const used = b?.estimatedTotal && b.estimatedTotal > 0 ? b.estimatedTotal : totalFromParts;
+  const used =
+    b?.estimatedTotal && b.estimatedTotal > 0
+      ? b.estimatedTotal
+      : totalFromParts;
   const showEmptyState = idle || used === 0;
   const displayRows = showEmptyState ? legendRows : rows;
   const fillPct =
@@ -174,22 +248,51 @@ export function ContextBreakdownPopover(props: {
 
   const body = (
     <>
-      {useSheet ? (
-        <div className="slash-menu-title">{t("chat.contextTitle")}</div>
-      ) : (
-        <div className="context-breakdown-head">
-          <span className="context-breakdown-title">{t("chat.contextTitle")}</span>
-          <button
-            type="button"
-            className="context-breakdown-close"
-            aria-label={t("chat.contextClose")}
-            data-testid="context-breakdown-close"
-            onClick={() => props.onClose()}
-          >
-            ×
-          </button>
+      <div className="context-breakdown-head">
+        <span className="context-breakdown-title">
+          {t("chat.contextTitle")}
+        </span>
+        <div className="context-breakdown-actions">
+          {props.sessionId && props.compactAvailable === true ? (
+            <button
+              type="button"
+              className="context-breakdown-compact"
+              onClick={() => void compactNow()}
+              disabled={compacting}
+              data-testid="context-breakdown-compact"
+            >
+              {compacting
+                ? t("chat.contextCompacting")
+                : props.compactAutoEnabled === false
+                  ? t("chat.contextCompactNow")
+                  : t("chat.contextCompactAt", {
+                      percent: String(props.compactThreshold || 80),
+                    })}
+            </button>
+          ) : null}
+          {!useSheet ? (
+            <button
+              type="button"
+              className="context-breakdown-close"
+              aria-label={t("chat.contextClose")}
+              data-testid="context-breakdown-close"
+              onClick={() => props.onClose()}
+            >
+              ×
+            </button>
+          ) : null}
         </div>
-      )}
+      </div>
+      {compactState === "error" ? (
+        <p role="alert" className="context-breakdown-error">
+          {t("chat.contextCompactError")}
+        </p>
+      ) : null}
+      {compactState === "nothing" ? (
+        <p className="context-breakdown-note">
+          {t("chat.contextCompactNothing")}
+        </p>
+      ) : null}
       <div className="context-breakdown-summary">
         <span>
           {t("chat.contextPercentUsed", {
@@ -275,8 +378,12 @@ export function ContextBreakdownPopover(props: {
       ref={panelRef}
       className={[
         "context-breakdown-menu",
-        useSheet ? "context-breakdown-menu--sheet" : "context-breakdown-menu--portal",
-        useSheet && props.composerDocked ? "context-breakdown-menu--above-composer" : "",
+        useSheet
+          ? "context-breakdown-menu--sheet"
+          : "context-breakdown-menu--portal",
+        useSheet && props.composerDocked
+          ? "context-breakdown-menu--above-composer"
+          : "",
       ]
         .filter(Boolean)
         .join(" ")}

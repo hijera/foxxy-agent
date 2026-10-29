@@ -587,6 +587,14 @@ tools:
   require_permission_for_commands: true
 ```
 
+## Upstream 1.2.36–1.2.45 capabilities
+
+- `/crossreview` coordinates external code-agent CLIs and internal reviewers; trusted built-in and user definitions may declare bounded `spawns`.
+- `worktree_create` fetches origin, creates a feature worktree and moves the session into it. History groups it under the main project. See [Git worktrees](docs/features/worktrees.md).
+- MCP connections are shared across sessions, with workspace isolation, idle release and asynchronous startup.
+- The Context popover supports manual compaction and an independent automatic threshold switch. Remote environments support configured tokens and relay settings.
+- `make security` runs the same Trivy and Semgrep package locally and in CI. See [Application security](docs/contributing/security-scanning.md).
+
 ## Архитектура
 
 ```text

@@ -1,9 +1,10 @@
 package mcp
 
 // The trust gate is the single decision point between a merged MCP server
-// list and a running process or outbound connection. Connect and Probe below
-// re-check the decision immediately before mcp.Connect spawns the child or
-// opens the socket, so a caller cannot reach the transport by holding an
+// list and a running process or outbound connection. Connect, Acquire and the
+// probes below re-check the decision immediately before mcp.Connect spawns
+// the child or opens the socket, or the pool hands out a server another
+// session started, so a caller cannot reach the transport by holding an
 // entry it evaluated earlier.
 
 import (
@@ -116,6 +117,18 @@ func (g *TrustGate) Connect(ctx context.Context, srv ManagedServer, workspace st
 	return client, nil
 }
 
+// Acquire checks the gate and then takes a lease on the server from pool, in
+// that order and with nothing in between: whether the pool starts the server
+// for this call or another session of the workspace started it already, a
+// session holds only what the gate admits for its workspace right now. This
+// is the path session bootstrap uses for configured servers.
+func (g *TrustGate) Acquire(ctx context.Context, pool *Pool, srv ManagedServer, workspace string) (*Client, error) {
+	if err := g.Check(workspace, srv); err != nil {
+		return nil, err
+	}
+	return pool.Acquire(ctx, srv, workspace)
+}
+
 // Probe checks the gate and then probes, so listing servers in the UI never
 // starts a command the operator has not approved.
 func (g *TrustGate) Probe(ctx context.Context, srv ManagedServer, workspace string, log *slog.Logger) ([]ToolInfo, error) {
@@ -123,6 +136,24 @@ func (g *TrustGate) Probe(ctx context.Context, srv ManagedServer, workspace stri
 		return nil, err
 	}
 	return Probe(ctx, srv.Config, workspace, log)
+}
+
+// ProbeShared is Probe through pool: a server the pool runs already is asked
+// for its tools over the connection it has, and no second copy of it is
+// spawned; one the pool does not run is started for the probe and stopped
+// after it, unless the pool keeps it. The list is what the server offers now;
+// the sessions holding the connection keep the one they were given. A nil
+// pool probes on a connection of the probe's own.
+func (g *TrustGate) ProbeShared(ctx context.Context, pool *Pool, srv ManagedServer, workspace string, log *slog.Logger) ([]ToolInfo, error) {
+	if pool == nil {
+		return g.Probe(ctx, srv, workspace, log)
+	}
+	client, err := g.Acquire(ctx, pool, srv, workspace)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = client.Close() }()
+	return client.conn.fetchTools(ctx)
 }
 
 // Approve records the operator's decision for one declaration. source names

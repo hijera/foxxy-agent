@@ -168,6 +168,42 @@ func TestResolveMapsNamesAddressesAndTokens(t *testing.T) {
 	}
 }
 
+// A remote entry may carry its token (issue #401). The flag still wins; the
+// entry's token is the one the operator bound to that destination, so it wins
+// over the variable, which names no destination at all; a node mounted under a
+// configured relay is reached with the relay's client token.
+func TestResolveTakesTheTokenAConfiguredRemoteCarries(t *testing.T) {
+	cfg := &config.Config{HTTPServer: config.HTTPServerConfig{Remotes: []config.HTTPRemote{
+		{Name: "office-relay", URL: "http://relay.lan:12346/", Token: "relay-client"},
+		{Name: "nas02", URL: "http://nas02:19980"},
+	}}}
+	t.Setenv(TokenEnvVar, "env-token")
+
+	cases := []struct {
+		name, remote, flag, want string
+	}{
+		{"by name", "office-relay", "", "relay-client"},
+		{"by name, case aside", "OFFICE-RELAY", "", "relay-client"},
+		{"the flag wins", "office-relay", "flag-token", "flag-token"},
+		{"by its address", "http://relay.lan:12346", "", "relay-client"},
+		{"a node mounted under it", "http://relay.lan:12346/swarm/nodes/worker-a", "", "relay-client"},
+		{"two hops under it", "relay.lan:12346/swarm/nodes/inner/swarm/nodes/gpu", "", "relay-client"},
+		{"an entry without a token", "nas02", "", "env-token"},
+		{"another server on the same host", "http://relay.lan:12347", "", "env-token"},
+		{"a path that only starts like the entry", "http://relay.lan:12346/swarmish", "", "env-token"},
+		{"another scheme", "https://relay.lan:12346", "", "env-token"},
+	}
+	for _, tc := range cases {
+		opts, err := Resolve(cfg, tc.remote, tc.flag)
+		if err != nil || opts == nil {
+			t.Fatalf("%s: %v %v", tc.name, opts, err)
+		}
+		if opts.Token != tc.want {
+			t.Errorf("%s: token = %q, want %q", tc.name, opts.Token, tc.want)
+		}
+	}
+}
+
 // ---- session ids ----
 
 func TestNewRemoteSessionIDsAreValidFolderIDs(t *testing.T) {

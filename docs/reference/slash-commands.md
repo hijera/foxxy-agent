@@ -55,7 +55,7 @@ Every skill file that the loader accepts is a command:
 
 The catalog reaches the model too: the system prompt carries a `## Slash commands` block listing every `/name` with its description (`skills.BuildSlashCatalogMarkdown`), and with `skills.auto_discovery` on, the model can pull a full body itself through the `load_skill` tool ([Tools](tools.md)).
 
-Five of those commands are there on a fresh install without anything being downloaded - `/configure-foxxycode`, `/rpa-init`, `/rpa-feat`, `/rpa-bugfix` and `/rpa-gen-rules`, the [standard delivery](../features/skills.md#the-standard-delivery) the binary writes into `${FOXXYCODE_HOME}/skills`.
+Six of those commands are there on a fresh install without anything being downloaded - `/configure-foxxycode`, `/crossreview`, `/rpa-init`, `/rpa-feat`, `/rpa-bugfix` and `/rpa-gen-rules`, the [standard delivery](../features/skills.md#the-standard-delivery) the binary writes into `${FOXXYCODE_HOME}/skills`.
 
 ## How a command in a prompt is parsed
 
@@ -64,7 +64,7 @@ The settings commands are taken first, by `session.ParseSettingsCommands`, befor
 - only the start of the typed text counts; a settings command in the middle of a sentence is prose, and a mention's attachment or a skill body is never read;
 - each command's value and its `--once`, `--count=N` or `--count N` flags are the words after its name, on its line; the flags may come before or after the value;
 - commands chain, on one line or on consecutive ones (`/model x --once /nothink --once review this`), and the first word that belongs to no command starts the prompt, which is kept verbatim and may itself be `/compact`, `/export` or a skill;
-- a prompt of commands only runs no turn and leaves nothing in the model's history; each change is reported as a notice;
+- a prompt of commands only runs no turn and leaves nothing in the model's history or the transcript: the web UI and the console show the change on their selectors and footer, while an editor, the Telegram bot and an HTTP client get a notice of each change as the answer;
 - the names are matched case-insensitively, aliases included, and win over a skill of the same name.
 
 The three built-ins are recognised on the whole prompt (`parseCompactCommand`, `parsePluginCommand` and `parseExportCommand` in `internal/agent`):

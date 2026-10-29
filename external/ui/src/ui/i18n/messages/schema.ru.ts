@@ -12,6 +12,10 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
+  "Automatic compaction": "Автоматическое сжатие",
+  "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.": "Автоматически сжимать контекст по порогу. При отключении ручное сжатие остаётся доступным. По умолчанию включено.",
+  "Master switch for manual and automatic compaction. Defaults to true.": "Общий переключатель ручного и автоматического сжатия. По умолчанию включено.",
+
   "Background continuation delays ms": "Паузы фоновых продолжений, мс",
   "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.": "Паузы для субагентов и заданий планировщика: по умолчанию 5000, 20000, 80000, 120000, 120000 мс. Последняя пауза повторяется.",
   "Background continuation limit": "Лимит фоновых продолжений",

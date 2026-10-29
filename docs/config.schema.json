@@ -635,6 +635,15 @@
             "allow",
             "deny"
           ]
+        },
+        "idle_timeout_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Seconds an MCP server that no session holds any more keeps running before FoxxyCode stops it: a project server once the last session of its workspace let it go, a server an ACP client sent once the last session that sent it closed. A session that takes the server in the meantime finds it running. The global servers that foxxycode serve, the console and foxxycode acp start with the process are not affected, and a server switched off, no longer approved, removed or declared differently stops at once. 0 stops a server as soon as the last session lets it go.",
+          "default": 300,
+          "minimum": 0
         }
       }
     },
@@ -1201,12 +1210,12 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Compaction implementation: \"foxxycode\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
+          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
           "enum": [
-            "foxxycode",
+            "coddy",
             "opencode"
           ],
-          "default": "foxxycode"
+          "default": "coddy"
         },
         "enable": {
           "type": "boolean",
@@ -1283,6 +1292,14 @@
               "maximum": 100
             }
           }
+        },
+        "auto_enable": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Enable automatic compaction at threshold_percent. Set false to keep manual /compact and the Context popover action available without automatic compaction. Defaults to true.",
+          "default": true
         }
       }
     },
@@ -1441,6 +1458,10 @@
               "url": {
                 "type": "string",
                 "description": "Base URL of the remote foxxycode http server."
+              },
+              "token": {
+                "type": "string",
+                "description": "Bearer token to present to this remote: a relay's client token (swarm.auth_token) or a server's httpserver.auth_token, usually a ${ENV} reference. Optional and opt-in: every browser that reads this configuration receives it, and foxxycode --remote <name> uses it when --remote-token is not given. A node mounted under a relay (<url>/swarm/nodes/<name>) takes the relay's token."
               }
             }
           }
@@ -1477,7 +1498,7 @@
         },
         "name": {
           "type": "string",
-          "description": "Label for this relay in topology views and in a child's node path.",
+          "description": "Label for this relay in topology views, in /swarm/info and in a child's node path. Empty: the host name it runs on.",
           "default": ""
         },
         "auth_token": {

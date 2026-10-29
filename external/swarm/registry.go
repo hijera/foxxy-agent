@@ -343,6 +343,19 @@ func (r *Registry) DetachTransport(name string, t NodeTransport) {
 	l.expiresAt = r.now()
 }
 
+// CloseTransports closes every tunnel the registry holds. A tunnel is a
+// connection the node opened and the relay took over, which the HTTP server
+// does not own, so stopping the server alone leaves it open - answering pings
+// for a relay that is gone, and the node never dialling the one that replaced
+// it.
+func (r *Registry) CloseTransports() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, l := range r.nodes {
+		l.closeTransportLocked()
+	}
+}
+
 // Node returns a snapshot for proxying.
 func (r *Registry) Node(name string) (Node, bool) {
 	r.mu.Lock()

@@ -89,6 +89,16 @@ func TestCompactionExplicitDisablePreserved(t *testing.T) {
 	}
 }
 
+func TestCompactionCanDisableOnlyAutomation(t *testing.T) {
+	for _, engine := range []string{"coddy", "opencode"} {
+		off := false
+		c := config.CompactionConfig{Engine: engine, AutoEnabled: &off}
+		if !c.IsEnabled() || c.IsAutoEnabled() {
+			t.Fatalf("%s manual and automatic switches are not independent: %+v", engine, c)
+		}
+	}
+}
+
 func TestCompactionOpenCodeThresholdClamped(t *testing.T) {
 	low := config.CompactionConfig{Engine: "opencode", ThresholdPercent: 10}
 	low.ApplyDefaults()

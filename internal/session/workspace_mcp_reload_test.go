@@ -311,6 +311,30 @@ func TestReloadSessionWorkspaceParksMCPReloadWhileTurnActive(t *testing.T) {
 	}
 }
 
+func TestSetSessionWorkspaceDuringTurnReloadsMCPBeforeNextStep(t *testing.T) {
+	alpha := t.TempDir()
+	beta := t.TempDir()
+	writeProjectMCPServer(t, alpha, "alpha-probe")
+	writeProjectMCPServer(t, beta, "beta-probe")
+	mgr, st := newWorkspaceTestManager(t, workspaceTestConfig(t, config.ProjectTrustAllow), alpha)
+	old := st.GetMCPClients()[0]
+
+	unlock, err := mgr.acquireTurnLockWithReloadDrain(st.GetID(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if err := mgr.SetSessionWorkspaceDuringTurn(context.Background(), st, beta); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"beta-probe"}) {
+		t.Fatalf("clients before next tool step = %v, want [beta-probe]", got)
+	}
+	if _, err := old.CallTool(context.Background(), "ping", "{}"); err == nil {
+		t.Fatal("old workspace MCP client is still callable")
+	}
+}
+
 // An ACP client-supplied server is the session's own, not the workspace's: a
 // workspace switch keeps it connected while the configured set is swapped.
 func TestSetSessionWorkspaceKeepsSessionMCPClients(t *testing.T) {

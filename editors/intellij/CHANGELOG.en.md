@@ -7,7 +7,14 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-26
+## Unreleased — 2026-10-29
+
+- Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.
+- Added manual compaction and its automatic threshold control to the Context popover; estimates now include tool schemas, reasoning and images and retain provider token anchors.
+- Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
+- User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
+
+## 0.3.38 — 2026-10-26
 
 **Android and Termux.**
 Native builds are available for Android arm64 and x86_64. The console and web UI run in Termux, with command execution, certificates and temporary files adapted to Android.

@@ -225,6 +225,29 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
 		}
+		// The SDK decodes every framed event with json.Unmarshal, so an event
+		// whose JSON stops short surfaces here as a syntax error at the end
+		// of its input: a cut inside the event (issue #384), held to the
+		// truncation contract of the branch below - the delivered text and
+		// thinking next to the error, no tool_use blocks, whose input may be
+		// cut mid-JSON, the decoder's error kept as the cause. With nothing
+		// delivered the truncation error goes back alone, unlike the stall
+		// branch, whose transport wrapper carries the guard's own error: here
+		// the decoder's error is the more specific cause.
+		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
+			truncErr := fmt.Errorf("anthropic stream: %w", trunc)
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+				return &Response{
+					Content:            fullContent,
+					Reasoning:          thinkingBuf.String(),
+					ReasoningSignature: thinkingSig,
+					InputTokens:        inputTokens,
+					OutputTokens:       outputTokens,
+					CachedInputTokens:  cachedInputTokens,
+				}, truncErr
+			}
+			return nil, truncErr
+		}
 		// Same transport wrapper as the openai path: the emitted flag lets
 		// classification retry status-less failures only while nothing was
 		// delivered. HTTP errors keep their status reachable through Unwrap.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import type { TranslateParams } from "../i18n/i18n";
 import { translate } from "../i18n/i18n";
@@ -171,6 +171,11 @@ export function MCPSection() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorBusy, setEditorBusy] = useState(false);
+  // Generations order overlapping loads: only the latest fetch applies its
+  // result or error. A slow refresh finishing after a mutation's reload must
+  // neither overwrite the newer rows nor report its failure. Flags are still
+  // cleared unconditionally in finally - the call set them, so it clears them.
+  const loadSeq = useRef(0);
 
   // firstLoad guards the "Loading…" placeholder so refreshes never collapse
   // the list height (same pattern as the Skills tab). A listing that fails
@@ -178,19 +183,31 @@ export function MCPSection() {
   // an earlier load showed, instead of reading as "no servers configured".
   const loadServers = useCallback(
     async (firstLoad = false, refresh = false) => {
+      const seq = ++loadSeq.current;
       if (firstLoad) setLoading(true);
       if (refresh) setRefreshing(true);
-      const result = await fetchServers(refresh);
-      if ("list" in result) {
-        setServers(result.list.items);
-        setProjectTrust(result.list.projectTrust);
-        setWorkspace(result.list.workspace);
-        setLoadError(null);
-      } else {
-        setLoadError(translate("mcp.error.load", { message: result.error }));
+      try {
+        const result = await fetchServers(refresh);
+        if (seq !== loadSeq.current) return;
+        if ("list" in result) {
+          setServers(result.list.items);
+          setProjectTrust(result.list.projectTrust);
+          setWorkspace(result.list.workspace);
+          setLoadError(null);
+        } else {
+          setLoadError(translate("settings.mcp.error.load", { message: result.error }));
+        }
+      } catch (err) {
+        if (seq !== loadSeq.current) return;
+        setLoadError(
+          translate("settings.mcp.error.load", {
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      } finally {
+        if (firstLoad) setLoading(false);
+        if (refresh) setRefreshing(false);
       }
-      if (firstLoad) setLoading(false);
-      if (refresh) setRefreshing(false);
     },
     [],
   );
@@ -203,8 +220,17 @@ export function MCPSection() {
     setBusy((p) => ({ ...p, [key]: true }));
     setError(null);
     void (async () => {
-      await fn();
-      setBusy((p) => ({ ...p, [key]: false }));
+      try {
+        await fn();
+      } catch (err) {
+        setError(
+          translate("settings.mcp.error.request", {
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      } finally {
+        setBusy((p) => ({ ...p, [key]: false }));
+      }
     })();
   };
 
@@ -361,18 +387,24 @@ export function MCPSection() {
     setEditorBusy(true);
     setEditorError(null);
     void (async () => {
-      const res = await apiSend(
-        `/foxxycode/mcp/${encodeURIComponent(editor.name.trim())}?scope=${editor.scope}`,
-        "PUT",
-        entry,
-      );
-      if (!res.ok) {
-        setEditorError(res.error || t("settings.mcp.error.saveServer"));
-      } else {
-        setEditor(null);
-        await loadServers();
+      try {
+        const res = await apiSend(
+          `/foxxycode/mcp/${encodeURIComponent(editor.name.trim())}?scope=${editor.scope}`,
+          "PUT",
+          entry,
+        );
+        if (!res.ok) {
+          setEditorError(res.error || translate("settings.mcp.error.saveServer"));
+        } else {
+          setEditor(null);
+          await loadServers();
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setEditorError(`${translate("settings.mcp.error.saveServer")}: ${message}`);
+      } finally {
+        setEditorBusy(false);
       }
-      setEditorBusy(false);
     })();
   };
 
@@ -439,7 +471,11 @@ export function MCPSection() {
           </button>
         </div>
 
-        {error ? <p className="settings-error">{error}</p> : null}
+        {error ? (
+          <p className="settings-error" data-testid="mcp-request-error">
+            {error}
+          </p>
+        ) : null}
         {loadError ? (
           <p className="settings-error" data-testid="mcp-load-error">
             {loadError}
