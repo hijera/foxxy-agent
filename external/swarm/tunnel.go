@@ -133,9 +133,9 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	tr.AllowHTTP = true //nolint:staticcheck // SA1019: x/net/http2 transport field, kept with the transport above
 	// A dead peer without a FIN needs a ping to distinguish it from an idle one.
 	tr.ReadIdleTimeout = tunnelReadIdleTimeout //nolint:staticcheck // SA1019: x/net/http2 transport field
-	tr.PingTimeout = tunnelPingTimeout //nolint:staticcheck // SA1019: x/net/http2 transport field
-	tr.StrictMaxConcurrentStreams = true //nolint:staticcheck // SA1019: x/net/http2 transport field
-	cc, err := tr.NewClientConn(served) //nolint:staticcheck // SA1019: x/net/http2 transport method
+	tr.PingTimeout = tunnelPingTimeout         //nolint:staticcheck // SA1019: x/net/http2 transport field
+	tr.StrictMaxConcurrentStreams = true       //nolint:staticcheck // SA1019: x/net/http2 transport field
+	cc, err := tr.NewClientConn(served)        //nolint:staticcheck // SA1019: x/net/http2 transport method
 	if err != nil {
 		s.log.Warn("swarm tunnel handshake failed", "node", node, "error", err)
 		_ = conn.Close()

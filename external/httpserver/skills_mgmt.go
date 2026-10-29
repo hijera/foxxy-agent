@@ -402,11 +402,11 @@ func (s *Server) reloadConfigFromDisk() {
 		s.log.Error("skills config reload", "error", err)
 		return
 	}
-		// The same overrides every other install applies; a document they refuse
-		// leaves the live configuration in place.
-		if err := s.mgr.ReplaceConfigChecked(reloaded); err != nil {
-			s.log.Error("skills config reload", "error", err)
-			return
-		}
-		s.ReplaceConfig(reloaded)
+	// The same overrides every other install applies; a document they refuse
+	// leaves the live configuration in place.
+	if err := s.mgr.ReplaceConfigChecked(reloaded); err != nil {
+		s.log.Error("skills config reload", "error", err)
+		return
 	}
+	s.ReplaceConfig(reloaded)
+}

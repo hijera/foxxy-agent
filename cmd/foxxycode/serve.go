@@ -152,11 +152,11 @@ func runServe(args []string) error {
 		if *swarmInsecure {
 			c.Swarm.AllowInsecure = true
 		}
-			// The same document can pass through here more than once (the file
-			// watcher, then a settings save): the pairing token is added once.
-			if t := firstNonEmpty(strings.TrimSpace(*swarmPairing), os.Getenv(swarm.PairingEnvVar)); t != "" && !slices.Contains(c.Swarm.PairingTokens, t) {
-				c.Swarm.PairingTokens = append(c.Swarm.PairingTokens, t)
-			}
+		// The same document can pass through here more than once (the file
+		// watcher, then a settings save): the pairing token is added once.
+		if t := firstNonEmpty(strings.TrimSpace(*swarmPairing), os.Getenv(swarm.PairingEnvVar)); t != "" && !slices.Contains(c.Swarm.PairingTokens, t) {
+			c.Swarm.PairingTokens = append(c.Swarm.PairingTokens, t)
+		}
 		config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
 		if err := config.ApplyProjectTrustFlag(fs, c, projectTrust); err != nil {
 			return err
@@ -287,16 +287,16 @@ func runServe(args []string) error {
 	log.Info("starting foxxycode serve", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
 
-		if rt.Mgr != nil {
-			// Every configuration installed later - a settings save, config_commit,
-			// a skill change - goes through the same overrides the file watcher
-			// applies, so none of them drops a decision the command line made.
-			rt.Mgr.SetConfigAdjuster(applyProcessOverrides)
-			// The servers of the global configuration start with the process and
-			// stay up for every session of every surface; a project server runs
-			// once per workspace while a session there holds it. All of them stop
-			// with the process.
-			rt.Mgr.StartGlobalMCPServers()
+	if rt.Mgr != nil {
+		// Every configuration installed later - a settings save, config_commit,
+		// a skill change - goes through the same overrides the file watcher
+		// applies, so none of them drops a decision the command line made.
+		rt.Mgr.SetConfigAdjuster(applyProcessOverrides)
+		// The servers of the global configuration start with the process and
+		// stay up for every session of every surface; a project server runs
+		// once per workspace while a session there holds it. All of them stop
+		// with the process.
+		rt.Mgr.StartGlobalMCPServers()
 		defer rt.Mgr.CloseMCP()
 	}
 

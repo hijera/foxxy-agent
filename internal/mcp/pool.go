@@ -298,15 +298,15 @@ func (p *Pool) acquireOnce(ctx context.Context, srv ManagedServer, workspace str
 	e := p.entries[key]
 	if e == nil {
 		_, kept := p.kept[key]
-			// The start is bounded by the caller's own deadline when that comes
-			// first: a caller that gives up on the server when its time runs out
-			// leaves nothing behind for the next one - a turn's one more try -
-			// to join instead of starting afresh.
-			deadline := time.Now().Add(time.Duration(p.dialTimeout.Load()))
-			if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-				deadline = d
-			}
-			e = p.startLocked(key, srv, workspace, kept, deadline)
+		// The start is bounded by the caller's own deadline when that comes
+		// first: a caller that gives up on the server when its time runs out
+		// leaves nothing behind for the next one - a turn's one more try -
+		// to join instead of starting afresh.
+		deadline := time.Now().Add(time.Duration(p.dialTimeout.Load()))
+		if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+			deadline = d
+		}
+		e = p.startLocked(key, srv, workspace, kept, deadline)
 	}
 	e.refs++
 	e.cancelIdleLocked()

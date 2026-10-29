@@ -43,13 +43,13 @@ type Manager struct {
 	cfgObserverMu  sync.Mutex
 	cfgObservers   map[int]func(*config.Config)
 	cfgObserverSeq int
-		// cfgReplaceMu preserves configuration publication order across writers.
-		cfgReplaceMu sync.Mutex
-		// configAdjust re-applies the decisions the process took outside
-		// config.yaml (the command-line flags, the credentials in the
-		// environment) to every configuration installed through
-		// ReplaceConfigChecked, so a save cannot drop them.
-		configAdjust func(*config.Config) error
+	// cfgReplaceMu preserves configuration publication order across writers.
+	cfgReplaceMu sync.Mutex
+	// configAdjust re-applies the decisions the process took outside
+	// config.yaml (the command-line flags, the credentials in the
+	// environment) to every configuration installed through
+	// ReplaceConfigChecked, so a save cannot drop them.
+	configAdjust func(*config.Config) error
 
 	// deleting marks sessions whose bundles are being removed by
 	// DeleteSessionTree, so a turn racing the delete is refused instead of
