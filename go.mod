@@ -1,6 +1,8 @@
 module github.com/hijera/foxxycode-agent
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.10
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
@@ -23,12 +25,12 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/tidwall/gjson v1.18.0
 	github.com/yuin/goldmark v1.8.5
-	golang.org/x/crypto v0.55.0
-	golang.org/x/image v0.20.0
-	golang.org/x/net v0.57.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.45.0
-	golang.org/x/text v0.41.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/image v0.47.0
+	golang.org/x/net v0.62.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/term v0.47.0
+	golang.org/x/text v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -58,5 +60,5 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
 )

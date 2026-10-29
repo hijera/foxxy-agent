@@ -207,7 +207,23 @@ func Checkout(dir, branch string) error {
 	if strings.TrimSpace(branch) == "" {
 		return fmt.Errorf("empty branch name")
 	}
-	_, err := runGit(dir, "checkout", branch)
+	// A name beginning with "-" is read by git as an option (--orphan=x moves
+	// HEAD), and a name that is also a file in the tree is read as a path to
+	// restore, which discards the uncommitted edits in it. Only a name that is
+	// an existing local branch is switched to.
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("refusing branch name that looks like an option: %q", branch)
+	}
+	if _, err := runGit(dir, "check-ref-format", "--branch", branch); err != nil {
+		return fmt.Errorf("invalid branch name %q: %w", branch, err)
+	}
+	// A local branch, or one only origin has: git switch creates the local
+	// branch from the remote-tracking one, as checkout always did.
+	if !refExists(dir, "refs/heads/"+branch) && !refExists(dir, "refs/remotes/origin/"+branch) {
+		return fmt.Errorf("no branch %q", branch)
+	}
+	// switch takes a branch and nothing else: it never reads the name as a path.
+	_, err := runGit(dir, "switch", branch)
 	return err
 }
 

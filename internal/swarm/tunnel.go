@@ -153,16 +153,16 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		(&http2.Server{
+		(&http2.Server{ //nolint:staticcheck // SA1019: the relay serves the tunnel with x/net/http2, see the tunnel migration note
 			// One connection carries every request for this node, so the stream
 			// bound is what keeps a burst from starving a live turn.
-			MaxConcurrentStreams: TunnelMaxConcurrentStreams,
+			MaxConcurrentStreams: TunnelMaxConcurrentStreams, //nolint:staticcheck // SA1019: x/net/http2 server field
 			// Liveness is watched on the connection itself (see above), not
 			// here: HTTP/2's idle timeout ignores pings and is suppressed by an
 			// open stream, so it would never fire on a tunnel that is quietly
 			// dead while holding a long turn.
-			IdleTimeout: 0,
-		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler})
+			IdleTimeout: 0, //nolint:staticcheck // SA1019: x/net/http2 server field
+		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler}) //nolint:staticcheck // SA1019: x/net/http2 server method and options
 	}()
 
 	select {

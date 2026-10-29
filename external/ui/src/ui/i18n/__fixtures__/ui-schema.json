@@ -388,9 +388,9 @@
         },
         "engine": {
           "default": "coddy",
-          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
+          "description": "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
           "enum": [
-            "coddy",
+            "foxxycode",
             "opencode"
           ],
           "title": "Compaction engine",

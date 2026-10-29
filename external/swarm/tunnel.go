@@ -23,7 +23,7 @@ const (
 
 // tunnelTransport reaches a node over the connection that node opened.
 type tunnelTransport struct {
-	cc     *http2.ClientConn
+	cc     *http2.ClientConn //nolint:staticcheck // SA1019: the tunnel speaks x/net/http2 framing; see the tunnel migration note in the swarm docs
 	conn   net.Conn
 	target *url.URL
 
@@ -124,18 +124,18 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 
 	// Configure the backing net/http transport before adopting a connection.
 	// On Go 1.27 x/net/http2 delegates NewClientConn to that transport.
-	tr, err := http2.ConfigureTransports(&http.Transport{})
+	tr, err := http2.ConfigureTransports(&http.Transport{}) //nolint:staticcheck // SA1019: the tunnel keeps the x/net/http2 transport it was built on
 	if err != nil {
 		s.log.Warn("swarm tunnel transport setup failed", "node", node, "error", err)
 		_ = conn.Close()
 		return
 	}
-	tr.AllowHTTP = true
+	tr.AllowHTTP = true //nolint:staticcheck // SA1019: x/net/http2 transport field, kept with the transport above
 	// A dead peer without a FIN needs a ping to distinguish it from an idle one.
-	tr.ReadIdleTimeout = tunnelReadIdleTimeout
-	tr.PingTimeout = tunnelPingTimeout
-	tr.StrictMaxConcurrentStreams = true
-	cc, err := tr.NewClientConn(served)
+	tr.ReadIdleTimeout = tunnelReadIdleTimeout //nolint:staticcheck // SA1019: x/net/http2 transport field
+	tr.PingTimeout = tunnelPingTimeout //nolint:staticcheck // SA1019: x/net/http2 transport field
+	tr.StrictMaxConcurrentStreams = true //nolint:staticcheck // SA1019: x/net/http2 transport field
+	cc, err := tr.NewClientConn(served) //nolint:staticcheck // SA1019: x/net/http2 transport method
 	if err != nil {
 		s.log.Warn("swarm tunnel handshake failed", "node", node, "error", err)
 		_ = conn.Close()

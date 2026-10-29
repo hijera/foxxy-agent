@@ -48,7 +48,8 @@ Everything lands in `dist/security/` (gitignored):
 
 - `trivy.json`, `semgrep.json` — full findings, all severities
 - `trivy.sarif`, `semgrep.sarif` — for GitHub code scanning; the trivy SARIF
-  excludes secrets because code scanning persists the matched text
+  excludes secrets because code scanning persists the matched text; the semgrep SARIF
+  carries matched code and is uploaded from trusted events only
 - `summary.md` — severity counts, what the CI job summary shows
 - `.cache/` — scanner caches so repeat runs stay fast
 

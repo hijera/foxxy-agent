@@ -12,6 +12,11 @@ const (
 	// last summary onward (session.MessagesForLLM). It supports the manual /compact
 	// command and the HTTP compact endpoint.
 	CompactionEngineCoddy = "coddy"
+	// CompactionEngineFoxxyCode is the name the schema, the example config and
+	// the documentation have always given the default engine. It is read as an
+	// alias of CompactionEngineCoddy, so a file written for either spelling
+	// validates and runs the same engine.
+	CompactionEngineFoxxyCode = "foxxycode"
 	// CompactionEngineOpenCode is the fork's original engine: it flags older messages
 	// Compacted and filters them from the model payload (isLLMHistoryMessage).
 	CompactionEngineOpenCode = "opencode"
@@ -193,6 +198,9 @@ func (c *CompactionConfig) EffectiveKeepRecentTurns() int {
 func (c *CompactionConfig) Normalize() {
 	c.Model = strings.TrimSpace(c.Model)
 	c.Engine = strings.ToLower(strings.TrimSpace(c.Engine))
+	if c.Engine == CompactionEngineFoxxyCode {
+		c.Engine = CompactionEngineCoddy
+	}
 }
 
 // ApplyDefaults sets zero values to safe defaults. An omitted enabled key defaults to true and an
@@ -226,9 +234,9 @@ func (c *CompactionConfig) ApplyDefaults() {
 // Validate checks the engine value, compaction model reference, and threshold bounds.
 func (c *CompactionConfig) Validate(cfg *Config) error {
 	switch c.Engine {
-	case "", CompactionEngineCoddy, CompactionEngineOpenCode:
+	case "", CompactionEngineCoddy, CompactionEngineFoxxyCode, CompactionEngineOpenCode:
 	default:
-		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineCoddy, CompactionEngineOpenCode)
+		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineFoxxyCode, CompactionEngineOpenCode)
 	}
 	if err := c.ResultEviction.Validate(); err != nil {
 		return err

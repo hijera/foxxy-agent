@@ -174,8 +174,11 @@ export function tokenForRemote(remote: ConfiguredRemote): string {
 
 /**
  * connectConfiguredRemote points the app at a configured remote. A token from
- * the configuration is not copied into the browser's per-remote list: it stays
- * the server's, and a rotated one is picked up on the next read.
+ * the configuration is not copied into the browser's per-remote list. It is
+ * still written with the active environment (storeEnv keeps the whole
+ * environment in localStorage), and syncActiveToken refreshes it from the
+ * configuration on the next read, so a rotated token is picked up without
+ * choosing the remote again.
  */
 export function connectConfiguredRemote(remote: ConfiguredRemote): void {
   connectRemote(remote.url, tokenForRemote(remote), remote.name, {

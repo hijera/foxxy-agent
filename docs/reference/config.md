@@ -301,7 +301,7 @@ Summarize older turns when the conversation approaches the model's context windo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `compaction.engine` | string, one of `coddy`, `opencode` | coddy | Compaction implementation: "coddy" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
+| `compaction.engine` | string, one of `foxxycode`, `opencode` | foxxycode | Compaction implementation: "foxxycode" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
 | `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
 | `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |

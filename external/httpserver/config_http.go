@@ -19,9 +19,12 @@ func (s *Server) registerConfigRoutes() {
 		// ReplaceConfig on the manager reaches this server through the config
 		// observer registered in New, which is also how a reload from the
 		// agent's own config_commit tool or from the console gets here.
+		// ReplaceConfigChecked applies the process's command-line decisions
+		// before the document is published, so a save cannot drop them. An error
+		// here rolls the file back (configapi), so the client sees a failed save
+		// rather than a silently weaker configuration.
 		Install: func(c *config.Config) error {
-			s.mgr.ReplaceConfig(c)
-			return nil
+			return s.mgr.ReplaceConfigChecked(c)
 		},
 		Schema:    configSchemaForBuild,
 		Decorate:  s.decorateConfigDocument,

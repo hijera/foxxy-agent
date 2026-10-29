@@ -745,8 +745,8 @@ func UISchemaMap() map[string]interface{} {
 				"engine": map[string]interface{}{
 					"type":        "string",
 					"title":       "Compaction engine",
-					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
-					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
+					"description": "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
+					"enum":        []string{CompactionEngineFoxxyCode, CompactionEngineOpenCode},
 				},
 				"enable":      boolProp("Enabled", "Master switch for manual and automatic compaction. Defaults to true."),
 				"auto_enable": boolProp("Automatic compaction", "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true."),

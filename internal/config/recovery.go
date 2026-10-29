@@ -35,7 +35,7 @@ func WriteBackup(configPath string, data []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	return atomicWriteFile(BackupPath(configPath), data, 0o644)
+	return atomicWriteFile(BackupPath(configPath), data, 0o600)
 }
 
 // BackupCurrent copies the current config file to config.yaml.bak.
@@ -59,7 +59,7 @@ func BackupCurrent(configPath string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(BackupPath(src), data, 0o644)
+	return atomicWriteFile(BackupPath(src), data, 0o600)
 }
 
 // AtomicWriteConfigYAML writes yamlBytes to configPath using a temp file and rename.
@@ -73,7 +73,7 @@ func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 	if current, err := os.ReadFile(configPath); err == nil {
 		yamlBytes = applyLineEnding(yamlBytes, configLineEnding(current))
 	}
-	return atomicWriteFile(configPath, yamlBytes, 0o644)
+	return atomicWriteFile(configPath, yamlBytes, 0o600)
 }
 
 func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {

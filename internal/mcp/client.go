@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,7 +99,11 @@ type Client struct {
 	// release gives a pool lease back; nil for a client that owns its
 	// connection.
 	release func()
-	closed  atomic.Bool
+	// releaseNow is release for a caller that started the server for itself
+	// (a probe): a server nobody else holds stops at once instead of waiting
+	// out the stop delay. Nil for a client that owns its connection.
+	releaseNow func()
+	closed     atomic.Bool
 
 	// declared is the fingerprint of the declaration the client was started
 	// from (TrustGate.Connect, Pool.Acquire), empty for one neither started.
@@ -231,6 +236,23 @@ func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (strin
 // pool lease is given back. Closing twice is a no-op.
 func (c *Client) Close() error {
 	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	if c.release != nil {
+		c.release()
+		return nil
+	}
+	return c.conn.close()
+}
+
+// CloseNow is Close for a probe: a pooled server nobody else holds or keeps
+// stops at once rather than after the idle timeout.
+func (c *Client) CloseNow() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	if c.releaseNow != nil {
+		c.releaseNow()
 		return nil
 	}
 	if c.release != nil {
@@ -702,8 +724,20 @@ func (t *stdioTransport) stop() {
 	case <-t.exited:
 	case <-time.After(t.exitGrace):
 	}
-	if err := platform.TerminateProcessGroup(t.cmd, t.termGrace); err != nil {
-		t.log.Warn("mcp server process group did not stop", "server", t.name, "error", err)
+	// Once the leader has been waited for, its pid is free to be reused by an
+	// unrelated process. On Windows a pid-addressed taskkill would then walk
+	// somebody else's tree, so only the job object (closeJob below) ends what
+	// is left there. On unix the group id still names what the server started.
+	leaderGone := false
+	select {
+	case <-t.exited:
+		leaderGone = true
+	default:
+	}
+	if !leaderGone || runtime.GOOS != "windows" {
+		if err := platform.TerminateProcessGroup(t.cmd, t.termGrace); err != nil {
+			t.log.Warn("mcp server process group did not stop", "server", t.name, "error", err)
+		}
 	}
 	t.closeJob()
 	select {

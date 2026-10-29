@@ -3,6 +3,7 @@ package permission
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -55,10 +56,53 @@ func sessionGrantAllows(grants []string, cmd string) bool {
 // PromptBody returns UI text for a permission dialog (optional permission_rationale JSON field).
 func PromptBody(toolName, inputJSON string) string {
 	r := strings.TrimSpace(gjson.Get(inputJSON, "permission_rationale").String())
+	// A command that names its directory shows it even with a rationale: the
+	// place a command runs is part of what the operator approves.
+	if cwd := strings.TrimSpace(gjson.Get(inputJSON, "cwd").String()); toolName == "run_command" && cwd != "" {
+		if r != "" {
+			return r + "\n\nDirectory: " + cwd
+		}
+		return "Directory: " + cwd + "\n" + fmt.Sprintf("Arguments: %s", inputJSON)
+	}
 	if r != "" {
 		return r
 	}
 	return fmt.Sprintf("Arguments: %s", inputJSON)
+}
+
+// RunCommandCWDOutside reports whether a run_command's cwd names a directory
+// outside the workspace it runs under. An omitted or empty cwd is the workspace
+// itself. A relative cwd resolves against the workspace, so one that climbs out
+// with ".." is outside too. With no workspace known, any cwd counts as outside:
+// a grant cannot then vouch for the directory.
+//
+// A session grant approves a command, not the place it runs; the caller uses
+// this to ask again for a command that would run elsewhere on disk.
+func RunCommandCWDOutside(workspace, argsJSON string) bool {
+	var args struct {
+		CWD string `json:"cwd"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return false
+	}
+	cwd := strings.TrimSpace(args.CWD)
+	if cwd == "" || cwd == "." {
+		return false
+	}
+	if strings.TrimSpace(workspace) == "" {
+		return true
+	}
+	ws := filepath.Clean(workspace)
+	target := cwd
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(ws, target)
+	}
+	target = filepath.Clean(target)
+	rel, err := filepath.Rel(ws, target)
+	if err != nil {
+		return true
+	}
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel)
 }
 
 // ExtractRunCommand returns the shell command from run_command JSON args.

@@ -43,8 +43,13 @@ type Manager struct {
 	cfgObserverMu  sync.Mutex
 	cfgObservers   map[int]func(*config.Config)
 	cfgObserverSeq int
-	// cfgReplaceMu preserves configuration publication order across writers.
-	cfgReplaceMu sync.Mutex
+		// cfgReplaceMu preserves configuration publication order across writers.
+		cfgReplaceMu sync.Mutex
+		// configAdjust re-applies the decisions the process took outside
+		// config.yaml (the command-line flags, the credentials in the
+		// environment) to every configuration installed through
+		// ReplaceConfigChecked, so a save cannot drop them.
+		configAdjust func(*config.Config) error
 
 	// deleting marks sessions whose bundles are being removed by
 	// DeleteSessionTree, so a turn racing the delete is refused instead of
@@ -203,6 +208,36 @@ const mcpReloadTimeout = 30 * time.Second
 // Only the config-declared servers are compared: the dialer also merges
 // <home>/mcp.json and <cwd>/.foxxycode/mcp.json, and reaching those from here
 // would mean file I/O on the request that saved the settings.
+// SetConfigAdjuster installs the function that re-applies the process's own
+// decisions to a configuration before ReplaceConfigChecked publishes it. A nil
+// adjuster publishes configurations as given.
+func (m *Manager) SetConfigAdjuster(fn func(*config.Config) error) {
+	m.cfgReplaceMu.Lock()
+	defer m.cfgReplaceMu.Unlock()
+	m.configAdjust = fn
+}
+
+// ReplaceConfigChecked is ReplaceConfig for a configuration that came from
+// outside the process (a settings save, config_commit, a skill change). It
+// applies the adjuster first, so the decisions the operator made on the command
+// line survive the save, and returns the adjuster's error without publishing
+// anything when the adjusted document is not valid.
+func (m *Manager) ReplaceConfigChecked(next *config.Config) error {
+	if next == nil {
+		return nil
+	}
+	m.cfgReplaceMu.Lock()
+	adjust := m.configAdjust
+	m.cfgReplaceMu.Unlock()
+	if adjust != nil {
+		if err := adjust(next); err != nil {
+			return err
+		}
+	}
+	m.ReplaceConfig(next)
+	return nil
+}
+
 func (m *Manager) ReplaceConfig(next *config.Config) {
 	if next == nil {
 		return
@@ -402,6 +437,14 @@ func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]stri
 	next, err := config.LoadWithPaths(current.Paths)
 	if err != nil {
 		return nil, err
+	}
+	m.cfgReplaceMu.Lock()
+	adjust := m.configAdjust
+	m.cfgReplaceMu.Unlock()
+	if adjust != nil {
+		if err := adjust(next); err != nil {
+			return nil, err
+		}
 	}
 	loader := skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
 	var warnings []string

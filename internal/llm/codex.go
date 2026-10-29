@@ -169,14 +169,21 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			// is collected on .done, so this only names it.
 			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
 				streamingCalls[ev.Item.ID] = ToolCall{ID: ev.Item.CallID, Name: ev.Item.Name}
-				emit(StreamChunk{ToolCallNamed: &ToolCall{
-					ID:   ev.Item.CallID,
-					Name: ev.Item.Name,
-				}})
+				// An announcement is a hint, not output: onChunk directly, as the
+				// openai path does, so a stream cut mid-arguments stays replayable.
+				if onChunk != nil {
+					onChunk(StreamChunk{ToolCallNamed: &ToolCall{
+						ID:   ev.Item.CallID,
+						Name: ev.Item.Name,
+					}})
+				}
 			}
 		case "response.function_call_arguments.delta":
 			if tc, ok := streamingCalls[ev.ItemID]; ok && ev.Delta.OfString != "" {
 				tc.InputJSON = ev.Delta.OfString
+				// Argument fragments stay on emit: a retry after them would
+				// replay the fragments into the same progress state, doubling
+				// the counts. The announcement alone bypasses emit.
 				emit(StreamChunk{ToolCallDelta: &tc})
 			}
 		case "response.output_item.done":

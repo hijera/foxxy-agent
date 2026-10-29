@@ -1210,12 +1210,12 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
+          "description": "Compaction implementation: \"foxxycode\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
           "enum": [
-            "coddy",
+            "foxxycode",
             "opencode"
           ],
-          "default": "coddy"
+          "default": "foxxycode"
         },
         "enable": {
           "type": "boolean",

@@ -547,12 +547,12 @@ tools:
 # (models[].max_context_tokens, else the window the provider's model listing reports, else
 # 128000), older turns are summarized into one message so the session can continue. Enabled by default; it only fires near the window. compaction.model is used ONLY for
 # the summary pass — leave empty to reuse agent.model.
-# Two engines: "coddy" (default) keeps a summary row and replays only the window after it, and
+# Two engines: "foxxycode" (default) keeps a summary row and replays only the window after it, and
 # enables the manual /compact command; "opencode" flags older turns and filters them from the
 # payload. Both engines fold a history that outgrew the summarizer's own window in several
 # passes, walk the same fallback chain, and answer the model's own compact_context tool.
 # compaction:
-#   engine: coddy           # coddy (default) | opencode
+#   engine: foxxycode           # foxxycode (default) | opencode
 #   enable: true
 #   auto_enable: true      # false disables only the automatic threshold trigger
 #   model: ""

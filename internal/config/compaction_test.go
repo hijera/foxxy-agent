@@ -131,6 +131,23 @@ func TestCompactionKeepRecentExplicitZero(t *testing.T) {
 	}
 }
 
+// The name the schema and the example config give the default engine is read
+// as the coddy engine, so a file written with either spelling validates and
+// runs the same engine.
+func TestCompactionFoxxyCodeEngineIsAliasOfCoddy(t *testing.T) {
+	c := config.CompactionConfig{Engine: "foxxycode"}
+	c.Normalize()
+	c.ApplyDefaults()
+	if c.Engine != config.CompactionEngineCoddy || c.EngineIsOpenCode() {
+		t.Fatalf("engine foxxycode resolved to %q, want %q", c.Engine, config.CompactionEngineCoddy)
+	}
+	cfg := &config.Config{Compaction: config.CompactionConfig{Engine: "foxxycode"}}
+	cfg.Compaction.ApplyDefaults()
+	if err := cfg.Compaction.Validate(cfg); err != nil {
+		t.Fatalf("engine foxxycode must validate, got %v", err)
+	}
+}
+
 func TestCompactionValidateEngine(t *testing.T) {
 	cfg := &config.Config{Compaction: config.CompactionConfig{Engine: "bogus"}}
 	cfg.Compaction.Normalize()

@@ -127,11 +127,15 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		input string
 	}
 	toolUseMap := make(map[int64]*toolUseAccum)
+	// toolUseOrder keeps the content-block indexes of the tool_use blocks in
+	// the order they started. The indexes are block positions in the message,
+	// so a text block before a tool call makes the call's index 1, not 0.
+	var toolUseOrder []int64
 
 	finalizeAnthropicToolUses := func() []ToolCall {
 		var out []ToolCall
-		for i := int64(0); i < int64(len(toolUseMap)); i++ {
-			acc, ok := toolUseMap[i]
+		for _, idx := range toolUseOrder {
+			acc, ok := toolUseMap[idx]
 			if !ok {
 				continue
 			}
@@ -173,6 +177,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				// this is the Anthropic twin of the openai tool-argument case.
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
+					// Argument fragments stay on emit: a retry after them would
+					// replay the fragments into the same progress state, doubling
+					// the counts. The announcement alone bypasses emit.
 					emit(StreamChunk{ToolCallDelta: &ToolCall{ID: acc.id, Name: acc.name, InputJSON: d.PartialJSON}})
 				}
 				progress()
@@ -181,11 +188,17 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.ContentBlockStartEvent:
 			cb := e.ContentBlock
 			if cb.Type == "tool_use" {
+				if _, seen := toolUseMap[e.Index]; !seen {
+					toolUseOrder = append(toolUseOrder, e.Index)
+				}
 				toolUseMap[e.Index] = &toolUseAccum{
 					id:   cb.ID,
 					name: cb.Name,
 				}
-				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: cb.ID, Name: cb.Name}})
+				// An announcement is a hint, not output: it goes to onChunk
+				// directly, as the openai path does, so a stream cut while the
+				// arguments are still arriving stays replayable.
+				onChunk(StreamChunk{ToolCallNamed: &ToolCall{ID: cb.ID, Name: cb.Name}})
 			}
 			progress()
 

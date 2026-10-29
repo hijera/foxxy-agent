@@ -211,13 +211,18 @@ func PoolKey(srv ManagedServer, workspace string) string {
 		Env       []string    `json:"env,omitempty"`
 		URL       string      `json:"url,omitempty"`
 		Headers   [][2]string `json:"headers,omitempty"`
-		Workspace string      `json:"workspace,omitempty"`
+		// Insecure is part of the key: a connection opened with an unchecked
+		// certificate must never be handed to a declaration that asked for
+		// a verified one, or the other way round.
+		Insecure  bool   `json:"insecure,omitempty"`
+		Workspace string `json:"workspace,omitempty"`
 	}{Name: cfg.Name, Transport: EffectiveTransport(cfg)}
 	if payload.Transport == "stdio" {
 		command, args, env := stdioSpec(cfg, workspace)
 		payload.Command, payload.Args, payload.Env = command, args, effectiveEnv(env)
 	} else {
 		payload.URL = config.ExpandCWD(cfg.URL, workspace)
+		payload.Insecure = cfg.InsecureSkipVerify
 		for name, value := range expandHeaders(cfg, workspace) {
 			payload.Headers = append(payload.Headers, [2]string{name, value})
 		}
@@ -293,15 +298,15 @@ func (p *Pool) acquireOnce(ctx context.Context, srv ManagedServer, workspace str
 	e := p.entries[key]
 	if e == nil {
 		_, kept := p.kept[key]
-		// The start is bounded by the caller's own deadline when that comes
-		// first: a caller that gives up on the server when its time runs out
-		// leaves nothing behind for the next one - a turn's one more try -
-		// to join instead of starting afresh.
-		deadline := time.Now().Add(time.Duration(p.dialTimeout.Load()))
-		if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-			deadline = d
-		}
-		e = p.startLocked(key, srv, workspace, kept, deadline)
+			// The start is bounded by the caller's own deadline when that comes
+			// first: a caller that gives up on the server when its time runs out
+			// leaves nothing behind for the next one - a turn's one more try -
+			// to join instead of starting afresh.
+			deadline := time.Now().Add(time.Duration(p.dialTimeout.Load()))
+			if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+				deadline = d
+			}
+			e = p.startLocked(key, srv, workspace, kept, deadline)
 	}
 	e.refs++
 	e.cancelIdleLocked()
@@ -333,11 +338,12 @@ func (p *Pool) acquireOnce(ctx context.Context, srv ManagedServer, workspace str
 	default:
 	}
 	return &Client{
-		name:     srv.Config.Name,
-		conn:     e.conn,
-		declared: Fingerprint(srv.Config),
-		poolKey:  e.key,
-		release:  func() { p.release(e) },
+		name:       srv.Config.Name,
+		conn:       e.conn,
+		declared:   Fingerprint(srv.Config),
+		poolKey:    e.key,
+		release:    func() { p.release(e) },
+		releaseNow: func() { p.release2(e, true) },
 	}, false, nil
 }
 
@@ -602,9 +608,21 @@ func (p *Pool) dial(ctx context.Context, cancel context.CancelFunc, e *poolEntry
 // server this left unheld stops now when its declaration is no longer in
 // effect, and after the stop delay otherwise.
 func (p *Pool) release(e *poolEntry) {
+	p.release2(e, false)
+}
+
+// release2 is release; with now set, a server nobody holds or keeps stops at
+// once, without the stop delay. A probe that started a server for itself uses
+// it, so the server does not outlive the probe.
+func (p *Pool) release2(e *poolEntry, now bool) {
 	p.mu.Lock()
 	e.refs--
-	idle := p.idleLocked(e)
+	var idle *conn
+	if now && e.refs == 0 && !e.kept && e.conn != nil && !e.ended {
+		idle = p.endLocked(e)
+	} else {
+		idle = p.idleLocked(e)
+	}
 	lingers := idle == nil && e.idle != nil && e.refs == 0
 	p.mu.Unlock()
 	if idle != nil {

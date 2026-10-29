@@ -1468,7 +1468,7 @@ func (a *Agent) runReActLoop(
 					if a.state.IsUserCancelledTurn() {
 						return string(acp.StopReasonCancelled), nil
 					}
-					return string(acp.StopReasonRefused), fmt.Errorf("%w (the pause before carrying on the answer was interrupted: %v)", stallAbortError(stallIdle, stallContinues-1, attemptRestarts), err)
+					return string(acp.StopReasonRefused), fmt.Errorf("%w (the pause before carrying on the answer was interrupted: %w)", stallAbortError(stallIdle, stallContinues-1, attemptRestarts), err)
 				}
 				messages = a.buildMessages(sys.Content)
 				// LLM-facing only; never persisted to the transcript.
@@ -1538,7 +1538,7 @@ func (a *Agent) runReActLoop(
 					}
 					// A shutdown or a deadline, not the user: the turn ends with
 					// the limit it was waiting on and says what cut the wait.
-					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %w)", reset, err)
 				}
 				resetRetries("quota_reset_wait")
 				turn--
@@ -1586,7 +1586,7 @@ func (a *Agent) runReActLoop(
 					}
 					// A deadline or a shutdown, not the user: the turn ends
 					// with the failure it was recovering from.
-					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before carrying on the answer was interrupted: %v)", streamErr, err)
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before carrying on the answer was interrupted: %w)", streamErr, err)
 				}
 				messages = a.buildMessages(sys.Content)
 				nudge := providerRecoveryNudge

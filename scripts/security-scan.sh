@@ -23,8 +23,9 @@
 #                      limits / Pro rules (never required)
 #
 # Reports land in dist/security/: trivy.json, trivy.sarif, semgrep.json,
-# semgrep.sarif, summary.md. The SARIF files exclude secret findings
-# (code scanning persists matched text on GitHub).
+# semgrep.sarif, summary.md. Only trivy.sarif excludes secret findings
+# (code scanning persists matched text on GitHub). semgrep.sarif carries the
+# matched code of its rules, so it is uploaded only from trusted events.
 #
 # Exit code: 0 when every requested scan ran and the gate is clean; 1 on a
 # gate failure or an operational error (missing tool, dead docker, bad env
@@ -204,7 +205,7 @@ if want_scanner semgrep; then
   cfgs=()
   for c in $SEMGREP_CONFIGS; do cfgs+=(--config "$c"); done
   log "semgrep: scan ($SEMGREP_CONFIGS)"
-  if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off \
+  if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off --strict \
         --json --output "$OUT/semgrep.json" .; then
     log "semgrep: scan failed"
     status=1
@@ -212,7 +213,7 @@ if want_scanner semgrep; then
     log "semgrep: empty report"
     status=1
   else
-    if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off \
+    if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off --strict \
           --sarif --output "$OUT/semgrep.sarif" .; then
       log "semgrep: SARIF pass failed"
       status=1
@@ -235,11 +236,19 @@ failures = []
 def sev_at_or_above(sev, floor, order):
     return sev in order and order.index(sev) >= order.index(floor)
 
-if "trivy" in scanners:
+def load_report(name):
+    # A scanner that was asked for must leave a readable report. A missing or
+    # unparsable one is a failed gate, not a clean one: otherwise a truncated
+    # file passes silently.
     try:
-        doc = json.load(open(os.path.join(out, "trivy.json")))
-    except Exception:
-        doc = None
+        with open(os.path.join(out, name)) as fh:
+            return json.load(fh)
+    except Exception as exc:
+        failures.append(f"GATE-FAIL {name}: report unreadable ({exc})")
+        return None
+
+if "trivy" in scanners:
+    doc = load_report("trivy.json")
     if doc is not None:
         order = ["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
         counts = {s: 0 for s in order}
@@ -266,10 +275,7 @@ if "trivy" in scanners:
                 failures.append(
                     f"GATE-FAIL trivy: {hits} finding(s) at or above {floor}")
 if "semgrep" in scanners:
-    try:
-        doc = json.load(open(os.path.join(out, "semgrep.json")))
-    except Exception:
-        doc = None
+    doc = load_report("semgrep.json")
     if doc is not None:
         order = ["INFO", "WARNING", "ERROR"]
         counts = {}

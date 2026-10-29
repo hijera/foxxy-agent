@@ -152,7 +152,7 @@ func (g *TrustGate) ProbeShared(ctx context.Context, pool *Pool, srv ManagedServ
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
+	defer func() { _ = client.CloseNow() }()
 	return client.conn.fetchTools(ctx)
 }
 
