@@ -232,9 +232,9 @@ touch targets on the stacked shell. Fit resets the camera, as does changing the 
 ordinary five-second topology polling does not discard a manual pan or zoom, though it keeps the
 camera inside changed graph bounds.
 
-![The Graph layout with the canvas controls](../assets/swarm/map-graph-canvas-dark-1280.png)
+![The map canvas in Tree layout, with the layout selectors and the zoom controls](../assets/swarm/map-dark-1280.png)
 
-*The Graph layout: soft top-down placement, smooth links, and camera controls over the canvas.*
+*The map canvas: this machine, its relay and the node behind it, with the Tree and Graph selectors and the camera controls.*
 
 The route in use is an accent path. Every relay it crosses is outlined, with the relay the app is
 currently driving outlined more strongly; alternate routes remain visibly secondary. This makes a

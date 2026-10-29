@@ -151,7 +151,6 @@ compaction:
 | `engine` | `coddy` | the implementation: `coddy` inserts a summary row, `opencode` flags and filters older messages |
 | `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
 | `auto_enable` | `true` | automatic threshold trigger; manual actions remain available when false |
-| `auto_enable` | `true` | automatic threshold trigger; manual actions remain available when false |
 | `threshold_percent` | `80` (`85` for opencode) | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `max_tokens` | `4096` | the completion cap of the opencode engine's summary |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |

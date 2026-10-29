@@ -1351,9 +1351,9 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 
 ## Swarm screen
 
-![The swarm screen with relays, nodes and rings](../assets/swarm/map-dark-1280.png)
+![The swarm map: this machine, a relay and a node, with the layout and zoom controls](../assets/swarm/map-dark-1280.png)
 
-*The swarm screen with relays, nodes and rings*
+*The swarm map: this machine, a relay and a node, with the Tree and Graph selectors and the zoom controls*
 
 Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 
