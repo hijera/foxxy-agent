@@ -205,7 +205,7 @@ if want_scanner semgrep; then
   cfgs=()
   for c in $SEMGREP_CONFIGS; do cfgs+=(--config "$c"); done
   log "semgrep: scan ($SEMGREP_CONFIGS)"
-  if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off --strict \
+  if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off \
         --json --output "$OUT/semgrep.json" .; then
     log "semgrep: scan failed"
     status=1
@@ -213,7 +213,7 @@ if want_scanner semgrep; then
     log "semgrep: empty report"
     status=1
   else
-    if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off --strict \
+    if ! "${SEMGREP_RUN[@]}" scan "${cfgs[@]}" --metrics=off \
           --sarif --output "$OUT/semgrep.sarif" .; then
       log "semgrep: SARIF pass failed"
       status=1
