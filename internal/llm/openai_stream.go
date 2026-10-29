@@ -498,11 +498,10 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// nothing but a Stop button; the call itself is still collected from
 			// the builders when the stream ends.
 			//
-			// It goes to onChunk directly, like progress: an announcement is a
-			// hint, not output. Routing it through emit would set the flag that
-			// disables the replay of a truncated stream, and a stream that dies
-			// while the arguments are still being written is exactly the one a
-			// retry recovers. The caller retracts a row whose call never arrived.
+			// Announcements and argument previews are retractable hints, not output:
+			// a stream that showed nothing else may be replayed. The resilience
+			// wrapper numbers its attempts so the caller resets the preview instead
+			// of concatenating two attempts under one call id.
 			if !b.named && b.name != "" && b.id != "" {
 				b.named = true
 				onChunk(StreamChunk{ToolCallNamed: &ToolCall{ID: b.id, Name: b.name}})

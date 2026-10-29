@@ -147,9 +147,13 @@ type StreamChunk struct {
 	// ToolCallDelta carries only an argument fragment, never an executable call.
 	ToolCallDelta *ToolCall
 	ToolCallNamed *ToolCall
-	StopReason    string
-	InputTokens   int
-	OutputTokens  int
+	// Attempt is the 1-based request attempt that produced this chunk, assigned
+	// by the resilience wrapper. Consumers accumulating argument previews reset
+	// them when it changes; zero means the provider was not wrapped.
+	Attempt      int
+	StopReason   string
+	InputTokens  int
+	OutputTokens int
 	// Progress marks a frame that advanced generation without delivering anything
 	// to the caller: a tool call's argument fragment, a thinking-block signature,
 	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the

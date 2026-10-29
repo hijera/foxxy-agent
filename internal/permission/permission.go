@@ -3,6 +3,7 @@ package permission
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -73,8 +74,10 @@ func PromptBody(toolName, inputJSON string) string {
 // RunCommandCWDOutside reports whether a run_command's cwd names a directory
 // outside the workspace it runs under. An omitted or empty cwd is the workspace
 // itself. A relative cwd resolves against the workspace, so one that climbs out
-// with ".." is outside too. With no workspace known, any cwd counts as outside:
-// a grant cannot then vouch for the directory.
+// with ".." is outside too. Symlinks and junctions are resolved as well: the
+// command runs at their target, so that target is what the grant must cover.
+// With no workspace known, any cwd counts as outside: a grant cannot then vouch
+// for the directory.
 //
 // A session grant approves a command, not the place it runs; the caller uses
 // this to ask again for a command that would run elsewhere on disk.
@@ -98,11 +101,41 @@ func RunCommandCWDOutside(workspace, argsJSON string) bool {
 		target = filepath.Join(ws, target)
 	}
 	target = filepath.Clean(target)
+	ws = resolveCWDPath(ws)
+	target = resolveCWDPath(target)
 	rel, err := filepath.Rel(ws, target)
 	if err != nil {
 		return true
 	}
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel)
+}
+
+func resolveCWDPath(path string) string {
+	return resolveCWDPathDepth(path, 0)
+}
+
+func resolveCWDPathDepth(path string, depth int) string {
+	if depth > 255 {
+		return filepath.Clean(path)
+	}
+	if target, err := os.Readlink(path); err == nil {
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(path), target)
+		}
+		return resolveCWDPathDepth(target, depth+1)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		parent := filepath.Dir(resolved)
+		if parent == resolved {
+			return resolved
+		}
+		return filepath.Join(resolveCWDPathDepth(parent, depth+1), filepath.Base(resolved))
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(resolveCWDPathDepth(parent, depth+1), filepath.Base(path))
 }
 
 // ExtractRunCommand returns the shell command from run_command JSON args.

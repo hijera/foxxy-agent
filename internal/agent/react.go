@@ -1226,11 +1226,16 @@ func (a *Agent) runReActLoop(
 			"first_token_timeout", firstTokenTimeout, "stream_idle_timeout", streamIdle)
 		a.progress.beginCall()
 		inputProgress := make(map[string]*toolInputProgress)
+		streamAttempt := 0
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
+			if chunk.Attempt > 0 && chunk.Attempt != streamAttempt {
+				streamAttempt = chunk.Attempt
+				inputProgress = make(map[string]*toolInputProgress)
+			}
 			if chunk.Progress {
 				// Carries no content by construction: it exists only to say the
 				// model is still working, so it re-arms the guards and stops here.

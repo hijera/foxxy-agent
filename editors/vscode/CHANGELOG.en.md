@@ -14,6 +14,7 @@
 - Added manual compaction and its automatic threshold control to the Context popover; estimates now include tool schemas, reasoning and images and retain provider token anchors.
 - Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
+- Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
 
 ## 0.3.38 — 2026-10-26
 

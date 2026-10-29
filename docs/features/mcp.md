@@ -407,8 +407,8 @@ session, and each subagent a session spawns, holds a lease on a connection the p
 shares:
 
 - A server of the global configuration (`mcp_servers` in `config.yaml`,
-  `~/.foxxycode/mcp.json`) is one process for the whole FoxxyCode process. `foxxycode serve`, the
-  console and `foxxycode acp` start these servers as they start, before any session asks for
+  `~/.foxxycode/mcp.json`) is one process for the whole FoxxyCode process. `foxxycode serve`,
+  `foxxycode http`, the console and `foxxycode acp` start these servers as they start, before any session asks for
   them, and keep them up until they exit: a session that opens finds them connected, and
   one that closes does not stop them. The set follows the configuration: a server added
   or switched on starts at once, one removed or switched off stops as soon as no session

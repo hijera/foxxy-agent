@@ -1,7 +1,10 @@
 package permission
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -32,5 +35,21 @@ func TestRunCommandCWDOutside(t *testing.T) {
 				t.Fatalf("RunCommandCWDOutside(%q) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunCommandCWDOutsideResolvesLinks(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(ws, "linked")
+	if runtime.GOOS == "windows" {
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
+			t.Skipf("junction unavailable: %v: %s", err, out)
+		}
+	} else if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if !RunCommandCWDOutside(ws, `{"command":"go test","cwd":"linked"}`) {
+		t.Fatalf("cwd %q resolves outside the workspace but was treated as inside", link)
 	}
 }

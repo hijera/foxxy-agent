@@ -140,7 +140,9 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	// delta has reached the caller, replaying the turn would duplicate output.
 	// Atomic because a transport is free to deliver chunks from its own goroutine.
 	var emitted atomic.Bool
+	var attempt atomic.Int64
 	guarded := func(c StreamChunk) {
+		c.Attempt = int(attempt.Load())
 		if c.TextDelta != "" || c.ReasoningDelta != "" || c.ToolCall != nil {
 			emitted.Store(true)
 			first.Do(func() { diagnosticEvent(ctx, "llm.first_chunk", "elapsed_ms", time.Since(started).Milliseconds()) })
@@ -150,6 +152,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 		}
 	}
 	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+		attempt.Add(1)
 		return p.inner.Stream(ctx, messages, tools, guarded)
 	})
 	if emitted.Load() || !isVisionRejection(err, messages) {
@@ -158,7 +161,8 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	p.logVisionFallback(ctx, err)
 	stripped := messagesWithoutImages(messages)
 	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
-		return p.inner.Stream(ctx, stripped, tools, onChunk)
+		attempt.Add(1)
+		return p.inner.Stream(ctx, stripped, tools, guarded)
 	})
 }
 

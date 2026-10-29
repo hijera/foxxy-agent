@@ -25,7 +25,7 @@ import (
 // project server, for as long as a session of that workspace holds it.
 //
 // Long-running surfaces call it once they have built the manager (foxxycode
-// serve, the console, foxxycode acp). A manager that never does shares its
+// serve, foxxycode http, the console, foxxycode acp). A manager that never does shares its
 // servers all the same and stops each one with the last session that held it.
 func (m *Manager) StartGlobalMCPServers() {
 	m.keepGlobalMCP.Store(true)
