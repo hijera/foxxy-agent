@@ -143,14 +143,27 @@ func defaultBranch(dir string) string {
 	return strings.TrimPrefix(ref, "origin/")
 }
 
-// MainCheckoutRoot identifies the main checkout using git's common directory.
-// A plain directory or an unavailable git binary yields an empty string.
+// MainCheckoutRoot identifies the main checkout of the repository dir sits
+// in: the directory holding the .git, which is the main checkout for a plain
+// repo and for a linked worktree alike. Layouts where the git directory is
+// not named .git - a submodule keeps it at <super>/.git/modules/<name>, and
+// `git init --separate-git-dir` puts it anywhere - answer with dir's own
+// checkout instead: `git worktree list` cannot be trusted there, since it
+// reports the git directory as the main worktree. A plain directory or an
+// unavailable git binary yields an empty string.
 func MainCheckoutRoot(dir string) string {
 	common, err := runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil || filepath.Base(common) != ".git" {
+	if err != nil || common == "" {
 		return ""
 	}
-	return filepath.Dir(common)
+	if filepath.Base(common) == ".git" {
+		return filepath.Dir(common)
+	}
+	toplevel, err := runGit(dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return ""
+	}
+	return toplevel
 }
 
 // listWorktrees parses `git worktree list --porcelain`; the first entry is

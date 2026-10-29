@@ -45,21 +45,6 @@ export function localFetch(
     : fetch(input, init);
 }
 
-/** Bounds a reachability probe on older JCEF runtimes without AbortSignal.timeout. */
-export async function probeRemote(
-  url: string,
-  headers: HeadersInit,
-  timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await localFetch(url, { headers, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 let cached: FoxxyCodeEnv | null = null;
 const listeners = new Set<() => void>();
 

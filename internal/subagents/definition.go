@@ -326,10 +326,13 @@ func (d *Definition) Allows(tool string) bool {
 	return false
 }
 
-// EffectiveSpawns is the spawn allowlist the runtime honours: a definition
-// may narrow what it delegates to at any scope, but only builtin and user
-// scope widen the depth guard - a project file must not defeat
-// subagents.max_depth after a single trust receipt.
+// EffectiveSpawns is the spawn allowlist the runtime honours. The field does
+// two jobs at once - it narrows the names a definition may delegate to and it
+// widens the depth guard by one generation - and a project file must not
+// defeat subagents.max_depth after a single trust receipt. The jobs cannot be
+// separated here, so a project definition's declaration is parsed and shown
+// in the catalog but ignored whole; builtin and user scope keep it whole
+// (docs/features/subagents.md).
 func (d *Definition) EffectiveSpawns() []string {
 	if d == nil || d.Scope == ScopeProject {
 		return nil

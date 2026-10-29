@@ -275,6 +275,38 @@ func TestDescribeSubdirOfRepo(t *testing.T) {
 	}
 }
 
+// MainCheckoutRoot answers for every git layout, not only a checkout whose
+// common directory is literally named .git: a submodule keeps it at
+// <super>/.git/modules/<name>, and `git init --separate-git-dir` puts it
+// anywhere at all. History groups sessions by this root.
+func TestMainCheckoutRootForOtherGitDirLayouts(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git binary not available")
+	}
+
+	work := t.TempDir()
+	mustGit(t, work, "init", "-b", "main", "--separate-git-dir="+filepath.Join(t.TempDir(), "elsewhere"))
+	mustGit(t, work, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode",
+		"commit", "--allow-empty", "-m", "init")
+	if got := normPath(t, MainCheckoutRoot(work)); got != normPath(t, work) {
+		t.Fatalf("separate-git-dir main checkout root = %q, want %q", got, normPath(t, work))
+	}
+
+	super := t.TempDir()
+	mustGit(t, super, "init", "-b", "main")
+	mustGit(t, super, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode",
+		"commit", "--allow-empty", "-m", "init")
+	src := t.TempDir()
+	mustGit(t, src, "init", "-b", "main")
+	mustGit(t, src, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode",
+		"commit", "--allow-empty", "-m", "init")
+	mustGit(t, super, "-c", "protocol.file.allow=always", "submodule", "add", src, "sub")
+	sub := filepath.Join(super, "sub")
+	if got := normPath(t, MainCheckoutRoot(sub)); got != normPath(t, sub) {
+		t.Fatalf("submodule main checkout root = %q, want %q", got, normPath(t, sub))
+	}
+}
+
 func TestCheckout(t *testing.T) {
 	dir := initRepo(t)
 	if err := Checkout(dir, "feature/login"); err != nil {

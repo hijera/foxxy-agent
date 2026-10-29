@@ -13,7 +13,7 @@
 import { localFetch } from "./remoteEnv";
 
 // Older JCEF runtimes lack AbortSignal.timeout; the controller also bounds body reads.
-function probeTimeout(timeoutMs: number): AbortSignal {
+export function probeTimeout(timeoutMs: number): AbortSignal {
 	const controller = new AbortController();
 	setTimeout(() => controller.abort(), timeoutMs);
 	return controller.signal;

@@ -57,6 +57,35 @@ test("context action shows the threshold, posts compaction and holds progress", 
   expect(action).not.toBeDisabled();
 });
 
+// Older JCEF runtimes have no AbortSignal.timeout (the runtimes the remote
+// probes shim an AbortController for); the compact request must still run
+// there instead of landing in the error state on every click.
+test("context action compacts without AbortSignal.timeout", async () => {
+  vi.stubGlobal("AbortSignal", {});
+  const fetchMock = vi.fn(async () =>
+    new Response(JSON.stringify({ compacted: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const onCompacted = vi.fn();
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      maxContextTokens={1000}
+      sessionId="sess_123"
+      compactAvailable
+      compactAutoEnabled
+      onCompacted={onCompacted}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("context-breakdown-compact"));
+  await waitFor(() => expect(onCompacted).toHaveBeenCalledOnce());
+});
+
 test("context action says compact now when automation is disabled", () => {
   render(
     <ContextBreakdownPopover

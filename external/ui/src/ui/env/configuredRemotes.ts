@@ -111,8 +111,9 @@ export async function refreshConfiguredRemotes(): Promise<void> {
   }
   applied = n;
   if (next) {
+    const prev = current;
     publish(next);
-    syncActiveToken(next);
+    syncActiveToken(prev, next);
   }
 }
 
@@ -183,20 +184,40 @@ export function connectConfiguredRemote(remote: ConfiguredRemote): void {
 }
 
 /**
- * syncActiveToken hands the active environment a token its configured entry
- * changed since the environment was chosen, so a token rotated in the file is
- * used without choosing the remote again.
+ * syncActiveToken hands the active environment the token its configured entry
+ * carries now: a token rotated in the file is used without choosing the remote
+ * again, and a token deleted from the file falls back to the one this browser
+ * kept for the address (or to none) instead of staying stale. Only a change
+ * moves the token - an entry that never carried one says nothing about the
+ * token in use, which may be one typed into this browser.
  */
-function syncActiveToken(list: ConfiguredRemote[]): void {
+function syncActiveToken(
+  prev: ConfiguredRemote[],
+  list: ConfiguredRemote[],
+): void {
   const env = getEnv();
   if (env.mode !== "remote") {
     return;
   }
-  const entry = configuredRemoteFor(swarmRootRelay(env), list);
-  if (!entry?.token || entry.token === env.token) {
+  const key = swarmRootRelay(env);
+  const entry = configuredRemoteFor(key, list);
+  if (!entry) {
     return;
   }
-  setEnv({ ...env, token: entry.token });
+  let want: string | undefined;
+  if (entry.token) {
+    // The configuration wins over a token typed into this browser.
+    want = entry.token;
+  } else {
+    const before = configuredRemoteFor(key, prev);
+    if (before?.token && before.token === env.token) {
+      want = tokenForRemote(entry);
+    }
+  }
+  if (want === undefined || want === env.token) {
+    return;
+  }
+  setEnv({ ...env, token: want });
 }
 
 /** resetConfiguredRemotesForTests forgets the list and every read on its way. */

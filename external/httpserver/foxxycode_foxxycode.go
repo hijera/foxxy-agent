@@ -63,7 +63,22 @@ func sessionRepoRoot(cwd string) string {
 	}
 	root := gitws.MainCheckoutRoot(cwd)
 	repoRootCache.Store(cwd, repoRootCacheEntry{root: root, expires: time.Now().Add(30 * time.Second)})
+	evictExpiredRepoRoots()
 	return root
+}
+
+// evictExpiredRepoRoots drops entries whose window closed. It runs on the
+// store path (a cache miss or an expired re-read), never on the hot hit
+// path, so a serve that runs for weeks keeps one entry per live cwd instead
+// of one per cwd it ever saw.
+func evictExpiredRepoRoots() {
+	now := time.Now()
+	repoRootCache.Range(func(key, value any) bool {
+		if ent, ok := value.(repoRootCacheEntry); ok && !now.Before(ent.expires) {
+			repoRootCache.Delete(key)
+		}
+		return true
+	})
 }
 
 func describeStripLineNoise(s string) string {

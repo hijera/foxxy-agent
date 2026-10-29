@@ -11,6 +11,7 @@ import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import { UsageSection } from "./UsageSection";
 import { useEscapeCloses } from "../components/useEscapeCloses";
+import { probeTimeout } from "../env/remoteProbe";
 import type { ProviderUsage } from "./providerUsage";
 
 export type ContextBreakdown = {
@@ -123,8 +124,10 @@ export function ContextBreakdownPopover(props: {
           body: "{}",
           // A summarization round can legitimately take a while; the bound
           // only keeps a dead request from pinning the button in
-          // "Compacting…" forever.
-          signal: AbortSignal.timeout(180_000),
+          // "Compacting…" forever. probeTimeout, not AbortSignal.timeout:
+          // older JCEF runtimes lack the static (the probes shim the same
+          // way), and the signal also bounds the body read below.
+          signal: probeTimeout(180_000),
         },
       );
       if (!res.ok) throw new Error(`compact: ${res.status}`);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { probeRemote, relayAgents } from "./remoteProbe";
+import { probeRemote, probeTimeout, relayAgents } from "./remoteProbe";
 
 // probeRemote reaches the network through localFetch, which captures the native
 // fetch at module load, so the module is mocked rather than the global.
@@ -234,5 +234,23 @@ describe("relayAgents", () => {
     await expect(relayAgents("http://relay:12346", "client")).resolves.toEqual(
       [],
     );
+  });
+});
+
+describe("probeTimeout", () => {
+  // Older JCEF runtimes lack AbortSignal.timeout; the controller shim is the
+  // only deadline they get, so it must arm and fire without it.
+  it("aborts after the deadline without AbortSignal.timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("AbortSignal", {});
+    try {
+      const signal = probeTimeout(100);
+      expect(signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });
