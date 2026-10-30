@@ -2391,7 +2391,15 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/ide/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Stream structured file-edit events for native editor clients",
-					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**. Also emits **`event: open_file`** (only **`path`** and **`sessionId`** set) when the user picks **Show in IDE** on a plan card via **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`**; that one is user-initiated and points outside the project, so clients must open it without their in-project / native-diff filters.",
+					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**. Also emits **`event: open_file`** (only **`path`** and **`sessionId`** set) when the user picks **Show in IDE** on a plan card via **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`**; that one is user-initiated and points outside the project, so clients must open it without their in-project / native-diff filters. **`event: tool_execute`** asks the client to execute a tool call itself — the plugin running **`write`**/**`edit`**/**`apply_patch`** through the editor's document model, for example — and answer on **`POST /foxxycode/ide/tool-result`**; it goes only to subscribers that declared the tool via **`?handles=`** and carries **`tool`** and **`args`** (the raw tool call), a **`nonce`** the result must echo, and the resolved **`path`**/**`before`**/**`after`** diff for filesystem write tools. A client ignores events for tools it did not declare.",
+					"parameters": []map[string]interface{}{
+						{
+							"name":        "handles",
+							"in":          "query",
+							"description": "Comma-separated tool names this subscriber can execute through the editor (**`*`** means all of them, e.g. **`write,edit,apply_patch`**). A subscriber that sends none only watches events. Names match exactly as the model called the tool, so MCP names (**`server__tool`**) work.",
+							"schema":      map[string]string{"type": "string"},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "SSE stream (text/event-stream) of edit events",
@@ -2402,6 +2410,34 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/ide/tool-result": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Answer a tool_execute event",
+					"description": "The IDE client's outcome for a **`tool_execute`** it received on **`GET /foxxycode/ide/events`**. Body **`{toolCallId, nonce, status, output?, error?}`**: **`status`** is **`handled`** (the client executed the call — **`output`** is the tool result, or **`error`** its failure text) or **`not_handled`** (declined; the agent runs the call itself). The **`nonce`** must echo the one broadcast with the request, so a POST that never saw the request cannot forge a result for the agent's transcript. **`204`** when it resolved a pending call, **`400`** on invalid JSON or status, **`409`** when no call is pending under that id or the nonce does not match. Like the rest of **`/foxxycode/ide/*`**, open to a direct loopback client without a credential.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"toolCallId": map[string]interface{}{"type": "string", "description": "The tool call id from the tool_execute event."},
+										"nonce":      map[string]interface{}{"type": "string", "description": "The nonce echoed from the tool_execute event."},
+										"status":     map[string]interface{}{"type": "string", "enum": []string{"handled", "not_handled"}, "description": "handled = the client executed the call; not_handled = declined."},
+										"output":     map[string]interface{}{"type": "string", "description": "Tool result when status is handled and the call succeeded."},
+										"error":      map[string]interface{}{"type": "string", "description": "Failure text when status is handled and the call failed."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "The pending tool call is resolved"},
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},

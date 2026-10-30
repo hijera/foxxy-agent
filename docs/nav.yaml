@@ -112,6 +112,9 @@ groups:
       - path: features/hooks.md
         title: Hooks
         summary: Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
+      - path: features/ide-tool-delegation.md
+        title: IDE tool delegation
+        summary: A connected editor plugin executes tool calls through the IDE - tool_execute over the ide events stream, the tool-result answer, fallback rules, the nonce.
       - path: features/mcp.md
         title: MCP servers
         summary: Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.

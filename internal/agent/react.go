@@ -2459,8 +2459,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	var execErr error
 	started := time.Now()
 
-	// Check if it's an MCP tool (name contains __).
-	if idx := strings.Index(tc.Name, "__"); idx >= 0 {
+	// A connected client that can execute this call - an IDE plugin running
+	// it through the editor - gets it before the local dispatch. MCP names are
+	// offered too: the client sees the name exactly as the model called it. A
+	// client that declines (or cannot be reached) leaves the call to the
+	// dispatch below.
+	if handled, dres, derr := a.tryDelegateToolCall(ctx, tc, env, sessionID); handled {
+		result, execErr = dres, derr
+		if execErr == nil {
+			result = tools.ApplyOutputLimit(result, tc.Name, env)
+		} else {
+			execErr = tools.ApplyOutputLimitError(execErr, tc.Name, env)
+		}
+	} else if idx := strings.Index(tc.Name, "__"); idx >= 0 {
 		serverName := tc.Name[:idx]
 		toolName := tc.Name[idx+2:]
 		result, execErr = a.callMCPTool(ctx, serverName, toolName, tc.InputJSON)

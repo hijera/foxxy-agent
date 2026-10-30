@@ -1,8 +1,10 @@
 # Feasibility: executing agent tools through the IDE (IntelliJ / VS Code)
 
-Status: design record, research only - written 2026-10-30 on branch
-`worktree-ide-tool-delegation`. Nothing in it is implemented; the branch carries
-this file alone. It answers the question: could the editor plugins connect the
+Status: design record written 2026-10-30 on branch `worktree-ide-tool-delegation`.
+The agent-side tool-execution delegate is implemented on the same branch (the
+dispatch seam of route A, generalized to every tool call) - deviations from the
+plan below are recorded in section 10. The plugin-side executors are **not**
+built yet. It answers the question: could the editor plugins connect the
 **`foxxycode`** binary and **replace its tool implementations**, so a tool
 execution runs through the IDE (edits through the editor's own diffs and
 documents, shell through the IDE terminal) instead of the binary writing files
@@ -325,3 +327,42 @@ future `handled` hook outcome is a good *generic* extension worth proposing
 upstream for executors the core should never know about. The hook route becomes
 preferable only if the goal widens from "these three tools in our plugins" to
 "any external executor for any tool".
+
+## 10. Implementation (2026-10-30) - deviations from section 8
+
+The agent-side delegate shipped on this branch, widened by the operator's call
+to cover **every tool call - built-in and MCP alike - and not only the three fs
+write tools**. What changed against the plan:
+
+- **The seam is the dispatch block, not a write sink inside the fs tools**
+  (route A as section 4 sketches it): `tryDelegateToolCall`
+  (`internal/agent/toolexec.go`) runs at the top of the execute block in
+  `internal/agent/react.go`, before the MCP/registry branches. Hooks, the
+  permission gate and bookkeeping are preserved exactly as planned. The fs
+  trio still gets its computed diff in the `tool_execute` payload via
+  `toolfs.EditPreview`, so the plugin applies no edit semantics of its own.
+- **Capability negotiation replaced the config surface** of section 8.4: the
+  subscriber declares its tools on the stream
+  (`GET /foxxycode/ide/events?handles=write,edit,apply_patch`, `*` for all),
+  and the agent offers a call only while a subscriber claims it
+  (`idehost.Hub.HandlesTool`). No `tools.ide_*` keys: the toggle belongs to
+  the plugin, and a headless surface falls back structurally. Consequence:
+  `require` mode is not in v1 (a timeout degrades to a local run), and the
+  timeout is the 60 s constant `toolDelegateTimeout`.
+- **The result route is `POST /foxxycode/ide/tool-result`** (section 8.2 named
+  it `edit-result`) with `{toolCallId, nonce, status, output?, error?}`;
+  statuses are `handled` / `not_handled`, the conflict of section 8.3 is an
+  `error` result. The nonce guards the loopback result channel against blind
+  forgery. Waits are in-memory - a request that outlives the process degrades
+  to a local run, no pending record survives a restart.
+- **Subagent children never delegate** (`a.subagent != nil` short-circuit):
+  their transcript is private to the run and the parent's surface must not
+  execute work named by the child.
+
+Wire contract and user documentation: `docs/features/ide-tool-delegation.md`.
+The IntelliJ executor is built too (`FoxxyCodeToolExecutor` in
+`editors/intellij/.../diff/`): document-model apply with the section 8.3 save
+policy (clean buffer matching `before` -> apply + save, dirty or diverged ->
+conflict), create for a new file, `not_handled` for anything else, behind the
+`ideToolExecution` setting (default on). Still unbuilt: the VS Code port and
+the ACP `RequestToolExecution` parity of 8.2.
