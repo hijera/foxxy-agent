@@ -176,3 +176,152 @@ until they speak ACP - which is a larger re-architecture (they are built around
 
 Nothing above needs the tool definitions the model sees to change - only where
 `Execute` runs. That is what makes substitution tractable.
+
+## 8. Concrete change plan: `write` / `edit` / `apply_patch` through the IDE
+
+Scope: only the three fs write tools. They are the best slice: each already
+holds `before` and `after` at the moment it writes, and the diff preview shares
+the edit computation.
+
+The three disk-write sites today:
+
+- `internal/tools/fs/write.go:73` (`executeWrite`; reads the old file only for
+  encoding detection, then `os.WriteFile`),
+- `internal/tools/fs/edit.go:89` (`executeEdit`; `applyEditToContent`
+  (`edit.go:96+`) computes `after` without touching disk - shared with the
+  preview path),
+- `internal/tools/fs/patch.go:78` (`apply_patch`).
+
+All three end with `os.WriteFile` + `notifyFileEdit`
+(`internal/tools/fs/preview.go:11-23`, the `Env.OnFileEdit` hook that feeds
+`edit_applied`).
+
+### 8.1 Write sink on `tooling.Env`
+
+```go
+// internal/tooling/env.go
+type FileEdit struct { Path string; Before, After []byte }
+type EditRequest struct { ToolName, ToolCallID string; Edits []FileEdit }
+type EditResult  struct { Status string } // "applied" | "conflict" | "fallback"
+type EditSink interface {
+    ApplyEdit(ctx context.Context, req EditRequest) (EditResult, error)
+}
+// new Env field:
+EditSink EditSink // nil = write disk locally (today's behavior)
+```
+
+The three write sites become one shared helper
+(`writeFileVia(env, toolName, path, before, after)`): if `env.EditSink` is set,
+send the edit there; on `fallback` or nil sink, `os.WriteFile` as today. Result
+strings handed to the model stay byte-identical, and `notifyFileEdit` fires
+after either path, so transcript rows, `edit_applied` and the SPA are
+unaffected. Mode refusals, PreToolUse/PostToolUse hooks and the permission gate
+all run in `executeToolCall` **before** this code and are untouched.
+
+### 8.2 Transport: a permission-shaped round trip
+
+The HTTP bridge already has the exact pattern to copy - broadcast, persist,
+block with timeout, accept the verdict (`registerPermissionWait` / the
+`permission` SSE event / `POST /foxxycode/sessions/{id}/permission`,
+`external/httpserver/bridge.go:456-483`):
+
+1. **Broadcast** a new event on `GET /foxxycode/ide/events` -
+   `tool_execute {toolCallId, sessionId, toolName, edits:[{path, before, after}], nonce}`
+   (same fan-out hub, `internal/idehost/events.go`).
+2. **Persist** the pending request alongside pending permissions, so a
+   reconnecting plugin still picks it up.
+3. **Block** in `registerEditWait(toolCallId)` with
+   `tools.ide_edits_timeout_seconds`; timeout policy is the config mode below.
+4. **Result route** `POST /foxxycode/ide/edit-result`
+   `{toolCallId, nonce, status: "applied"|"conflict"|"error", message?}`,
+   registered in `external/httpserver/ide_routes.go`.
+
+The `nonce` is mandatory: `/foxxycode/ide/*` is credential-free on loopback
+(`external/httpserver/auth.go:60-75`), and with delegation the result channel
+can falsify the transcript ("the agent believes the file was written"), which
+the permission channel cannot.
+
+Later parity on the ACP side is one method on `acp.UpdateSender`
+(`internal/acp/sender.go:7-16`) mirroring `RequestQuestion`; the v1 plugins
+need only the HTTP pair.
+
+### 8.3 Conflict contract
+
+v1 sends full `before`/`after` per file - the plugin applies **no** patch
+semantics of its own. The plugin compares the document text against `before`:
+
+- equal -> replace with `after` through the IDE document model -> `applied`;
+- different -> `conflict` -> the tool returns an error string
+  ("file changed in the editor since it was read; re-read and retry"), and the
+  model recovers the usual way.
+
+`apply_patch` with several files is per-file statuses, first conflict aborts the
+rest. What "applied" means for the disk is the open product question:
+
+- **apply + save** when the document was clean - later `read`/`grep` in the same
+  turn see the new content;
+- on a **dirty** document either save anyway (the user's unsaved changes land on
+  disk too) or leave it unsaved and answer `applied_unsaved`, in which case the
+  binary's disk view is stale until the user saves - honest v1 is *clean ->
+  apply+save, dirty -> `conflict`*.
+
+### 8.4 Config and capabilities
+
+- `tools.ide_edits: off | prefer | require` (default **off**),
+  `tools.ide_edits_timeout_seconds` (~30). `prefer` falls back to the local
+  write on timeout/error; `require` fails the tool. Config surface per the
+  feature flow: `internal/config`, `config.schema.json`, `config.example.yaml`,
+  `UISchemaMap()`, the bundled configure skill, `make site-schema`.
+- Capability negotiation: the plugin declares `edit_exec` when it subscribes to
+  `/foxxycode/ide/events` (query param or a `POST /foxxycode/ide/register`);
+  delegation happens only when a capable subscriber is attached
+  (`HasSubscribers`, `internal/idehost/events.go:44-52`).
+- Headless surfaces (console, Telegram, scheduler, memory runs, subagent
+  children) wire no sink and keep writing disk - the fallback is structural.
+
+### 8.5 Tests
+
+Unit tests in `internal/tools/fs` for the sink path, fallback and conflict; `httpserver`
+tests for the route and the nonce guard; a BDD happy path
+(`features/ide_edit_delegation.feature`) with a stub plugin (fake SSE subscriber
++ result POST); plugin-side tests for document apply and the save policy.
+
+Binary side is about a day; the plugin half (document apply, save policy,
+conflict reporting) is the larger one.
+
+## 9. Can this be done with hooks instead?
+
+**Not with the hooks as they stand.** `PreToolUse` outcomes are
+`preToolUseOutcome{blocked, allow, context}` (`internal/agent/hooks.go:142-155`,
+plus the loader's arg-rewrite and force-prompt decisions): a hook can block the
+call, wave it past the permission prompt, rewrite its arguments or append
+context - but there is **no outcome that substitutes a result**. Whatever the
+hook does, the tool then executes itself and writes the disk
+(`internal/tools/fs/write.go:73` and siblings). The known workarounds are dead
+ends: a hook that applies the edit through the IDE and then *blocks* the real
+call leaves the model with a denial instead of the tool's success result (and
+two writers racing); a hook that lets the call through double-applies.
+
+**The honest hook-based design** extends the hook contract by one outcome -
+`handled: true` with `output`/`error`, meaning "an external handler already
+performed this tool call; return this to the model". Then IDE delegation (or
+any external executor) ships as a `PreToolUse` command handler and the core
+learns nothing about IDEs. Costs to weigh:
+
+- for `edit` and `apply_patch` the external handler must reproduce the tool's
+  own edit semantics (`applyEditToContent`: line-ending equivalence,
+  occurrence rules - `internal/tools/fs/edit.go:89+`) or delegate *those* too;
+  drift here silently corrupts edits;
+- one hook subprocess spawned per tool call - latency and failure surface on
+  the hottest path;
+- the handler still cannot reach the plugin: the binary has no binary->IDE
+  request channel, so either the plugin runs its own HTTP endpoint and
+  publishes its address, or the request goes through the binary - which is the
+  round trip of section 8.2 anyway.
+
+So the two mechanisms compose rather than compete: the **write sink** is the
+small, specific vehicle for `write`/`edit`/`apply_patch` (section 8), and a
+future `handled` hook outcome is a good *generic* extension worth proposing
+upstream for executors the core should never know about. The hook route becomes
+preferable only if the goal widens from "these three tools in our plugins" to
+"any external executor for any tool".
