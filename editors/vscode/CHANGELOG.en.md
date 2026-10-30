@@ -10,6 +10,9 @@
 
 ## Unreleased — 2026-10-31
 
+**Hooks for notifications.**
+New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
+
 **IDE context before a send.**
 Right before a message goes out the panel pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message. The IntelliJ panel ships the snapshot first; the VS Code extension follows.
 
