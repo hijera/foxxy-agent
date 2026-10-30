@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -103,6 +104,27 @@ type ToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	InputJSON string `json:"input"` // raw JSON arguments
+}
+
+// WholeToolCalls keeps the calls whose arguments arrived as a complete JSON
+// value. fork(cut-keeps-complete-calls): a stream cut mid-answer may still have
+// delivered whole calls - those are the step the model finished asking for and
+// they run next to the error, while a call whose JSON was cut mid-write must
+// never run: replaying an invalid call is worse than losing it. Empty
+// arguments cannot be told from arguments that never started, so the call is
+// dropped; a model that means "no arguments" sends {}.
+func WholeToolCalls(in []ToolCall) []ToolCall {
+	var out []ToolCall
+	for _, tc := range in {
+		if strings.TrimSpace(tc.ID) == "" || strings.TrimSpace(tc.Name) == "" {
+			continue
+		}
+		if !json.Valid([]byte(tc.InputJSON)) {
+			continue
+		}
+		out = append(out, tc)
+	}
+	return out
 }
 
 // ToolDefinition describes a tool available to the LLM.

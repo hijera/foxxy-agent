@@ -144,6 +144,45 @@ func TestTrimToResumeBoundary(t *testing.T) {
 			want: "1. First rule.\n2. Second rule.\n",
 		},
 		{
+			// The proxy drops the terminal marker, not the text: a trailing
+			// line that arrived whole must stay, or the answer loses it
+			// outright (the model continues with the NEXT line instead of
+			// rewriting the dropped one).
+			name: "a completed last line is kept whole",
+			in:   "1. First rule.\n2. Second rule.",
+			want: "1. First rule.\n2. Second rule.",
+		},
+		{
+			name: "a completed last line ending in a bracket is kept whole",
+			in:   "Wrap up\nSee the docs (config.yaml)",
+			want: "Wrap up\nSee the docs (config.yaml)",
+		},
+		{
+			name: "a completed code line ending in a brace is kept whole",
+			in:   "Apply the fix\n\treturn nil\n}",
+			want: "Apply the fix\n\treturn nil\n}",
+		},
+		{
+			name: "a completed last line ending in a quote is kept whole",
+			in:   "He said it\nto be \"finished.\"",
+			want: "He said it\nto be \"finished.\"",
+		},
+		{
+			name: "a completed last line with trailing spaces is kept whole",
+			in:   "1. First rule.\n2. Second rule.  ",
+			want: "1. First rule.\n2. Second rule.  ",
+		},
+		{
+			name: "a trailing line that reads cut still goes",
+			in:   "1. First rule.\n2. Second ru",
+			want: "1. First rule.\n",
+		},
+		{
+			name: "a completed single-line sentence is kept whole",
+			in:   "All done.",
+			want: "All done.",
+		},
+		{
 			name: "empty stays empty",
 			in:   "",
 			want: "",

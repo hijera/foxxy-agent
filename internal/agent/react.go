@@ -1287,6 +1287,19 @@ func (a *Agent) runReActLoop(
 				noteProgress(now)
 			}
 		})
+		// fork(cut-keeps-complete-calls): a stream cut mid-answer may still have
+		// delivered whole tool calls - arguments that parse. Those are the step
+		// the model finished asking for: below, they run like a delivered tool
+		// step instead of the whole step dying with the cut. A user Stop and the
+		// loop guard's cut of a degenerating answer keep the old contract:
+		// nothing runs.
+		var keptCutCalls []llm.ToolCall
+		cutRunsWholeCalls := false
+		if streamErr != nil && response != nil && loopAbort == loopAbortNone &&
+			!errors.Is(streamErr, context.Canceled) && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			keptCutCalls = llm.WholeToolCalls(response.ToolCalls)
+			cutRunsWholeCalls = len(keptCutCalls) > 0
+		}
 		if streamErr != nil {
 			status := "failed"
 			if streamCtx.Err() != nil {
@@ -1295,8 +1308,17 @@ func (a *Agent) runReActLoop(
 			// Every call that streamed arguments announced a pending row; the
 			// stream died before any of them could execute, so none may stay
 			// pending. Calls that only announced a name keep their row - the
-			// same gap as before argument deltas existed.
+			// same gap as before argument deltas existed. A whole call the cut
+			// left behind is excepted: executeToolCall drives its row to its
+			// result. fork(cut-keeps-complete-calls)
+			keptIds := make(map[string]bool, len(keptCutCalls))
+			for _, tc := range keptCutCalls {
+				keptIds[tc.ID] = true
+			}
 			for id := range inputProgress {
+				if keptIds[id] {
+					continue
+				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
 				})
@@ -1325,6 +1347,20 @@ func (a *Agent) runReActLoop(
 		// The provider's stall guard cut this stream (agent.llm_stream_idle_timeout_ms).
 		stalled := llm.IsStreamStalled(streamErr)
 		stallIdle := llm.StreamStalledIdle(streamErr)
+
+		// The cut left whole tool calls behind: the step the model finished
+		// asking for was delivered after all, so it runs below like any other
+		// tool step and the turn continues from its results. Without this the
+		// step died with the cut - or worse, the calls were asked for a second
+		// time while their first, perfectly whole, copies were dropped.
+		// fork(cut-keeps-complete-calls)
+		if cutRunsWholeCalls {
+			a.log.Warn("stream cut mid-answer; running the whole tool calls it delivered",
+				"error", streamErr, "calls", len(keptCutCalls))
+			response.ToolCalls = keptCutCalls
+			streamErr = nil
+			stalled = false
+		}
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -1571,14 +1607,15 @@ func (a *Agent) runReActLoop(
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
-				// Tool calls are deliberately absent from what follows. A cancelled
-				// stream is finalized mid-arguments, so the readers hand back calls
-				// whose JSON was cut; and every tool_call_id an assistant message
-				// announces must get a result, or the next request in this
-				// conversation is rejected. Replaying an invalid call is worse than
-				// losing it - the same choice openai_stream.go makes for a truncated
-				// stream and persistStalledMessage makes for a stall. A response that
-				// produced only a cut call therefore persists nothing at all.
+				// Tool calls are deliberately absent from what follows. This
+				// branch only sees calls whose JSON was cut mid-write (whole
+				// ones already ran above - fork(cut-keeps-complete-calls)) or
+				// a cancelled stream's unfiltered builders; and every
+				// tool_call_id an assistant message announces must get a
+				// result, or the next request in this conversation is
+				// rejected. Replaying an invalid call is worse than losing it.
+				// A response that produced only a cut call therefore persists
+				// nothing at all.
 				if hasText || reasonTrim != "" {
 					var reasoningMs int64
 					if reasonTrim != "" && !reasonClockStart.IsZero() {

@@ -7,7 +7,13 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-26
+## Unreleased — 2026-10-30
+
+- An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
+- A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
+- A cut answer keeps its completed last line: the continuation no longer writes it again and leaves no duplicates.
+
+## 0.3.38 — 2026-10-26
 
 **Android and Termux.**
 Native builds are available for Android arm64 and x86_64. The console and web UI run in Termux, with command execution, certificates and temporary files adapted to Android.

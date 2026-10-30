@@ -113,10 +113,12 @@ func (g *streamIdleGuard) Stream(ctx context.Context, messages []Message, tools 
 	}
 	stall := &streamStalledError{idle: g.idle}
 	if resp != nil {
-		// Tool calls of an answer that never finished may be cut mid-JSON;
-		// replaying an invalid call is worse than losing it.
+		// fork(cut-keeps-complete-calls): the calls whose arguments arrived
+		// whole are the step the model finished asking for and stay; a call cut
+		// mid-JSON must never run - replaying an invalid call is worse than
+		// losing it.
 		kept := *resp
-		kept.ToolCalls = nil
+		kept.ToolCalls = WholeToolCalls(resp.ToolCalls)
 		return &kept, stall
 	}
 	mu.Lock()

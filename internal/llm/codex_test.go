@@ -571,6 +571,7 @@ func TestCodexStreamTerminalStates(t *testing.T) {
 		wantContent   string
 		wantResponse  bool
 		wantStop      string
+		wantCalls     []wantCall
 		wantErr       string
 		wantTruncated bool
 		wantRetryable bool
@@ -588,12 +589,17 @@ func TestCodexStreamTerminalStates(t *testing.T) {
 			wantErr:       "stream truncated",
 			wantTruncated: true,
 		},
-		"clean EOF after a tool call drops the call": {
+		// fork(cut-keeps-complete-calls): a call whose arguments arrived whole
+		// is the step the model finished asking for and survives the cut that
+		// took the rest of the stream.
+		"clean EOF after a tool call keeps the whole call": {
 			script: func(w io.Writer) {
 				sse(w, "response.output_item.done", map[string]any{"item": map[string]any{
 					"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": `{"command":"rm -rf build"}`,
 				}})
 			},
+			wantResponse:  true,
+			wantCalls:     []wantCall{{name: "run_command", args: `{"command":"rm -rf build"}`}},
 			wantErr:       "stream truncated",
 			wantTruncated: true,
 		},
@@ -678,9 +684,7 @@ func TestCodexStreamTerminalStates(t *testing.T) {
 			if resp.Content != tc.wantContent || resp.StopReason != tc.wantStop {
 				t.Errorf("response content %q stop %q, want %q and %q", resp.Content, resp.StopReason, tc.wantContent, tc.wantStop)
 			}
-			if len(resp.ToolCalls) != 0 {
-				t.Errorf("a response that did not finish carries tool calls: %+v", resp.ToolCalls)
-			}
+			checkKeptCalls(t, resp.ToolCalls, tc.wantCalls)
 			if tc.wantStop != "" && (resp.InputTokens != 9 || resp.OutputTokens != 4) {
 				t.Errorf("usage of the incomplete response = %d/%d, want 9/4", resp.InputTokens, resp.OutputTokens)
 			}

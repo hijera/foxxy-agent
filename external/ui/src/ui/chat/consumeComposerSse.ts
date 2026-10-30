@@ -990,7 +990,10 @@ export async function consumeComposerSseReader(
           if (ev.id) {
             lastEventId = ev.id;
           }
-          if (ev.data === "[DONE]") continue;
+          if (ev.data === "[DONE]") {
+            sawDone = true;
+            break;
+          }
           if (ev.event === "desync") {
             desynced = true;
             continue;

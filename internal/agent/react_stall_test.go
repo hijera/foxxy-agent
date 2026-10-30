@@ -86,6 +86,10 @@ type stallBehaviour struct {
 	// call alongside context.Canceled - what the stream readers hand back when a
 	// cancelled stream is finalized mid-arguments.
 	cancelWithToolCall bool
+	// cutWithToolCalls streams deltaThenErr and then returns these tool calls
+	// alongside err: a stream the transport cut mid-answer, part of whose calls
+	// arrived whole.
+	cutWithToolCalls []llm.ToolCall
 }
 
 // stallProvider simulates the reported hub. Each entry of script says how the
@@ -149,6 +153,10 @@ func (p *stallProvider) Stream(ctx context.Context, messages []llm.Message, _ []
 				{ID: "call_cut", Name: "read", InputJSON: `{"path":"a.g`},
 			},
 		}, context.Canceled
+
+	case len(b.cutWithToolCalls) > 0:
+		onChunk(llm.StreamChunk{TextDelta: b.deltaThenErr})
+		return &llm.Response{Content: b.deltaThenErr, ToolCalls: b.cutWithToolCalls}, b.err
 
 	case b.deltaThenErr != "":
 		onChunk(llm.StreamChunk{TextDelta: b.deltaThenErr})
@@ -243,6 +251,9 @@ func newStallHarness(t *testing.T, provider *stallProvider, tune func(*config.Ag
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     agentCfg,
 	}
+	// The tool-executing cases run real tools against the temp cwd; nothing may
+	// sit at a permission prompt waiting for a human that never comes.
+	cfg.Tools.PermissionMode = config.PermModeBypass
 	h.ag = NewAgent(cfg, h.st, h.sender, nil)
 	h.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
 	return h
@@ -707,6 +718,100 @@ func TestTransportFailureAfterDeltasEndsTheTurnWithContinueOff(t *testing.T) {
 	}
 	if got := p.callCount(); got != 1 {
 		t.Errorf("provider called %d times, want 1 (delivered output must never be replayed)", got)
+	}
+}
+
+// TestCutStreamRunsWholeToolCalls: a stream the transport cut mid-answer may
+// still have delivered whole tool calls - arguments that parse. Those are the
+// step the model finished asking for: they run and the turn carries on from
+// their results, instead of the whole step dying with the cut. The pair is
+// fork(cut-keeps-complete-calls): upstream drops every call of an unfinished
+// answer.
+func TestCutStreamRunsWholeToolCalls(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{
+			deltaThenErr: "Let me look at it first.",
+			err:          fmt.Errorf("openai stream: stream truncated: connection closed before a terminal marker"),
+			cutWithToolCalls: []llm.ToolCall{
+				{ID: "call_1", Name: "read", InputJSON: `{"path":"billing.py"}`},
+			},
+		},
+		{answer: "Read it; here is the summary."},
+	}}
+	h := newStallHarness(t, p, nil)
+
+	stop, err := h.run(t)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Errorf("stop reason = %q, want end_turn", stop)
+	}
+	// The cut step's call ran: it is in the transcript and answered with a
+	// result of its own, so no tool_call_id is left dangling.
+	var sawCall, sawResult bool
+	for _, m := range h.st.GetMessages() {
+		for _, tc := range m.ToolCalls {
+			if tc.ID == "call_1" {
+				sawCall = true
+			}
+		}
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_1" {
+			sawResult = true
+		}
+	}
+	if !sawCall || !sawResult {
+		t.Fatalf("the whole tool call did not run (persisted=%v result=%v); transcript: %+v",
+			sawCall, sawResult, h.st.GetMessages())
+	}
+	// The next request is the ordinary one that carries the tool result - the
+	// cut step was not thrown away and asked for again.
+	for _, m := range p.request(2) {
+		if m.Role == llm.RoleUser && (m.Content == providerRecoveryNudge || m.Content == streamStallNudge) {
+			t.Errorf("the delivered tool step was replayed as a continuation; nudge %q", m.Content)
+		}
+	}
+}
+
+// TestCutStreamDropsHalfWrittenToolCalls: of the calls a cut caught mid-way,
+// only those whose arguments arrived whole run. The half-written one is not
+// persisted at all, so no tool_call_id is announced without a result.
+func TestCutStreamDropsHalfWrittenToolCalls(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{
+			deltaThenErr: "Two calls at once.",
+			err:          fmt.Errorf("openai stream: stream truncated: connection closed before a terminal marker"),
+			cutWithToolCalls: []llm.ToolCall{
+				{ID: "call_whole", Name: "read", InputJSON: `{"path":"billing.py"}`},
+				{ID: "call_half", Name: "read", InputJSON: `{"path":"a.g`},
+			},
+		},
+		{answer: "Done."},
+	}}
+	h := newStallHarness(t, p, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var sawWhole, sawHalf bool
+	for _, m := range h.st.GetMessages() {
+		for _, tc := range m.ToolCalls {
+			if tc.ID == "call_half" {
+				sawHalf = true
+			}
+		}
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_half" {
+			sawHalf = true
+		}
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_whole" {
+			sawWhole = true
+		}
+	}
+	if sawHalf {
+		t.Errorf("a tool call cut mid-JSON was persisted or ran; transcript: %+v", h.st.GetMessages())
+	}
+	if !sawWhole {
+		t.Errorf("the whole tool call did not run; transcript: %+v", h.st.GetMessages())
 	}
 }
 
