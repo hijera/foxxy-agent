@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import {
   bootstrapEmbedFlag,
+  hostBeforeSend,
   hostResolvesFileDrops,
   isEditorEmbed,
   readEmbedFromUrl,
@@ -65,4 +66,30 @@ test("the vscode embed is an editor embed that resolves its own file drops", () 
 test("only the intellij embed leaves file drops to the host", () => {
   document.documentElement.dataset.embed = "intellij";
   expect(hostResolvesFileDrops()).toBe(true);
+});
+
+test("hostBeforeSend resolves at once when the host installed no hook", async () => {
+  await expect(hostBeforeSend()).resolves.toBeUndefined();
+});
+
+test("hostBeforeSend waits for the host hook to finish", async () => {
+  let finished = false;
+  (window as unknown as { foxxycodeBeforeSend?: () => unknown }).foxxycodeBeforeSend = () =>
+    new Promise((resolve) =>
+      setTimeout(() => {
+        finished = true;
+        resolve(true);
+      }, 10),
+    );
+  await hostBeforeSend();
+  expect(finished).toBe(true);
+  delete (window as unknown as { foxxycodeBeforeSend?: unknown }).foxxycodeBeforeSend;
+});
+
+test("a throwing host hook never blocks the send", async () => {
+  (window as unknown as { foxxycodeBeforeSend?: () => unknown }).foxxycodeBeforeSend = () => {
+    throw new Error("host gone");
+  };
+  await expect(hostBeforeSend()).resolves.toBeUndefined();
+  delete (window as unknown as { foxxycodeBeforeSend?: unknown }).foxxycodeBeforeSend;
 });

@@ -31,7 +31,7 @@ const ideEnvMaxSelectionBytes = 2 * 1024
 // The tag is stripped from the user-visible bubble by the SPA's
 // stripFoxxyCodeAttachmentsForUserDisplay function.
 func EditorNote(cwd string, snap ideenv.Snapshot) string {
-	if snap.ActiveFile == "" && len(snap.OpenFiles) == 0 && snap.Selection == nil {
+	if snap.ActiveFile == "" && len(snap.OpenFiles) == 0 && snap.Selection == nil && len(snap.Buffers) == 0 {
 		return ""
 	}
 	rel := func(p string) string {
@@ -73,6 +73,22 @@ func EditorNote(cwd string, snap ideenv.Snapshot) string {
 		b.WriteString("\n\n# Selection\n")
 		fmt.Fprintf(&b, "%s:%d-%d\n", rel(sel.File), sel.StartLine, sel.EndLine)
 		b.WriteString(text)
+	}
+	// The open-buffer snapshot an IDE plugin pushes before a send: the
+	// document text of what the user has open, unsaved edits included.
+	if len(snap.Buffers) > 0 {
+		b.WriteString("\n\n# Open Buffers\n")
+		for i, buf := range snap.Buffers {
+			if i > 0 {
+				b.WriteString("\n\n")
+			}
+			if buf.Dirty {
+				fmt.Fprintf(&b, "## %s (unsaved)\n", rel(buf.Path))
+			} else {
+				fmt.Fprintf(&b, "## %s\n", rel(buf.Path))
+			}
+			b.WriteString(buf.Text)
+		}
 	}
 	b.WriteString("\n</foxxycode_ide_context>")
 	return b.String()

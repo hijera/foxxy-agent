@@ -80,6 +80,65 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         alarm.addRequest({ report() }, DEBOUNCE_MS)
     }
 
+    /**
+     * Pushes a snapshot that also carries the open buffers' document text - the
+     * pre-send enrichment the SPA asks for through the browser panel's
+     * `window.foxxycodeBeforeSend` bridge. Runs off the EDT (a JCEF query
+     * thread), hops to the Swing thread for the editor reads, and POSTs
+     * synchronously so the caller can send its message on a fresh snapshot.
+     */
+    fun pushWithBuffers() {
+        if (project.isDisposed) return
+        val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
+        var payload: String? = null
+        ApplicationManager.getApplication().invokeAndWait {
+            if (project.isDisposed) return@invokeAndWait
+            val fem = FileEditorManager.getInstance(project)
+            val open = fem.openFiles.filter { it.fileSystem is LocalFileSystem }.map { it.path }
+            val active = fem.selectedFiles.firstOrNull { it.fileSystem is LocalFileSystem }?.path ?: ""
+            val ordered = LinkedHashSet<String>()
+            if (active.isNotBlank()) ordered.add(active)
+            ordered.addAll(open)
+            payload = JsonObject().apply {
+                add("openFiles", JsonArray().apply { ordered.forEach { add(it) } })
+                addProperty("activeFile", active)
+                currentSelection(fem)?.let { add("selection", it) }
+                add("buffers", openBuffers(fem))
+            }.toString()
+        }
+        val body = payload ?: return
+        val url = (if (base.endsWith("/")) base else "$base/") + "foxxycode/ide/editor-state"
+        post(url, body)
+    }
+
+    /**
+     * The document text of every open local buffer, the active one first; capped
+     * like the backend (8 KiB per buffer, 8 buffers) so the POST stays small.
+     */
+    private fun openBuffers(fem: FileEditorManager): JsonArray {
+        val arr = JsonArray()
+        var total = 0
+        val ordered = LinkedHashSet<com.intellij.openapi.vfs.VirtualFile>()
+        fem.selectedFiles.firstOrNull { it.fileSystem is LocalFileSystem }?.let { ordered.add(it) }
+        fem.openFiles.filterTo(ordered) { it.fileSystem is LocalFileSystem }
+        for (vf in ordered) {
+            if (arr.size() >= 8 || total > 32 * 1024) break
+            val fdm = FileDocumentManager.getInstance()
+            val doc = fdm.getDocument(vf) ?: continue
+            var text = doc.immutableCharSequence.toString()
+            if (text.length > 8 * 1024) text = text.takeLast(8 * 1024)
+            total += text.length
+            arr.add(
+                JsonObject().apply {
+                    addProperty("path", vf.path)
+                    addProperty("text", text)
+                    addProperty("dirty", fdm.isDocumentUnsaved(doc))
+                },
+            )
+        }
+        return arr
+    }
+
     /** Runs on the EDT (see [alarm]); snapshots the editor state and posts it off-thread. */
     private fun report() {
         if (project.isDisposed) return

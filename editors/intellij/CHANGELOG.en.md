@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-30
 
+**IDE context before a send.**
+Right before a message goes out the plugin pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message.
+
 **More tools run through the IDE.**
 `read` answers from the editor buffer (it sees unsaved changes), `plan_write` applies through the editor, and `mkdir`, `rm`, `mv` and `touch` run as IDE filesystem operations: the project tree updates at once and Local History is the undo. Each tool has its own checkbox in Settings | Tools | FoxxyCode.
 
