@@ -1,6 +1,7 @@
 package dev.foxxycode.intellij.diff
 
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.logger
@@ -12,6 +13,7 @@ import com.intellij.openapi.vfs.VfsUtil
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
+import dev.foxxycode.intellij.terminal.FoxxyCodeTerminalCommandRunner
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URI
@@ -87,6 +89,11 @@ object ToolExecPlan {
 class FoxxyCodeToolExecutor(private val project: Project) {
     private val log = logger<FoxxyCodeToolExecutor>()
 
+    private companion object {
+        /** The agent's delegate answer window is 60 s; a longer command falls back. */
+        const val MAX_DELEGATED_COMMAND_SECONDS = 50
+    }
+
     private data class Outcome(val status: String, val output: String? = null, val error: String? = null)
 
     private fun handled(output: String) = Outcome("handled", output = output)
@@ -115,6 +122,12 @@ class FoxxyCodeToolExecutor(private val project: Project) {
     private fun run(ev: FoxxyCodeEditEvent) {
         if (!FoxxyCodeSettings.getInstance().state.ideToolExecution) {
             respond(ev, notHandled())
+            return
+        }
+        // run_command runs in an IDE terminal tab; its event carries no file
+        // preview, and the wait happens off the EDT inside the runner.
+        if (ev.tool == "run_command") {
+            runInTerminal(ev)
             return
         }
         val path = ev.path.trim()
@@ -155,6 +168,42 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             ToolExecPlan.Action.APPLY -> apply(ev, doc)
             ToolExecPlan.Action.CONFLICT -> respond(ev, failed(d.message))
             else -> respond(ev, notHandled())
+        }
+    }
+
+    /**
+     * Foreground `run_command` runs in an IDE terminal (see
+     * [dev.foxxycode.intellij.terminal.FoxxyCodeTerminalCommandRunner]); anything the
+     * terminal cannot own - a background command, or one whose timeout outruns this
+     * client's answer window - falls back to the agent's own runner.
+     */
+    private fun runInTerminal(ev: FoxxyCodeEditEvent) {
+        val args = try {
+            JsonParser.parseString(ev.args).asJsonObject
+        } catch (e: Exception) {
+            respond(ev, notHandled())
+            return
+        }
+        val command = args.get("command")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        val background = args.get("background")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+        val timeoutSeconds = args.get("timeout_seconds")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0
+        if (command.isBlank() || background || timeoutSeconds > MAX_DELEGATED_COMMAND_SECONDS) {
+            respond(ev, notHandled())
+            return
+        }
+        val waitMs = (if (timeoutSeconds > 0) timeoutSeconds else MAX_DELEGATED_COMMAND_SECONDS) * 1000L
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val r = try {
+                FoxxyCodeTerminalCommandRunner.run(project, command, project.basePath, waitMs)
+            } catch (t: Throwable) {
+                log.warn("run_command terminal failed", t)
+                FoxxyCodeTerminalCommandRunner.Result(handled = false)
+            }
+            when {
+                !r.handled -> respond(ev, notHandled())
+                r.error.isNotEmpty() -> respond(ev, failed(r.error))
+                else -> respond(ev, handled(r.output))
+            }
         }
     }
 

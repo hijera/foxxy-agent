@@ -364,5 +364,15 @@ The IntelliJ executor is built too (`FoxxyCodeToolExecutor` in
 `editors/intellij/.../diff/`): document-model apply with the section 8.3 save
 policy (clean buffer matching `before` -> apply + save, dirty or diverged ->
 conflict), create for a new file, `not_handled` for anything else, behind the
-`ideToolExecution` setting (default on). Still unbuilt: the VS Code port and
-the ACP `RequestToolExecution` parity of 8.2.
+`ideToolExecution` setting (default on). Foreground `run_command` is delegated
+as well - it runs in an IDE terminal tab
+(`dev.foxxycode.intellij.terminal.FoxxyCodeTerminalCommandRunner`, reflective
+into the optional terminal plugin) and the captured screen becomes the tool
+result; background commands and commands whose timeout outruns the 60 s answer
+window fall back to the agent. Live sandbox verification of the executor (stub
+model, dirty/clean/create/timeout/terminal scenarios) found and fixed three
+defects: a `tool_execute` without a file preview answered a bogus error instead
+of `not_handled`, CRLF/LF differences made clean buffers false conflicts, and
+`DocumentImpl.setText`'s mixed-separator `AssertionError` escaped the catch and
+stalled the call until the fallback timeout. Still unbuilt: the VS Code port
+and the ACP `RequestToolExecution` parity of 8.2.
