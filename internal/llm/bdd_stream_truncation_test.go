@@ -31,6 +31,14 @@ var streamTruncationScripts = map[string]string{
 	"ends the stream with a finish_reason but no [DONE] marker": "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"id\":\"chatcmpl-f1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
 		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hello from server\"}}],\"id\":\"chatcmpl-f1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
 		"data: {\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"delta\":{}}],\"id\":\"chatcmpl-f1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n",
+
+	// The call's arguments arrived as a complete JSON value before the stream
+	// cut out: the call survives the cut and runs - fork(cut-keeps-complete-calls).
+	"cuts the stream after a whole tool call": cutCallWholeFrame,
+
+	// The cut lands inside the arguments of the call being written: the JSON
+	// never completed, so the call must not run.
+	"cuts the stream inside tool call arguments": cutCallArgsFrame,
 }
 
 // codexStreamTruncationScripts are the Codex Responses counterparts, named the
@@ -172,6 +180,32 @@ func (s *streamTruncationState) thePartialResponsePreservesText(want string) err
 	return nil
 }
 
+// thePartialResponseKeepsToolCall asserts the kept call: one whose arguments
+// arrived whole is the step the model finished asking for and survives the cut.
+func (s *streamTruncationState) thePartialResponseKeepsToolCall(name, args string) error {
+	if s.resp == nil {
+		return fmt.Errorf("no partial response returned (error: %v)", s.callErr)
+	}
+	for _, tc := range s.resp.ToolCalls {
+		if tc.Name == name && tc.InputJSON == args {
+			return nil
+		}
+	}
+	return fmt.Errorf("partial tool calls = %+v, want %s(%s)", s.resp.ToolCalls, name, args)
+}
+
+// thePartialResponseKeepsNoToolCalls is the other half: a call cut mid-JSON
+// never comes back. A response that carries nothing at all is the same verdict.
+func (s *streamTruncationState) thePartialResponseKeepsNoToolCalls() error {
+	if s.resp == nil {
+		return nil
+	}
+	if len(s.resp.ToolCalls) != 0 {
+		return fmt.Errorf("partial tool calls = %+v, want none", s.resp.ToolCalls)
+	}
+	return nil
+}
+
 func (s *streamTruncationState) theCallSucceedsWithCompleteText(want string) error {
 	if s.callErr != nil {
 		return fmt.Errorf("provider call failed: %v", s.callErr)
@@ -203,11 +237,13 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker)$`, s.aProviderPointedAtTruncatingStub)
+	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the stream after a whole tool call|cuts the stream inside tool call arguments)$`, s.aProviderPointedAtTruncatingStub)
 	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap)$`, s.aCodexProviderPointedAtStub)
 	sc.Step(`^a streaming completion is requested$`, s.aTruncationStreamingCompletionIsRequested)
 	sc.Step(`^the call fails with a truncation error$`, s.theCallFailsWithATruncationError)
 	sc.Step(`^the partial response preserves text "([^"]*)"$`, s.thePartialResponsePreservesText)
+	sc.Step(`^the partial response keeps tool call "([^"]*)" with arguments (.+)$`, s.thePartialResponseKeepsToolCall)
+	sc.Step(`^the partial response keeps no tool calls$`, s.thePartialResponseKeepsNoToolCalls)
 	sc.Step(`^the call succeeds with the complete text "([^"]*)"$`, s.theCallSucceedsWithCompleteText)
 	sc.Step(`^the reported stop reason is "([^"]*)"$`, s.theReportedStopReasonIs)
 }

@@ -426,15 +426,19 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	if streamErr != nil {
+		// fork(cut-keeps-complete-calls): a call whose arguments arrived whole is
+		// the step the model finished asking for and comes back next to the
+		// error so the loop runs it. A call cut mid-JSON is dropped instead:
+		// replaying an invalid call is worse than losing it.
+		whole := WholeToolCalls(finalizeOpenAIToolBuilders())
 		if IsStreamTruncated(streamErr) {
 			// Keep the user-visible output the caller already saw, like the
-			// cancellation branch below. Unfinished tool-call builders are dropped
-			// deliberately: their arguments may be cut mid-JSON, and
-			// replaying an invalid call is worse than losing it.
-			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
+			// cancellation branch below.
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" || len(whole) > 0 {
 				return &Response{
 					Content:           fullContent,
 					Reasoning:         reasoningBuf.String(),
+					ToolCalls:         whole,
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
@@ -462,6 +466,19 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					CachedInputTokens: cachedInputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
+		}
+		// A transport failure mid-read keeps the whole calls the same way: the
+		// connection died, but they arrived before it did. Content alone stays
+		// out - the loop keeps delivered text from what it streamed itself.
+		if len(whole) > 0 {
+			return &Response{
+				Content:           fullContent,
+				Reasoning:         reasoningBuf.String(),
+				ToolCalls:         whole,
+				InputTokens:       inputTokens,
+				OutputTokens:      outputTokens,
+				CachedInputTokens: cachedInputTokens,
+			}, fmt.Errorf("openai stream: %w", streamErr)
 		}
 		return nil, fmt.Errorf("openai stream: %w", streamErr)
 	}
