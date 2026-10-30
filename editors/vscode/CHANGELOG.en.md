@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-30
+## 0.3.39 — 2026-10-30
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 

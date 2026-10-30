@@ -33,6 +33,11 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
         // Show native inline diffs in the editor when the agent edits files.
         var nativeDiffs: Boolean = true
 
+        // Execute the agent's file writes (write/edit/apply_patch) through the editor's
+        // document model - buffers, undo stack, save policy - instead of the agent writing
+        // the file behind it. See docs/features/ide-tool-delegation.md.
+        var ideToolExecution: Boolean = true
+
         // Report which files are open (open tabs + active file) to the agent each turn.
         var trackOpenFiles: Boolean = true
 

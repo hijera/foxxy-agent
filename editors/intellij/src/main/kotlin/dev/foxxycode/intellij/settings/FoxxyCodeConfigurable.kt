@@ -30,6 +30,7 @@ class FoxxyCodeConfigurable : Configurable {
     private val followThemeCheckBox = JBCheckBox()
     private val nativeDiffsCheckBox = JBCheckBox()
     private val autoApproveCheckBox = JBCheckBox()
+    private val ideToolExecutionCheckBox = JBCheckBox()
     private val trackOpenFilesCheckBox = JBCheckBox()
     private val trackTerminalsCheckBox = JBCheckBox()
     private val planNoSelfRunCheckBox = JBCheckBox()
@@ -77,6 +78,7 @@ class FoxxyCodeConfigurable : Configurable {
             .addSeparator()
             .addComponent(nativeDiffsCheckBox)
             .addComponent(autoApproveCheckBox)
+            .addComponent(ideToolExecutionCheckBox)
             .addSeparator()
             .addComponent(trackOpenFilesCheckBox)
             .addComponent(trackTerminalsCheckBox)
@@ -117,6 +119,7 @@ class FoxxyCodeConfigurable : Configurable {
             followThemeCheckBox.isSelected != s.followIdeTheme ||
             nativeDiffsCheckBox.isSelected != s.nativeDiffs ||
             autoApproveCheckBox.isSelected != s.autoApproveEdits ||
+            ideToolExecutionCheckBox.isSelected != s.ideToolExecution ||
             trackOpenFilesCheckBox.isSelected != s.trackOpenFiles ||
             trackTerminalsCheckBox.isSelected != s.trackTerminals ||
             planNoSelfRunCheckBox.isSelected != s.planNoSelfRun
@@ -132,6 +135,7 @@ class FoxxyCodeConfigurable : Configurable {
         s.followIdeTheme = followThemeCheckBox.isSelected
         s.nativeDiffs = nativeDiffsCheckBox.isSelected
         s.autoApproveEdits = autoApproveCheckBox.isSelected
+        s.ideToolExecution = ideToolExecutionCheckBox.isSelected
         s.trackOpenFiles = trackOpenFilesCheckBox.isSelected
         s.trackTerminals = trackTerminalsCheckBox.isSelected
         s.planNoSelfRun = planNoSelfRunCheckBox.isSelected
@@ -149,12 +153,14 @@ class FoxxyCodeConfigurable : Configurable {
         followThemeCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.followTheme")
         nativeDiffsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.nativeDiffs")
         autoApproveCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.autoApprove")
+        ideToolExecutionCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideToolExecution")
         trackOpenFilesCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackOpenFiles")
         trackTerminalsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackTerminals")
         planNoSelfRunCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.planNoSelfRun")
         followThemeCheckBox.isSelected = s.followIdeTheme
         nativeDiffsCheckBox.isSelected = s.nativeDiffs
         autoApproveCheckBox.isSelected = s.autoApproveEdits
+        ideToolExecutionCheckBox.isSelected = s.ideToolExecution
         trackOpenFilesCheckBox.isSelected = s.trackOpenFiles
         trackTerminalsCheckBox.isSelected = s.trackTerminals
         planNoSelfRunCheckBox.isSelected = s.planNoSelfRun

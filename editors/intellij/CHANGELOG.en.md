@@ -9,6 +9,17 @@
 
 ## Unreleased — 2026-10-30
 
+**File edits now go through the editor.**
+The agent no longer writes files behind the IDE: `write`/`edit`/`apply_patch`
+run through the editor's document model, so edits land in open (including
+unsaved) buffers, the undo stack and the native diff. A new setting, "Apply
+file edits through the editor", is on by default in Settings | Tools |
+FoxxyCode; turned off, everything works as before with the agent writing the
+file. When the editor holds unsaved changes or the buffer diverged from the
+file, the agent gets a conflict, re-reads the file and overwrites nothing.
+
+## 0.3.39 — 2026-10-30
+
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 
 - Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.
