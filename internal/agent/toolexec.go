@@ -8,8 +8,8 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
-	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
+	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
 
 // toolDelegateTimeout bounds how long a delegated tool call may sit with a
