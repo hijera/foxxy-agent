@@ -492,8 +492,9 @@ func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON
 	}
 	s.mu.Lock()
 	cwd := s.cwd
+	sd := s.sessionDir
 	s.mu.Unlock()
-	absPath, before, after, ok, err := toolfs.EditPreview(toolName, argsJSON, cwd)
+	absPath, before, after, ok, err := toolfs.EditPreview(toolName, argsJSON, cwd, sd)
 	if !ok || err != nil {
 		return
 	}

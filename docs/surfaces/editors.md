@@ -6,7 +6,7 @@ FoxxyCode reaches an editor two ways. The IntelliJ plugin and the VS Code extens
 
 The plugin (`editors/intellij`, every IntelliJ-based IDE from 2022.2) and the extension (`editors/vscode`) bundle the `foxxycode` binary, so an editor panel needs no separate install; both are attached to every [GitHub Release](https://github.com/hijera/foxxy-agent/releases). Each starts one `foxxycode http` for the open project on a free loopback port, with `--cwd` set to the project root and the shared `~/.foxxycode` as its home, and embeds the [web UI](web-ui.md) in a tool window (JCEF) or a webview. Everything the web UI does is there - sessions and History, modes and models, settings, skills, the scheduler - plus what only an editor can give it:
 
-- the open files and the active editor, sent to the agent with every prompt (`<foxxycode_ide_context>`), and the output of the IDE terminals behind `@terminal`;
+- the open files and the active editor, sent to the agent with every prompt (`<foxxycode_ide_context>`), and the output of the IDE terminals behind `@terminal`; right before a message goes out the IntelliJ plugin also pushes the **open buffers' text** (unsaved edits included), so the block carries what the user is actually working on from the first message;
 - files dragged from the project tree into the composer as `@` mentions; in IntelliJ, dropping a directory inserts `@path/` with the trailing slash that marks it as a directory;
 - the agent's file edits as native inline diffs with Accept, Reject and checkpoints, driven by the `/foxxycode/ide/*` routes;
 - inline code completion in the editor when `autocomplete` is on ([config reference](../reference/config.md#autocomplete)).

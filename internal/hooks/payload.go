@@ -112,6 +112,34 @@ func StopEvent(active bool, last string) Event {
 	}}
 }
 
+// QuestionEvent builds the Question event: the question tool is about to ask
+// its questions. The payload carries the questions and their options verbatim
+// (the tool's own arguments), so a notification hook can show exactly what the
+// user is about to be asked. The subject is the tool name, so a matcher can
+// name `question`.
+func QuestionEvent(callID string, input map[string]interface{}) Event {
+	fields := map[string]interface{}{
+		"tool_name":   "question",
+		"tool_input":  input,
+		"tool_use_id": callID,
+	}
+	// Lifted for a notification hook's convenience: the questions and their
+	// options are what the user is about to be asked.
+	if q, ok := input["questions"]; ok {
+		fields["questions"] = q
+	}
+	return Event{Name: EventQuestion, Subject: "question", Fields: fields}
+}
+
+// TurnEndEvent builds the TurnEnd event: the turn finished and the agent is
+// waiting for the user's next message. last is the assistant's final text.
+func TurnEndEvent(stopReason, last string) Event {
+	return Event{Name: EventTurnEnd, Fields: map[string]interface{}{
+		"stop_reason":            stopReason,
+		"last_assistant_message": last,
+	}}
+}
+
 // SessionStartEvent builds the SessionStart event; source is startup or
 // resume and is what the matcher is compared with.
 func SessionStartEvent(source, model string) Event {

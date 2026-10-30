@@ -34,6 +34,11 @@ func (s *Server) foxxycodeIdeEditorState(w http.ResponseWriter, r *http.Request)
 		OpenFiles  []string            `json:"openFiles"`
 		ActiveFile string              `json:"activeFile"`
 		Selection  *ideEditorSelection `json:"selection"`
+		Buffers    []struct {
+			Path  string `json:"path"`
+			Text  string `json:"text"`
+			Dirty bool   `json:"dirty"`
+		} `json:"buffers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -48,7 +53,11 @@ func (s *Server) foxxycodeIdeEditorState(w http.ResponseWriter, r *http.Request)
 			Text:      body.Selection.Text,
 		}
 	}
-	ideenv.Set(body.OpenFiles, body.ActiveFile, sel)
+	var buffers []ideenv.Buffer
+	for _, b := range body.Buffers {
+		buffers = append(buffers, ideenv.Buffer{Path: b.Path, Text: b.Text, Dirty: b.Dirty})
+	}
+	ideenv.SetWithBuffers(body.OpenFiles, body.ActiveFile, sel, buffers)
 	if stored := ideenv.Get().Selection; stored != nil {
 		idecopy.Offer(idecopy.Candidate{
 			Kind:      idecopy.KindFile,
