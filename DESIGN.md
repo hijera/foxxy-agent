@@ -556,7 +556,7 @@ Sessions list interactions
 
 ### Repo links
 
-The start screen includes a fixed footer with **GitHub | API docs | server version**, centered 16px from the bottom (`chat/HeroFooter.tsx`). GitHub points at the FoxxyCode repository. API docs points at `/docs/`. A release version `X.Y.Z` links to its release notes; a development version stays plain text. All links open in a new tab with `rel="noopener"`. The active environment supplies the version via `/foxxycode/info`; switching it refreshes the footer. Settings retains its API documentation and Website links, including the VS Code host's external-link handling.
+The start screen centers its title and composer vertically. Equal flexible grid rows surround that group; the **GitHub | API docs | server version** footer owns the last row, with at least 24px between it and the composer (`chat/HeroFooter.tsx`). A short panel scrolls to the footer instead of overlaying it on the input, and footer items wrap within the available width. GitHub points at the FoxxyCode repository. API docs points at `/docs/`. A release version `X.Y.Z` links to its release notes; a development version stays plain text. All links open in a new tab with `rel="noopener"`. The active environment supplies the version via `/foxxycode/info`; switching it refreshes the footer. Settings retains its API documentation and Website links, including the VS Code host's external-link handling.
 
 ### Tool timeline
 

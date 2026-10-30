@@ -7,7 +7,9 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-29
+## Unreleased — 2026-10-30
+
+- Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 
 - Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.
 - Added manual compaction and its automatic threshold control to the Context popover; estimates now include tool schemas, reasoning and images and retain provider token anchors.

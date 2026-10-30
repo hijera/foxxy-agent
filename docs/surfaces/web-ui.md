@@ -15,6 +15,14 @@ Subversion calls have localized operation headings, an explicit execution state 
 
 An `error:` result is presented as failed even when the transport completed. Cancelled calls keep their partial output. Truncated argument previews recover through the existing full-call fetch, and truncated results carry a partial-output note and the existing load-more control. Long output has a bounded viewport; narrow screens wrap paths and stack field labels. The implementation uses the existing permission flow and does not change SVN tools or HTTP contracts.
 
+## Start screen
+
+The empty chat centers its title and prompt composer in the available panel height. GitHub, API documentation and the server version sit in their own row below it. In a short editor panel, the page scrolls to reveal that row; the links never cover the input or Send controls. The same layout works in the browser, IntelliJ and VS Code.
+
+![Centered start-screen composer](../assets/start-screen-centered-dark-1280.png)
+
+*The start screen in the Dark theme at 1280px, with space between the composer and project links.*
+
 ## Command tool cards
 
 Short commands and their output form one continuous card without an extra surrounding panel. The first output line stays fully visible below the input. Long or multiline `run_command` and `ssh_run_command` inputs wrap within the panel and use a measured preview cap (190px, 170px on phones). **More…** enables internal scrolling; **Less** returns the command to its beginning. Short commands have no overflow toggle. Input and output expand independently, and a command's overflow control remains inside the shared card surface. The summary keeps the shell action label readable while clipping a long command; exceptionally long labels are capped at 60% of the row and truncate with an ellipsis on a single line.

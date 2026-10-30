@@ -2552,14 +2552,14 @@ a.rail-brand {
 
 .hero {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto minmax(24px, 1fr) auto;
   flex: 1;
   display: grid;
-  /* Dock the hero title + composer toward the bottom of the empty screen so
-     the input field sits low (matching the active-chat composer position)
-     instead of floating in the vertical center. */
-  align-content: end;
+  /* Equal flexible rows center the title and composer. The footer owns its
+     last row, so a short panel scrolls instead of painting links over input. */
+  align-content: center;
   justify-items: center;
-  padding: 18px 0 32px;
+  padding: 18px 0 16px;
 
 }
 /* The turn's own numbers lead the line: its clock, the tokens generated in it, the
@@ -2575,11 +2575,13 @@ a.rail-brand {
 }
 
 .hero-composer {
+  grid-row: 3;
   min-width: 0;
   width: min(720px, 100%);
 }
 
 .hero-title {
+  grid-row: 2;
   margin: 0 0 18px;
   font-size: clamp(26px, 5vw, 44px);
   font-weight: 700;
@@ -15845,14 +15847,15 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 /* Start-screen project links and active server version. */
 .hero-footer {
-  position: fixed;
-  bottom: 16px;
-  left: 0;
-  right: 0;
+  grid-row: 5;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
   gap: 8px;
+  text-align: center;
   font-size: 0.78rem;
   color: color-mix(in srgb, var(--text) 35%, var(--foxxycode-blend-base));
   pointer-events: none;
