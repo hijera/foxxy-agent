@@ -16,6 +16,7 @@ than pointing at a directory that does not exist.
 | Skill | What it does |
 |-------|--------------|
 | **`/configure-foxxycode`** | Changes FoxxyCode's own configuration when you ask: settings, providers, models, logging, permissions, MCP servers and skills. Verifies the upstream source, stages uci-style edits with the typed `config_get` / `config_set` tools, and commits only after you confirm, so `config_commit` applies and hot-reloads them in one step; `config_rollback` returns to the pre-commit snapshot. Never echoes secrets. |
+| **`/crossreview`** | Fans a code review out to a quorum of reviewers - external console code agents (claude, codex, foxxycode, opencode, cursor, devin, koda) and internal `explore` children - through the bundled `crossreview` subagent, then merges the findings into one verdict. First run detects the installed CLIs and asks which agents and models to use; the roster is kept in `${FOXXYCODE_HOME}/crossreview.json`. |
 | **`/rpa-init`** | Warms up context on a repository: reads the code, the documentation and the test code, sets up the dev environment the project documents, runs the tests, and writes a short report. Needs no brief. |
 | **`/rpa-feat`** | Adds a feature strictly by BDD: plan, failing tests, implementation, green tests, the full suite, documentation and examples, the linter at the end. Needs a description of what to build. |
 | **`/rpa-bugfix`** | Fixes a bug reproduction-test first, then the fix, then the full suite, then a short report. Needs the bug: expected against actual, and how to reproduce it. |

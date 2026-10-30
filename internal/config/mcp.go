@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Trust policy values for mcp.project_trust. They govern the project-local
@@ -22,10 +23,13 @@ const (
 	ProjectTrustDeny = "deny"
 )
 
-// ProjectTrustFlagName is the CLI flag (on `foxxycode cli`, `foxxycode acp`,
-// `foxxycode http` and `foxxycode serve`) that overrides mcp.project_trust for
-// one process, so a trusted checkout or a CI job can opt in without editing
-// config.yaml.
+// MCPDefaultIdleTimeoutSeconds is how long an MCP server no session holds
+// keeps running before it is stopped, when mcp.idle_timeout_seconds is not set.
+const MCPDefaultIdleTimeoutSeconds = 300
+
+// ProjectTrustFlagName is the CLI flag (on `foxxycode acp` / `foxxycode serve`) that
+// overrides mcp.project_trust for one process, so a trusted checkout or a CI
+// job can opt in without editing config.yaml.
 const ProjectTrustFlagName = "mcp-project-trust"
 
 // ProjectTrustFlagUsage is the shared flag help text.
@@ -45,7 +49,8 @@ func ApplyProjectTrustFlag(fs *flag.FlagSet, cfg *Config, val *string) error {
 		if f.Name != ProjectTrustFlagName {
 			return
 		}
-		next := MCP{ProjectTrust: *val}
+		next := cfg.MCP
+		next.ProjectTrust = *val
 		if verr := next.Validate(); verr != nil {
 			err = fmt.Errorf("-%s: %w", ProjectTrustFlagName, verr)
 			return
@@ -61,6 +66,23 @@ type MCP struct {
 	// ProjectTrust is the trust policy for <cwd>/.foxxycode/mcp.json:
 	// ask (default), allow, or deny.
 	ProjectTrust string `yaml:"project_trust"`
+	// IdleTimeoutSeconds is how long an MCP server that no session holds any
+	// more keeps running before FoxxyCode stops it: a project server once the
+	// last session of its workspace let it go, an ACP client's server once
+	// the last session that sent it closed, a global server in a process that
+	// does not keep the global servers up. A server switched off, no longer
+	// approved, removed or declared differently stops at once instead. A nil
+	// pointer means the default (300, five minutes); an explicit 0 stops a
+	// server as soon as the last session lets it go.
+	IdleTimeoutSeconds *int `yaml:"idle_timeout_seconds,omitempty"`
+}
+
+// EffectiveIdleTimeout is IdleTimeoutSeconds as a duration, with its default.
+func (c MCP) EffectiveIdleTimeout() time.Duration {
+	if c.IdleTimeoutSeconds == nil {
+		return MCPDefaultIdleTimeoutSeconds * time.Second
+	}
+	return time.Duration(*c.IdleTimeoutSeconds) * time.Second
 }
 
 // ResolvedProjectTrust returns ProjectTrust with a safe default of
@@ -74,8 +96,12 @@ func (c MCP) ResolvedProjectTrust() string {
 	}
 }
 
-// Validate normalises ProjectTrust and rejects unknown values.
+// Validate normalises ProjectTrust and rejects unknown values and a negative
+// idle timeout.
 func (c *MCP) Validate() error {
+	if c.IdleTimeoutSeconds != nil && *c.IdleTimeoutSeconds < 0 {
+		return fmt.Errorf("idle_timeout_seconds: must be 0 or more, got %d", *c.IdleTimeoutSeconds)
+	}
 	v := strings.ToLower(strings.TrimSpace(c.ProjectTrust))
 	if v == "" {
 		v = ProjectTrustAsk

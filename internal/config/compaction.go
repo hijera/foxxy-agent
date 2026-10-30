@@ -12,6 +12,11 @@ const (
 	// last summary onward (session.MessagesForLLM). It supports the manual /compact
 	// command and the HTTP compact endpoint.
 	CompactionEngineCoddy = "coddy"
+	// CompactionEngineFoxxyCode is the name the schema, the example config and
+	// the documentation have always given the default engine. It is read as an
+	// alias of CompactionEngineCoddy, so a file written for either spelling
+	// validates and runs the same engine.
+	CompactionEngineFoxxyCode = "foxxycode"
 	// CompactionEngineOpenCode is the fork's original engine: it flags older messages
 	// Compacted and filters them from the model payload (isLLMHistoryMessage).
 	CompactionEngineOpenCode = "opencode"
@@ -62,6 +67,8 @@ type CompactionConfig struct {
 	// preserved. Use CompactionEnabled to read the effective value. Auto-compaction only fires
 	// when real prompt tokens approach the context window, so leaving it on is a safe default.
 	Enabled *bool `yaml:"enable"`
+	// AutoEnabled controls the threshold trigger independently of manual compaction.
+	AutoEnabled *bool `yaml:"auto_enable"`
 
 	// Model selects a cfg.models entry for the summarization pass. Empty uses agent.model.
 	Model string `yaml:"model"`
@@ -154,6 +161,11 @@ func (c *CompactionConfig) CompactionEnabled() bool {
 // IsEnabled is an alias for CompactionEnabled used by the coddy engine call sites.
 func (c *CompactionConfig) IsEnabled() bool { return c.CompactionEnabled() }
 
+// IsAutoEnabled reports whether either engine may compact automatically.
+func (c *CompactionConfig) IsAutoEnabled() bool {
+	return c.IsEnabled() && (c.AutoEnabled == nil || *c.AutoEnabled)
+}
+
 // EngineIsOpenCode reports whether the opencode engine is selected.
 func (c *CompactionConfig) EngineIsOpenCode() bool {
 	return strings.EqualFold(strings.TrimSpace(c.Engine), CompactionEngineOpenCode)
@@ -186,6 +198,9 @@ func (c *CompactionConfig) EffectiveKeepRecentTurns() int {
 func (c *CompactionConfig) Normalize() {
 	c.Model = strings.TrimSpace(c.Model)
 	c.Engine = strings.ToLower(strings.TrimSpace(c.Engine))
+	if c.Engine == CompactionEngineFoxxyCode {
+		c.Engine = CompactionEngineCoddy
+	}
 }
 
 // ApplyDefaults sets zero values to safe defaults. An omitted enabled key defaults to true and an
@@ -219,9 +234,9 @@ func (c *CompactionConfig) ApplyDefaults() {
 // Validate checks the engine value, compaction model reference, and threshold bounds.
 func (c *CompactionConfig) Validate(cfg *Config) error {
 	switch c.Engine {
-	case "", CompactionEngineCoddy, CompactionEngineOpenCode:
+	case "", CompactionEngineCoddy, CompactionEngineFoxxyCode, CompactionEngineOpenCode:
 	default:
-		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineCoddy, CompactionEngineOpenCode)
+		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineFoxxyCode, CompactionEngineOpenCode)
 	}
 	if err := c.ResultEviction.Validate(); err != nil {
 		return err

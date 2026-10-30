@@ -197,6 +197,7 @@ MCP settings that are not tied to a single server entry.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `mcp.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for the project-local <cwd>/.foxxycode/mcp.json, which travels with the checkout: "ask" keeps its servers cold until the operator approves that exact declaration for that workspace; "allow" starts them automatically (trusted workspaces only); "deny" never loads them. |
+| `mcp.idle_timeout_seconds` | integer or null | 300 | Seconds an MCP server that no session holds any more keeps running before FoxxyCode stops it: a project server once the last session of its workspace let it go, a server an ACP client sent once the last session that sent it closed. A session that takes the server in the meantime finds it running. The global servers that foxxycode serve, the console and foxxycode acp start with the process are not affected, and a server switched off, no longer approved, removed or declared differently stops at once. 0 stops a server as soon as the last session lets it go. |
 
 ### `tools`
 
@@ -312,6 +313,7 @@ Summarize older turns when the conversation approaches the model's context windo
 | `compaction.result_eviction.keep_recent` | integer | 2 | Most recent evictable results kept as a working window. |
 | `compaction.result_eviction.min_result_bytes` | integer | 2000 | Results at or below this size are never evicted. |
 | `compaction.result_eviction.start_percent` | integer | 50 | Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does. |
+| `compaction.auto_enable` | boolean or null | true | Enable automatic compaction at threshold_percent. Set false to keep manual /compact and the Context popover action available without automatic compaction. Defaults to true. |
 
 ### `title`
 
@@ -368,6 +370,7 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.remotes` | list of objects |  | Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote. |
 | `httpserver.remotes[].name` | string |  | Display name in the environment selector. |
 | `httpserver.remotes[].url` | string |  | Base URL of the remote foxxycode http server. |
+| `httpserver.remotes[].token` | string |  | Bearer token to present to this remote: a relay's client token (swarm.auth_token) or a server's httpserver.auth_token, usually a ${ENV} reference. Optional and opt-in: every browser that reads this configuration receives it, and foxxycode --remote <name> uses it when --remote-token is not given. A node mounted under a relay (<url>/swarm/nodes/<name>) takes the relay's token. |
 
 ### `swarm`
 
@@ -378,7 +381,7 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.enable` | boolean | false | Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay. |
 | `swarm.host` | string | "" | Bind address for the relay when the CLI does not pass --swarm-host. Empty falls back to 0.0.0.0. |
 | `swarm.port` | integer | 0 | Listen port for the relay. 0 falls back to 12346. |
-| `swarm.name` | string | "" | Label for this relay in topology views and in a child's node path. |
+| `swarm.name` | string | "" | Label for this relay in topology views, in /swarm/info and in a child's node path. Empty: the host name it runs on. |
 | `swarm.auth_token` | string | "" | Bearer credential clients present to this relay. A relay reaches every node with that node's own credential, so an unauthenticated relay bound off loopback is a fleet-wide open door and the server refuses to start unless allow_insecure is set. Never echoed back. |
 | `swarm.pairing_tokens` | list of strings | [] | Credentials a node must present to register. Empty closes registration unless insecure_open_registration is set. Never echoed back. |
 | `swarm.allow_insecure` | boolean | false | Permit binding off loopback without a client token. |

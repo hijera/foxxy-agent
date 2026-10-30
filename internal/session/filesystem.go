@@ -1062,7 +1062,7 @@ func (f *FileStore) Save(state *State) error {
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
-		CWD:               state.CWD,
+		CWD:               state.GetCWD(),
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),

@@ -8,6 +8,17 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.45 — 2026-10-29
+
+Checkpoint: `bd28a329b9bbc53874556403bb2fd00f3f01c483` (tag `1.2.45`), following `419c6930450a0e3107021ad7ad0b858542d0245b` (`1.2.35`). Implementation: `eee87dce32159afe3d7ce906ced3e04c7e4df74a`. All 77 commits are accounted for in `ports.yaml`: 70 adapted records and seven redundant integration merges.
+
+- Ported JSON-frame truncation recovery, shared MCP connections and process cleanup, worktree creation and command cwd, provider-anchored context accounting and manual/automatic compaction controls, authenticated remotes, environment isolation, relay configuration and graph navigation, settings feedback, server information, crossreview and the complete AppSec package.
+- Owner decisions: port the entire range, upstream trusted `spawns` depth exception, the complete AppSec CI/scanners, remote tokens exposed through browser configuration, and the full GitHub/API docs/version footer. Worktree refresh, eager global MCP startup and the 300-second idle default follow upstream after the continuation instruction.
+- Preserved every standing fork divergence, asynchronous trust-gated MCP startup, both compaction engines, Summary, shared encoding, export formats, SVN, localization, send shortcuts and Chromium 104. Scope and adaptations are in `docs/plans/upstream-1.2.45-port.md`.
+- Validation passed: complete `make test` on Windows (all shipped-tag Go packages and 3,168 UI tests), lint, Windows checks/lint, prompt-cache and fork guards, documentation generation, schema synchronization and real Chromium/WebKit layout checks. Linux race verification on CI's Go 1.25 passed all packages except agent/session, which failed filesystem I/O when host C: filled. No data race was reported. Task-owned caches were removed, recovering about 5.6 GiB; WSL still could not launch, so the full race verdict is left to PR CI. Go 1.27 diagnostic incompatibilities remain outside the verified toolchain.
+- Docker-backed security scanning passed the upstream gate: zero critical findings; Trivy reports three high and 13 medium dependency findings, and Semgrep reports 42 warnings. Report-only findings remain visible; the severity policy is unchanged.
+- Built the Windows x64 IntelliJ development ZIP `0.0.0-dev-upstream-1.2.45`; all 112 Kotlin unit tests pass through JUnit. Gradle's worker argfile cannot resolve this machine's Cyrillic paths, so the same compiled tests run with a manifest classpath. Additional before/after, light and narrow evidence is on the `screenshots` branch under `upstream-1.2.45/` (commit `ef281ee6b1348fa94569db577970b556066b0140`). Acceptance checks are in `docs/plans/upstream-1.2.45-test-plan.md`.
+
 ## Sync through upstream 1.2.35 — 2026-10-26
 
 Checkpoint: `419c6930450a0e3107021ad7ad0b858542d0245b` (tag `1.2.35`), following `24bf9b367767bb0a76193c4dac57ab03b0203365` (`1.2.27`). The range contains 66 commits. Implementation: `2710b9ea32549cb1ccd8279079434955916548a0`; `ports.yaml` records 60 adapted commits and six redundant integration merges.

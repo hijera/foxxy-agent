@@ -41,8 +41,10 @@ type HTTPServerConfig struct {
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
 	CORS HTTPCORSConfig `yaml:"cors"`
-	// Remotes lists remote foxxycode serve servers the bundled UI may connect to (environment
-	// selector). Tokens are NOT stored here; the UI keeps them client-side per remote.
+	// Remotes lists remote foxxycode serve servers and swarm relays the bundled UI may connect
+	// to (environment selector) and `foxxycode --remote <name>` resolves. An entry may carry
+	// the token to present to it; without one the UI keeps the token client-side per
+	// remote and the console takes it from --remote-token or FOXXYCODE_REMOTE_TOKEN.
 	Remotes []HTTPRemote `yaml:"remotes"`
 }
 
@@ -155,10 +157,17 @@ type HTTPCORSConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
-// HTTPRemote is one remote foxxycode serve server offered in the UI environment selector.
+// HTTPRemote is one remote foxxycode serve server (or swarm relay) offered in the UI
+// environment selector.
 type HTTPRemote struct {
 	Name string `yaml:"name"`
 	URL  string `yaml:"url"`
+	// Token is the bearer token to present to the remote - a relay's client token
+	// (swarm.auth_token) or a server's httpserver.auth_token - usually written as a
+	// ${ENV} reference. Optional: an entry that carries it hands it to every browser
+	// that reads this configuration (GET /foxxycode/config, like a provider's api_key)
+	// and to `foxxycode --remote <name>`, which is the choice of whoever wrote the entry.
+	Token string `yaml:"token,omitempty"`
 }
 
 // CORSAllowOrigin returns the Access-Control-Allow-Origin value for origin and whether it is
@@ -205,6 +214,7 @@ func (h *HTTPServerConfig) Normalize() {
 	for i := range h.Remotes {
 		h.Remotes[i].Name = strings.TrimSpace(h.Remotes[i].Name)
 		h.Remotes[i].URL = strings.TrimSpace(h.Remotes[i].URL)
+		h.Remotes[i].Token = strings.TrimSpace(h.Remotes[i].Token)
 	}
 }
 

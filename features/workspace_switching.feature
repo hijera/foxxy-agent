@@ -41,6 +41,8 @@ Feature: Workspace switching
     Then the context reports a git repository on branch "feature/login"
     And the context reports the session is in a worktree
     And the worktree path differs from the repository root
+    And the context names "main" as the default branch
+    And the session list names "repo" as its main checkout
 
   Scenario: The dedicated worktree lives inside the repository
     Given a workspace git repository "repo" with branches "main, feature/login"

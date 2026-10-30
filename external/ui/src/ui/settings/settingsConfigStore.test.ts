@@ -7,6 +7,7 @@ import {
   resetSettingsConfigForTests,
   snapshotSettingsConfig,
 } from "./settingsConfigStore";
+import { connectRemote, setEnv } from "../env/remoteEnv";
 
 const schema = { type: "object", properties: {} };
 
@@ -224,4 +225,35 @@ test("a reload notice retries a first read that failed", async () => {
     expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 40 } }),
   );
   expect(snapshotSettingsConfig().error).toBeNull();
+});
+
+// A switch between two remotes starts the app over in place instead of reloading
+// the page (remoteEnv.switchTo), and the copy of the old server's configuration
+// must not be drawn for the new one.
+test("a switch to another server in place forgets the copy", async () => {
+  const realLocation = window.location;
+  Object.defineProperty(window, "location", {
+    value: { hash: "", reload: vi.fn() },
+    writable: true,
+    configurable: true,
+  });
+  try {
+    answeringServer({ config: { models: [] } });
+    setEnv({ mode: "remote", baseUrl: "http://a:1", token: "t" });
+    await ensureSettingsConfig();
+    expect(snapshotSettingsConfig().config).not.toBeNull();
+    connectRemote("http://b:1", "t", "b");
+    expect(snapshotSettingsConfig()).toEqual({
+      schema: null,
+      config: null,
+      error: null,
+    });
+  } finally {
+    setEnv({ mode: "local" });
+    Object.defineProperty(window, "location", {
+      value: realLocation,
+      writable: true,
+      configurable: true,
+    });
+  }
 });

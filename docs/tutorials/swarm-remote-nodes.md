@@ -30,7 +30,7 @@ Before typing anything, the dry run tells whether the path is right and the node
 foxxycode --dry-run --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
 ```
 
-The token can also come from `FOXXYCODE_REMOTE_TOKEN`, and a relay address you use often can be named once in your own `config.yaml` under `httpserver.remotes` and then addressed by name; the token is never stored in that file ([Naming a remote](../operate/remote.md#naming-a-remote)).
+The token can also come from `FOXXYCODE_REMOTE_TOKEN`, and a relay address you use often can be named once in your own `config.yaml` under `httpserver.remotes` and then addressed by name. That entry may carry the client token as well, best as a `${ENV}` reference, and then a node mount under that relay takes it without a flag ([Naming a remote](../operate/remote.md#naming-a-remote), [The token](../operate/remote.md#the-token)).
 
 ## 3. An editor
 
@@ -46,7 +46,7 @@ Configure the editor to run that command line instead of a bare `foxxycode acp` 
 
 Open the relay itself, `http://127.0.0.1:12346/`. A relay built with the `ui` tag (the published image is) serves the web UI at its own address; it asks for the client token and opens on the swarm map. Click a node: the History drawer lists that node's sessions, the composer shows its working directory and models, and a turn started there runs on the node. The **Swarm** entry stays in the rail while you are inside a node, so another node is one click away, and each node on the map says how many sessions it holds, how many turns are running and whether one of them is waiting for you.
 
-From a web UI served by some other `foxxycode serve`, the relay is one more environment: the chip in the composer, **+ Add remote...**, the relay's address and the client token. The token stays in that browser.
+From a web UI served by some other `foxxycode serve` - a laptop's, for instance - the relay is one more environment: an entry of that server's `httpserver.remotes`, or the chip in the composer, **Connect to…**, the relay's address and the client token. The relay has to allow that page's origin in `swarm.cors.allowed_origins`. Once it accepts the token the environment menu lists its agents, so a node is one click away; [A swarm across your machines](swarm-across-machines.md) walks through that setup from scratch.
 
 ## 5. What runs where
 
@@ -67,7 +67,7 @@ foxxycode --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
 
 ## What tends to go wrong
 
-- **`--remote` is refused before connecting.** The target must be a bare origin plus a path prefix: no query string, no fragment, no credentials in the URL. The token goes into `--remote-token` or `FOXXYCODE_REMOTE_TOKEN`.
+- **`--remote` is refused before connecting.** The target must be a bare origin plus a path prefix: no query string, no fragment, no credentials in the URL. The token goes into `--remote-token`, the `token` of the remote's entry or `FOXXYCODE_REMOTE_TOKEN`.
 - **`401` on every request.** A node's own token was used where the relay's client token belongs. Through a mount you present the relay's token; the relay presents the node's.
 - **The status dot in a browser stays red with a correct token.** The web UI was opened from another `foxxycode serve`, and that relay does not list the page's origin in `swarm.cors.allowed_origins`. Open the relay's own address instead, or allow the origin.
 - **A bypass switched on from a laptop is gone the next morning.** `/permissions bypass` changes the node's session for every client of it, but only in the node's memory: a restart of the node returns the session to its `tools.permission_mode`. Put a lasting choice in the node's `config.yaml`.

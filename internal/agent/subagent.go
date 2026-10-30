@@ -92,6 +92,9 @@ var subagentMandatoryExclusions = []string{
 	"plan_exit",
 	// A child runs on the model its parent (or its definition) chose.
 	"switch_model",
+	// A child shares the parent's workspace; moving it mid-run would strand
+	// every tool of both, and the child has no switcher wired anyway.
+	"worktree_create",
 }
 
 // The process-wide limiter and the per-parent permission arbiters. Both are
@@ -614,12 +617,29 @@ func (a *Agent) subagentDepth() int {
 }
 
 // canSpawn reports whether this session may spawn at all: the feature is on, a
-// runtime is wired, and the depth limit leaves room.
+// runtime is wired, and the depth limit leaves room - or a spawn allowlist the
+// session's own definition declared extends it exactly one generation past
+// the cap.
 func (a *Agent) canSpawn() bool {
 	if a.cfg == nil || !a.cfg.Subagents.ResolvedEnabled() || a.subagentRuntime == nil {
 		return false
 	}
-	return a.subagentDepth() < a.cfg.Subagents.EffectiveMaxDepth()
+	depth := a.subagentDepth()
+	maxDepth := a.cfg.Subagents.EffectiveMaxDepth()
+	if depth < maxDepth {
+		return true
+	}
+	return depth == maxDepth && len(a.spawnAllowlist()) > 0
+}
+
+// spawnAllowlist is the set of subagent names this session's own definition
+// lets it delegate to (already scope-filtered at spawn time), or nil for an
+// ordinary, unrestricted session.
+func (a *Agent) spawnAllowlist() []string {
+	if a.subagent == nil {
+		return nil
+	}
+	return a.subagent.Spawns
 }
 
 // canSpawnInMode adds the mode rule to canSpawn: the read-only modes (ask,
@@ -659,7 +679,11 @@ func (a *Agent) subagentCatalogBlock() string {
 		return ""
 	}
 	cwd := a.state.GetCWD()
-	entries := subagents.BuildCatalog(a.subagentDefinitions(), a.cfg.Subagents.ResolvedProjectTrust(),
+	defs := a.subagentDefinitions()
+	if allow := a.spawnAllowlist(); len(allow) > 0 {
+		defs = subagents.DefinitionsMatching(defs, allow)
+	}
+	entries := subagents.BuildCatalog(defs, a.cfg.Subagents.ResolvedProjectTrust(),
 		subagents.CanonicalWorkspace(cwd), subagents.NewTrustStore(a.cfg.Paths.Home))
 	return subagents.PromptBlock(entries)
 }
@@ -745,8 +769,13 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		return "", fmt.Errorf("subagents are disabled (subagents.enable is false)")
 	}
 	maxDepth := cfg.Subagents.EffectiveMaxDepth()
-	if a.subagentDepth() >= maxDepth {
-		return "", fmt.Errorf("this session cannot spawn subagents: subagents.max_depth is %d and this session already runs at depth %d", maxDepth, a.subagentDepth())
+	depth := a.subagentDepth()
+	spawnAllow := a.spawnAllowlist()
+	// Below the cap any session spawns; at the cap only a definition with a
+	// spawn allowlist still may (and only the names on it, enforced below);
+	// past it nobody does.
+	if depth > maxDepth || (depth == maxDepth && len(spawnAllow) == 0) {
+		return "", fmt.Errorf("this session cannot spawn subagents: subagents.max_depth is %d and this session already runs at depth %d", maxDepth, depth)
 	}
 	if len(req.Prompt) > subagents.MaxPromptBytes {
 		return "", fmt.Errorf("spawn_agent: prompt is %d bytes, the limit is %d", len(req.Prompt), subagents.MaxPromptBytes)
@@ -764,9 +793,17 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 
 	defs := a.subagentDefinitions()
-	def := subagents.FindByName(defs, req.Agent)
+	spawnable := defs
+	if len(spawnAllow) > 0 {
+		spawnable = subagents.DefinitionsMatching(defs, spawnAllow)
+	}
+	def := subagents.FindByName(spawnable, req.Agent)
 	if def == nil {
-		return "", fmt.Errorf("unknown subagent %q; available: %s", req.Agent, strings.Join(subagents.VisibleNames(defs), ", "))
+		if len(spawnAllow) > 0 && subagents.FindByName(defs, req.Agent) != nil {
+			return "", fmt.Errorf("subagent %q may only delegate to %s; %q is not on its spawns allowlist",
+				a.subagent.Name, strings.Join(spawnAllow, ", "), req.Agent)
+		}
+		return "", fmt.Errorf("unknown subagent %q; available: %s", req.Agent, strings.Join(subagents.VisibleNames(spawnable), ", "))
 	}
 	cwd := a.state.GetCWD()
 	workspace := subagents.CanonicalWorkspace(cwd)
@@ -793,8 +830,15 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	childPerm := subagents.NarrowPermissionMode(effectivePermMode(a.state, cfg), def.PermissionMode)
 	childDepth := a.subagentDepth() + 1
 
+	// The child's spawn allowlist, already narrowed by scope: a project
+	// definition's spawns is ignored here so a checked-in file cannot widen
+	// the depth guard. It decides both which names the child may delegate
+	// to (via SubagentMeta.Spawns below) and whether it gets spawn_agent at
+	// the boundary depth at all.
+	childSpawns := def.EffectiveSpawns()
+
 	exclusions := append([]string(nil), subagentMandatoryExclusions...)
-	if childDepth >= maxDepth {
+	if childDepth > maxDepth || (childDepth == maxDepth && len(childSpawns) == 0) {
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
 	effective := subagents.EffectiveTools(a.parentToolNames(parentMode), ToolSetForMode(childMode, cfg.Tools.PlanNoSelfRunEnabled()), def, exclusions)
@@ -942,6 +986,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			Title:             label,
 			Role:              def.Role,
 			Tools:             effective,
+			Spawns:            childSpawns,
 			Depth:             childDepth,
 			MaxTurns:          def.MaxTurns,
 			ConnectMCP:        connectMCP,

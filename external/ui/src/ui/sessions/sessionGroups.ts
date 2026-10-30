@@ -190,7 +190,7 @@ function groupByWorkspace(rows: readonly SessionRow[]): SessionGroup[] {
     rows: [],
   };
   for (const row of rows) {
-    const cwd = String(row.cwd ?? "").trim();
+    const cwd = String(row.repoRoot || row.cwd || "").trim();
     if (!cwd) {
       unknown.rows.push(row);
       continue;

@@ -89,3 +89,33 @@ func TestAnthropicToolArgumentDeltas(t *testing.T) {
 		t.Fatalf("args=%q response=%+v", args, resp)
 	}
 }
+
+func TestOpenAIToolArgumentDeltasResetOnRetry(t *testing.T) {
+	second := oaiTool +
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"ls\\\"}\"}}]}}]}\n\n" +
+		"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+		"data: [DONE]\n\n"
+	p, calls, done := openAIScriptStub(t, oaiTool+oaiToolCut, second)
+	defer done()
+	fragments := map[int]string{}
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		if c.ToolCallDelta != nil {
+			fragments[c.Attempt] += c.ToolCallDelta.InputJSON
+		}
+	})
+	if err != nil {
+		t.Fatalf("Stream after retry: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("requests = %d, want the first attempt and one replay", got)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].InputJSON != `{"command":"ls"}` {
+		t.Fatalf("response calls = %+v", resp.ToolCalls)
+	}
+	if got, want := fragments[1], `{"command":`; got != want {
+		t.Fatalf("first-attempt fragments = %q, want %q", got, want)
+	}
+	if got, want := fragments[2], `{"command":"ls"}`; got != want {
+		t.Fatalf("second-attempt fragments = %q, want one successful attempt's %q", got, want)
+	}
+}

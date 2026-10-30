@@ -16,6 +16,8 @@ notes: 'Historical decisions migrated from the local UPSTREAM_SYNC.md journal an
   24bf9b367767bb0a76193c4dac57ab03b0203365 (commit of annotated tag 1.2.27): 41 adapted constituent/PR-merge records
   and 4 redundant integration merges skipped. The 2026-10-26 wave covers the next 66 commits through
   419c6930450a0e3107021ad7ad0b858542d0245b (tag 1.2.35): 60 adapted records and 6 redundant integration
+  merges skipped. The 2026-10-29 wave covers the next 77 commits through
+  bd28a329b9bbc53874556403bb2fd00f3f01c483 (tag 1.2.45): 70 adapted records and 7 redundant integration
   merges skipped. Commits after that checkpoint remain unreviewed unless listed individually.'
 ports:
 - upstream_sha: 11cc5e9fb1584f3cc2e765ba5be8f5d13442453d
@@ -11578,4 +11580,610 @@ ports:
     Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, separate background continuation
     budgets, localization, browser vision and the export engine. Bulk documentation media replacement was intentionally
     omitted; changed surfaces were recaptured. Scope and validation: docs/plans/upstream-1.2.35-port.md.'
+  remaining: []
+- upstream_sha: 2e9ef980e933bb64cdb245a0da68b7d6162e6b1c
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix: use provider context counts for compaction. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 6b2e85fe143d2f64c9cb61fb06f413025194d48e
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(swarm): a relay as a remote in the web UI and the
+    console (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 07adfe9edd529d27ec1d5582122233e861feffc0
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(swarm): the last review round on switching in place
+    (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: b0f2ca988b61688a71bb9c205f1af285b6512a5c
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): start the app over when the token of the remote
+    in use rotates (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: ea1d3f947d0bc1bbb4ed7cfb9e5c7b89c77212ea
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(swarm): scope a relay''s settings to its own sections
+    (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: c2de83394766aa8ccd28cc7df555c91977d87ca8
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: test(session): judge the MCP connect snapshots the way
+    the console does. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 32b6852263bd9d74b765059b245ff64144c13ca3
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(serve): no restart into a configuration a fresh process
+    refuses (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 9b4ca3e08fef3ee35c0e0f013919a8b05dff08a0
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(serve): weigh a restart before a reload moves anything,
+    start a surface on its own address (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates,
+    fork retry/continuation policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation:
+    docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: d5f19640f4defd0d0ba7797eb9adc2d55d625881
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(httpserver): follow a configuration the manager installed
+    before the server subscribed (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork
+    retry/continuation policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation:
+    docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 3fb4e25592deca5117a52d412e5b0cb94541a351
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(session): publish configuration replacements in the
+    order they were stored (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: eab0a97fa9a303a961dc9fe2a7381f4ae44fad44
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(serve): never drop the newest configuration on the
+    way to the supervisor (#401). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 742a5732a308fb55d15680a82574a61ef0314419
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(session): note a settings change only when the agent
+    made it. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: a401d0490e2099e7ff6c84fa2ae2a6872963274f
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #403 from coddy-project/fix/swarm-relay-remote.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 78646e181c51254cefe815632b3f8285ca55d136
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: 37255094d8576d92e91bd5e85fc44ed0ab187ba5
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #404 from coddy-project/fix/settings-notices-agent-only.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 39532fba9cd6d4a96b9a5b9cd5d9cca2eeca8530
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(mcp): share configured MCP servers between sessions
+    through a pool. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 5cd8594c82edfa97368081074536ffe66f905709
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: 2af0fa5983cba7dfdd384b588330a266a74e0a29
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: test(llm): reproduce a stream event cut inside its JSON
+    (#384). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: ffbf20deb7c7044db26064ee35637ec0ff203557
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(llm): classify a stream event cut inside its JSON
+    as a truncation (#384). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: e1d9cd7660e7444cdc2fb08aa59cfb7febd38e1c
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs: describe a stream event cut inside its JSON and
+    the undecodable frame (#384). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 1ecefcb939a0455afadcaec085fdba4467df7127
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(mcp): a start that ran out of time is never joined
+    by the next try. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 537a1d1bf54721572db49e6223012e7de378e3b6
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #405 from coddy-project/fix/mcp-shared-server-pool.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: b40179cb7da74d09ee2783cbc0b6b9ad2330ca90
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs: design swarm star canvas. Adapted to FoxxyCode branding,
+    asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction engines,
+    SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: fac37ec29f9f77ec57e991c53775e44859328337
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs: plan swarm star canvas implementation. Adapted to
+    FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both
+    compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: c953a68b2e2ac7f7f6eafb0c7875f69cc501954e
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(swarm): carry relay credentials through transit mounts.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: ec34d73de8dd1c102c81425948958981b4bd4789
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): add deterministic swarm star layout. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: c39fd6f427a02564d2a223090c944d6f3a3c8589
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): tolerate unavailable swarm layout storage. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: a76b7fc1feacfcfdefa4ea71aca6164c4e931d36
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): filter history on the active remote. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: c9e3ee9430376488111d95c4048435fce06832f0
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: test(ui): cover mounted History filters. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: f0aa31cb6c9289e983d802b7edaba2e35f35123d
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): separate History filters from remote switches.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 25a9c27196e42534aada18b7a11d10c6e8a137ed
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): select the most specific History remote. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 8c4acc7b4dabe765efaa3ffa71cb4e79762f82c4
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): add swarm canvas camera math. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 156014b65b730395f6b0d4d984656458ce646353
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): keep swarm camera finite. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 5be94801bceb16c21ab218f593adaa62fe05800f
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): add interactive swarm canvas. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 33f08802a7c1443e107eef638a48fd1a65f3d68b
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): keep swarm route and zoom states distinct. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: b6e0d72c18fccde3aa58d2927cf3c10feba68d84
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): preserve accessible swarm canvas controls. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 8fc5523f7e3b93acd4c36d148918b0d9b849a6f3
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): disable swarm transition while pinching. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 7a621ddaf97541f6b69de8eee02ee9e69e7532ee
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs: describe the interactive swarm canvas. Adapted to
+    FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both
+    compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 66d9d3487b5c351acd7823b87cc04a496ca8317f
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(worktrees): create fresh feature worktrees and move
+    sessions. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 216c8e307734eb66202defe39318a7b07f70b770
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): replace swarm star with rooted graph. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 08a5b327a7211d4996ea05124ca677aa3064903d
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): pan fitted swarm canvas freely. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: ec3b63a6206c53693d2d91fd2d56a47fff34da07
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: test(shell): compare command cwd by directory identity.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 39aa664c3131bfbfc9686b158f8a6fb37f82e06d
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): render swarm graph top-down. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 1f59a2eeaa45b4ab6c027f580e17791d6bfa3a5b
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs: show rooted swarm graph canvas. Adapted to FoxxyCode
+    branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both compaction
+    engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 80f234a054d9800a49fda8db423f097f463f60c2
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs: align swarm canvas accessibility notes. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 1f8764ab5b8864f2caa60957c27372b9153c0a08
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): preserve docs layout CSS contract. Adapted to
+    FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both
+    compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: b98e8ff03b72d29cb29a1677f8d2031c347810ca
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(llm): review follow-ups for the cut-inside-JSON truncation
+    (#384). Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 85e7cc7d298fc6a5b1787e9cd745344cd7a14390
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): clickable swarm nodes, star icon, ordered subtrees,
+    mounted relay probe. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 1d0c54b5e4945f54ee492f422e5d41a8185f49a2
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): docs-style swarm header, fullscreen canvas,
+    instant refits. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 3a47f2fa359edba767ac065e6c0e7e20a47ddef4
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): keep the whole swarm map on any node, fan-out
+    wire exits. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 0f86d6d616d3b08eca1b3302bb27430e76854f5c
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): fan-down swarm layout, disc relays, rim wires,
+    camera persist. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 7a36fbb2ed88b2448d3a52a53335a3fb0f5b83fb
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ui): swarm header flush with the dock, search finds
+    nodes. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 967aeb19bd4c4ad8de74886eb2120f385178722d
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #409 from coddy-project/feat/swarm-star-canvas.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 819bcb5ddfb46e62c68a6a52a1baa17bf9bc5f2e
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: 918336a581341559ab257dfd128cbe6f1b31f36f
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: e2e993963b8d380114709b2cba823384e03c27da
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(llm): classify in-band error events cut inside JSON
+    as truncation. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 5571cbaee0b7f85cf6d683f566b5fdb1f76912f0
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: review: keep the provider anchor on unreported usage,
+    pin it to the request estimate, reload sessions from disk in BDD. Adapted to FoxxyCode branding, asynchronous
+    MCP startup, trust gates, fork retry/continuation policies, localization, both compaction engines, SVN and Chromium
+    104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 5b122beebb24abdeb7347ad564616f15fd4f56ab
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: review: report nothing_to_compact in the Context popover,
+    fail-closed gating. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation
+    policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 56acf774a6efaf6d0ad41c1c12398b3212c8b812
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: review: assert the restored breakdown after a session
+    reload, bound the compact request. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork
+    retry/continuation policies, localization, both compaction engines, SVN and Chromium 104. Scope and validation:
+    docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: c9ba033913e1d31dfc6cfac0c649315e8d60bce0
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #390 from coddy-project/codex/issue-360-compaction.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 072992c827c175c1591b3afd5315c9ede8263939
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: docs(llm): note the SDK error-event spelling in streamDecodeTruncation.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 545914c7076177dab44d8d229b7b6fb23cf0cc43
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: e9e6afe03ccd5566d2a054c9ab29d43a4a1d6573
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #410 from viktor-drobek/fix/384-codex-json-truncation.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: de9b4273145e51e4531be6bc2ef4e9011f7e771c
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(worktrees): harden EnsureWorktree and session move.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 5f10582bd70dcee293dad0ffe0dcba05da746634
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: a090fb24d40ce052991f56c1e06ae386b377b137
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): recover MCP settings after rejected requests.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: b21dcb3ac9e72ae62c422154ec0a8646c34263cf
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ui): order overlapping MCP list loads, harden error
+    wording. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: b37d9bab492e5f73ccfe8bf10efb96b57163e690
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #407 from coddy-project/fix/issue-377-mcp-busy-errors.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 47c3432f8ff0baacb0b25b60ab86e2d00b8609a0
+  status: skipped
+  fork_commits: []
+  reason: Overlapping integration merge; its net changes are covered by the consolidated 1.2.35-to-1.2.45 port.
+    Covered by implementation bundle eee87dce32159afe3d7ce906ced3e04c7e4df74a.
+  remaining: []
+- upstream_sha: c6f9c2a4b55a7b1492ceaab9fa1b873d035e4ec1
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: test(session): settle gated MCP stub spawn in reload-record
+    test. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 2594bb9070d2b89688ad1535713dee4c8949fb2c
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #408 from coddy-project/feat/issue-365-worktree-flow.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 556e5b0e81da12dcc343b31fb6664f9713a1630a
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(ci): add AppSec scanning gate (trivy, semgrep) for
+    #374. Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies,
+    localization, both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: f091c209660c980d55d5434baa1fad4e4ebf87a2
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: feat(subagents): add crossreview coordinator. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 262e0dd95c606521c9ae0bf9dbf730dea2a6afff
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(ci): harden AppSec scanner integration. Adapted to
+    FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization, both
+    compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 9229521a54e52579600e44b9ca59641739e3ec32
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: fix(http): avoid false Semgrep path traversal alert. Adapted
+    to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: 1258be84acf762db8853579fa87d88d2d7ce36b4
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #411 from coddy-project/feature/security-scan.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
+  remaining: []
+- upstream_sha: bd28a329b9bbc53874556403bb2fd00f3f01c483
+  status: adapted
+  fork_commits:
+  - eee87dce32159afe3d7ce906ced3e04c7e4df74a
+  reason: 'Consolidated 1.2.35-to-1.2.45 net-change port: Merge pull request #412 from coddy-project/feature/crossreview.
+    Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
+    both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
   remaining: []

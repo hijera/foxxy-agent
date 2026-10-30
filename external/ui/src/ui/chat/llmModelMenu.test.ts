@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
   LLM_MENU_FILTER_THRESHOLD,
   filterLlmModels,
@@ -6,6 +6,7 @@ import {
   llmMenuVendorCount,
   llmModelNameOf,
   llmVendorOf,
+  orderLlmModels,
   shouldGroupLlmModels,
   shouldShowLlmFilter,
 } from "./llmModelMenu";
@@ -93,4 +94,35 @@ test("groupLlmModelsByVendor keeps first-seen vendor order and member order", ()
 test("groupLlmModelsByVendor buckets slashless ids under empty vendor", () => {
   const groups = groupLlmModelsByVendor(["plain-a", "plain-b"]);
   expect(groups).toEqual([{ vendor: "", models: ["plain-a", "plain-b"] }]);
+});
+
+describe("orderLlmModels", () => {
+  it("keeps the vendors in the order of the list and sorts each vendor's models by name", () => {
+    expect(
+      orderLlmModels([
+        "codex/gpt-6-astra",
+        "stub/zeta",
+        "codex/gpt-5.6-sol",
+        "stub/alpha",
+        "codex/gpt-5.10",
+        "plain-b",
+        "plain-a",
+      ]),
+    ).toEqual([
+      "codex/gpt-5.6-sol",
+      "codex/gpt-5.10",
+      "codex/gpt-6-astra",
+      "stub/alpha",
+      "stub/zeta",
+      "plain-a",
+      "plain-b",
+    ]);
+  });
+
+  it("compares names without case and returns a new array", () => {
+    const ids = ["v/Beta", "v/alpha"];
+    const out = orderLlmModels(ids);
+    expect(out).toEqual(["v/alpha", "v/Beta"]);
+    expect(ids).toEqual(["v/Beta", "v/alpha"]);
+  });
 });

@@ -169,7 +169,7 @@ test("empty hero shows headline with accent span", () => {
   expect(getByRole("textbox")).toHaveFocus();
 });
 
-test("empty hero no longer surfaces the GitHub or API docs footer links", () => {
+test("empty hero shows the GitHub and API docs footer links", () => {
   const { container } = render(
     <ChatScreen
       title=""
@@ -188,11 +188,9 @@ test("empty hero no longer surfaces the GitHub or API docs footer links", () => 
     />,
   );
 
-  // The whole hero-footer block (GitHub + API docs) was removed so the empty
-  // screen is unbranded; docs moved into Settings.
-  expect(container.querySelector(".hero-footer")).toBeNull();
-  expect(container.querySelector('a[href^="https://github.com/"]')).toBeNull();
-  expect(container.querySelector('a[href="/docs/"]')).toBeNull();
+  expect(container.querySelector(".hero-footer")).not.toBeNull();
+  expect(container.querySelector('a[href="https://github.com/hijera/foxxy-agent"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/docs/"]')).not.toBeNull();
 });
 
 test("active chat wraps title in chat-title-column aligned with composer column", () => {

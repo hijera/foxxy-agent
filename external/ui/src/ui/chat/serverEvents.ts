@@ -24,7 +24,8 @@ export type ServerEventHandlers = {
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
   /** A session's settings changed - model, reasoning, mode, permission mode,
    *  the overrides for the next turns - from any surface. Carries the whole
-   *  versioned snapshot and a notice of what changed. */
+   *  versioned snapshot, and a notice of the change when the agent made it
+   *  itself. */
   onSessionSettings?: (event: SessionSettingsEvent) => void;
   /** A background subagent of this parent session started waiting for a
    *  permission answer, or stopped waiting (answered anywhere, withdrawn, its

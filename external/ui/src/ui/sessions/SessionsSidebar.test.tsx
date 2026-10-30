@@ -448,7 +448,7 @@ test("sort is reported up for the server to apply", () => {
 test("one environment is no choice at all, so the section stays out", () => {
   renderDrawer({
     environments: [
-      { key: "local", label: "Local", active: true, onPick: () => {} },
+      { kind: "origin", key: "local", label: "Local", active: true, onPick: () => {} },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -461,8 +461,8 @@ test("an environment row switches where the history is read from", () => {
   const onPick = vi.fn();
   renderDrawer({
     environments: [
-      { key: "local", label: "Local", active: true, onPick: () => {} },
-      { key: "nas02", label: "nas02", active: false, onPick },
+      { kind: "origin", key: "local", label: "Local", active: true, onPick: () => {} },
+      { kind: "switch", key: "nas02", label: "nas02", active: false, onPick },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -470,6 +470,92 @@ test("an environment row switches where the history is read from", () => {
   fireEvent.click(screen.getByTestId("sessions-filter-env-nas02"));
   expect(onPick).toHaveBeenCalledTimes(1);
   expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
+});
+
+test("environment origins and remote switches keep independent menu semantics", () => {
+  renderDrawer({
+    environments: [
+      { kind: "origin", key: "all", label: "All", active: false, onPick: () => {} },
+      { kind: "origin", key: "gateway", label: "Gateway", active: true, onPick: () => {} },
+      { kind: "switch", key: "nas02", label: "nas02", active: true, onPick: () => {} },
+    ],
+  });
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  const section = screen.getByTestId("sessions-filter-section-environment");
+  expect(section).toHaveTextContent("nas02 · Gateway");
+  expect(section.querySelector(".sessions-filter-value")).not.toHaveClass(
+    "is-default",
+  );
+
+  fireEvent.click(section);
+  expect(screen.getByTestId("sessions-filter-env-gateway")).toHaveAttribute(
+    "role",
+    "menuitemradio",
+  );
+  expect(screen.getByTestId("sessions-filter-env-gateway")).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  expect(screen.getByTestId("sessions-filter-env-nas02")).toHaveAttribute(
+    "role",
+    "menuitem",
+  );
+  expect(screen.getByTestId("sessions-filter-env-nas02")).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  expect(screen.getByTestId("sessions-filter-env-nas02")).not.toHaveAttribute(
+    "aria-checked",
+  );
+  expect(screen.getByTestId("sessions-filter-env-nas02")).toHaveClass(
+    "starts-group",
+  );
+});
+
+test("environment summary names only the remote when All is selected", () => {
+  renderDrawer({
+    environments: [
+      { kind: "origin", key: "all", label: "All", active: true, onPick: () => {} },
+      { kind: "switch", key: "nas02", label: "nas02", active: true, onPick: () => {} },
+    ],
+  });
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  const section = screen.getByTestId("sessions-filter-section-environment");
+  expect(section.querySelector(".sessions-filter-value")).toHaveTextContent(
+    "nas02",
+  );
+  expect(section.querySelector(".sessions-filter-value")).not.toHaveClass(
+    "is-default",
+  );
+});
+
+test("environment summary uses the origin and defaults only to All locally", () => {
+  renderDrawer({
+    environments: [
+      { kind: "origin", key: "all", label: "All", active: true, onPick: () => {} },
+      { kind: "origin", key: "gateway", label: "Gateway", active: false, onPick: () => {} },
+    ],
+  });
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  let value = screen
+    .getByTestId("sessions-filter-section-environment")
+    .querySelector(".sessions-filter-value");
+  expect(value).toHaveTextContent("All");
+  expect(value).toHaveClass("is-default");
+
+  cleanup();
+  renderDrawer({
+    environments: [
+      { kind: "origin", key: "all", label: "All", active: false, onPick: () => {} },
+      { kind: "origin", key: "gateway", label: "Gateway", active: true, onPick: () => {} },
+    ],
+  });
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  value = screen
+    .getByTestId("sessions-filter-section-environment")
+    .querySelector(".sessions-filter-value");
+  expect(value).toHaveTextContent("Gateway");
+  expect(value).not.toHaveClass("is-default");
 });
 
 test("escape folds an open section first, and the menu next", () => {

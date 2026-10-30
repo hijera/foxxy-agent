@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -52,6 +53,13 @@ func TestHTTPStatusFromError_openai429(t *testing.T) {
 	}
 }
 
+// jsonCutError is the decoder's own error for a payload that stops between
+// tokens, the cause a truncation inside an event carries.
+func jsonCutError() error {
+	var v any
+	return json.Unmarshal([]byte(`{"a":`), &v)
+}
+
 func TestIsRetryableLLMError(t *testing.T) {
 	if !isRetryableLLMError(err429Neuraldeep()) {
 		t.Fatal("429 should be retryable")
@@ -60,6 +68,12 @@ func TestIsRetryableLLMError(t *testing.T) {
 		"400":      errors.New("openai stream: 400 Bad Request"),
 		"cancel":   context.Canceled,
 		"deadline": context.DeadlineExceeded,
+		// A frame that is not JSON is final whatever its text holds: the
+		// status scan and the transport needles never see it.
+		"undecodable frame with a status in its text": fmt.Errorf("openai stream: %w",
+			&streamUndecodableError{snippet: "<html><title>502 Bad Gateway</title></html>", cause: errors.New("invalid character '<' looking for beginning of value")}),
+		"undecodable frame with a transport phrase in its text": fmt.Errorf("openai stream: %w",
+			&streamUndecodableError{snippet: "garbage unexpected EOF here", cause: errors.New("invalid character 'g' looking for beginning of value")}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if isRetryableLLMError(err) {
@@ -348,6 +362,11 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 		{"Windows connection aborted", fmt.Errorf("openai stream: %w", windowsSocketError(10053)), true},
 		{"Windows connection reset flattened to its text", errors.New(
 			"openai stream: read tcp 127.0.0.1:53107->127.0.0.1:62557: wsarecv: An existing connection was forcibly closed by the remote host."), true},
+		// The decoder's end-of-input diagnostic is classified at the provider
+		// boundary (streamDecodeTruncation), never here: a needle for it would
+		// also match a request whose own JSON is wrong.
+		{"decoder end of input, flattened to its text", errors.New("codex stream: unexpected end of JSON input"), false},
+		{"decoder end of input, typed", fmt.Errorf("codex stream: %w", jsonCutError()), false},
 		{"Windows connection aborted flattened to its text", errors.New(
 			"openai stream: write tcp 127.0.0.1:53107->127.0.0.1:62557: wsasend: An established connection was aborted by the software in your host machine."), true},
 		{"another Winsock failure", fmt.Errorf("openai stream: %w", windowsSocketError(10013)), false},

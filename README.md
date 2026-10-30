@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="Лицензия MIT" /></a>
   <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Тесты для PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="Среда ACP" /></a>
@@ -586,6 +586,14 @@ agent:
 tools:
   require_permission_for_commands: true
 ```
+
+## Upstream 1.2.36–1.2.45 capabilities
+
+- `/crossreview` coordinates external code-agent CLIs and internal reviewers; trusted built-in and user definitions may declare bounded `spawns`.
+- `worktree_create` fetches origin, creates a feature worktree and moves the session into it. History groups it under the main project. See [Git worktrees](docs/features/worktrees.md).
+- MCP connections are shared across sessions, with workspace isolation, idle release and asynchronous startup.
+- The Context popover supports manual compaction and an independent automatic threshold switch. Remote environments support configured tokens and relay settings.
+- `make security` runs the same Trivy and Semgrep package locally and in CI. See [Application security](docs/contributing/security-scanning.md).
 
 ## Архитектура
 

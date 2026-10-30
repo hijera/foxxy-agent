@@ -1127,7 +1127,7 @@ func TestStatusShowsUntrustedProjectDeclarationWithoutSecretsOrProbe(t *testing.
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := ListStatus(context.Background(), cfg, cwd, slog.Default())
+	rows, err := ListStatus(context.Background(), cfg, cwd, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1295,7 +1295,7 @@ func TestListStatusOffersTrustControlOnlyUnderAsk(t *testing.T) {
 	} {
 		cfg := &config.Config{MCP: config.MCP{ProjectTrust: tc.policy}}
 		cfg.Paths.Home = home
-		rows, err := ListStatus(context.Background(), cfg, cwd, nil)
+		rows, err := ListStatus(context.Background(), cfg, cwd, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1326,7 +1326,7 @@ func TestListStatusProbesServersConcurrently(t *testing.T) {
 	var inFlight atomic.Int32
 	both := make(chan struct{})
 	previous := statusProbe
-	statusProbe = func(ctx context.Context, _ *TrustGate, _ ManagedServer, _ string, _ *slog.Logger) ([]ToolInfo, error) {
+	statusProbe = func(ctx context.Context, _ *TrustGate, _ *Pool, _ ManagedServer, _ string, _ *slog.Logger) ([]ToolInfo, error) {
 		if inFlight.Add(1) == 2 {
 			close(both)
 		}
@@ -1341,7 +1341,7 @@ func TestListStatusProbesServersConcurrently(t *testing.T) {
 	}
 	t.Cleanup(func() { statusProbe = previous })
 
-	rows, err := ListStatus(context.Background(), cfg, cwd, nil)
+	rows, err := ListStatus(context.Background(), cfg, cwd, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1563,4 +1563,38 @@ func TestDeleteServerStandsWhenItsSwitchesCannotBeDropped(t *testing.T) {
 	if _, ok := entries["demo"]; ok {
 		t.Fatal("the declaration survived its delete")
 	}
+}
+
+// Changing the project trust policy from the MCP servers tab rewrites the
+// policy alone: the other mcp settings of the file stay as they were.
+func TestSetProjectTrustKeepsTheIdleTimeout(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("mcp:\n  project_trust: ask\n  idle_timeout_seconds: 42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProjectTrust(cfg, config.ProjectTrustDeny); err != nil {
+		t.Fatal(err)
+	}
+	for label, got := range map[string]*config.Config{"live": cfg, "on disk": mustLoad(t, cfgPath)} {
+		if got.MCP.ProjectTrust != config.ProjectTrustDeny {
+			t.Fatalf("%s project_trust = %q, want deny", label, got.MCP.ProjectTrust)
+		}
+		if got.MCP.IdleTimeoutSeconds == nil || *got.MCP.IdleTimeoutSeconds != 42 {
+			t.Fatalf("%s idle_timeout_seconds = %v, want 42", label, got.MCP.IdleTimeoutSeconds)
+		}
+	}
+}
+
+func mustLoad(t *testing.T, path string) *config.Config {
+	t.Helper()
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
 }

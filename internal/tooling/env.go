@@ -14,6 +14,11 @@ type Env struct {
 	// CWD is the session working directory.
 	CWD string
 
+	// SwitchWorkspace moves this session to an existing directory and reloads
+	// workspace-scoped state. Nil outside a session-backed agent runtime.
+	SwitchWorkspace  func(context.Context, string) error
+	WorkspaceChanged bool
+
 	// PermissionMode controls when the agent requests user approval before running a tool.
 	// Values mirror config.PermMode* constants: "ask", "accept_edits", "bypass".
 	PermissionMode string

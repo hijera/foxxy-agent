@@ -86,7 +86,24 @@ afterEach(() => {
 });
 
 describe("WorkspaceChips", () => {
-  it("shows only the environment chip without a context", () => {
+  it("shows the parent project and the worktree branch", () => {
+    renderChips({
+      context: {
+        ...gitCtx,
+        path: "/repos/foxxycode-agent/.foxxycode/worktrees/feature-login",
+        name: "feature-login",
+        branch: "feature/login",
+        is_worktree: true,
+      },
+    });
+    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain(
+      "foxxycode-agent",
+    );
+    expect(screen.getByTestId("composer-branch-chip").textContent).toContain(
+      "feature/login",
+    );
+  });
+  it("renders nothing without a context", () => {
     const { container } = renderChips({ context: null });
     // The workspace/branch/worktree chips need a context, but the environment selector stays
     // available (so the environment can be switched from the home screen before a workspace loads).

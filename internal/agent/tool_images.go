@@ -402,10 +402,18 @@ func toolImagesMessage(parts []llm.ImagePart, names, omitted, missing []string, 
 const imageTokensEach = 1600
 
 // conversationTokens estimates the conversation as the provider reads it: its
-// text, and the pictures a request carries, which the text leaves out - the
-// ones selectPictures chooses, without opening a file. Result eviction,
-// automatic compaction and the context ring measure with it.
+// text, the reasoning and tool calls a message spends beyond its content, and
+// the pictures a request carries, which the text leaves out - the ones
+// selectPictures chooses, without opening a file. Result eviction, automatic
+// compaction and the context ring measure with it.
 func conversationTokens(msgs []llm.Message, readsImages bool) int {
 	kept, _ := selectPictures(msgs, readsImages, nil)
-	return session.EstimateTokens(conversationText(msgs)) + len(kept)*imageTokensEach
+	total := session.EstimateContextTokens(conversationText(msgs)) + len(kept)*imageTokensEach
+	for _, m := range msgs {
+		total += session.EstimateContextTokens(m.Reasoning)
+		for _, call := range m.ToolCalls {
+			total += session.EstimateContextTokens(call.Name) + session.EstimateContextTokens(call.InputJSON)
+		}
+	}
+	return total
 }

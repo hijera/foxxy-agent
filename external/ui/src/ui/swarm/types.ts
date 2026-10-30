@@ -54,7 +54,11 @@ export type SwarmSessionList = {
 export type TopologyNode = {
   uuid: string;
   name: string;
-  kind: "agent" | "relay";
+  /**
+   * `client` is never sent by a relay: it is the machine the page runs on,
+   * which the map draws above the relay as where the connection starts.
+   */
+  kind: "agent" | "relay" | "client";
   transport?: string;
   online: boolean;
   version?: string;

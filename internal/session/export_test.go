@@ -50,4 +50,11 @@ func SetDeleteSettleTimeoutForTest(d time.Duration) (restore func()) {
 }
 
 // SetMCPConnectTimeoutForTest shortens the per-server MCP connect budget.
-func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) { m.mcpConnectTimeout = d }
+func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) {
+	m.mcpConnectTimeout = d
+	m.mcpPool.SetDialTimeout(d)
+}
+
+// SetMCPStopDelayForTest sets how long a shared MCP server nothing holds runs
+// on before the pool stops it.
+func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDelay(d) }

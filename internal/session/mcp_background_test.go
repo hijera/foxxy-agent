@@ -51,7 +51,7 @@ func TestMCPNotificationsDuringSenderReplacement(t *testing.T) {
 	wg.Wait()
 	m.SetServer(capture)
 	m.sendMCPConnectUpdate(st)
-	if update, ok := capture.last(); !ok || !update.Done {
+	if update, ok := capture.shown(); !ok || !update.Done {
 		t.Fatal("the current sender did not receive the completed MCP snapshot")
 	}
 }
@@ -65,13 +65,25 @@ func (c *controlCapture) SendControlUpdate(_ string, update any) error {
 	return nil
 }
 
-func (c *controlCapture) last() (MCPConnectUpdate, bool) {
+// shown is the snapshot a surface renders after the updates so far: the
+// newest by generation, since the console drops one older than the last it
+// applied (applyMCPConnect). The connect's notifier and a reload that
+// supersedes it send from two goroutines, so the notifier can deliver a
+// snapshot it read before the reload after the reload's own, and the last
+// update delivered is not always the newest.
+func (c *controlCapture) shown() (MCPConnectUpdate, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.updates) == 0 {
 		return MCPConnectUpdate{}, false
 	}
-	return c.updates[len(c.updates)-1], true
+	newest := c.updates[0]
+	for _, u := range c.updates[1:] {
+		if u.Generation >= newest.Generation {
+			newest = u
+		}
+	}
+	return newest, true
 }
 
 func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) bool {
@@ -121,6 +133,7 @@ func newBackgroundFixture(t *testing.T, runner AgentRunner, setup func(*Manager)
 		t.Fatalf("session/new took %s while a server was still connecting", took)
 	}
 	f.st = f.mgr.SessionByID(res.SessionID)
+	t.Cleanup(f.mgr.CloseMCP)
 	t.Cleanup(f.st.CloseAll)
 	return f
 }
@@ -155,9 +168,11 @@ func TestBackgroundConnectReturnsBeforeServersAnswer(t *testing.T) {
 	if got := clientNames(f.st); len(got) != 1 || got[0] != "gated" {
 		t.Fatalf("clients = %v, want [gated]", got)
 	}
-	last, ok := f.sender.last()
-	if !ok || !last.Done {
-		t.Fatalf("last control update = %+v (%v), want done", last, ok)
+	// The notifier delivers from a goroutine of its own once the record says
+	// done, so the surface hears it a moment after the record changed.
+	if !waitUntil(t, 5*time.Second, func() bool { got, ok := f.sender.shown(); return ok && got.Done }) {
+		got, ok := f.sender.shown()
+		t.Fatalf("control update shown = %+v (%v), want done", got, ok)
 	}
 }
 
@@ -224,7 +239,7 @@ func TestCancelDuringWaitEndsTurn(t *testing.T) {
 		t.Fatal("the turn never became active")
 	}
 	select {
-	case <-entered:
+	case <-entered: //nolint:errcheck // Only completion is needed here.
 		t.Fatal("the runner started before the dial settled or the turn was stopped")
 	case <-time.After(200 * time.Millisecond):
 	}
@@ -284,12 +299,15 @@ func TestReloadDuringPendingConnectLeavesNoDuplicates(t *testing.T) {
 func TestReloadDuringPendingConnectTellsTheSurface(t *testing.T) {
 	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(300 * time.Millisecond) })
 	f.mgr.ReplaceConfig(reloadTestConfig(reloadTestMCPServer("good")))
-	last, ok := f.sender.last()
-	if !ok || !last.Done {
-		t.Fatalf("last control update = %+v (%v), want a done snapshot", last, ok)
+	// The reload has sent its snapshot by the time ReplaceConfig returns. The
+	// connect's first update, read before the reload, can still land after
+	// it, and the surface drops that one by its generation.
+	got, ok := f.sender.shown()
+	if !ok || !got.Done {
+		t.Fatalf("control update shown = %+v (%v), want a done snapshot", got, ok)
 	}
-	if len(last.Servers) != 1 || last.Servers[0].State != MCPConnectStateCancelled {
-		t.Fatalf("servers = %+v, want the gated server cancelled", last.Servers)
+	if len(got.Servers) != 1 || got.Servers[0].State != MCPConnectStateCancelled {
+		t.Fatalf("servers = %+v, want the gated server cancelled", got.Servers)
 	}
 	f.releaseServer()
 }
@@ -301,7 +319,7 @@ func TestCloseAllUnblocksWait(t *testing.T) {
 	waited := make(chan error, 1)
 	go func() { waited <- f.st.WaitMCPConnect(context.Background()) }()
 	select {
-	case <-waited:
+	case <-waited: //nolint:errcheck // Only completion is needed here.
 		t.Fatal("the wait ended before the dial settled")
 	case <-time.After(200 * time.Millisecond):
 	}
@@ -380,21 +398,31 @@ func TestHeldServerIsReportedNotDialed(t *testing.T) {
 // TestReloadClearsTheConnectRecord: once a reload has replaced the servers,
 // the record of the background connect no longer describes the session and
 // is gone, so a surface adopting the session later shows no stale notice;
-// the last snapshot the surface got says the connect it was following is
-// over, ordered after every snapshot read before it.
+// the snapshot the surface shows says the connect it was following is over,
+// ordered after every snapshot read before it.
 func TestReloadClearsTheConnectRecord(t *testing.T) {
 	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(300 * time.Millisecond) })
 	first, _ := f.st.MCPConnectSnapshot()
 	if first.Generation == 0 {
 		t.Fatal("the first snapshot carries no generation")
 	}
+	// The gated stub writes this marker as soon as it spawns. A spawn still
+	// in flight at teardown lands that write while t.TempDir() removes the
+	// fixture dir and fails the cleanup with "directory not empty". The
+	// connect stays in flight regardless: the stub still waits for release.
+	if !waitUntil(t, 10*time.Second, func() bool {
+		_, err := os.Stat(f.started)
+		return err == nil
+	}) {
+		t.Fatal("the gated server did not start")
+	}
 	f.mgr.ReplaceConfig(reloadTestConfig(reloadTestMCPServer("good")))
 	if _, recorded := f.st.MCPConnectSnapshot(); recorded {
 		t.Fatal("the connect record outlived the reload that replaced the servers")
 	}
-	last, _ := f.sender.last()
-	if !last.Done || last.Generation <= first.Generation {
-		t.Fatalf("last update = %+v, want the followed connect done, ordered after the first snapshot (generation %d)", last, first.Generation)
+	got, _ := f.sender.shown()
+	if !got.Done || got.Generation <= first.Generation {
+		t.Fatalf("update shown = %+v, want the followed connect done, ordered after the first snapshot (generation %d)", got, first.Generation)
 	}
 	f.releaseServer()
 }

@@ -110,6 +110,9 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		writeHopError(w, http.StatusNotFound, name, "no such node in this relay", "")
 		return
 	}
+	if refuseRelaySettingsWrite(w, r, node, rest) {
+		return
+	}
 	if !node.Info.Online || node.Transport == nil || !node.Transport.Alive() {
 		writeHopError(w, http.StatusBadGateway, name, "node is registered but not reachable", node.Info.LastSeen)
 		return

@@ -1,0 +1,5 @@
+# Paths semgrep must not scan beyond what .gitignore already excludes
+# (semgrep honors .gitignore by itself). Only entries that a local tree can
+# hold but CI never sees belong here — anything else hides real code.
+.venv/
+examples/.venv/

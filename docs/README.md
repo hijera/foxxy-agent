@@ -47,7 +47,8 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
-- [Sessions](features/sessions.md) - Session bundles on disk, resuming, in-place history rewind on edit, todo lists, the sessions CLI.
+- [Sessions](features/sessions.md) - Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
+- [Git worktrees](features/worktrees.md) - Fresh feature branches from origin, session moves, the web composer and project grouping.
 - [Rules and instructions](features/rules.md) - Rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
@@ -90,6 +91,7 @@ Task-shaped guides, each a complete path from a goal to a working result, with t
 - [A server driven from a laptop](tutorials/server-driven-from-a-laptop.md) - A foxxycode serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
 - [FoxxyCode as a model in VS Code Copilot](tutorials/foxxycode-as-a-model-in-vs-code.md) - A running foxxycode serve registered in chatLanguageModels.json, so its models and its agent sit in Copilot's model picker, with sessions per request and the agent's permission gate.
 - [A skill of your own](tutorials/a-skill-of-your-own.md) - A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
+- [A swarm across your machines](tutorials/swarm-across-machines.md) - Workers on several machines join one relay, and a laptop drives any of them from its own web UI and console, with the relay and its agents in the environment menu and the map one click away.
 - [A relay and its nodes in Docker](tutorials/swarm-relay-and-nodes.md) - A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
 - [A chain of relays](tutorials/swarm-multi-hop.md) - A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.
 - [Working with remote nodes](tutorials/swarm-remote-nodes.md) - Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what.
@@ -104,6 +106,7 @@ How FoxxyCode is built, tested, documented and released.
 - [Brand assets](contributing/brand.md) - The one vector every icon and the social preview are generated from, make brand, and the lock file that fails when an export goes stale.
 - [Architecture](contributing/architecture.md) - System design and component overview, package boundaries, session modes, the directory structure.
 - [Build from source](contributing/build.md) - Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
+- [AppSec scanning](contributing/security-scanning.md) - Trivy and semgrep locally and in CI through one script, the severity gate, triage and suppression.
 - [Custom tools](contributing/custom-tools.md) - Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.
 - [ReAct agent](contributing/react-agent.md) - The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour.
 - [Web UI design](../DESIGN.md) - Tokens, layout and component contracts of the embedded SPA.

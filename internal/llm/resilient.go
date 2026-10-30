@@ -140,7 +140,9 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	// delta has reached the caller, replaying the turn would duplicate output.
 	// Atomic because a transport is free to deliver chunks from its own goroutine.
 	var emitted atomic.Bool
+	var attempt atomic.Int64
 	guarded := func(c StreamChunk) {
+		c.Attempt = int(attempt.Load())
 		if c.TextDelta != "" || c.ReasoningDelta != "" || c.ToolCall != nil {
 			emitted.Store(true)
 			first.Do(func() { diagnosticEvent(ctx, "llm.first_chunk", "elapsed_ms", time.Since(started).Milliseconds()) })
@@ -150,6 +152,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 		}
 	}
 	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+		attempt.Add(1)
 		return p.inner.Stream(ctx, messages, tools, guarded)
 	})
 	if emitted.Load() || !isVisionRejection(err, messages) {
@@ -158,7 +161,8 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	p.logVisionFallback(ctx, err)
 	stripped := messagesWithoutImages(messages)
 	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
-		return p.inner.Stream(ctx, stripped, tools, onChunk)
+		attempt.Add(1)
+		return p.inner.Stream(ctx, stripped, tools, guarded)
 	})
 }
 
@@ -545,6 +549,16 @@ func isRetryableLLMError(err error) bool {
 		// replaying after emitted deltas would show the same text twice.
 		return !trunc.emitted
 	}
+	var und *streamUndecodableError
+	if errors.As(err, &und) {
+		// A frame that is not JSON is a corrupt stream, not a cut: final
+		// before and after output, whatever status or transport phrase the
+		// frame's text happens to hold. This branch sits after the truncation
+		// branch on purpose. A frame cut inside its JSON is a truncation that
+		// wraps this error as its cause, and that one is retried while
+		// nothing reached the caller.
+		return false
+	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) && transport.emitted {
 		// Same emitted contract for transport failures mid-stream; a fresh
@@ -685,6 +699,17 @@ func httpStatusFromError(err error) int {
 			return 0
 		}
 		return sse.code
+	}
+	// Typed like streamServerError above: a truncation's cause and an
+	// undecodable frame carry server bytes (the OpenAI reader's frame
+	// snippet), which must not be read as a status. Neither has one.
+	var trunc *streamTruncatedError
+	if errors.As(err, &trunc) {
+		return 0
+	}
+	var und *streamUndecodableError
+	if errors.As(err, &und) {
+		return 0
 	}
 	var ant *anthropic.Error
 	if errors.As(err, &ant) && ant.StatusCode > 0 {

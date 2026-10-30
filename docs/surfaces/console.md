@@ -232,9 +232,9 @@ the alphabetically first configured model. Reopened and resumed sessions keep
 the model saved in their bundle, `--model` is a per-invocation override that
 does not rewrite the memory, and `foxxycode -p` always follows the configuration.
 
-![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: three notices, bypass in the footer, and the line of turn overrides](../assets/session-settings/session-settings-console-footer-dark.png)
+![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: bypass in the footer and the line of turn overrides, no line in the transcript](../assets/session-settings/session-settings-console-footer-dark.png)
 
-*After `/permissions bypass` and `/model stub/foxxycode-mini --once /reasoning high --count=3`: a notice per change, `bypass` in the footer, the turn overrides under the model.*
+*After `/permissions bypass` and `/model stub/foxxycode-mini --once /reasoning high --count=3`: `bypass` in the footer, the turn overrides under the model, nothing in the transcript.*
 
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
@@ -608,8 +608,9 @@ workspace.
 remote `foxxycode http` server instead of running the agent in-process. The
 target is a configured remote name (`httpserver.remotes`), a bare
 `host:port` (scheme defaults to http), or a full http(s) URL. The bearer
-token comes from `--remote-token` or `FOXXYCODE_REMOTE_TOKEN`; tokens are
-deliberately never read from config.yaml. The same pair of flags works on
+token is the first of `--remote-token`, the `token` of the matching
+`httpserver.remotes` entry (a node mount under a configured relay takes the
+relay's) and `FOXXYCODE_REMOTE_TOKEN`. The same pair of flags works on
 `foxxycode acp`, so an ACP editor can drive a remote foxxycode too.
 
 Turns execute on the server in its workspace. For a turn this console starts,
@@ -920,3 +921,5 @@ The streamed draft has regression coverage in `external/cli/tool_progress_test.g
   the Go suite for a program, streamable HTTP and SSE, and
   `features/mcp_tool_calls.feature` runs every kind, `npx` included, through
   a real ReAct turn of the HTTP surface.
+
+The global MCP servers start asynchronously with the console and remain shared for the process lifetime. `/new` and `/resume` reuse those connections. User-requested settings changes update the controls without duplicate transcript notices; only an agent-initiated change adds a settings notice.

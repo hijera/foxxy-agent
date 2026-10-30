@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 // httpClientFor returns the client a remote transport talks through. With
@@ -52,7 +53,10 @@ func NewHTTPClient(ctx context.Context, name, rawURL string, headers map[string]
 		hc:      httpClientFor(insecure),
 		msgs:    make(chan []byte, 16),
 		closed:  make(chan struct{}),
+		stopped: make(chan struct{}),
+		lost:    make(chan struct{}),
 	}
+	tr.life, tr.endLife = context.WithCancel(context.Background())
 	client, streamErr := newClientWithTransport(ctx, name, tr, log)
 	if streamErr == nil {
 		return client, nil
@@ -86,9 +90,22 @@ type streamableHTTPTransport struct {
 
 	mu        sync.Mutex
 	sessionID string
+	// closing refuses new requests once Close began; inflight counts the
+	// requests (and the event streams answering them) still running, which
+	// Close waits for before it counts the transport as stopped. life ends
+	// with Close and aborts them.
+	closing  bool
+	inflight sync.WaitGroup
+	life     context.Context
+	endLife  context.CancelFunc
 
 	closed    chan struct{}
 	closeOnce sync.Once
+	// stopped is closed once Close has ended the session on the server;
+	// lost once the server answered 404 for the session it handed out.
+	stopped  chan struct{}
+	lost     chan struct{}
+	lostOnce sync.Once
 }
 
 // httpStatusError reports a non-2xx response to a JSON-RPC POST.
@@ -102,7 +119,32 @@ func (e *httpStatusError) Error() string {
 }
 
 func (t *streamableHTTPTransport) Send(ctx context.Context, data []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(data))
+	t.mu.Lock()
+	if t.closing {
+		t.mu.Unlock()
+		return fmt.Errorf("mcp: streamable http transport closed")
+	}
+	t.inflight.Add(1)
+	sentSession := t.sessionID
+	t.mu.Unlock()
+	// The request lives until the caller gives up or the transport closes,
+	// whichever comes first; an event stream answering it keeps it open
+	// (handedOff) until the stream ends.
+	reqCtx, cancel := context.WithCancel(ctx)
+	stopWatch := context.AfterFunc(t.life, cancel)
+	finish := func() {
+		stopWatch()
+		cancel()
+		t.inflight.Done()
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			finish()
+		}
+	}()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, t.url, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -111,15 +153,19 @@ func (t *streamableHTTPTransport) Send(ctx context.Context, data []byte) error {
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
-	t.mu.Lock()
-	if t.sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", t.sessionID)
+	if sentSession != "" {
+		req.Header.Set("Mcp-Session-Id", sentSession)
 	}
-	t.mu.Unlock()
 
 	resp, err := t.hc.Do(req)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode == http.StatusNotFound && sentSession != "" {
+		// The server does not know the session any more (it restarted, or
+		// expired it): the transport asks a client to start over with a new
+		// initialize, which is a new connection here.
+		t.lostOnce.Do(func() { close(t.lost) })
 	}
 	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
 		t.mu.Lock()
@@ -138,9 +184,11 @@ func (t *streamableHTTPTransport) Send(ctx context.Context, data []byte) error {
 		return &httpStatusError{status: resp.StatusCode, body: string(body)}
 	case strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
 		// Responses stream in as SSE events; read them in the background
-		// until the server closes this response stream (its lifetime is
-		// bounded by the request ctx of the call that opened it).
+		// until the server closes this response stream, the call that
+		// opened it gives up or the transport closes.
+		handedOff = true
 		go func() {
+			defer finish()
 			defer func() { _ = resp.Body.Close() }()
 			_ = readSSE(resp.Body, func(event, data string) {
 				t.deliver([]byte(data))
@@ -169,9 +217,67 @@ func (t *streamableHTTPTransport) deliver(data []byte) {
 
 func (t *streamableHTTPTransport) Messages() <-chan []byte { return t.msgs }
 
+// Stopped is closed once Close has told the server the session is over, or
+// at Close when there was no session to end.
+func (t *streamableHTTPTransport) Stopped() <-chan struct{} { return t.stopped }
+
+// Lost is closed once the server answered 404 for the session it handed out.
+func (t *streamableHTTPTransport) Lost() <-chan struct{} { return t.lost }
+
+// streamableSessionEndTimeout bounds the DELETE that ends a streamable HTTP
+// session on Close.
+const streamableSessionEndTimeout = 5 * time.Second
+
+// Close disconnects: requests still in flight, and the event streams
+// answering them, are aborted, and a server that handed out a session id is
+// then told the session is over with a DELETE, as the streamable HTTP
+// transport asks a client that no longer needs it to do, so a remote server
+// frees what it kept for the session. That runs in the background and the
+// DELETE's answer is ignored (a server that does not let clients end
+// sessions answers 405); Stopped says when it is all over, and a server that
+// already lost the session is not asked. Closing twice is a no-op.
 func (t *streamableHTTPTransport) Close() error {
-	t.closeOnce.Do(func() { close(t.closed) })
+	t.closeOnce.Do(func() {
+		t.mu.Lock()
+		t.closing = true
+		sessionID := t.sessionID
+		t.mu.Unlock()
+		close(t.closed)
+		t.endLife()
+		select {
+		case <-t.lost:
+			sessionID = ""
+		default:
+		}
+		go func() {
+			defer close(t.stopped)
+			t.inflight.Wait()
+			if sessionID != "" {
+				t.endSession(sessionID)
+			}
+		}()
+	})
 	return nil
+}
+
+// endSession sends the DELETE that ends sessionID on the server.
+func (t *streamableHTTPTransport) endSession(sessionID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), streamableSessionEndTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, t.url, nil)
+	if err != nil {
+		return
+	}
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Mcp-Session-Id", sessionID)
+	resp, err := t.hc.Do(req)
+	if err != nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
 }
 
 // ---- legacy HTTP+SSE transport ----
@@ -181,9 +287,11 @@ type sseTransport struct {
 	headers  map[string]string
 	hc       *http.Client
 	msgs     chan []byte
-	cancel   context.CancelFunc
-	closed   chan struct{}
-	// closeOnce keeps the teardown single-shot across racing Close callers.
+	// stream is the event stream's lifetime, ended by Close (cancel); a POST
+	// still in flight then is aborted with it.
+	stream    context.Context
+	cancel    context.CancelFunc
+	closed    chan struct{}
 	closeOnce sync.Once
 }
 
@@ -226,6 +334,7 @@ func newSSETransport(ctx context.Context, name, rawURL string, headers map[strin
 		headers: headers,
 		hc:      hc,
 		msgs:    make(chan []byte, 16),
+		stream:  streamCtx,
 		cancel:  cancel,
 		closed:  make(chan struct{}),
 	}
@@ -316,7 +425,10 @@ func originOf(u *url.URL) string {
 }
 
 func (t *sseTransport) Send(ctx context.Context, data []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.endpoint, bytes.NewReader(data))
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(t.stream, cancel)()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, t.endpoint, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -339,6 +451,7 @@ func (t *sseTransport) Send(ctx context.Context, data []byte) error {
 
 func (t *sseTransport) Messages() <-chan []byte { return t.msgs }
 
+// Close ends the event stream. Closing twice is a no-op.
 func (t *sseTransport) Close() error {
 	t.closeOnce.Do(func() {
 		close(t.closed)

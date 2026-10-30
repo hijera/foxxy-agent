@@ -87,6 +87,7 @@ import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
+  orderLlmModels,
   shouldGroupLlmModels,
   shouldShowLlmFilter,
 } from "./llmModelMenu";
@@ -385,6 +386,8 @@ export function Composer(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
+  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  onContextCompacted?: (() => void) | undefined;
   /** Fired when the user opens the context breakdown popover (refresh stats). */
   onContextRingOpen?: () => void;
   /** Known skill names from the catalog — chips confirmed `/name` tokens in the mirror overlay. */
@@ -771,7 +774,7 @@ export function Composer(props: {
     if (argDraft.kind === "flag") {
       return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
     }
-    return filterLlmModels(props.llmModels ?? [], argDraft.prefix);
+    return filterLlmModels(orderLlmModels(props.llmModels ?? []), argDraft.prefix);
   }, [argDraft, props.llmModels]);
   const argOpen =
     argDraft.open &&
@@ -2199,7 +2202,12 @@ export function Composer(props: {
     })();
   };
 
-  const llmList = props.llmModels ?? [];
+  // One order for everything the menu does with the list - the rows, the
+  // groups and the row Enter picks - so what is picked is what is seen first.
+  const llmList = useMemo(
+    () => orderLlmModels(props.llmModels ?? []),
+    [props.llmModels],
+  );
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || "").trim();
   // Filter input appears once the backend list is long; vendor grouping kicks
@@ -3499,6 +3507,11 @@ export function Composer(props: {
           contextPct={pct}
           maxContextTokens={maxCtx}
           breakdown={props.contextBreakdown}
+          sessionId={props.sessionId}
+          compactAvailable={props.compactionSettings?.enabled}
+          compactAutoEnabled={props.compactionSettings?.autoEnabled}
+          compactThreshold={props.compactionSettings?.threshold}
+          onCompacted={props.onContextCompacted}
           usage={props.providerUsage ?? null}
           modelId={llmVal || ""}
         />

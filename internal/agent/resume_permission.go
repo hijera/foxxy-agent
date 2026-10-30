@@ -186,6 +186,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		ImageRefusal:      a.toolImageRefusal,
 	}
 	httpRequestEnv(env, a.cfg)
+	a.wireWorkspaceTool(env)
 	a.applySubagentEnv(env, mode)
 	a.wireFileEditHook(env)
 	if a.subagent == nil && a.settings() != nil {

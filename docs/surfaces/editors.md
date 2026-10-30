@@ -125,7 +125,7 @@ The only requirement is that the processes agree on the home: an editor started 
 foxxycode acp --remote nas02 --remote-token "$FOXXYCODE_REMOTE_TOKEN"
 ```
 
-With `--remote` the process keeps no store, runs no scheduler and no agent loop: every session call is proxied to a remote `foxxycode serve`, its streamed answer is translated back into ACP updates, and permission and question prompts are answered through the server's REST routes. The target is a configured remote name, a `host:port` or an `http(s)://` URL; the token comes from `--remote-token` or `FOXXYCODE_REMOTE_TOKEN` and is never read from `config.yaml`. Sessions persist on the server only, `--session-id` still names the bundle to reopen there, and the model selector lists the server's catalog. An editor entry for a remote server is the same entry with the two flags appended to `args`. Details, the token and CORS: [Remote mode](../operate/remote.md).
+With `--remote` the process keeps no store, runs no scheduler and no agent loop: every session call is proxied to a remote `foxxycode serve`, its streamed answer is translated back into ACP updates, and permission and question prompts are answered through the server's REST routes. The target is a configured remote name, a `host:port` or an `http(s)://` URL; the token comes from `--remote-token`, the `token` of the matching `httpserver.remotes` entry or `FOXXYCODE_REMOTE_TOKEN`, in that order. Sessions persist on the server only, `--session-id` still names the bundle to reopen there, and the model selector lists the server's catalog. An editor entry for a remote server is the same entry with the two flags appended to `args`. Details, the token and CORS: [Remote mode](../operate/remote.md).
 
 ## Troubleshooting
 

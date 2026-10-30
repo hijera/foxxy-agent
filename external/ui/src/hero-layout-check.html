@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-embed="intellij" data-effects="reduced">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Start-screen layout check</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="root">
+      <div class="shell">
+        <aside class="rail-column" aria-hidden="true"><div class="rail-pill">F</div></aside>
+        <div class="shell-main">
+          <main class="main is-empty">
+            <div class="hero">
+              <h1 class="hero-title">What would you like to explore?</h1>
+              <div class="hero-composer">
+                <div class="composer-card">
+                  <div class="composer-field-wrap">
+                    <div class="composer-stack">
+                      <textarea id="composer" rows="8" readonly aria-label="Prompt">Describe a task</textarea>
+                    </div>
+                  </div>
+                  <div class="composer-bar"><button class="composer-tab">Agent</button></div>
+                </div>
+              </div>
+              <div class="hero-footer">
+                <a href="#github">GitHub</a><span>|</span><a href="#docs">API docs</a><span>|</span>
+                <span class="hero-footer-version">v0.0.0-dev-upstream-1.2.45</span>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
