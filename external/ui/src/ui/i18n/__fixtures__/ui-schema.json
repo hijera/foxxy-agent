@@ -13,6 +13,27 @@
           "title": "Continue a cut answer",
           "type": "boolean"
         },
+        "llm_continue_background_delays_ms": {
+          "default": [
+            5000,
+            20000,
+            80000,
+            120000,
+            120000
+          ],
+          "description": "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Background continuation delays ms",
+          "type": "array"
+        },
+        "llm_continue_background_max": {
+          "default": 5,
+          "description": "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit.",
+          "title": "Background continuation limit",
+          "type": "integer"
+        },
         "llm_continue_error_delays_ms": {
           "default": [
             5000,
@@ -190,6 +211,8 @@
         "llm_stall_retry_max_wait_ms",
         "llm_continue",
         "llm_continue_max",
+        "llm_continue_background_max",
+        "llm_continue_background_delays_ms",
         "llm_continue_stall_delays_ms",
         "llm_continue_error_delays_ms",
         "llm_continue_retry_after_max_ms",
@@ -955,7 +978,7 @@
         },
         "keep_runs": {
           "default": 20,
-          "description": "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20).",
+          "description": "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).",
           "title": "Runs kept per session",
           "type": "integer"
         },
@@ -1043,7 +1066,7 @@
             "type": "string"
           },
           "multimodal": {
-            "description": "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.",
+            "description": "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
             "title": "Multimodal",
             "type": "boolean"
           },
@@ -1487,7 +1510,7 @@
         },
         "http_request": {
           "additionalProperties": false,
-          "description": "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+          "description": "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
           "properties": {
             "allowlist": {
               "default": [],
@@ -1497,12 +1520,21 @@
               },
               "title": "Allowlist",
               "type": "array"
+            },
+            "default_headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.",
+              "title": "Default headers",
+              "type": "object"
             }
           },
           "title": "HTTP requests",
           "type": "object",
           "x-foxxycode-property-order": [
-            "allowlist"
+            "allowlist",
+            "default_headers"
           ]
         },
         "output_limits": {

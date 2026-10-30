@@ -2,22 +2,27 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 // ErrSubagentReadOnly is returned for any prompt against a child session that
-// does not come from the child's own task turn: resuming or messaging a
-// subagent is not supported, so its transcript is read-only for every surface.
+// does not come from the child's own task turn: no surface messages a
+// subagent, so its transcript is read-only for every surface. Only the parent
+// that spawned it goes on with it, as a new run of the runtime (spawn_agent
+// resume, SubagentSpec.Resume).
 var ErrSubagentReadOnly = errors.New("subagent sessions are read-only transcripts")
 
 // ErrSessionDeleting is returned to a turn that arrives while DeleteSessionTree
@@ -112,6 +117,11 @@ type SubagentSpec struct {
 	// delegate: the job and the trigger, kept on the child's metadata and in
 	// its bundle.
 	Scheduler *SchedulerRunMeta
+	// Resume reopens the finished child ID of ParentSessionID instead of
+	// creating it: the run continues the transcript the earlier runs left in
+	// the child's bundle. Everything else in the spec is this run's own and
+	// replaces the earlier run's, except the title, which the child keeps.
+	Resume bool
 }
 
 // ErrChildLive is returned by RemoveRetiredChild for a child session that is
@@ -121,6 +131,13 @@ var ErrChildLive = errors.New("child session is still live")
 // CreateSubagentSession builds, registers and persists a child session. The
 // live entry is what transcript reads see while the child runs; afterwards
 // RetireSubagentSession drops it and the bundle serves the transcript.
+//
+// With spec.Resume it reopens a finished child of spec.ParentSessionID
+// instead (issue #389): the bundle an earlier run left is read back, so the
+// run continues that transcript rather than starting from an empty context.
+// A copy of the transcript a surface loaded to show it gives way to the run;
+// a child that is still running is refused with ErrChildLive, and so is
+// anything that is not a spawned child of that parent.
 func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) (*State, error) {
 	if m.store == nil {
 		return nil, fmt.Errorf("subagents need session persistence")
@@ -138,9 +155,43 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		return nil, fmt.Errorf("subagent session needs a definition name")
 	}
 
-	cwd, err := EffectiveSessionCWD(spec.CWD, m.defaultCWD)
+	// prior is the bundle a resumed run continues; nil for a new child.
+	var prior *LoadedSnapshot
+	fallbackCWD := m.defaultCWD
+	if spec.Resume {
+		// A run still working on the child is refused before its bundle is
+		// read: until that run's first save the bundle may hold nothing but
+		// the layout, and its metadata would not say whose child it is.
+		if m.childRunning(id) {
+			return nil, fmt.Errorf("%w: subagent session %s is still running", ErrChildLive, id)
+		}
+		snap, err := m.resumableChildSnapshot(id, parentID, name)
+		if err != nil {
+			// A run that got the child between the check above and the
+			// read may have left a bundle that does not name it yet: say
+			// what is going on rather than what the half-written bundle says.
+			if m.childRunning(id) {
+				return nil, fmt.Errorf("%w: subagent session %s is still running", ErrChildLive, id)
+			}
+			return nil, err
+		}
+		prior = snap
+		if kept := strings.TrimSpace(snap.Meta.CWD); kept != "" {
+			fallbackCWD = kept
+		}
+	}
+
+	cwd, err := EffectiveSessionCWD(spec.CWD, fallbackCWD)
 	if err != nil {
 		return nil, fmt.Errorf("subagent cwd: %w", err)
+	}
+	// The transcript's paths and results belong to the folder the child
+	// worked in; the runtime refuses a resume from another one before it gets
+	// here, and this holds for a task record that did not say where.
+	if prior != nil {
+		if kept := strings.TrimSpace(prior.Meta.CWD); kept != "" && !SameDirectory(kept, cwd) {
+			return nil, fmt.Errorf("resume subagent session %s: it worked in %s, not in %s", id, kept, cwd)
+		}
 	}
 
 	active := m.activeCfg()
@@ -166,6 +217,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		SelectedReasoning: strings.TrimSpace(spec.SelectedReasoning),
 		PermissionMode:    strings.TrimSpace(spec.PermissionMode),
 		contextWindows:    m,
+		childRun:          true,
 	}
 	// The child metadata is attached before the state is visible anywhere:
 	// every reader that finds the live entry must already see a read-only
@@ -184,7 +236,16 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		FallbackModels:  spec.FallbackModels,
 		Scheduler:       spec.Scheduler,
 	})
-	if title := strings.TrimSpace(spec.Title); title != "" {
+	title := strings.TrimSpace(spec.Title)
+	if prior != nil {
+		restoreChildTranscript(state, prior)
+		// The title names the task the child was spawned for; a follow-up
+		// run of the same child does not rename it.
+		if kept := strings.TrimSpace(prior.Meta.TitlePinned); kept != "" {
+			title = kept
+		}
+	}
+	if title != "" {
 		state.SetTitlePinnedWithoutPersist(title)
 	}
 	if !system {
@@ -204,10 +265,24 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	// The parent must be live and not under deletion at the moment of the
 	// publish, decided under the same lock DeleteSessionTree's rescan reads,
 	// so a child cannot slip in between the delete's snapshot and its removal.
+	if hook := m.testHooks.beforeSubagentPublish; hook != nil {
+		hook(state)
+	}
 	m.mu.Lock()
-	if _, occupied := m.sessions[id]; occupied {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("subagent session id already active: %s", id)
+	var displaced *State
+	if occupant, occupied := m.sessions[id]; occupied {
+		switch {
+		case prior == nil:
+			m.mu.Unlock()
+			return nil, fmt.Errorf("subagent session id already active: %s", id)
+		case occupant.childRun:
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%w: subagent session %s is still running", ErrChildLive, id)
+		}
+		// A copy of the finished transcript a surface loaded to show it: the
+		// run takes the entry over, so every later read follows the run, and
+		// the copy never writes the bundle again (supersede).
+		displaced = occupant
 	}
 	if _, live := m.sessions[parentID]; !live {
 		m.mu.Unlock()
@@ -217,8 +292,19 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		m.mu.Unlock()
 		return nil, fmt.Errorf("%w: parent %s", ErrSessionDeleting, parentID)
 	}
+	if m.isDeleting(id) {
+		// A resumed child that is being deleted on its own.
+		m.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s", ErrSessionDeleting, id)
+	}
+	if displaced != nil {
+		displaced.supersede()
+	}
 	m.sessions[id] = state
 	m.mu.Unlock()
+	if displaced != nil {
+		displaced.CloseAll()
+	}
 	if hook := m.testHooks.afterSubagentPublish; hook != nil {
 		hook(state)
 	}
@@ -227,10 +313,14 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	// and so does a bundle this call created, so no half-built child snapshot
 	// without its metadata survives to be listed or loaded later. The child
 	// belongs to the parent's bundle, so its path is the parent's plus the
-	// child folder - known here, before the layout exists.
+	// child folder - known here, before the layout exists. A resumed child's
+	// bundle is the earlier runs' record and is never removed here.
 	sessionPath := filepath.Join(m.store.SessionPath(parentID), ChildSessionsDirName, id)
+	if prior != nil {
+		sessionPath = prior.Dir
+	}
 	_, statErr := os.Stat(sessionPath)
-	createdBundle := os.IsNotExist(statErr)
+	createdBundle := prior == nil && os.IsNotExist(statErr)
 	failed := true
 	defer func() {
 		if !failed {
@@ -263,23 +353,46 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	if err := m.refuseIfParentDeleting(id, state, parentID); err != nil {
 		return nil, err
 	}
+	// A resumed child read its bundle before the publish. A delete that ran to
+	// its end in between removed it; writing the transcript read before would
+	// bring a deleted session back. From the publish on, a delete sees the
+	// live run and stops it before it removes anything.
+	if prior != nil {
+		if _, err := os.Stat(filepath.Join(prior.Dir, sessionMetaFile)); os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s was deleted before it could be resumed", ErrSessionGone, id)
+		} else if err != nil {
+			return nil, fmt.Errorf("resume subagent session %s: %w", id, err)
+		}
+	}
 
-	sessionDir, err := m.store.EnsureChildLayout(parentID, id)
-	if err != nil {
-		return nil, fmt.Errorf("subagent session layout: %w", err)
+	var sessionDir string
+	if prior != nil {
+		// The child's own bundle, where the earlier run left it and built its
+		// layout. It is only used, never rebuilt: building a layout writes a
+		// session.json where none is, which would bring back a bundle a delete
+		// removed in the meantime.
+		sessionDir = prior.Dir
+	} else {
+		sessionDir, err = m.store.EnsureChildLayout(parentID, id)
+		if err != nil {
+			return nil, fmt.Errorf("subagent session layout: %w", err)
+		}
 	}
 	state.setSessionDir(sessionDir)
+	if prior != nil {
+		restoreContextBreakdown(state)
+	}
 
 	if spec.ConnectMCP {
 		dialCtx, cancel := context.WithTimeout(ctx, subagentMCPDialTimeout)
 		m.connectConfiguredMCPServers(dialCtx, state)
-		for _, srv := range spec.ClientMCPServers {
-			// Fork: connectMCPServer attaches the client itself (addMCPClient).
-			if err := m.connectMCPServer(dialCtx, state, srv); err != nil {
-				m.log.Warn("failed to redial client MCP server for subagent", "server", srv.Name, "error", err)
-				continue
-			}
-			state.RememberSessionMCPDeclaration(srv)
+		m.connectSessionMCPServers(dialCtx, state, spec.ClientMCPServers)
+		// The configured servers dial in the background. A tool set resolved
+		// now must see their tools, or a server that is still starting is
+		// silently left out of the run. A dial that outlasts the budget
+		// resolves with what has connected; the turn still waits for the rest.
+		if spec.ResolveTools != nil {
+			_ = state.WaitMCPConnect(dialCtx)
 		}
 		cancel()
 	}
@@ -308,12 +421,127 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 
 	// The first save is what makes the bundle a child on disk; without it a
 	// later read would load a generic session, so it is fatal, not a warning.
-	if err := m.store.Save(state); err != nil {
-		return nil, fmt.Errorf("initial subagent session save: %w", err)
+	// A resumed child's bundle already is one, and it is not written before
+	// the run holds the child's turn lock: the run's first message saves it,
+	// so a second process resuming the same child at the same moment is
+	// refused at that lock with nothing of its own on disk.
+	if prior == nil {
+		if err := m.store.Save(state); err != nil {
+			return nil, fmt.Errorf("initial subagent session save: %w", err)
+		}
 	}
 	failed = false
-	m.log.Info("subagent session created", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID)
+	if prior != nil {
+		m.log.Info("subagent session resumed", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID, "messages", len(prior.Messages))
+	} else {
+		m.log.Info("subagent session created", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID)
+	}
 	return state, nil
+}
+
+// ChildTranscriptOnDisk reports whether the bundle of childID inside the
+// bundle at parentSessionDir holds a run of the subagent name: the transcript
+// a resumed run would continue. A run whose child session was never created
+// left no bundle, a child deleted since has none any more, and a process that
+// died between building the layout and the child's first save left a bare
+// layout whose session.json names no subagent; all three answer false. An
+// error is a bundle that is there but cannot be read, which is not the same
+// as one that is gone.
+func ChildTranscriptOnDisk(parentSessionDir, childID, name string) (bool, error) {
+	dir := strings.TrimSpace(parentSessionDir)
+	id := strings.TrimSpace(childID)
+	if dir == "" || ValidateFolderSessionID(id) != nil {
+		return false, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, ChildSessionsDirName, id, sessionMetaFile))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return false, fmt.Errorf("session.json of %s: %w", id, err)
+	}
+	return strings.TrimSpace(meta.SubagentName) == strings.TrimSpace(name), nil
+}
+
+// SameDirectory reports whether two paths name one directory. When both exist
+// it asks the file system (os.SameFile), which also settles a case-insensitive
+// file system's different spellings of one folder; otherwise it compares the
+// absolute, cleaned paths with symlinks resolved where they can be, ignoring
+// case on Windows.
+func SameDirectory(a, b string) bool {
+	if fa, err := os.Stat(a); err == nil {
+		if fb, err := os.Stat(b); err == nil {
+			return os.SameFile(fa, fb)
+		}
+	}
+	canon := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		return filepath.Clean(p)
+	}
+	ca, cb := canon(a), canon(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(ca, cb)
+	}
+	return ca == cb
+}
+
+// childRunning reports whether a run of the subagent runtime holds id live,
+// as opposed to a surface's copy of a finished child's transcript.
+func (m *Manager) childRunning(id string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	occupant := m.sessions[id]
+	return occupant != nil && occupant.childRun
+}
+
+// resumableChildSnapshot reads the bundle of the child a run resumes and
+// checks it is one: a child spawned by parentID under the definition name,
+// not a scheduled run and not a session somebody started.
+func (m *Manager) resumableChildSnapshot(id, parentID, name string) (*LoadedSnapshot, error) {
+	snap, err := m.store.ReadSnapshot(id)
+	if err != nil {
+		return nil, fmt.Errorf("resume subagent session %s: %w", id, err)
+	}
+	switch {
+	case !snap.Meta.IsSubagentRun():
+		return nil, fmt.Errorf("resume subagent session: %s is not a subagent session", id)
+	case strings.TrimSpace(snap.Meta.ParentSessionID) != parentID ||
+		filepath.Dir(snap.Dir) != filepath.Join(m.store.SessionPath(parentID), ChildSessionsDirName):
+		// The metadata and the place of the bundle both say whose child it
+		// is; the run writes into that bundle, so both must name this parent.
+		return nil, fmt.Errorf("resume subagent session: %s is a child of %s, not of %s", id, snap.Meta.ParentSessionID, parentID)
+	case strings.TrimSpace(snap.Meta.SchedulerJobID) != "":
+		return nil, fmt.Errorf("resume subagent session: %s is a run of scheduler job %q", id, snap.Meta.SchedulerJobID)
+	case strings.TrimSpace(snap.Meta.SubagentName) != name:
+		return nil, fmt.Errorf("resume subagent session: %s is a run of subagent %q, not %q", id, snap.Meta.SubagentName, name)
+	}
+	return snap, nil
+}
+
+// restoreChildTranscript seeds a resumed child with what its bundle holds, so
+// the first save of the resumed run keeps the transcript, the log and the plan
+// the earlier runs left instead of writing an empty session over them.
+// Permission grants are left behind on purpose: a grant belongs to the run it
+// was given in, and the resumed run is decided afresh against the parent and
+// the definition as they are now, so nothing an earlier run was allowed
+// carries over.
+func restoreChildTranscript(st *State, snap *LoadedSnapshot) {
+	st.ReplaceMessagesWithoutPersist(closeInterruptedToolCalls(snap.Messages))
+	st.SetPlanWithoutPersist(snap.Plan)
+	st.RestoreUILogWithoutPersist(snap.UILog)
+	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
+	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
+	st.SetTagsWithoutPersist(snap.Meta.Tags)
+	st.SetOriginWithoutPersist(snap.Meta.Origin)
 }
 
 // mcpToolNames lists every MCP tool the session can call, in the server__tool
@@ -333,15 +561,20 @@ func mcpToolNames(st *State) []string {
 }
 
 // refuseIfParentDeleting answers ErrSessionDeleting when the child's live entry
-// is gone or its parent is being removed, so nothing of the child is written
-// into a tree that is on its way out.
+// is gone or its parent - or, for a resumed child, the child itself - is being
+// removed, so nothing of the child is written into a tree that is on its way
+// out.
 func (m *Manager) refuseIfParentDeleting(id string, state *State, parentID string) error {
 	m.mu.Lock()
 	stillLive := m.sessions[id] == state
 	parentDeleting := m.isDeleting(parentID)
+	childDeleting := m.isDeleting(id)
 	m.mu.Unlock()
 	if !stillLive || parentDeleting {
 		return fmt.Errorf("%w: parent %s", ErrSessionDeleting, parentID)
+	}
+	if childDeleting {
+		return fmt.Errorf("%w: %s", ErrSessionDeleting, id)
 	}
 	return nil
 }
@@ -491,6 +724,79 @@ func subagentParentOf(st *State) string {
 	return "an unknown parent session"
 }
 
+// interruptedToolCallResult answers a call an earlier run of a child made
+// without a result on record. The run may have been stopped before it got to
+// the call, or the process may have died while the call ran: the transcript
+// cannot tell which, so the answer says so rather than that the call never
+// ran, and a call with a side effect is not repeated on a guess.
+const interruptedToolCallResult = "no result was recorded: the earlier run of this subagent ended before this call finished, so it may or may not have run; check the current state before running it again"
+
+// closeInterruptedToolCalls answers every call of the transcript that has no
+// result, right after the results its batch does have. A run stopped or timed
+// out in the middle of a batch of calls leaves the rest of the batch
+// unanswered, and so does a process that died during a call; an
+// OpenAI-compatible provider refuses a request that carries a call without its
+// result anywhere in the history, so the resumed run would fail on its first
+// step. The answer says the outcome is unknown; the model checks before it
+// makes the call again. A transcript with nothing to answer comes back as it
+// was.
+func closeInterruptedToolCalls(msgs []llm.Message) []llm.Message {
+	var out []llm.Message
+	for i := 0; i < len(msgs); i++ {
+		if msgs[i].Role != llm.RoleAssistant || len(msgs[i].ToolCalls) == 0 {
+			if out != nil {
+				out = append(out, msgs[i])
+			}
+			continue
+		}
+		// The batch's results follow it directly.
+		end := i + 1
+		answered := map[string]bool{}
+		for ; end < len(msgs) && msgs[end].Role == llm.RoleTool; end++ {
+			answered[msgs[end].ToolCallID] = true
+		}
+		var missing []llm.Message
+		for _, tc := range msgs[i].ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" || answered[tc.ID] {
+				continue
+			}
+			missing = append(missing, llm.Message{
+				Role:       llm.RoleTool,
+				ToolCallID: tc.ID,
+				Content:    interruptedToolCallResult,
+				CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+		if len(missing) > 0 && out == nil {
+			out = append(make([]llm.Message, 0, len(msgs)+len(missing)), msgs[:i]...)
+		}
+		if out != nil {
+			out = append(out, msgs[i:end]...)
+			out = append(out, missing...)
+		}
+		i = end - 1
+	}
+	if out == nil {
+		return msgs
+	}
+	return out
+}
+
+// liveSubagentTaskID is the task of the run working on a child right now, or
+// "" when no run holds it. A resumed child's bundle still names the earlier
+// run's task until the new run's first save, and the task a delete has to
+// stop is the one running.
+func (m *Manager) liveSubagentTaskID(id string) string {
+	st := m.getSession(id)
+	if st == nil || !st.childRun {
+		return ""
+	}
+	if meta := st.Subagent(); meta != nil {
+		return strings.TrimSpace(meta.TaskID)
+	}
+	return ""
+}
+
 // SessionTreeNode is one session in a delete tree: the requested root or a
 // descendant spawned under it.
 type SessionTreeNode struct {
@@ -533,9 +839,11 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 				continue
 			}
 			id := filepath.Base(childDir)
-			node := SessionTreeNode{ID: id, ParentSessionID: parentID, SubagentRun: true}
-			if snap, err := m.store.readSnapshotAt(childDir, id); err == nil {
-				node.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
+			node := SessionTreeNode{ID: id, ParentSessionID: parentID, SubagentTaskID: m.liveSubagentTaskID(id), SubagentRun: true}
+			if node.SubagentTaskID == "" {
+				if snap, err := m.store.readSnapshotAt(childDir, id); err == nil {
+					node.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
+				}
 			}
 			children[parentID] = append(children[parentID], node)
 			indexed[id] = true
@@ -571,7 +879,10 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 	if snap, err := m.store.ReadSnapshot(rootID); err == nil && snap.Meta.IsSubagentRun() {
 		root.SubagentRun = true
 		root.ParentSessionID = strings.TrimSpace(snap.Meta.ParentSessionID)
-		root.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
+		root.SubagentTaskID = m.liveSubagentTaskID(rootID)
+		if root.SubagentTaskID == "" {
+			root.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
+		}
 	} else if st := m.getSession(rootID); st != nil {
 		if meta := st.Subagent(); meta != nil {
 			root.SubagentRun = true

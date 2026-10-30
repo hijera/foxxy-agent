@@ -97,6 +97,9 @@ func ExportFormatForPath(path string) (ExportFormat, bool) {
 type ExportOptions struct {
 	// NoTools leaves out tool calls and their results.
 	NoTools bool
+	// KeepToolPictures retains tool images as assistant attachments when NoTools
+	// is set. The panel uses this to export an illustrated conversation.
+	KeepToolPictures bool
 	// NoThinking leaves out the model's reasoning.
 	NoThinking bool
 }
@@ -515,6 +518,8 @@ type ExportInput struct {
 	// The chat command exports into the session workspace, the CLI into the
 	// shell directory or wherever --out points.
 	OutputRoot string
+	// SessionDir locates saved attachments after a session bundle moves.
+	SessionDir string
 }
 
 // ExportTokenUsage mirrors the session token counters.
@@ -539,7 +544,7 @@ type ExportSessionInfo struct {
 	TokenUsage   *ExportTokenUsage `json:"token_usage,omitempty"`
 }
 
-// ExportAttachment is a file the user attached to a prompt.
+// ExportAttachment is a prompt attachment or an image returned by a tool.
 type ExportAttachment struct {
 	Path string `json:"path"`
 	Name string `json:"name,omitempty"`
@@ -555,7 +560,8 @@ type ExportToolCall struct {
 	// Result is the tool output; nil when the transcript holds no result for
 	// the call (the turn was cancelled or is still running), an empty string
 	// when the tool returned nothing.
-	Result *string `json:"result,omitempty"`
+	Result   *string            `json:"result,omitempty"`
+	Pictures []ExportAttachment `json:"pictures,omitempty"`
 }
 
 // ExportPlanDocument describes a plan document row.
@@ -786,7 +792,7 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 				if p.FilePath == "" && p.Name == "" {
 					continue
 				}
-				atts = append(atts, ExportAttachment{Path: p.FilePath, Name: p.Name})
+				atts = append(atts, ExportAttachment{Path: currentAssetPath(in.SessionDir, p.FilePath), Name: p.Name})
 			}
 			entries = append(entries, ExportEntry{Type: ExportEntryUser, CreatedAt: m.CreatedAt, Text: text, Attachments: atts})
 		case m.Role == llm.RoleAssistant:
@@ -808,11 +814,26 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 			entries = append(entries, e)
 		case m.Role == llm.RoleTool:
 			if in.Options.NoTools {
+				if in.Options.KeepToolPictures {
+					e := ExportEntry{Type: ExportEntryAssistant, CreatedAt: m.CreatedAt}
+					for _, picture := range m.ImageParts {
+						if picture.FilePath == "" && picture.Name == "" {
+							continue
+						}
+						e.Attachments = append(e.Attachments, ExportAttachment{Path: currentAssetPath(in.SessionDir, picture.FilePath), Name: picture.Name})
+					}
+					if len(e.Attachments) > 0 {
+						entries = append(entries, e)
+					}
+				}
 				continue
 			}
 			if ref, ok := pending[m.ToolCallID]; ok {
 				result := m.Content
 				entries[ref.entry].ToolCalls[ref.call].Result = &result
+				for _, picture := range m.ImageParts {
+					entries[ref.entry].ToolCalls[ref.call].Pictures = append(entries[ref.entry].ToolCalls[ref.call].Pictures, ExportAttachment{Path: currentAssetPath(in.SessionDir, picture.FilePath), Name: picture.Name})
+				}
 				delete(pending, m.ToolCallID)
 				continue
 			}
@@ -875,6 +896,9 @@ func ExportSession(in ExportInput, req ExportRequest) (*ExportResult, error) {
 	}
 	in.Options = req.Options
 	doc := BuildExportDocument(in)
+	if sd := strings.TrimSpace(in.SessionDir); sd != "" {
+		doc = doc.WithAssetsDir(session.AssetsPath(sd))
+	}
 	data, err := RenderExport(doc, f)
 	if err != nil {
 		return nil, err
@@ -1006,19 +1030,7 @@ func renderExportMarkdown(doc ExportDocument) []byte {
 		case ExportEntryUser:
 			writeMarkdownHeading(&b, "User", e.CreatedAt)
 			writeMarkdownText(&b, e.Text)
-			if len(e.Attachments) > 0 {
-				names := make([]string, 0, len(e.Attachments))
-				for _, a := range e.Attachments {
-					label := a.Path
-					if label == "" {
-						label = a.Name
-					}
-					names = append(names, markdownCodeSpan(label))
-				}
-				b.WriteString("Attachments: ")
-				b.WriteString(strings.Join(names, ", "))
-				b.WriteString("\n\n")
-			}
+			writeMarkdownAttachments(&b, e.Attachments)
 		case ExportEntryAssistant:
 			writeMarkdownHeading(&b, "Assistant", e.Model, e.CreatedAt)
 			if strings.TrimSpace(e.Reasoning) != "" {
@@ -1027,6 +1039,7 @@ func renderExportMarkdown(doc ExportDocument) []byte {
 				b.WriteString("\n\n</details>\n\n")
 			}
 			writeMarkdownText(&b, e.Text)
+			writeMarkdownAttachments(&b, e.Attachments)
 			for _, tc := range e.ToolCalls {
 				b.WriteString("### Tool call: ")
 				b.WriteString(tc.Name)
@@ -1069,6 +1082,23 @@ func renderExportMarkdown(doc ExportDocument) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+func writeMarkdownAttachments(b *strings.Builder, attachments []ExportAttachment) {
+	if len(attachments) == 0 {
+		return
+	}
+	names := make([]string, 0, len(attachments))
+	for _, a := range attachments {
+		label := a.Path
+		if label == "" {
+			label = a.Name
+		}
+		names = append(names, markdownCodeSpan(label))
+	}
+	b.WriteString("Attachments: ")
+	b.WriteString(strings.Join(names, ", "))
+	b.WriteString("\n\n")
 }
 
 // entryTitle capitalizes an entry type for a heading; unknown or empty types

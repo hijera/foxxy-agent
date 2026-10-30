@@ -126,7 +126,7 @@ func (s *Server) foxxycodeProviderCodexAuthDelete(w http.ResponseWriter, r *http
 	}
 	// The account the cached usage described is gone; a stale snapshot must
 	// not outlive the credential.
-	s.dropProviderUsage(name, "codex")
+	s.providerCredentialChanged(name, "codex")
 	status, err := s.codexAuthStatus(name)
 	if err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, err.Error())
@@ -208,9 +208,6 @@ func (s *Server) foxxycodeProviderCodexAuthDevicePost(w http.ResponseWriter, r *
 			return s.persistCodexLogin(ctx, attempt, authPath, credential)
 		})
 		if err == nil {
-			// The account changed: any cached usage describes the previous
-			// sign-in and must be re-read.
-			s.dropProviderUsage(name, "codex")
 			return
 		}
 		s.codexAuthMu.Lock()
@@ -243,6 +240,10 @@ func (s *Server) persistCodexLogin(ctx context.Context, attempt *codexAuthLoginA
 	if err := llm.SaveCodexAuthFile(authPath, credential); err != nil {
 		return err
 	}
+	// The account changed: what was cached under the previous sign-in is
+	// forgotten before the attempt reads as completed, so a client that saw
+	// it complete never gets the old usage or the fallback window.
+	s.providerCredentialChanged(attempt.ProviderName, "codex")
 	attempt.Status = "completed"
 	attempt.Connected = true
 	return nil

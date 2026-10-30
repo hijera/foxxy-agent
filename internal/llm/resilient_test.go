@@ -338,6 +338,23 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(10054))}), true},
 		{"connection aborted (Winsock)", fmt.Errorf("openai stream: %w",
 			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(10053))}), true},
+		{"connection aborted", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "read", Err: os.NewSyscallError("read", syscall.ECONNABORTED)}), true},
+		// Windows reports a dead connection with Winsock's own codes, which
+		// neither match syscall.ECONNRESET nor say "connection reset" (issue
+		// #389): WSAECONNRESET when the remote host closed it, WSAECONNABORTED
+		// when the local stack gave up on it.
+		{"Windows connection reset", fmt.Errorf("openai stream: %w", windowsSocketError(10054)), true},
+		{"Windows connection aborted", fmt.Errorf("openai stream: %w", windowsSocketError(10053)), true},
+		{"Windows connection reset flattened to its text", errors.New(
+			"openai stream: read tcp 127.0.0.1:53107->127.0.0.1:62557: wsarecv: An existing connection was forcibly closed by the remote host."), true},
+		{"Windows connection aborted flattened to its text", errors.New(
+			"openai stream: write tcp 127.0.0.1:53107->127.0.0.1:62557: wsasend: An established connection was aborted by the software in your host machine."), true},
+		{"another Winsock failure", fmt.Errorf("openai stream: %w", windowsSocketError(10013)), false},
+		// Once text reached the caller the wrapper must not replay the call;
+		// the agent loop recovers it instead (IsTransientProviderError).
+		{"Windows connection reset after text", fmt.Errorf("openai stream: %w",
+			&streamTransportError{cause: windowsSocketError(10054), emitted: true}), false},
 		// What net/http actually prints for an RST_STREAM from the peer: no
 		// "http2:" prefix (that spelling belongs to GOAWAY and the lost-ping
 		// close), and wrapped in the url.Error of the request it killed.
@@ -373,10 +390,24 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 	}
 }
 
-// dialTimeout models net.Dialer's wrapped deadline error without depending on
-// a network route or a Windows firewall's response to a test address.
+// dialTimeout models a dial deadline without depending on a network route.
 func dialTimeout() error {
 	return &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
+}
+
+// windowsSocketError is a read on an established TCP stream failing the way
+// Go's net package reports it on Windows: the Winsock code as a bare
+// syscall.Errno inside the wsarecv syscall error. Only the windows build of
+// syscall names these codes (WSAECONNRESET is 10054), so the value is what
+// the test can build everywhere.
+func windowsSocketError(code int) error {
+	return &net.OpError{
+		Op:     "read",
+		Net:    "tcp",
+		Source: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 53107},
+		Addr:   &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 62557},
+		Err:    os.NewSyscallError("wsarecv", syscall.Errno(code)),
+	}
 }
 
 // TestStreamTransportErrorEmittedBlocksRetry pins the emitted contract for

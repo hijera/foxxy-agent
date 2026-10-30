@@ -77,10 +77,18 @@ func ProviderAPIKeyEnvVarName(providerName string) string {
 	return strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_API_KEY"
 }
 
+// TakesAPIKey reports whether requests of this row carry an API key at all:
+// every type but codex, which signs in with ChatGPT and never reads api_key,
+// api_key_command or the NAME_API_KEY variable.
+func (p *ProviderConfig) TakesAPIKey() bool {
+	return p != nil && strings.TrimSpace(p.Type) != "codex"
+}
+
 // EffectiveAPIKey returns the key to pass to LLM clients. Resolution order:
 // the configured non-empty api_key, then api_key_command stdout (when set and it
 // succeeds), then the conventional environment variable derived from the provider
-// name (see ProviderAPIKeyEnvVarName).
+// name (see ProviderAPIKeyEnvVarName). A row that takes no key (TakesAPIKey)
+// resolves none: none of the three is read and no helper runs.
 func (p *ProviderConfig) EffectiveAPIKey() string {
 	return p.EffectiveAPIKeyContext(context.Background())
 }
@@ -101,7 +109,7 @@ func (p *ProviderConfig) EffectiveAPIKeyContext(ctx context.Context) string {
 // that exited without output is not an error; the environment variable is
 // the fallback in every case.
 func (p *ProviderConfig) EffectiveAPIKeyContextErr(ctx context.Context) (string, error) {
-	if p == nil {
+	if !p.TakesAPIKey() {
 		return "", nil
 	}
 	if k := strings.TrimSpace(p.APIKey); k != "" {
@@ -141,6 +149,7 @@ func runAPIKeyCommandContext(parent context.Context, command string) (string, er
 	executable, args := commandShell.Command(command)
 	cmd := exec.CommandContext(ctx, executable, args...)
 	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {

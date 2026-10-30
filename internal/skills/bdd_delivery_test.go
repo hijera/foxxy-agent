@@ -7,6 +7,7 @@ package skills_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -174,6 +175,11 @@ func (s *deliveryState) deleteSkill(name string) error {
 
 func (s *deliveryState) removeMarketplaceRefused(source string) error {
 	removed, err := skills.RemoveSource(s.cfg, source)
+	// A RemovalNotice is an accepted removal of a redundant entry, not a refusal.
+	var notice skills.RemovalNotice
+	if errors.As(err, &notice) {
+		return fmt.Errorf("removing %q was accepted with a notice (removed=%v): %s", source, removed, notice.Msg)
+	}
 	if err == nil {
 		return fmt.Errorf("removing %q was allowed (removed=%v)", source, removed)
 	}

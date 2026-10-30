@@ -75,6 +75,7 @@ ALL_SCRIPTS=(
   cli_e2e_background_wake.py
   cli_e2e_subagents.py
   cli_e2e_hooks.py
+  cli_e2e_mcp_servers.py
   cli_e2e_compact.py
   cli_e2e_plan_files.py
   cli_e2e_ask_mode.py

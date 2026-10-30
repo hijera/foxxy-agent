@@ -55,9 +55,9 @@ Capture the real surface, never a mockup and never a re-used older image that no
 - **On the page**: an image line followed by a one-line caption in italics, placed next to the paragraph that explains what the image shows. One image per view and state; a table with two images side by side when the page compares them.
 
   ```markdown
-  ![The Tasks drawer with a subagent run in progress](../assets/subagents/tasks-panel-agent-running-dark.png)
+  ![The Tasks panel with a subagent run in progress](../assets/subagents/tasks-panel-agent-running-dark.png)
 
-  *The Tasks drawer with a subagent run in progress*
+  *The Tasks panel with a subagent run in progress*
   ```
 
 Screenshots taken as evidence for a pull request (before and after pairs, every theme, every width) belong to the pull request: push them to the orphan `screenshots` branch and link the raw file, or drag them into the description on GitHub. They never go under `docs/assets/`.

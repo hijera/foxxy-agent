@@ -99,7 +99,7 @@ foxxycode serve X.Y.Z
   httpserver  http://127.0.0.1:12345  (no auth)
 ```
 
-Open **http://127.0.0.1:12345/**. The empty screen is a new chat: pick a mode and a model in the composer, type, send. Sessions live under the same `~/.foxxycode` whichever surface created them, so the console and the browser share one history. Settings live at `#/settings`, the OpenAI-compatible API at `/v1/*` and its Swagger UI at `/docs/`.
+Open **http://127.0.0.1:12345/**. The empty screen is a new chat: pick the mode, the model, the reasoning level and the permission mode in the composer, type, send. Sessions live under the same `~/.foxxycode` whichever surface created them, so the console and the browser share one history. Settings live at `#/settings`, the OpenAI-compatible API at `/v1/*` and its Swagger UI at `/docs/`.
 
 The server binds loopback on purpose. To reach it from another machine, bind wider and require a token: `foxxycode serve -H 0.0.0.0 --auth-token <secret>` (or `httpserver.host` and `httpserver.auth_token` in the file). `foxxycode serve --daemon` keeps it running in the background and `foxxycode serve status | stop | restart` control it; see [foxxycode serve and the daemon](../operate/serve.md). On Windows, `foxxycode desktop` opens the same UI in a native window instead of a browser tab.
 

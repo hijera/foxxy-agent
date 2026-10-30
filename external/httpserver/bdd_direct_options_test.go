@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -35,6 +36,12 @@ type recordingCodexBackend struct {
 }
 
 func (b *recordingCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Only a completion is recorded: the catalog a codex model's context
+	// window is read from must not become the "last request" of a scenario.
+	if !strings.HasSuffix(r.URL.Path, "/responses") {
+		http.NotFound(w, r)
+		return
+	}
 	raw, _ := io.ReadAll(r.Body)
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))

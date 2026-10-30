@@ -12,6 +12,16 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
+  "Background continuation delays ms": "Паузы фоновых продолжений, мс",
+  "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.": "Паузы для субагентов и заданий планировщика: по умолчанию 5000, 20000, 80000, 120000, 120000 мс. Последняя пауза повторяется.",
+  "Background continuation limit": "Лимит фоновых продолжений",
+  "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit.": "Продолжения одного запуска субагента или задания планировщика: по умолчанию 5, 0 отключает. Субагенты памяти используют обычный лимит.",
+  "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).": "Завершённые запуски памяти, сохраняемые в панели задач для каждой сессии вместе с записью задачи и диалогом субагента; 0 сохраняет все (по умолчанию 20).",
+  "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.": "Модель принимает изображения и файлы вместе с текстом. Интерфейс разрешает вложения, а read передаёт модели содержимое PNG, JPEG, GIF и WebP как изображение.",
+  "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.": "Политика инструмента http_request: разрешённые адреса и общие заголовки. В режимах ask и accept_edits запрос требует разрешения, если адрес отсутствует в списке и ещё не одобрен в сессии. В режиме bypass разрешение не запрашивается.",
+  "Default headers": "Заголовки по умолчанию",
+  "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.": "Общие заголовки всех запросов, например браузерный User-Agent. Заголовки вызова имеют приоритет; пустое значение убирает заголовок. Они отправляются на любой адрес, поэтому добавляйте учётные данные только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization запрещены. webfetch и провайдеры моделей эти заголовки не используют.",
+
   "Queue mode": "Режим очереди",
   "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.": "Режим отправки во время работы: steer уточняет текущую задачу на следующем шаге, after_turn запускает новый ход после ответа.",
 

@@ -184,6 +184,15 @@ describe("phone settings", () => {
     expectDecl(head, "justify-content", /^flex-end$/);
     expectDecl(declarations(phone, ".mcp-list-item-text"), "flex-basis", /^calc\(100% - var\(--mcp-row-inset\)\)$/);
   });
+
+  test("a map row puts the value under the name instead of squeezing both", () => {
+    // Side by side the name of a default header was 82px at 390px and
+    // User-Agent read "User-Ag". On a phone the pair stacks, and the pairs
+    // stand further apart than the two fields of one pair.
+    expectDecl(declarations(topLevel, ".settings-map-entry"), "grid-template-columns", /^minmax\(0,\s*2fr\) minmax\(0,\s*3fr\)$/);
+    expectDecl(declarations(phone, ".settings-map-entry"), "grid-template-columns", /^minmax\(0,\s*1fr\)$/);
+    expectDecl(declarations(phone, ".settings-map"), "gap", /^16px$/);
+  });
 });
 
 describe("text fields do not make iOS Safari zoom", () => {

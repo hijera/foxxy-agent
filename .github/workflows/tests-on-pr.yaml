@@ -8,6 +8,10 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+# The jobs only read the repository and upload artifacts, which needs no token scope.
+permissions:
+  contents: read
+
 defaults:
   run:
     shell: bash
@@ -105,9 +109,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # The ui tag embeds assets that exist only after the SPA is bundled.
+      # The ui tag embeds assets that exist only after the SPA is bundled, and
+      # the MCP scenarios of the http and cli combinations start a server
+      # through the real npx (features/mcp_tool_calls.feature,
+      # examples/cli/cli_e2e_mcp_servers.py).
       - name: Set up Node.js
-        if: contains(matrix.tags, 'ui')
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -163,6 +169,16 @@ jobs:
           .venv/bin/pip install -r examples/cli/requirements.txt
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
           FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_mcp.py
+
+      # One MCP server of every kind a user configures, on a real pty against
+      # a scripted model the script serves: a native binary (built with go),
+      # an npm package started through the real npx from a local folder (no
+      # registry), a remote server over streamable HTTP and one over SSE. The
+      # console draws first, connects them in the background, and a turn
+      # calls the tool of each.
+      - name: Drive the console's MCP servers of every kind through a real pty
+        if: matrix.tags == 'cli'
+        run: FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_mcp_servers.py
 
       # One-shot input through a real shell: pipes, redirects, a 200 KiB prompt
       # file, a while-read loop and a terminal, against a scripted model the
@@ -266,6 +282,74 @@ jobs:
       - name: Type-check the Windows build
         run: make check-windows
 
+  # The Android build is GOOS=android with cgo, linked by the NDK the runner
+  # carries, which the Linux suite never compiles: internal/platform has files
+  # only it builds. This job type-checks that half, builds the binaries the
+  # release publishes, checks that each is a position-independent executable
+  # the Android system linker loads and that it needs no library beyond
+  # Android's own, and keeps them as artifacts to try on a device before the
+  # release.
+  cross-build-android:
+    name: Android cross-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Type-check the Android build
+        run: make check-android
+
+      - name: Build the Android binaries with the release tag set
+        run: make android TAGS="$(make -s print-full-tags | tr , ' ')"
+
+      - name: Check they are what the Android linker loads
+        run: |
+          for arch in arm64 amd64; do
+            bin="build/foxxycode-android-$arch"
+            file "$bin"
+            LC_ALL=C readelf -h "$bin" | grep -q 'Type:.*DYN' || { echo "::error::$bin is not position-independent"; exit 1; }
+            LC_ALL=C readelf -l "$bin" | grep -q 'program interpreter: /system/bin/linker64' || { echo "::error::$bin does not name the Android linker"; exit 1; }
+            extra=$(LC_ALL=C readelf -d "$bin" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | grep -v -x -E 'libc\.so|libdl\.so|libm\.so|liblog\.so' || true)
+            if [ -n "$extra" ]; then echo "::error::$bin needs libraries Android does not ship: $extra"; exit 1; fi
+          done
+
+      - name: Pack them into the release archive layout
+        run: |
+          for arch in arm64 amd64; do
+            mkdir -p "dist/android-$arch"
+            cp "build/foxxycode-android-$arch" "dist/android-$arch/foxxycode"
+            cp packaging/man/foxxycode.1 packaging/completions/foxxycode.bash packaging/completions/foxxycode.zsh "dist/android-$arch/"
+            tar -C "dist/android-$arch" -czf "dist/foxxycode_android_$arch.tar.gz" foxxycode foxxycode.1 foxxycode.bash foxxycode.zsh
+          done
+
+      - name: Keep the arm64 archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxxycode-android-arm64
+          path: dist/foxxycode_android_arm64.tar.gz
+          retention-days: 14
+
+      - name: Keep the x86_64 archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxxycode-android-amd64
+          path: dist/foxxycode_android_amd64.tar.gz
+          retention-days: 14
+
   # Cross-building proves the Windows code compiles, not that it works. These
   # packages own the behaviour that differs by platform - the process group
   # probe, the console shell, the background task pool that starts real
@@ -296,7 +380,7 @@ jobs:
           done
 
       - name: Run platform-dependent tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/... ./internal/hooks/... ./internal/rules/... ./internal/skills/...
 
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...
@@ -470,6 +554,24 @@ jobs:
             grep -F 'foxxycode-install.conf' scripts.txt   # preremove
             if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
               echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
+          done
+
+      # tmux is suggested and nothing more (issue #326): apt and zypper name it
+      # during the install and leave the choice to the user. A Depends or a
+      # Recommends would install it behind the user's back.
+      - name: Check that the packages suggest tmux without pulling it in
+        run: |
+          for package in dist/*.deb; do
+            dpkg-deb --field "$package" Suggests | grep -qw tmux || { echo "::error::$package does not suggest tmux"; exit 1; }
+            if dpkg-deb --field "$package" Depends Pre-Depends Recommends | grep -qw tmux; then
+              echo "::error::$package depends on or recommends tmux"; exit 1
+            fi
+          done
+          for package in dist/*.rpm; do
+            rpm -qp --suggests "$package" | grep -qw tmux || { echo "::error::$package does not suggest tmux"; exit 1; }
+            if rpm -qp --requires "$package" | grep -qw tmux || rpm -qp --recommends "$package" | grep -qw tmux; then
+              echo "::error::$package requires or recommends tmux"; exit 1
             fi
           done
 

@@ -30,6 +30,16 @@ features: `:has()`, `oklch()`/`oklab()`, `@container`, native CSS nesting,
 `dvh`/`svh` units are allowed only with a preceding `vh` fallback
 declaration for the same property.
 
+Runtime APIs also need to work on the plugin's build-222 floor (the sandbox uses IDEA 2022.2.1).
+Remote reachability probes use `AbortController` with a cleared timer rather than assuming
+`AbortSignal.timeout` exists: otherwise a working remote can be reported as unreachable in JCEF.
+Both the active-environment banner and the environment menu use the same bounded probe.
+
+The Remote Robot theme helper queues its Look and Feel change with `invokeLater` and
+`ModalityState.NON_MODAL`. Being on the EDT alone is not write-safe: changing the editor scheme
+directly in Robot's callback causes `TransactionGuard: Write-unsafe context`. The permanent
+UI suite checks that switching both themes adds no such errors to `idea.log`.
+
 ## Depending on JCEF (IDE 2026.2 and later)
 
 From build 262 (IDE 2026.2) `com.intellij.ui.jcef.*` is no longer part of the

@@ -114,6 +114,7 @@ func sessionsExport(w io.Writer, store *session.FileStore, cfg *config.Config, c
 		Messages:   snap.Messages,
 		ExportedAt: time.Now().UTC(),
 		OutputRoot: root,
+		SessionDir: snap.Dir,
 	}
 	if ws := strings.TrimSpace(snap.Meta.CWD); ws != "" {
 		if fi, statErr := os.Stat(ws); statErr == nil && fi.IsDir() {

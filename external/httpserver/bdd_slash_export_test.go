@@ -7,10 +7,13 @@ package httpserver
 // LLM provider, then inspects the files written into the session workspace.
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -222,6 +225,52 @@ func (s *exportFeatureState) exportedLacks(unwanted string) error {
 	return nil
 }
 
+func (s *exportFeatureState) transcriptAlsoHoldsPicture() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	assets := session.AssetsPath(st.GetPersistedSessionDir())
+	if err := os.MkdirAll(assets, 0o755); err != nil {
+		return err
+	}
+	var picture bytes.Buffer
+	if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 32, 16))); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(assets, "read.png"), picture.Bytes(), 0o644); err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "read_picture", Name: "read", InputJSON: `{"path":"read.png"}`}}})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "read_picture", Content: "PNG image", ImageParts: []llm.ImagePart{{Name: "read.png", FilePath: "read.png"}}})
+	return nil
+}
+
+func (s *exportFeatureState) exportedEmbedsPicture() error {
+	data, err := os.ReadFile(s.exported)
+	if err != nil {
+		return err
+	}
+	switch filepath.Ext(s.exported) {
+	case ".html":
+		if bytes.Contains(data, []byte("data:image/png;base64,")) {
+			return nil
+		}
+	case ".pdf":
+		if bytes.Contains(data, []byte("/Subtype /Image")) {
+			return nil
+		}
+	case ".docx":
+		z, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return err
+		}
+		for _, file := range z.File {
+			if strings.HasPrefix(file.Name, "word/media/") {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("exported file %s lost the read picture", s.exported)
+}
+
 func (s *exportFeatureState) exportedLacksCommand() error {
 	b, err := os.ReadFile(s.exported)
 	if err != nil {
@@ -297,6 +346,8 @@ func initializeSlashExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript also holds a "([^"]*)" tool call returning "([^"]*)" after reasoning "([^"]*)"$`, s.transcriptAlsoHoldsToolCall)
 	sc.Step(`^the "/export" command is part of the transcript$`, s.transcriptShowsExportCommand)
 	sc.Step(`^the exported JSON document lists (\d+) transcript entries$`, s.exportedJSONEntries)
+	sc.Step(`^the transcript also holds a read picture stored in session assets$`, s.transcriptAlsoHoldsPicture)
+	sc.Step(`^the exported file embeds the read picture$`, s.exportedEmbedsPicture)
 }
 
 func TestSlashExportFeature(t *testing.T) {

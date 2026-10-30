@@ -143,8 +143,9 @@ nothing. A session in the middle of a turn keeps its tools for that turn: a serv
 off or no longer trusted is closed when the turn ends, and one switched on starts when the
 session's next turn starts. Saving or deleting a server through the API or Settings reaches
 live sessions the same way, and a server whose declaration was edited is started again from
-the new one. A server that does not answer its handshake within 30 seconds does not hold
-anything up: it is left out and the session's next turn tries it again.
+the new one. A configured server that does not answer its handshake within 20 seconds is
+left out; an initialization timeout gets one retry on the next prompt
+([Server lifecycle](#mcp-server-lifecycle)).
 
 ## Management API and UI
 
@@ -208,6 +209,15 @@ parts of an answer reach the transcript: FoxxyCode passes the `text` content of 
 
 The MCP server runs as a subprocess. Communication via stdin/stdout (newline-delimited
 JSON-RPC 2.0).
+
+FoxxyCode runs `command` with `args` exactly as they are written: a program by its path or
+by its name on `PATH`, a package runner such as `npx -y <package>` or `uvx <package>`,
+a container started with `docker run -i`. What the command needs is the operator's to
+provide - Node.js for `npx`, the network for a package that is not in its cache yet -
+and FoxxyCode neither rewrites the arguments nor installs anything. A program, an `npx`
+package, a streamable HTTP server and an SSE server are each run through a real turn by
+`features/mcp_tool_calls.feature` and, in the console, by
+`examples/cli/cli_e2e_mcp_servers.py`.
 
 Configuration in `session/new`:
 ```json
@@ -378,8 +388,8 @@ mcp_servers:
    connect **in the background and in parallel**, so creating or loading a session never waits
    on them — over HTTP that call sits on a request an editor panel is blocked on, and a cold
    `npx` server that downloads its package on first run used to hold it for minutes. Each
-   handshake (transport setup + `initialize` + `tools/list`) is bounded at **30 s**.
-   A session restored from disk leaves configured servers cold until its first
+   handshake (transport setup + `initialize` + `tools/list`) is bounded at **20 s**. A server that times out during initialization is tried once more at the next prompt; other failures are not retried automatically.
+   The console starts a restored session's configured servers in the background immediately. Other surfaces leave them cold until the first
    turn: reading stored history starts no configured MCP process, ACP
    client-supplied servers still connect on load, and the first turn starts the
    configured servers through the same trust gate.
@@ -429,6 +439,21 @@ confirm-then-commit workflow, and discovery safety checks.
 
 ## Error Handling
 
-- If an MCP server fails to start, the session still proceeds with a warning
+- If an MCP server fails to start, the session still proceeds with a warning,
+  and the server is not dialed again at every turn: a settings reload, its
+  switch (`/mcp`, Settings → MCP servers) or a new session tries it again
+- A server that starts and never answers `initialize` is given up after 20
+  seconds, and the warning names the bound. It is tried once more when the
+  session's next turn starts, because a first start can outlast the bound for
+  a good reason: `npx -y <package>` installs the package before it runs it
+  (16 s for `@modelcontextprotocol/server-everything` on a laptop with an
+  empty npm cache), and the next try starts it from the cache. A server that
+  does not answer the second time either stays down until one of the above.
+  A dial cut short from outside - a save that reconnects many sessions under
+  one deadline, a request that ended - is retried at the next turn as well
+- What the server's own command does before it answers is up to the
+  operator: a package runner such as `npx -y <package>` asks its registry for
+  the latest release on every start and waits on the network, and a version
+  in `args` (`<package>@<version>`) is what keeps it off the network
 - Failed MCP tool calls return an error observation to the LLM
 - The LLM can decide to retry, use alternative tools, or inform the user

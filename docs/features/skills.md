@@ -191,7 +191,7 @@ A sync installs whatever version a source publishes at that moment, so `plugin m
 
 Because synced skills live in a normal skills directory, `enable` / `disable` work on them like on any other skill; `remove` deletes the copy, and the next sync installs it again unless the source is also dropped from `skills.sources`.
 
-Private repositories rely on your ambient `git` credentials. http(s) clone URLs - including the ones a marketplace manifest points at - and API URLs pass the same SSRF guard as the `webfetch` tool, so a manifest cannot make the server clone from loopback or private addresses; `file://` and `git@host:path` sources are the operator's own choice and are cloned as written.
+Private repositories rely on your ambient `git` credentials. http(s) clone URLs - including the ones a marketplace manifest points at - and API URLs pass the same SSRF guard as the `webfetch` tool, so a manifest cannot make the server clone from loopback or private addresses. A clone URL a marketplace manifest names must be `https://`; a `file://` clone is admitted only when the marketplace itself is a local `file://` source, and `git://`, `ssh://`, `git@host:path` and bare paths are refused for a manifest plugin. `file://` and `git@host:path` sources you add to `skills.sources` are the operator's own choice and are cloned as written.
 
 ---
 
@@ -213,24 +213,76 @@ skills:
 
 Plugin and marketplace management uses one command surface, available identically as the
 `foxxycode plugin ...` CLI and the built-in `/plugin` chat command (a deterministic slash command that
-runs without an LLM turn, like `/compact`):
+runs without an LLM turn, like `/compact`). It takes the words Claude Code takes:
 
 ```bash
-foxxycode plugin marketplace list                         # configured marketplaces + validity status
-foxxycode plugin marketplace add <owner/repo | url>       # register a marketplace and fetch its skills
-foxxycode plugin marketplace remove <owner/repo | url>    # drop a marketplace from config.yaml
-foxxycode plugin marketplace sync [owner/repo | url]      # refresh all marketplaces, or just one
-foxxycode plugin install <owner/repo | url>               # install (and update) a marketplace's skills
-foxxycode plugin remove <name>                             # delete an installed skill (bundled = read-only)
-foxxycode plugin enable <name>   |   plugin disable <name> # toggle a skill
-foxxycode plugin list                                      # installed skills with versions
+foxxycode plugin marketplace add <owner/repo | url>          # add a marketplace: read its plugin list, install nothing
+foxxycode plugin install <plugin>@<marketplace>              # install one plugin of an added marketplace
+foxxycode plugin marketplace update [<marketplace>]          # refresh the list and the plugins installed from it (alias: sync)
+foxxycode plugin marketplace list [<marketplace>]            # marketplaces and sources, or the plugins of one marketplace
+foxxycode plugin marketplace remove <marketplace | source>   # remove a marketplace or a source; installed skills stay
+foxxycode plugin install <owner/repo | url>                  # install every skill a source publishes, kept in sync
+foxxycode plugin remove <name>                               # delete an installed skill (bundled = read-only)
+foxxycode plugin enable <name>   |   plugin disable <name>   # toggle a skill
+foxxycode plugin list                                        # installed skills with versions
 ```
 
-In chat, the same words follow `/plugin`, e.g. `/plugin marketplace add EvilFreelancer/rpa-skills`,
-`/plugin install owner/repo`, `/plugin marketplace list`. `marketplace add` accepts both a GitHub
-`owner/repo` shorthand and a direct git or `marketplace.json` URL. `marketplace list` probes each
-source and reports whether it is a **valid marketplace** (agents standard, with its name, version, and
-plugin count), a repo with **no marketplace.json** (skills discovered directly), or **unreachable**.
+In chat the same words follow `/plugin`. Installing one skill from the
+[neuraldeep.ru](https://neuraldeep.ru) catalogue, for example:
+
+```text
+/plugin marketplace add https://neuraldeep.ru/skapi/marketplace.json
+/plugin install yandex-wordstat@neuraldeep
+```
+
+and in a terminal:
+
+```bash
+foxxycode plugin marketplace add https://neuraldeep.ru/skapi/marketplace.json
+foxxycode plugin install yandex-wordstat@neuraldeep
+```
+
+- **`marketplace add`** reads the marketplace's `marketplace.json` and remembers it under the `name` it
+  gives (`neuraldeep` above), with the list of plugins it publishes; it installs none of them. Adding
+  it again refreshes that list and answers that the marketplace is added already. A source with no
+  `marketplace.json`, or whose `marketplace.json` gives no name, cannot be added; install it whole
+  with `plugin install <source>` instead. The added marketplaces live in
+  `${FOXXYCODE_HOME}/skills/.marketplaces.json`, not in `config.yaml`.
+- **`install <plugin>@<marketplace>`** installs one plugin of an added marketplace, found by that
+  name. It reads the marketplace again first, so a plugin the marketplace published after it was
+  added installs without an update. A marketplace that is not added, or a plugin it does not list,
+  is an error that says what to run.
+  When an entry supplies `skills` (a path or a list of paths relative to its source root), only
+  those skill folders are installed. This supports catalogues such as `anthropics/skills`,
+  where several plugins share `source: "./"` and select different skills. An invalid or empty
+  explicit list fails the install instead of falling back to the whole repository. Paths that
+  leave the source root, including symlinks to outside folders, are excluded.
+- **`marketplace update <marketplace>`** reads the marketplace again and reinstalls the plugins
+  installed from it; the ones never installed stay so. It works per plugin: a skill removed with
+  `plugin remove` comes back while another skill of the same plugin is still installed. Without a name it does that for every added
+  marketplace and syncs every source, which is also what `foxxycode skills sync` does.
+- **`install <owner/repo | url>`** (no `@`) installs every skill the source publishes, as before: it
+  adds the source to `skills.sources`, and every sync installs and updates all of its plugins. A
+  source already in `skills.sources` keeps that contract, including the built-in `EvilFreelancer/rpa-skills`.
+- **`marketplace list`** probes each added marketplace and each source and reports whether it is a
+  **valid marketplace** (agents standard, with its name, version, and plugin count), a repo with **no
+  marketplace.json** (skills discovered directly), or **unreachable**; with a name it lists the plugins
+  of that marketplace and marks the installed ones.
+
+`marketplace remove <marketplace>` forgets an added marketplace and, when its source is in
+`skills.sources` as well, takes it out of there too; the skills installed from it stay until
+`plugin remove <name>`. `install` and `marketplace add` touch only what they name: another source
+that is unreachable does not fail them.
+
+On Windows an atomic skill-directory swap briefly retries sharing violations and access-denied
+errors caused by open reader handles (up to 450 ms per rename). A persistent failure is still
+reported; an update keeps the previous skill or reports the backup path if rollback also fails.
+
+**Changed in this release.** `plugin marketplace add` used to write the source into `skills.sources`
+and install every plugin it lists. It now only adds the marketplace; install its plugins one by one
+with `plugin install <plugin>@<marketplace>`, or keep the old behaviour with
+`plugin install <owner/repo | url>`. Sources that are already in `skills.sources` are not touched and
+keep having every plugin installed.
 
 The lower-level `foxxycode skills` commands remain for skill files themselves:
 
@@ -245,7 +297,8 @@ Three surfaces stay in parity — pick whichever fits:
 - **CLI** — `foxxycode plugin ...` (and `foxxycode skills ...`).
 - **Chat** — the `/plugin ...` command.
 - **Web UI** — **Settings → Skills → Remote skill sources** (add a source, **Sync**, remove a source,
-  **Refresh** to check versions, and a per-skill **Update** button when a newer version exists).
+  **Refresh** to check versions, and a per-skill **Update** button when a newer version exists). The
+  install search there also offers the plugins of the added marketplaces.
 
 ### Versions and updates
 
@@ -270,18 +323,75 @@ have a newer version upstream; the per-skill **Update** button (or `POST /foxxyc
 re-syncs just that skill's source to install it. Version-less plugins are shown without a version and
 are never flagged for updates (no false positives).
 
+A plugin published as a [zip archive](#plugins-published-as-zip-archives) whose entry declares no
+`version` is recorded at a version made from the archive itself: `sha256:` and the first 12 hex digits
+of its SHA-256, so the lockfile changes whenever the archive does. When the marketplace entry declares
+the archive's `sha256`, the update check compares the two, and any change counts as an update (a digest
+has no order). An entry without either is not flagged; `plugin marketplace sync` still downloads it
+again and records the new version.
+
 ### How a source is resolved
 
 1. `owner/repo` shorthands and git URLs are cloned (`git clone --depth 1`, refreshed with `git pull --ff-only`); an API URL is downloaded as JSON.
 2. If the repo (or API response) is an agents-standard **marketplace** (`.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`), each listed plugin is resolved:
    - an **external** source (`{"source":"github","repo":"owner/repo"}` / `{"source":"url","url":"…","ref":"…"}`) is cloned;
+   - an **archive** source (`{"source":"archive","url":"https://…/plugin.zip","sha256":"…"}`) is downloaded and unpacked, without git (see [below](#plugins-published-as-zip-archives));
    - a **relative** source (`"./plugins/foo"`) is read from inside the marketplace repo.
 3. If there is **no manifest**, the repo is scanned directly for `SKILL.md`.
 4. Every discovered skill directory (root `SKILL.md`, `skills/<name>/`, `.claude/skills/<name>/`, or `plugins/<p>/skills/<s>/`) is copied — with its sibling `scripts/`, `references/`, `examples/` — into `${FOXXYCODE_HOME}/skills/<name>/`, where the normal loader picks it up.
 
 Provenance is tracked in `${FOXXYCODE_HOME}/skills/.remote.json`. Because synced skills live in a normal skills directory, `enable`/`disable` work on them like any other skill; `remove` deletes the copy (re-running `sync` re-installs it unless you also drop the source from `skills.sources`).
 
-Private repositories rely on your ambient `git` credentials; API URLs are checked against the same SSRF guard used by the `webfetch` tool.
+Private repositories rely on your ambient `git` credentials; API URLs and plugin archives are checked against the same SSRF guard used by the `webfetch` tool.
+
+### Plugins published as zip archives
+
+A marketplace can publish a plugin as a zip archive instead of a git repository, in the entry shape
+Claude Code reads:
+
+```json
+{
+  "name": "demo",
+  "description": "A skill packed by its marketplace",
+  "source": {
+    "source": "archive",
+    "url": "https://example.com/plugins/demo.zip",
+    "sha256": "<64 hex digits, optional>"
+  }
+}
+```
+
+Only `"source": "archive"` selects this path: a `url` source whose address ends in `.zip` is still
+cloned with git. Installing such a plugin (`foxxycode plugin install https://example.com/marketplace/demo.json`,
+the same words after `/plugin` in chat, or the Settings install search) never starts git:
+
+- **https only.** The archive address and every redirect on the way must be `https`, and each one
+  passes the SSRF guard first, so loopback, private, shared (`100.64.0.0/10`) and link-local addresses
+  and the cloud metadata endpoints are refused before any connection is made.
+- **sha256.** When the entry declares one, it must be 64 hex digits and match the downloaded bytes on
+  every download; otherwise the install is cancelled and nothing is written. A marketplace whose
+  declared sha256 does not match the archive it serves fails every install of that plugin until the
+  marketplace fixes the entry.
+- **Limits.** At most 50 MiB downloaded, 200 MiB unpacked and 10,000 entries per archive.
+- **Entries.** An entry with a `..` element, an absolute path or a drive letter, an entry that is a
+  symbolic link, a device, a pipe or a socket, and a file that appears twice refuse the whole archive;
+  every entry is checked before the first is written, and nothing is written outside a temporary
+  folder. The `__MACOSX` folder the macOS archiver adds is checked the same way and then skipped.
+- **Plugin root and its skills.** The plugin root is the top of the archive, or the single folder that
+  wraps everything (the way GitHub packs a repository). When it carries a plugin manifest,
+  `.claude-plugin/plugin.json` (or `.codex-plugin/plugin.json`), only the skills the manifest names are
+  installed: the folders its `skills` field lists (a path or a list of paths relative to the root, each
+  a skill folder or a folder of skill folders; a path that leaves the root is ignored), or the folders
+  under `skills/` when it lists none, or, when `skills/` holds no skill folder either, the plugin root
+  itself if it has a `SKILL.md`: a plugin that is one skill, named by the `name` of that `SKILL.md`,
+  else by the plugin's. A `SKILL.md` elsewhere in the plugin, in its test data or examples, is not
+  taken for a skill, and a skill must be a folder: a flat `skills/<name>.md` is not one. An archive
+  without a manifest is searched for every `SKILL.md`, as a clone is; a git plugin is searched that
+  way too, so its root `SKILL.md` is found as well.
+- **Executable scripts.** A file the archive marks executable is written `0755`, any other `0644`.
+
+The lockfile records the archive address next to the marketplace, and the version as described in
+[Versions and updates](#versions-and-updates).
 
 ---
 
@@ -397,11 +507,32 @@ To share it with others, publish to GitHub and list it on [skills.sh](https://sk
 
 In a running agent session, committing a change to `skills.dirs`, `skills.sources`, or `skills.auto_discovery` through the staged config tools (`config_set` + `config_commit`) immediately rebuilds the skill catalog. An external installer such as `foxxycode plugin install` or `npx skills add` changes files on disk, so follow it with an idempotent commit of `set skills.dirs=[...]` to refresh the running loader. Adding an entry to `skills.sources` alone still does not fetch or install anything.
 
+## When skills are read
+
+A session reads its skills from disk when it starts (the console's first
+session, `session/new` or `session/load` over ACP, a new chat in the web UI),
+when its workspace changes and when the configuration is reloaded; nothing
+is read over the network for that.
+
+- **Read at the start, bodies included**: every `SKILL.md` (and root `.md` /
+  `.mdc` skill file) of the folders in `skills.dirs` and of the managed
+  folder, about 0.1 ms per skill, so a thousand installed skills add some
+  100 ms to the console's first frame; the skills built into the binary are
+  held in memory.
+- **Never read at the start**: `skills.sources`. A source's manifest or
+  repository is fetched only when someone asks for it - `foxxycode skills sync`,
+  `foxxycode plugin marketplace sync` and `/plugin`, Settings → Skills
+  (**Refresh**, **Update**), `GET /foxxycode/skills/updates` - so a large
+  marketplace, or a source that does not answer, never delays a session.
+
+What can hold a start up are the configured MCP servers; the console
+connects them after its first frame ([MCP servers](mcp.md#mcp-server-lifecycle)).
+
 ## How skills are applied
 
 On each `session/prompt` the agent:
 
-1. Scans `skills.dirs` for the session cwd and `FOXXYCODE_HOME`.
+1. Uses the skills the session read from `skills.dirs` for its cwd and `FOXXYCODE_HOME` ([When skills are read](#when-skills-are-read)).
 2. All loaded (and enabled) skills are always active — their bodies are available as slash commands and injected on demand.
 3. Builds the **`{{.Skills}}`** system-prompt block: the slash-command catalog listing all skills, plus the full body of any always-active or glob-matched skill whose name is **not** already in the catalog.
 4. Looks for `/name` invocations in the text the user typed and **appends each matched skill's body to the user message**, as a `<foxxycode_attachment path="skill:name" kind="skill">` element after the typed text. The message goes into **session history with the body in it**, so later turns replay the same bytes: the provider's cached prefix holds, and the model keeps the instructions it was given until a compaction folds the message into its summary ([Mentions and the prompt cache](mentions.md#mentions-and-the-prompt-cache)). The transcript shows the message as typed, because the web UI drops `kind="skill"` elements, and so does the history replay a reopened console or an ACP editor receives. A follow-up queued during a turn gets its skill bodies the same way.

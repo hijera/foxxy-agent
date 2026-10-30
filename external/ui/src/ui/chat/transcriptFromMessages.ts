@@ -258,6 +258,9 @@ export function transcriptItemsFromMessages(p: {
     if (role === "tool") {
       const id = (m.tool_call_id || "").trim();
       if (!id) return;
+      // The pictures the call showed the model stay on its result; a tool
+      // row's text is never read for attachment notes.
+      const images = sessionMessageFiles(m.files, "");
       const idx = toolIdx.get(id);
       if (idx === undefined) {
         const it: ToolCallItem = {
@@ -266,6 +269,7 @@ export function transcriptItemsFromMessages(p: {
           toolCallId: id,
           status: "completed",
           resultText: m.content || "",
+          ...(images.length > 0 ? { images } : {}),
         };
         toolIdx.set(id, next.length);
         next.push(it);
@@ -276,6 +280,7 @@ export function transcriptItemsFromMessages(p: {
         ...cur,
         status: "completed",
         resultText: m.content || "",
+        ...(images.length > 0 ? { images } : {}),
       };
     }
   });

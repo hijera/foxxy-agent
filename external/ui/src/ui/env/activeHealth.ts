@@ -5,7 +5,7 @@
 
 import { useEffect } from "react";
 import { useSyncExternalStore } from "react";
-import { getEnv, localFetch, type FoxxyCodeEnv } from "./remoteEnv";
+import { getEnv, probeRemote, type FoxxyCodeEnv } from "./remoteEnv";
 
 export type EnvHealth = "checking" | "up" | "down";
 
@@ -35,27 +35,43 @@ export async function probeEnvHealth(env: FoxxyCodeEnv): Promise<EnvHealth> {
   if (env.mode !== "remote") return "up";
   const headers = env.token ? { Authorization: "Bearer " + env.token } : {};
   try {
-    const res = await localFetch(env.baseUrl + "/v1/models", {
+    const res = await probeRemote(
+      env.baseUrl + "/v1/models",
       headers,
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
+      PROBE_TIMEOUT_MS,
+    );
     if (res.ok) return "up";
     if (res.status !== 404) return "down";
   } catch {
     return "down";
   }
   try {
-    const relay = await localFetch(env.baseUrl + "/swarm/info", {
+    const relay = await probeRemote(
+      env.baseUrl + "/swarm/info",
       headers,
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
+      PROBE_TIMEOUT_MS,
+    );
     return relay.ok ? "up" : "down";
   } catch {
     return "down";
   }
 }
 
-async function tick(): Promise<void> {
+// One probe at a time: the interval and the focus event can fire while a probe
+// is still waiting, and two interleaved runs would publish "checking" after a
+// result that already arrived. A tick that finds a probe in flight joins it.
+let inFlight: Promise<void> | null = null;
+
+function tick(): Promise<void> {
+  if (!inFlight) {
+    inFlight = runTick().finally(() => {
+      inFlight = null;
+    });
+  }
+  return inFlight;
+}
+
+async function runTick(): Promise<void> {
   const env = getEnv();
   if (env.mode !== "remote") {
     set("up");

@@ -729,3 +729,24 @@ func TestCheckWarnsWhenTheMemoryAddendumIsCut(t *testing.T) {
 		}
 	}
 }
+
+// A header name carries hyphens, and a refused default header is still
+// reported on its own line with the doc of the map it sits in.
+func TestCheckRefusedDefaultHeaderPointsAtTheHeader(t *testing.T) {
+	rep := checkYAML(t, withModeline(`tools:
+  http_request:
+    default_headers:
+      User-Agent: probe/2
+      Content-Type: application/json
+`))
+	f := onlyError(t, rep)
+	if !strings.Contains(f.Message, "default_headers.Content-Type") {
+		t.Errorf("message %q", f.Message)
+	}
+	if f.Line != 6 {
+		t.Errorf("line %d, want 6 (the Content-Type header)", f.Line)
+	}
+	if !strings.Contains(f.Doc, "every http_request call sends") {
+		t.Errorf("doc %q, want the description of default_headers", f.Doc)
+	}
+}

@@ -96,11 +96,10 @@ func (m *Manager) SetSessionWorkspace(ctx context.Context, st *State, dir string
 		return nil
 	}
 	// Keep slow MCP handshakes off the request path; the next turn waits for readiness.
-	settle, publish := st.beginConfiguredMCPConnectWithPublisher()
-	go func() {
-		defer settle()
-		m.startConfiguredMCPServersWithPublisher(context.Background(), st, abs, publish)
-	}()
+	m.supersedeBackgroundMCP(st)
+	st.replaceConfiguredMCPClients(nil)
+	st.resetMCPNoAnswer()
+	m.startBackgroundMCPConnect(st)
 	m.reloadWorkspaceCatalogs(ctx, st)
 	return nil
 }

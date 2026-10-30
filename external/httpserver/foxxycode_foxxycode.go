@@ -1153,20 +1153,26 @@ func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return llmMsgsToFoxxyCodeOpenAIForSession("", "", msgs)
 }
 
-// isAssetOf reports whether path is a regular file directly inside assetsDir.
-// Symlinks do not count: the address the transcript hands out promises bytes of
-// this session's bundle, and a link planted in that directory - the agent can
-// write there, and the prompt tells it where - would make it serve whatever it
-// points at.
-func isAssetOf(assetsDir, path string) bool {
-	if assetsDir == "" || path == "" {
-		return false
-	}
-	if filepath.Dir(path) != filepath.Clean(assetsDir) {
-		return false
-	}
+// isRegularFile reports whether path is a regular file, a link not followed.
+func isRegularFile(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.Mode().IsRegular()
+}
+
+// recordedAsset is the name under assetsDir of the copy a part recorded at
+// path: its base name, when path was in this assets directory or in the one
+// the bundle had before it moved. A path anywhere else names no copy: its base
+// name would either answer 404 or, worse, name a different file that happens
+// to share it.
+func recordedAsset(assetsDir, path string) string {
+	if assetsDir == "" || path == "" {
+		return ""
+	}
+	dir := filepath.Dir(path)
+	if dir != filepath.Clean(assetsDir) && filepath.Base(dir) != filepath.Base(session.AssetsPath("")) {
+		return ""
+	}
+	return filepath.Base(path)
 }
 
 func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.Message) []map[string]interface{} {
@@ -1224,7 +1230,9 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.
 			// Nobody typed this message: a woken turn opened with it.
 			item["background_wake"] = m.BackgroundWake
 		}
-		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
+		// A prompt's attachments, and the pictures a tool call showed the
+		// model (read on an image file), which stay on that call's result.
+		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool) && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
 			for _, part := range m.ImageParts {
 				name := strings.TrimSpace(part.Name)
@@ -1235,19 +1243,20 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.
 					"name":      name,
 					"mime_type": imagePartMIMEType(part),
 				}
-				if sessionID != "" && part.FilePath != "" && part.ThumbnailPath != "" {
-					assetName := filepath.Base(part.FilePath)
-					file["preview_url"] = "/foxxycode/sessions/" + url.PathEscape(sessionID) +
-						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
-				}
-				// The full-size original, for a preview card to open enlarged.
-				// The address is a name under this session's assets directory,
-				// so a part saved anywhere else gets none: its base name would
-				// either 404 or, worse, name a different file that happens to
-				// share it.
-				if sessionID != "" && assetsDir != "" && isAssetOf(assetsDir, part.FilePath) {
-					file["url"] = "/foxxycode/sessions/" + url.PathEscape(sessionID) +
-						"/assets/" + url.PathEscape(filepath.Base(part.FilePath))
+				// Both addresses are names under this session's assets directory,
+				// given only for a regular file there, so a card never loads a
+				// missing one. Symlinks do not count: the address promises bytes
+				// of this session's bundle, and a link planted in that directory -
+				// the agent can write there, and the prompt tells it where - would
+				// make it serve whatever it points at.
+				if asset := recordedAsset(assetsDir, part.FilePath); sessionID != "" && asset != "" {
+					if part.ThumbnailPath != "" && isRegularFile(session.ThumbnailPathInAssets(assetsDir, asset)) {
+						file["preview_url"] = session.AssetThumbnailRoute(sessionID, asset)
+					}
+					// The full-size original, for a preview card to open enlarged.
+					if isRegularFile(filepath.Join(assetsDir, asset)) {
+						file["url"] = session.AssetRoute(sessionID, asset)
+					}
 				}
 				files = append(files, file)
 			}
@@ -1273,6 +1282,9 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.
 // imagePartMIMEType names the media type of a persisted attachment: the data URI it
 // arrived with when available, else the extension of its name or on-disk path.
 func imagePartMIMEType(part llm.ImagePart) string {
+	if part.MIMEType != "" {
+		return part.MIMEType
+	}
 	if strings.HasPrefix(part.DataURL, "data:") {
 		end := strings.IndexAny(part.DataURL[5:], ";,")
 		if end >= 0 {

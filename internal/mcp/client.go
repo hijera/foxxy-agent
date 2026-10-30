@@ -415,6 +415,7 @@ func newStdioTransport(_ context.Context, name, command string, args []string, e
 	cmd := exec.CommandContext(procCtx, command, args...)
 	cmd.Env = append(os.Environ(), env...)
 	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

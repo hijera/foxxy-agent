@@ -1672,6 +1672,8 @@ export const messagesEn: Record<string, string> = {
   "status.mcp": "Calling {tool} on the MCP server {server}",
   "sessions.backgroundRunning": "Background tasks running",
   "messages.openAttachmentImage": "Open {fileName} enlarged",
+  "messages.toolImages": "Pictures the call showed the model",
+  "messages.openToolImage": "Open {fileName} enlarged",
   "settings.fieldHint.aria": "About {label}",
   "settings.fieldHint.ariaGeneric": "About this field",
   "settings.section.scheduler.label": "Scheduler",
@@ -1732,7 +1734,8 @@ export const messagesEn: Record<string, string> = {
   "subagents.catalog.hideDeclared": "Hide declared bounds",
   "sessions.manage.legend": "Session management",
   "sessions.archiveFailed": "The conversation was not archived",
-  "sessions.unarchiveFailed": "The conversation was not taken out of the archive",
+  "sessions.unarchiveFailed":
+    "The conversation was not taken out of the archive",
   "chat.transcriptEarlier.show": "Show earlier messages",
   "chat.transcriptEarlier.loading": "Loading earlier messages…",
   "chat.transcriptEarlier.failed": "Earlier messages did not load.",
@@ -1768,12 +1771,14 @@ export const messagesEn: Record<string, string> = {
   "structuredTool.noTasks": "No background tasks",
   "structuredTool.noLeftovers": "No processes left over from an earlier run",
   "structuredTool.stillRunning": "Still running after a {seconds}s wait",
-  "structuredTool.earlierDropped": "Earlier output was dropped; the full log is in the session bundle",
+  "structuredTool.earlierDropped":
+    "Earlier output was dropped; the full log is in the session bundle",
   "structuredTool.noOutput": "No output yet",
   "structuredTool.stops": "Stops",
   "structuredTool.stopsAfter": "{seconds}s after it started",
   "structuredTool.stopsManually": "when it is stopped",
-  "structuredTool.alreadyRunning": "The server for this folder was already running",
+  "structuredTool.alreadyRunning":
+    "The server for this folder was already running",
   "structuredTool.noDocsHits": "No section matches",
   "structuredTool.docsContents": "Documentation contents",
   "structuredTool.docsLines": "lines {from}-{to} of {total}",
@@ -1801,4 +1806,18 @@ export const messagesEn: Record<string, string> = {
   "skills.switch.disabledTitle": "Disabled - click to enable",
   "skills.switch.disableAria": "Disable {name}",
   "skills.switch.enableAria": "Enable {name}",
+
+  "settings.map.namePlaceholder": "Name",
+  "settings.map.valuePlaceholder": "Value",
+  "settings.map.nameAria": "{label} {n}: name",
+  "settings.map.valueAria": "{label} {n}: value",
+  "settings.schema.tools.http_request.label": "HTTP requests",
+  "settings.schema.tools.http_request.desc":
+    "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+  "settings.schema.tools.http_request.allowlist.label": "Allowlist",
+  "settings.schema.tools.http_request.allowlist.desc":
+    'Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); "*" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.',
+  "settings.schema.tools.http_request.default_headers.label": "Default headers",
+  "settings.schema.tools.http_request.default_headers.desc":
+    "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.",
 };

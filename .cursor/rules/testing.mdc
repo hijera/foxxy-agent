@@ -38,3 +38,5 @@ ordinary unit tests**, not in `features/`.
 @Makefile
 @code-style.mdc
 @architecture.mdc
+
+- **Touching a file behind `//go:build android`, or `internal/platform/android.go` that it calls: also run `make check-android`.** The Android build (`GOOS=android` with cgo, linked by the NDK against Bionic for arm64 and x86_64, published for Termux) compiles `android_init.go` and the cgo guard `android_nocgo.go`, which no host gate sees; `check-android` runs `go vet` over it with the NDK compiler (`scripts/android-cc.sh`), test files included, and CI runs it in the **Android cross-build** job, which also builds both release binaries, checks that each is a position-independent executable naming `/system/bin/linker64` with no library Android does not ship, and uploads them as artifacts. The decisions themselves are plain functions tested on every Unix host (`features/android_termux.feature`, `internal/platform/android_test.go`). A new place that builds an `exec.Cmd` calls `platform.AdaptCommand` before `Start`; `TestEverySpawnSiteAdaptsTheCommand` fails otherwise.

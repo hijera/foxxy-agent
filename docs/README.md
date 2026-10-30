@@ -16,6 +16,7 @@ Install FoxxyCode, give it a model, run it for the first time and keep it update
 - [Update](getting-started/update.md) - foxxycode update, release assets, installations owned by a package manager, the report of what changed.
 - [Docker](getting-started/docker.md) - The GHCR image, docker compose, volumes and environment, the bundled UI on port 12345.
 - [Homebrew](getting-started/homebrew.md) - The cask against the formula, which Homebrew repository takes what, the homebrew/core submission.
+- [Android (Termux)](getting-started/android.md) - The Android build for Termux, why the Linux archive does not start there, and what FoxxyCode adapts on the device.
 - [Troubleshooting](getting-started/troubleshooting.md) - What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build.
 
 ## Surfaces
@@ -55,8 +56,9 @@ What the agent can do and how each capability is configured.
 - [Browser tool](features/browser-tool.md) - The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
 - [Devin](features/devin.md) - Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.
 - [Web search](features/web-search.md) - The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
-- [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
+- [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request, headers the configuration adds to every request - and the permission prompt that shows where a request goes and what it carries.
 - [Mentions](features/mentions.md) - Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
+- [Images](features/images.md) - The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat.
 - [Built-in documentation](features/built-in-docs.md) - This documentation inside the binary - the web UI's reader, F1 in the console, foxxycode docs, the agent's foxxycode_docs tools and @foxxycode:<page> mentions - searched with BM25, with no site involved.
 - [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
@@ -91,6 +93,7 @@ Task-shaped guides, each a complete path from a goal to a working result, with t
 - [A relay and its nodes in Docker](tutorials/swarm-relay-and-nodes.md) - A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
 - [A chain of relays](tutorials/swarm-multi-hop.md) - A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.
 - [Working with remote nodes](tutorials/swarm-remote-nodes.md) - Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what.
+- [Android phones as swarm nodes](tutorials/swarm-android-nodes.md) - A phone running FoxxyCode in Termux joins a relay on a laptop or a server and is driven from the relay's web UI and the console, with no open port on the phone.
 
 ## Contributing
 

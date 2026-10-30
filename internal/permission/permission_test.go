@@ -419,7 +419,7 @@ func TestHTTPRequestArgumentsTheToolRefusesStillAsk(t *testing.T) {
 	if allowedHTTP(env, httpState(), args) {
 		t.Error("arguments that do not parse skipped the prompt")
 	}
-	body := HTTPRequestPromptBody(args, env.CWD)
+	body := HTTPRequestPromptBody(env, args)
 	if !strings.Contains(body, "refuse") || !strings.Contains(body, "one payload") {
 		t.Errorf("prompt body does not say why the call will fail:\n%s", body)
 	}
@@ -498,7 +498,8 @@ func TestHTTPRequestPromptBodyShowsTheRequestAndWhatAnAlwaysAnswerCovers(t *test
 	if err := os.WriteFile(filepath.Join(cwd, "a.bin"), []byte("xyz"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	body := HTTPRequestPromptBody(`{"method":"PUT","url":"https://api.example.com/up","body_file":"a.bin","verify_tls":false,"permission_rationale":"Publish the build"}`, cwd)
+	env := &tooling.Env{CWD: cwd}
+	body := HTTPRequestPromptBody(env, `{"method":"PUT","url":"https://api.example.com/up","body_file":"a.bin","verify_tls":false,"permission_rationale":"Publish the build"}`)
 	for _, want := range []string{"Publish the build", "PUT https://api.example.com/up", filepath.Join(cwd, "a.bin") + " (3 bytes)", "NOT verified", "https://api.example.com"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("prompt body does not show %q:\n%s", want, body)
@@ -507,9 +508,34 @@ func TestHTTPRequestPromptBodyShowsTheRequestAndWhatAnAlwaysAnswerCovers(t *test
 	if !strings.Contains(body, "always") {
 		t.Errorf("prompt body does not say what an always answer covers:\n%s", body)
 	}
-	plain := HTTPRequestPromptBody(`{"url":"https://api.example.com/"}`, cwd)
+	plain := HTTPRequestPromptBody(env, `{"url":"https://api.example.com/"}`)
 	if strings.Contains(plain, "always") {
 		t.Errorf("a request carrying nothing extra explains an always answer:\n%s", plain)
+	}
+}
+
+func TestHTTPRequestPromptBodyShowsTheConfiguredHeaders(t *testing.T) {
+	env := httpEnv(t, "ask")
+	env.HTTPDefaultHeaders = map[string]string{"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0", "X-Client": "foxxycode-lab"}
+	body := HTTPRequestPromptBody(env, `{"url":"https://api.example.com/items","headers":{"X-Client":"per-call"}}`)
+	for _, want := range []string{
+		"User-Agent: Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0",
+		"X-Client: per-call",
+		"Headers from tools.http_request.default_headers: User-Agent",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("prompt body does not show %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "foxxycode-lab") || strings.Contains(body, "foxxycode-agent/") {
+		t.Errorf("prompt body shows a header the request does not send:\n%s", body)
+	}
+	// The configuration changes what goes out, not whether it asks.
+	if allowedHTTP(env, httpState(), `{"url":"https://api.example.com/items"}`) {
+		t.Error("default headers let an ungranted request through")
+	}
+	if !allowedHTTP(env, httpState("origin|https://api.example.com"), `{"url":"https://api.example.com/items"}`) {
+		t.Error("default headers made a granted request ask again")
 	}
 }
 

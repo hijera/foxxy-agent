@@ -104,11 +104,14 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	ctx = turnCtx
 
 	// A resumed turn is one somebody is watching by definition - they just answered its
-	// permission prompt - so it publishes like any other composer turn. The sender stays
-	// non-interactive: this turn has no HTTP response of its own for a client to read.
+	// permission prompt - so it publishes like any other composer turn. It has no HTTP
+	// response of its own for a client to read, so a question is refused; a permission
+	// prompt is asked the way a woken turn asks one - emitted on the relay, persisted,
+	// answered through the permission endpoint - because the one who answered is there:
+	// an http_request whose default headers moved since its prompt asks again here.
 	rel := s.beginComposerRelay(sessionID)
 	defer s.endComposerRelay(sessionID, rel)
-	bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
+	bridge := NewWakeRelaySender(s.activeCfg(), rel, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
 	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)

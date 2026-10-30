@@ -262,7 +262,7 @@ func UISchemaMap() map[string]interface{} {
 		"max_context_tokens": intProp("Context window (tokens)",
 			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
-			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model."),
+			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file."),
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",
@@ -433,6 +433,12 @@ func UISchemaMap() map[string]interface{} {
 					"When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why."),
 				"llm_continue_max": intProp("Continuation limit",
 					"How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut)."),
+				"llm_continue_background_max": intProp("Background continuation limit", "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit."),
+				"llm_continue_background_delays_ms": map[string]interface{}{
+					"type": "array", "title": "Background continuation delays ms",
+					"description": "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.",
+					"items":       map[string]interface{}{"type": "integer"},
+				},
 				"llm_continue_stall_delays_ms": map[string]interface{}{
 					"type":        "array",
 					"title":       "Continuation delays ms",
@@ -473,7 +479,7 @@ func UISchemaMap() map[string]interface{} {
 			[]string{
 				"model", "queue_mode", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "llm_stall_retry", "llm_stall_retry_delays_ms",
-				"llm_stall_retry_max_wait_ms", "llm_continue", "llm_continue_max", "llm_continue_stall_delays_ms",
+				"llm_stall_retry_max_wait_ms", "llm_continue", "llm_continue_max", "llm_continue_background_max", "llm_continue_background_delays_ms", "llm_continue_stall_delays_ms",
 				"llm_continue_error_delays_ms", "llm_continue_retry_after_max_ms",
 				"loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles",
 				"loop_tool_cycle_repeats", "loop_stuck_action", "loop_nudge_max",
@@ -612,7 +618,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key"},
 					nil),
 				"http_request": objectSchema("HTTP requests",
-					"Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+					"Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
 					map[string]interface{}{
 						"allowlist": map[string]interface{}{
 							"type":        "array",
@@ -620,8 +626,14 @@ func UISchemaMap() map[string]interface{} {
 							"description": "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.",
 							"items":       map[string]interface{}{"type": "string"},
 						},
+						"default_headers": map[string]interface{}{
+							"type":                 "object",
+							"title":                "Default headers",
+							"description":          "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.",
+							"additionalProperties": map[string]interface{}{"type": "string"},
+						},
 					},
-					[]string{"allowlist"},
+					[]string{"allowlist", "default_headers"},
 					nil),
 			},
 			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "output_limits", "background", "preview_server", "websearch", "http_request"},
@@ -718,7 +730,7 @@ func UISchemaMap() map[string]interface{} {
 				"dir":                         strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
 				"wait_seconds":                intProp("Wait for the report (seconds)", "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20)."),
 				"timeout_seconds":             intProp("Run timeout (seconds)", "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300)."),
-				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20)."),
+				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20)."),
 				"recall_max_turns":            intProp("Recall max turns", "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two."),
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),

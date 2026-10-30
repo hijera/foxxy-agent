@@ -121,6 +121,38 @@ test("completed todo calls keep the plan snapshot sent with their status update"
   expect(call?.todoPlan).toEqual(todoPlan);
 });
 
+test("a completed read keeps the pictures its call showed the model", async () => {
+  const images = [
+    {
+      name: "shot.png",
+      mime_type: "image/png",
+      asset: "shot-1a2b.png",
+      url: "/foxxycode/sessions/s1/assets/shot-1a2b.png",
+      preview_url: "/foxxycode/sessions/s1/assets/shot-1a2b.png/thumbnail",
+    },
+  ];
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "r1", title: "read", kind: "read", status: "pending" })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "r1", status: "completed", content: [{ content: { text: "shot.png: PNG image" } }], _meta: { foxxycode: { images } } })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const call = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call" && item.toolCallId === "r1",
+  );
+
+  expect(call?.images).toEqual([
+    {
+      name: "shot.png",
+      mimeType: "image/png",
+      url: "/foxxycode/sessions/s1/assets/shot-1a2b.png",
+      previewUrl: "/foxxycode/sessions/s1/assets/shot-1a2b.png/thumbnail",
+    },
+  ]);
+  expect(items.some((item) => item.type === "user_message")).toBe(false);
+});
+
 // Two tool calls with text before, between, and after must all interleave.
 test("streaming interleaves across multiple tool calls", async () => {
   const tool = (id: string) =>

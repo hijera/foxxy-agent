@@ -5,6 +5,7 @@ import {
   connectRemote,
   getRemoteToken,
   localFetch,
+  probeRemote,
   snapshotEnv,
   subscribeEnv,
 } from "../env/remoteEnv";
@@ -46,6 +47,22 @@ export function EnvironmentChip() {
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  // The chip usually sits in the composer at the foot of the screen, where a
+  // menu has to grow upward. On a relay the composer is gone and the chip is in
+  // the swarm header, where growing upward puts the whole menu off the top.
+  const opensUp = !!anchor && anchor.top > window.innerHeight / 2;
+  // The menu hangs from the chip's left edge, but in the swarm header the chip
+  // is the last thing on the right, so the menu is kept inside the window. The
+  // width is the one styles.css gives .mode-menu--portal.mode-menu--env.
+  const menuLeft = anchor
+    ? Math.max(
+        12,
+        Math.min(
+          anchor.left,
+          window.innerWidth - Math.min(300, window.innerWidth - 24) - 12,
+        ),
+      )
+    : 0;
   const [health, setHealth] = useState<Record<string, Health>>({});
   const [adding, setAdding] = useState(false);
   const [addName, setAddName] = useState("");
@@ -80,18 +97,28 @@ export function EnvironmentChip() {
   }, []);
 
   // Probe a remote's reachability (cross-origin, so it also verifies CORS + the saved token).
+  // Each probe takes a sequence number; an answer that arrives after a newer probe
+  // of the same remote started is dropped, so an older, slower reply cannot
+  // overwrite the state of the probe the menu asked for last.
+  const probeSeq = useRef<Record<string, number>>({});
   const probe = (url: string) => {
     const key = normUrl(url);
+    const seq = (probeSeq.current[key] ?? 0) + 1;
+    probeSeq.current[key] = seq;
+    const current = () => probeSeq.current[key] === seq;
     setHealth((h) => ({ ...h, [key]: "checking" }));
     const token = getRemoteToken(url);
-    localFetch(key + "/v1/models", {
-      headers: token ? { Authorization: "Bearer " + token } : {},
-      signal: AbortSignal.timeout(4000),
-    })
-      .then((res) =>
-        setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" })),
-      )
-      .catch(() => setHealth((h) => ({ ...h, [key]: "down" })));
+    probeRemote(
+      key + "/v1/models",
+      token ? { Authorization: "Bearer " + token } : {},
+      4000,
+    )
+      .then((res) => {
+        if (current()) setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" }));
+      })
+      .catch(() => {
+        if (current()) setHealth((h) => ({ ...h, [key]: "down" }));
+      });
   };
 
   const openMenu = () => {
@@ -157,16 +184,18 @@ export function EnvironmentChip() {
                 }}
               />
               <div
-                className={`mode-menu mode-menu--env ${useSheet ? "mode-menu--sheet" : "mode-menu--portal opens-up"}`}
+                className={`mode-menu mode-menu--env ${useSheet ? "mode-menu--sheet" : `mode-menu--portal ${opensUp ? "opens-up" : "opens-down"}`}`}
                 role="menu"
                 data-testid="composer-env-menu"
                 style={
                   useSheet || !anchor
                     ? undefined
-                    : {
-                        left: anchor.left,
-                        bottom: window.innerHeight - anchor.top + 8,
-                      }
+                    : opensUp
+                      ? {
+                          left: menuLeft,
+                          bottom: window.innerHeight - anchor.top + 8,
+                        }
+                      : { left: menuLeft, top: anchor.bottom + 8 }
                 }
               >
                 <div className="mode-menu-group-label">

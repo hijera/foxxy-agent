@@ -153,16 +153,17 @@ func TestContextWindowResolutionOrder(t *testing.T) {
 }
 
 func TestContextWindowAsksOnlyProvidersThatReportWindows(t *testing.T) {
-	cfg := windowTestConfig(t.TempDir())
-	listing := &windowListing{windows: map[string]int{"qwen3.8-27b": 262144}}
+	home := t.TempDir()
+	cfg := windowTestConfig(home)
+	listing := &windowListing{windows: map[string]int{"qwen3.8-27b": 262144, "gpt-5.6": 272000}}
 	m := newWindowTestManager(t, cfg, listing, nil)
 
 	// A model with max_context_tokens needs no listing either.
-	m.AwaitContextWindows(context.Background(), cfg, []string{"oai/gpt-4o", "ant/claude", "cdx/gpt-5.6", "hub/configured"}, time.Second)
+	m.AwaitContextWindows(context.Background(), cfg, []string{"oai/gpt-4o", "ant/claude", "hub/configured"}, time.Second)
 	if n := listing.calls.Load(); n != 0 {
 		t.Fatalf("listing read %d times for providers that report no windows, want 0", n)
 	}
-	for _, model := range []string{"oai/gpt-4o", "ant/claude", "cdx/gpt-5.6"} {
+	for _, model := range []string{"oai/gpt-4o", "ant/claude"} {
 		if tokens, source := m.ContextWindow(cfg, model); tokens != config.DefaultContextWindowTokens || source != ContextWindowDefault {
 			t.Errorf("%s: ContextWindow = %d/%q, want the default", model, tokens, source)
 		}
@@ -171,6 +172,198 @@ func TestContextWindowAsksOnlyProvidersThatReportWindows(t *testing.T) {
 	m.AwaitContextWindows(context.Background(), cfg, []string{"nd/qwen3.8-27b"}, time.Second)
 	if tokens, source := m.ContextWindow(cfg, "nd/qwen3.8-27b"); tokens != 262144 || source != ContextWindowFromProvider {
 		t.Fatalf("neuraldeep model: ContextWindow = %d/%q, want 262144 from the provider", tokens, source)
+	}
+
+	// The Codex catalog reports a window per model (context_window), read
+	// with the row's own sign-in: the managed credential of the row, and the
+	// Codex CLI login, since this is the only codex row.
+	m.AwaitContextWindows(context.Background(), cfg, []string{"cdx/gpt-5.6"}, time.Second)
+	if tokens, source := m.ContextWindow(cfg, "cdx/gpt-5.6"); tokens != 272000 || source != ContextWindowFromProvider {
+		t.Fatalf("codex model: ContextWindow = %d/%q, want 272000 from the provider", tokens, source)
+	}
+	listing.mu.Lock()
+	in := listing.inputs[len(listing.inputs)-1]
+	listing.mu.Unlock()
+	if in.Type != "codex" || in.AuthPath != config.CodexAuthPath(home, "cdx") || in.NoCLILogin {
+		t.Fatalf("codex listing asked with %+v, want the row's type, its managed credential and the CLI login", in)
+	}
+}
+
+// Each codex row reads its catalog with its own sign-in, and the Codex CLI
+// login stands in only for the row it serves: here the row named codex, so a
+// second row never sends that login's token.
+func TestContextWindowCodexRowsReadWithTheirOwnSignIn(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home},
+		Providers: []config.ProviderConfig{
+			{Name: "codex", Type: "codex"},
+			{Name: "codex-work", Type: "codex"},
+		},
+		Models: []config.ModelEntry{{Model: "codex/gpt-6-sol"}, {Model: "codex-work/gpt-6-sol"}},
+		Agent:  config.Agent{Model: "codex/gpt-6-sol"},
+	}
+	listing := &windowListing{windows: map[string]int{"gpt-6-sol": 272000}}
+	m := newWindowTestManager(t, cfg, listing, nil)
+
+	m.AwaitContextWindows(context.Background(), cfg, []string{"codex/gpt-6-sol", "codex-work/gpt-6-sol"}, time.Second)
+	listing.mu.Lock()
+	inputs := append([]llm.ProviderInput(nil), listing.inputs...)
+	listing.mu.Unlock()
+	if len(inputs) != 2 {
+		t.Fatalf("listings read = %d, want one per codex row", len(inputs))
+	}
+	for _, in := range inputs {
+		wantCLI := in.Name == "codex"
+		if in.AuthPath != config.CodexAuthPath(home, in.Name) || in.NoCLILogin == wantCLI {
+			t.Fatalf("row %s asked with %+v, want its own credential and the CLI login only for the row named codex", in.Name, in)
+		}
+	}
+	for _, ref := range []string{"codex/gpt-6-sol", "codex-work/gpt-6-sol"} {
+		if tokens, _ := m.ContextWindow(cfg, ref); tokens != 272000 {
+			t.Fatalf("%s: ContextWindow = %d, want 272000", ref, tokens)
+		}
+	}
+}
+
+// A failed read of a listing is not repeated for contextWindowRetry, but a
+// read that failed for want of a sign-in says nothing once the row signs in:
+// after ForgetContextWindows the next reader asks that row again at once,
+// while every other row keeps its backoff.
+func TestContextWindowFailureIsForgottenAfterASignIn(t *testing.T) {
+	cfg := windowTestConfig(t.TempDir())
+	clock := &windowTestClock{now: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)}
+	listing := &windowListing{err: errors.New("codex auth: no ChatGPT tokens")}
+	m := newWindowTestManager(t, cfg, listing, clock)
+	refs := []string{"cdx/gpt-5.6", "nd/qwen3.8-27b"}
+
+	m.AwaitContextWindows(context.Background(), cfg, refs, time.Second)
+	listing.set(map[string]int{"gpt-5.6": 272000, "qwen3.8-27b": 262144}, nil)
+	m.AwaitContextWindows(context.Background(), cfg, refs, time.Second)
+	if n := listing.calls.Load(); n != 2 {
+		t.Fatalf("listing read %d times inside the retry backoff, want 2 (one per row)", n)
+	}
+
+	m.ForgetContextWindows("cdx")
+	m.AwaitContextWindows(context.Background(), cfg, refs, time.Second)
+	if n := listing.calls.Load(); n != 3 {
+		t.Fatalf("listing read %d times after the sign-in, want 3 (the signed-in row once more)", n)
+	}
+	if tokens, source := m.ContextWindow(cfg, "cdx/gpt-5.6"); tokens != 272000 || source != ContextWindowFromProvider {
+		t.Fatalf("signed-in row: ContextWindow = %d/%q, want 272000 from the provider", tokens, source)
+	}
+	if tokens, source := m.ContextWindow(cfg, "nd/qwen3.8-27b"); tokens != config.DefaultContextWindowTokens || source != ContextWindowDefault {
+		t.Fatalf("other row: ContextWindow = %d/%q, want the default until its backoff ends", tokens, source)
+	}
+}
+
+// A read still out when the row's credential changes describes the previous
+// credential: its failure must not become the backoff the new sign-in waits
+// behind, so the next reader asks again at once.
+func TestContextWindowReadInFlightAcrossASignInIsDropped(t *testing.T) {
+	cfg := windowTestConfig(t.TempDir())
+	clock := &windowTestClock{now: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)}
+	listing := &windowListing{err: errors.New("codex auth: no ChatGPT tokens"), gate: make(chan struct{})}
+	m := newWindowTestManager(t, cfg, listing, clock)
+
+	// The read starts and hangs upstream; the caller stops waiting for it.
+	m.AwaitContextWindows(context.Background(), cfg, []string{"cdx/gpt-5.6"}, 10*time.Millisecond)
+	m.ForgetContextWindows("cdx")
+	// It asked with the previous credential: it is called off, not waited out.
+	if err := m.WaitContextWindowsIdle(2 * time.Second); err != nil {
+		t.Fatalf("the read out during the sign-in was not called off: %v", err)
+	}
+	listing.mu.Lock()
+	close(listing.gate)
+	listing.gate = nil
+	listing.mu.Unlock()
+
+	listing.set(map[string]int{"gpt-5.6": 272000}, nil)
+	m.AwaitContextWindows(context.Background(), cfg, []string{"cdx/gpt-5.6"}, time.Second)
+	if n := listing.calls.Load(); n != 2 {
+		t.Fatalf("listing read %d times, want 2: the read out during the sign-in must not hold the next one back", n)
+	}
+	if tokens, source := m.ContextWindow(cfg, "cdx/gpt-5.6"); tokens != 272000 || source != ContextWindowFromProvider {
+		t.Fatalf("ContextWindow = %d/%q, want 272000 from the provider", tokens, source)
+	}
+}
+
+// The read of the previous credential may take its time to return even once
+// called off; the reader that comes right after a sign-in must not wait for
+// it, but start the read of the new credential at once. The idle wait still
+// covers the read called off until it returns, and it records nothing.
+func TestContextWindowSignInStartsANewReadWithoutWaitingForTheOldOne(t *testing.T) {
+	cfg := windowTestConfig(t.TempDir())
+	hold := make(chan struct{})
+	var calls atomic.Int32
+	list := func(ctx context.Context, in llm.ProviderInput) ([]llm.ModelEntry, error) {
+		if calls.Add(1) == 1 {
+			<-hold // deaf to its cancellation, as a slow transport can be
+			return nil, errors.New("codex auth: no ChatGPT tokens")
+		}
+		return []llm.ModelEntry{{ID: "gpt-5.6", ContextWindow: 272000}}, nil
+	}
+	m := NewManager(cfg, &contextUsageCapture{}, nil, slog.Default(), t.TempDir(), nil)
+	m.SetContextWindowLister(list, nil)
+	var once sync.Once
+	release := func() { once.Do(func() { close(hold) }) }
+	t.Cleanup(func() {
+		release()
+		if err := m.WaitContextWindowsIdle(5 * time.Second); err != nil {
+			t.Error(err)
+		}
+	})
+	refs := []string{"cdx/gpt-5.6"}
+
+	m.AwaitContextWindows(context.Background(), cfg, refs, 10*time.Millisecond)
+	m.ForgetContextWindows("cdx")
+	m.AwaitContextWindows(context.Background(), cfg, refs, time.Second)
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("listing read %d times, want 2: the first read after the sign-in waited for the one called off", n)
+	}
+	if tokens, source := m.ContextWindow(cfg, "cdx/gpt-5.6"); tokens != 272000 || source != ContextWindowFromProvider {
+		t.Fatalf("ContextWindow = %d/%q, want 272000 from the new read", tokens, source)
+	}
+
+	if err := m.WaitContextWindowsIdle(50 * time.Millisecond); err == nil {
+		t.Fatal("the idle wait returned while the read called off was still out")
+	}
+	release()
+	if err := m.WaitContextWindowsIdle(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if tokens, _ := m.ContextWindow(cfg, "cdx/gpt-5.6"); tokens != 272000 {
+		t.Fatalf("the read called off overwrote the window: %d", tokens)
+	}
+}
+
+// A model's window does not depend on the account asking, but the models a
+// catalog lists do: after a sign-in to another account the listing is read
+// again, instead of trusting for the rest of the hour one that lacks the
+// models the new account is offered. What was read keeps serving meanwhile.
+func TestContextWindowListingIsReadAgainAfterASignIn(t *testing.T) {
+	cfg := windowTestConfig(t.TempDir())
+	clock := &windowTestClock{now: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)}
+	listing := &windowListing{windows: map[string]int{"gpt-5.5": 272000}}
+	m := newWindowTestManager(t, cfg, listing, clock)
+
+	m.AwaitContextWindows(context.Background(), cfg, []string{"cdx/gpt-5.6"}, time.Second)
+	listing.set(map[string]int{"gpt-5.5": 272000, "gpt-5.6": 272000}, nil)
+	m.AwaitContextWindows(context.Background(), cfg, []string{"cdx/gpt-5.6"}, time.Second)
+	if n := listing.calls.Load(); n != 1 {
+		t.Fatalf("listing read %d times inside its hour, want 1", n)
+	}
+
+	m.ForgetContextWindows("cdx")
+	m.AwaitContextWindows(context.Background(), cfg, []string{"cdx/gpt-5.6"}, time.Second)
+	if err := m.WaitContextWindowsIdle(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if n := listing.calls.Load(); n != 2 {
+		t.Fatalf("listing read %d times after the sign-in, want 2", n)
+	}
+	if tokens, source := m.ContextWindow(cfg, "cdx/gpt-5.6"); tokens != 272000 || source != ContextWindowFromProvider {
+		t.Fatalf("ContextWindow = %d/%q, want 272000 from the new account's listing", tokens, source)
 	}
 }
 

@@ -29,7 +29,8 @@ def build_overlap(repo, base: str, target: str, fork: str, changes, fork_path) -
         special = any(obj and obj["mode"] not in {"100644", "100755"} for obj in objects.values())
         binary = any(b"\0" in content for content in contents.values())
         try:
-            normalized = {side: normalize(content, upstream=side in {"base", "theirs"})
+            normalized = {side: normalize(content, upstream=side in {"base", "theirs"},
+                                          paths=(row["path"], row.get("old_path", row["path"])))
                           for side, content in contents.items()} if not binary and not special else None
         except UnicodeDecodeError:
             normalized = None
