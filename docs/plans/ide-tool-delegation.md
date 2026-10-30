@@ -374,5 +374,11 @@ model, dirty/clean/create/timeout/terminal scenarios) found and fixed three
 defects: a `tool_execute` without a file preview answered a bogus error instead
 of `not_handled`, CRLF/LF differences made clean buffers false conflicts, and
 `DocumentImpl.setText`'s mixed-separator `AssertionError` escaped the catch and
-stalled the call until the fallback timeout. Still unbuilt: the VS Code port
-and the ACP `RequestToolExecution` parity of 8.2.
+stalled the call until the fallback timeout. The delegated set grew the same
+day: `read` answers from the editor buffer (unsaved changes included; the
+agent's own reader still owns directories, pictures and binaries),
+`plan_write` applies through the document path with its plan-row bookkeeping
+fired on the agent side (`tools.NotifyPlanWrite`), and `mkdir`/`rm`/`mv`/
+`touch` run as IDE filesystem operations with the agent's own result strings.
+Every delegated tool has a per-tool switch in the plugin settings. Still
+unbuilt: the VS Code port and the ACP `RequestToolExecution` parity of 8.2.

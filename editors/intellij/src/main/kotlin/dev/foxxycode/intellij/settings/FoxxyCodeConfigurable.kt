@@ -31,6 +31,13 @@ class FoxxyCodeConfigurable : Configurable {
     private val nativeDiffsCheckBox = JBCheckBox()
     private val autoApproveCheckBox = JBCheckBox()
     private val ideToolExecutionCheckBox = JBCheckBox()
+    private val ideExecTerminalCheckBox = JBCheckBox()
+    private val ideExecReadCheckBox = JBCheckBox()
+    private val ideExecPlanWriteCheckBox = JBCheckBox()
+    private val ideExecMkdirCheckBox = JBCheckBox()
+    private val ideExecRmCheckBox = JBCheckBox()
+    private val ideExecMvCheckBox = JBCheckBox()
+    private val ideExecTouchCheckBox = JBCheckBox()
     private val trackOpenFilesCheckBox = JBCheckBox()
     private val trackTerminalsCheckBox = JBCheckBox()
     private val planNoSelfRunCheckBox = JBCheckBox()
@@ -79,6 +86,13 @@ class FoxxyCodeConfigurable : Configurable {
             .addComponent(nativeDiffsCheckBox)
             .addComponent(autoApproveCheckBox)
             .addComponent(ideToolExecutionCheckBox)
+            .addComponent(ideExecTerminalCheckBox)
+            .addComponent(ideExecReadCheckBox)
+            .addComponent(ideExecPlanWriteCheckBox)
+            .addComponent(ideExecMkdirCheckBox)
+            .addComponent(ideExecRmCheckBox)
+            .addComponent(ideExecMvCheckBox)
+            .addComponent(ideExecTouchCheckBox)
             .addSeparator()
             .addComponent(trackOpenFilesCheckBox)
             .addComponent(trackTerminalsCheckBox)
@@ -120,6 +134,13 @@ class FoxxyCodeConfigurable : Configurable {
             nativeDiffsCheckBox.isSelected != s.nativeDiffs ||
             autoApproveCheckBox.isSelected != s.autoApproveEdits ||
             ideToolExecutionCheckBox.isSelected != s.ideToolExecution ||
+            ideExecTerminalCheckBox.isSelected != s.ideExecTerminal ||
+            ideExecReadCheckBox.isSelected != s.ideExecRead ||
+            ideExecPlanWriteCheckBox.isSelected != s.ideExecPlanWrite ||
+            ideExecMkdirCheckBox.isSelected != s.ideExecMkdir ||
+            ideExecRmCheckBox.isSelected != s.ideExecRm ||
+            ideExecMvCheckBox.isSelected != s.ideExecMv ||
+            ideExecTouchCheckBox.isSelected != s.ideExecTouch ||
             trackOpenFilesCheckBox.isSelected != s.trackOpenFiles ||
             trackTerminalsCheckBox.isSelected != s.trackTerminals ||
             planNoSelfRunCheckBox.isSelected != s.planNoSelfRun
@@ -136,6 +157,13 @@ class FoxxyCodeConfigurable : Configurable {
         s.nativeDiffs = nativeDiffsCheckBox.isSelected
         s.autoApproveEdits = autoApproveCheckBox.isSelected
         s.ideToolExecution = ideToolExecutionCheckBox.isSelected
+        s.ideExecTerminal = ideExecTerminalCheckBox.isSelected
+        s.ideExecRead = ideExecReadCheckBox.isSelected
+        s.ideExecPlanWrite = ideExecPlanWriteCheckBox.isSelected
+        s.ideExecMkdir = ideExecMkdirCheckBox.isSelected
+        s.ideExecRm = ideExecRmCheckBox.isSelected
+        s.ideExecMv = ideExecMvCheckBox.isSelected
+        s.ideExecTouch = ideExecTouchCheckBox.isSelected
         s.trackOpenFiles = trackOpenFilesCheckBox.isSelected
         s.trackTerminals = trackTerminalsCheckBox.isSelected
         s.planNoSelfRun = planNoSelfRunCheckBox.isSelected
@@ -154,6 +182,13 @@ class FoxxyCodeConfigurable : Configurable {
         nativeDiffsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.nativeDiffs")
         autoApproveCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.autoApprove")
         ideToolExecutionCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideToolExecution")
+        ideExecTerminalCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecTerminal")
+        ideExecReadCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecRead")
+        ideExecPlanWriteCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecPlanWrite")
+        ideExecMkdirCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecMkdir")
+        ideExecRmCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecRm")
+        ideExecMvCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecMv")
+        ideExecTouchCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideExecTouch")
         trackOpenFilesCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackOpenFiles")
         trackTerminalsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackTerminals")
         planNoSelfRunCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.planNoSelfRun")
@@ -161,6 +196,13 @@ class FoxxyCodeConfigurable : Configurable {
         nativeDiffsCheckBox.isSelected = s.nativeDiffs
         autoApproveCheckBox.isSelected = s.autoApproveEdits
         ideToolExecutionCheckBox.isSelected = s.ideToolExecution
+        ideExecTerminalCheckBox.isSelected = s.ideExecTerminal
+        ideExecReadCheckBox.isSelected = s.ideExecRead
+        ideExecPlanWriteCheckBox.isSelected = s.ideExecPlanWrite
+        ideExecMkdirCheckBox.isSelected = s.ideExecMkdir
+        ideExecRmCheckBox.isSelected = s.ideExecRm
+        ideExecMvCheckBox.isSelected = s.ideExecMv
+        ideExecTouchCheckBox.isSelected = s.ideExecTouch
         trackOpenFilesCheckBox.isSelected = s.trackOpenFiles
         trackTerminalsCheckBox.isSelected = s.trackTerminals
         planNoSelfRunCheckBox.isSelected = s.planNoSelfRun

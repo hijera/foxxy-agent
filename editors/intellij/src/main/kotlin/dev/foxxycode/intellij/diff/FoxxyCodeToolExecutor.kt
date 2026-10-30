@@ -78,6 +78,26 @@ object ToolExecPlan {
     }
 }
 
+/** Pure line slicing of a delegated read, matching the agent's read tool. */
+object ReadSlice {
+    /** Mirrors the agent's sliceLines: 1-based offset, limit lines, trailing newline kept. */
+    fun apply(content: String, offset: Int, limit: Int): String {
+        if (content.isEmpty()) return ""
+        val lines = content.split("\n").toMutableList()
+        var hasTrailingNewline = false
+        if (lines.last() == "") {
+            lines.removeAt(lines.size - 1)
+            hasTrailingNewline = true
+        }
+        val start = if (offset < 1) 1 else offset
+        if (start > lines.size) return ""
+        var end = if (limit > 0) start + limit - 1 else lines.size
+        if (end < 1 || end > lines.size) end = lines.size
+        val result = lines.subList(start - 1, end).joinToString("\n")
+        return if (hasTrailingNewline && end == lines.size) result + "\n" else result
+    }
+}
+
 /**
  * Executes delegated tool calls (`tool_execute` events on the IDE event stream) through the
  * editor's document model: `write` / `edit` / `apply_patch` land in the user's buffers and the
@@ -120,15 +140,45 @@ class FoxxyCodeToolExecutor(private val project: Project) {
     }
 
     private fun run(ev: FoxxyCodeEditEvent) {
-        if (!FoxxyCodeSettings.getInstance().state.ideToolExecution) {
+        val settings = FoxxyCodeSettings.getInstance().state
+        if (!settings.ideToolExecution) {
             respond(ev, notHandled())
             return
         }
-        // run_command runs in an IDE terminal tab; its event carries no file
-        // preview, and the wait happens off the EDT inside the runner.
-        if (ev.tool == "run_command") {
-            runInTerminal(ev)
-            return
+        // Per-tool switches: an off tool (or one this client does not own) runs
+        // in the agent itself. plan_write falls through to the document path -
+        // its event carries the path/before/after preview like a plain write.
+        when (ev.tool) {
+            "run_command" -> {
+                if (settings.ideExecTerminal) runInTerminal(ev) else respond(ev, notHandled())
+                return
+            }
+            "read" -> {
+                if (settings.ideExecRead) readFromDocument(ev) else respond(ev, notHandled())
+                return
+            }
+            "mkdir" -> {
+                if (settings.ideExecMkdir) vfsOp(ev) else respond(ev, notHandled())
+                return
+            }
+            "rm" -> {
+                if (settings.ideExecRm) vfsOp(ev) else respond(ev, notHandled())
+                return
+            }
+            "mv" -> {
+                if (settings.ideExecMv) vfsOp(ev) else respond(ev, notHandled())
+                return
+            }
+            "touch" -> {
+                if (settings.ideExecTouch) vfsOp(ev) else respond(ev, notHandled())
+                return
+            }
+            "plan_write" -> {
+                if (!settings.ideExecPlanWrite) {
+                    respond(ev, notHandled())
+                    return
+                }
+            }
         }
         val path = ev.path.trim()
         // No file preview in the event: a non-fs tool, or an fs call whose
@@ -205,6 +255,140 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                 else -> respond(ev, handled(r.output))
             }
         }
+    }
+
+    /**
+     * `read` from the editor buffer: the document may hold unsaved changes the disk does
+     * not. Directories, pictures and files no editor document backs are left to the
+     * agent's own reader, which knows how to list and sniff them.
+     */
+    private fun readFromDocument(ev: FoxxyCodeEditEvent) {
+        val args = parseArgs(ev) ?: return respond(ev, notHandled())
+        val path = args.get("path")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        if (path.isBlank()) {
+            respond(ev, notHandled())
+            return
+        }
+        // The event carries no file preview for read, so the path is the tool's
+        // own - relative ones resolve against the session workspace, which the
+        // backend was started with as its cwd.
+        val vf = try {
+            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(resolveInProject(path))
+        } catch (e: Exception) {
+            null
+        }
+        val doc = vf?.takeIf { it.isValid && !it.isDirectory }?.let { FileDocumentManager.getInstance().getDocument(it) }
+        if (doc == null) {
+            respond(ev, notHandled())
+            return
+        }
+        val offset = args.get("offset")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0
+        val limit = args.get("limit")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0
+        respond(ev, handled(ReadSlice.apply(doc.immutableCharSequence.toString(), offset, limit)))
+    }
+
+    /**
+     * mkdir / rm / mv / touch through the IDE's own filesystem: the project tree updates
+     * at once and Local History keeps what the agent changed. The result strings mirror
+     * the agent's tools.
+     */
+    private fun vfsOp(ev: FoxxyCodeEditEvent) {
+        val args = parseArgs(ev) ?: return respond(ev, notHandled())
+        try {
+            var outcome: String? = null
+            var failure: String? = null
+            WriteCommandAction.runWriteCommandAction(project, FoxxyCodeBundle.message("toolexec.command.vfs"), null, {
+                try {
+                    outcome = vfsOpLocked(ev, args)
+                } catch (t: Throwable) {
+                    failure = t.message ?: "filesystem operation failed"
+                }
+            })
+            failure?.let { respond(ev, failed(it)) } ?: respond(ev, handled(outcome ?: ""))
+        } catch (t: Throwable) {
+            log.warn("vfs op failed", t)
+            respond(ev, failed(t.message ?: "filesystem operation failed"))
+        }
+    }
+
+    private fun vfsOpLocked(ev: FoxxyCodeEditEvent, args: com.google.gson.JsonObject): String {
+        val lfs = LocalFileSystem.getInstance()
+        fun str(key: String) = args.get(key)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        fun bool(key: String) = args.get(key)?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+        fun resolve(p: String) = resolveInProject(p)
+        return when (ev.tool) {
+            "mkdir" -> {
+                val target = resolve(str("path"))
+                val created = VfsUtil.createDirectoryIfMissing(target.toString())
+                    ?: throw IllegalStateException("mkdir: cannot create $target")
+                "created directory $target"
+            }
+            "touch" -> {
+                val target = resolve(str("path"))
+                val vf = lfs.refreshAndFindFileByNioFile(target)
+                if (vf != null && !vf.isDirectory) {
+                    vf.setBinaryContent(vf.contentsToByteArray())
+                    "updated timestamps for $target"
+                } else {
+                    if (vf == null && bool("create_parents")) {
+                        VfsUtil.createDirectoryIfMissing(target.parent.toString())
+                            ?: throw IllegalStateException("touch: cannot create ${target.parent}")
+                    }
+                    val parent = lfs.refreshAndFindFileByNioFile(target.parent)
+                        ?: throw IllegalStateException("touch: parent directory not found")
+                    val file = if (vf != null) vf else parent.createChildData(this, target.fileName.toString())
+                    if (vf == null) file.setBinaryContent(ByteArray(0))
+                    "created file $target"
+                }
+            }
+            "rm" -> {
+                val target = resolve(str("path"))
+                val vf = lfs.refreshAndFindFileByNioFile(target)
+                    ?: throw IllegalStateException("rm: $target not found")
+                val recursive = bool("recursive")
+                if (vf.isDirectory && !recursive) {
+                    throw IllegalStateException("rm: $target is a directory; use recursive")
+                }
+                val tree = vf.isDirectory && recursive
+                deleteRecursively(vf)
+                if (tree) "removed tree $target" else "removed $target"
+            }
+            "mv" -> {
+                val src = resolve(str("src"))
+                val dst = resolve(str("dst"))
+                val vf = lfs.refreshAndFindFileByNioFile(src)
+                    ?: throw IllegalStateException("mv: $src not found")
+                VfsUtil.createDirectoryIfMissing(dst.parent.toString())
+                    ?: throw IllegalStateException("mv: cannot create ${dst.parent}")
+                val parent = lfs.refreshAndFindFileByNioFile(dst.parent)
+                    ?: throw IllegalStateException("mv: parent directory not found")
+                val newName = dst.fileName.toString()
+                if (vf.parent != parent) vf.move(this, parent)
+                if (vf.name != newName) vf.rename(this, newName)
+                "moved $src -> $dst"
+            }
+            else -> throw IllegalStateException("not a filesystem tool: ${ev.tool}")
+        }
+    }
+
+    private fun parseArgs(ev: FoxxyCodeEditEvent): com.google.gson.JsonObject? {
+        return try {
+            JsonParser.parseString(ev.args).asJsonObject
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** A tool's own path is relative to the session workspace (the backend's cwd). */
+    private fun resolveInProject(p: String): Path =
+        Path.of(project.basePath ?: ".").resolve(p).normalize()
+
+    /** VfsUtil.deleteRecursively is not on the 2022.2 floor; plain VirtualFile recursion is. */
+    private fun deleteRecursively(vf: com.intellij.openapi.vfs.VirtualFile) {
+        if (vf.isDirectory) {
+            for (child in vf.children) deleteRecursively(child)
+        }
+        vf.delete(this)
     }
 
     private fun apply(ev: FoxxyCodeEditEvent, doc: Document) {

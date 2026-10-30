@@ -205,7 +205,7 @@ func TestEditPreviewPreservesWindows1251(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, gotBefore, after, ok, err := EditPreview("edit", `{"path":"legacy.txt","oldString":"до","newString":"после"}`, root)
+	_, gotBefore, after, ok, err := EditPreview("edit", `{"path":"legacy.txt","oldString":"до","newString":"после"}`, root, "")
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}

@@ -48,8 +48,9 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 	// buffer that no longer matches `before`).
 	s.mu.Lock()
 	cwd := s.cwd
+	sd := s.sessionDir
 	s.mu.Unlock()
-	if absPath, before, after, ok, perr := toolfs.EditPreview(name, req.ArgsJSON, cwd); ok && perr == nil {
+	if absPath, before, after, ok, perr := toolfs.EditPreview(name, req.ArgsJSON, cwd, sd); ok && perr == nil {
 		ev.Path = absPath
 		ev.Before = string(before)
 		ev.After = string(after)

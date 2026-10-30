@@ -9,6 +9,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
 
@@ -39,10 +40,12 @@ func (a *Agent) tryDelegateToolCall(ctx context.Context, tc llm.ToolCall, env *t
 	// executing tool would have fired, so the transcript row and the
 	// edit_applied event are the same either way.
 	cwd := ""
+	sessionDir := ""
 	if env != nil {
 		cwd = env.CWD
+		sessionDir = env.SessionDir
 	}
-	absPath, before, after, isEdit, _ := toolfs.EditPreview(tc.Name, tc.InputJSON, cwd)
+	absPath, before, after, isEdit, _ := toolfs.EditPreview(tc.Name, tc.InputJSON, cwd, sessionDir)
 
 	dctx, cancel := context.WithTimeout(ctx, toolDelegateTimeout)
 	defer cancel()
@@ -64,8 +67,16 @@ func (a *Agent) tryDelegateToolCall(ctx context.Context, tc llm.ToolCall, env *t
 	if strings.TrimSpace(res.Err) != "" {
 		return true, "", errors.New(res.Err)
 	}
-	if isEdit {
-		toolfs.NotifyFileEdit(env, tc.Name, absPath, before, after)
+	// The bookkeeping the local tools leave behind: a filesystem write fires
+	// OnFileEdit (the transcript row and edit_applied), a plan write records
+	// the plan document and its update. Everything else has none.
+	switch tc.Name {
+	case "write", "edit", "apply_patch":
+		if isEdit {
+			toolfs.NotifyFileEdit(env, tc.Name, absPath, before, after)
+		}
+	case "plan_write":
+		tools.NotifyPlanWrite(env, tc.InputJSON)
 	}
 	return true, res.Output, nil
 }

@@ -78,6 +78,29 @@ func executePlanWrite(_ context.Context, argsJSON string, env *tooling.Env) (str
 	return fmt.Sprintf("wrote design plan %q (%d bytes)", slug, len(content)), nil
 }
 
+// NotifyPlanWrite fires the bookkeeping a plan write leaves behind - the plan
+// document row and the design-plan update - for a write that happened outside
+// the tool (a delegated one, where the client applied the content). The args are
+// the tool call's own, so the composed document is the one the local run would
+// have recorded.
+func NotifyPlanWrite(env *tooling.Env, argsJSON string) {
+	if env == nil {
+		return
+	}
+	args, err := tooling.ParseArgs[planWriteArgs](argsJSON)
+	if err != nil {
+		return
+	}
+	doc, err := plans.Parse(strings.TrimSpace(args.Slug), args.Content)
+	if err != nil {
+		return
+	}
+	if env.PersistPlanDocument != nil {
+		env.PersistPlanDocument(*doc)
+	}
+	SendDesignPlanUpdate(env, *doc)
+}
+
 // SendDesignPlanUpdate emits a standard plan update with design-plan _meta.
 func SendDesignPlanUpdate(env *tooling.Env, doc plans.Document) {
 	if env.Sender == nil {

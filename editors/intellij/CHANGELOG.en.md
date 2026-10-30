@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-10-30
 
+**More tools run through the IDE.**
+`read` answers from the editor buffer (it sees unsaved changes), `plan_write` applies through the editor, and `mkdir`, `rm`, `mv` and `touch` run as IDE filesystem operations: the project tree updates at once and Local History is the undo. Each tool has its own checkbox in Settings | Tools | FoxxyCode.
+
 **Agent commands now run in the IDE terminal.**
 A `run_command` call executes in an IntelliJ terminal tab - the command is visible in the Terminal tool window, and its output (plus the exit code where the shell expands it) returns to the agent as the tool result. Background commands and commands with a large timeout still run in the agent itself. Controlled by the same "Apply file edits through the editor" setting.
 

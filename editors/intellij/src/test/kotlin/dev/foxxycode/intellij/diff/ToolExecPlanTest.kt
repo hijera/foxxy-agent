@@ -54,3 +54,27 @@ class ToolExecPlanTest {
         assertEquals(ToolExecPlan.Action.NOT_HANDLED, d.action)
     }
 }
+
+/** Line slicing of a delegated read, mirroring the agent's sliceLines. */
+class ReadSliceTest {
+
+    @Test
+    fun `whole text keeps its trailing newline`() {
+        assertEquals("one\ntwo\n", ReadSlice.apply("one\ntwo\n", 0, 0))
+    }
+
+    @Test
+    fun `offset and limit slice the lines`() {
+        assertEquals("two\nthree", ReadSlice.apply("one\ntwo\nthree", 2, 2))
+    }
+
+    @Test
+    fun `limit past the end keeps the trailing newline`() {
+        assertEquals("two\nthree\n", ReadSlice.apply("one\ntwo\nthree\n", 2, 10))
+    }
+
+    @Test
+    fun `offset past the end reads nothing`() {
+        assertEquals("", ReadSlice.apply("one\ntwo", 5, 0))
+    }
+}

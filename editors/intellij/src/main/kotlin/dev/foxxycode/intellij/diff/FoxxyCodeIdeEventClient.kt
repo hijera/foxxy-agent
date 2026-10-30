@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets
  */
 class FoxxyCodeIdeEventClient(
     private val baseUrl: String,
-    private val handles: String = "write,edit,apply_patch,run_command",
+    private val handles: String = "write,edit,apply_patch,run_command,read,plan_write,mkdir,rm,mv,touch",
     private val onEvent: (FoxxyCodeEditEvent) -> Unit,
 ) {
     private val log = logger<FoxxyCodeIdeEventClient>()
