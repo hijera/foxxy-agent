@@ -122,5 +122,7 @@ This repository ships no `.codex/rules/` directory; command policy is a per-deve
 | Cursor | `alwaysApply: true` in `.cursor/rules/*.mdc` | `globs` in the same frontmatter |
 | Claude Code | `CLAUDE.md` (symlinked to `AGENTS.md` here) | `.claude/rules/*.md` referenced from it |
 | Codex | `AGENTS.md` plus the `SessionStart` hook | `PreToolUse` hook, this page |
+| ZCode | [workspace hook config](zcode-hooks.md) | `PreToolUse` hook over JSON path fields |
+| Kimi Code | [user-level hook config](kimi-code-hooks.md) | `PreToolUse` hook over JSON path fields |
 
 Upstream reference: [Hooks](https://developers.openai.com/codex/hooks) and [Custom instructions with AGENTS.md](https://developers.openai.com/codex/guides/agents-md).
