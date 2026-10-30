@@ -40,6 +40,14 @@ object ToolExecPlan {
     data class Decision(val action: Action, val message: String = "")
 
     /**
+     * Line endings are not content: the agent's edit transforms treat LF, CRLF
+     * and CR as equivalent (internal/tools/fs/edit.go), and an IDE save can
+     * rewrite a document's endings to the project's separator policy without
+     * touching its text. Compare through that same equivalence.
+     */
+    fun normalizeEol(s: String): String = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    /**
      * @param currentText the document text, or null when the file does not exist
      * @param documentDirty whether the user has unsaved changes in that document
      */
@@ -61,7 +69,7 @@ object ToolExecPlan {
         if (documentDirty) {
             return Decision(Action.CONFLICT, "unsaved changes in the editor; save or revert them and retry")
         }
-        if (currentText != before) {
+        if (normalizeEol(currentText) != normalizeEol(before)) {
             return Decision(Action.CONFLICT, "file changed in the editor since it was read; re-read and retry")
         }
         return Decision(Action.APPLY)
@@ -94,7 +102,10 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             }
             try {
                 run(ev)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable, not Exception: an AssertionError from the platform
+                // (DocumentImpl rejects mixed line separators) must still answer
+                // the agent, or the call waits out its timeout before falling back.
                 log.warn("tool_execute failed", e)
                 respond(ev, failed(e.message ?: "IDE execution failed"))
             }
@@ -107,13 +118,20 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             return
         }
         val path = ev.path.trim()
+        // No file preview in the event: a non-fs tool, or an fs call whose
+        // transform failed before the broadcast. This client executes nothing
+        // here, so the agent must run the call itself.
+        if (path.isBlank()) {
+            respond(ev, notHandled())
+            return
+        }
         val vf = try {
             LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(path))
         } catch (e: Exception) {
             log.debug("tool_execute rejected path $path: ${e.message}")
             null
         }
-        if (vf == null) {
+        if (vf == null || vf.isDirectory) {
             val d = ToolExecPlan.decide(path, ev.before, ev.after, null, false)
             when (d.action) {
                 ToolExecPlan.Action.CREATE -> createFile(ev)
@@ -123,7 +141,8 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         }
         val doc = FileDocumentManager.getInstance().getDocument(vf)
         if (doc == null) {
-            respond(ev, failed("no text document for the file"))
+            log.warn("tool_execute: no document for $path (vf=${vf.path}, valid=${vf.isValid}, fileType=${vf.fileType.name})")
+            respond(ev, failed("no text document for the file path=$path vf=${vf.path} valid=${vf.isValid} type=${vf.fileType.name}"))
             return
         }
         val dirty = FileDocumentManager.getInstance().isDocumentUnsaved(doc)
@@ -142,13 +161,16 @@ class FoxxyCodeToolExecutor(private val project: Project) {
     private fun apply(ev: FoxxyCodeEditEvent, doc: Document) {
         try {
             WriteCommandAction.runWriteCommandAction(project, FoxxyCodeBundle.message("toolexec.command.apply"), null, {
-                doc.setText(ev.after)
+                // The document stores \n internally and keeps the file's own line
+                // separators aside (re-applied on save), so the incoming text goes
+                // in normalized: DocumentImpl.setText rejects mixed separators.
+                doc.setText(ToolExecPlan.normalizeEol(ev.after))
                 // The document matched `before` and was clean, so saving brings the disk in
                 // line with what the agent expects its next read to see.
                 FileDocumentManager.getInstance().saveDocument(doc)
             })
             respond(ev, handled("applied through the IDE document"))
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             log.warn("apply failed", e)
             respond(ev, failed(e.message ?: "apply failed"))
         }
@@ -164,7 +186,7 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                 file.setBinaryContent(ev.after.toByteArray(StandardCharsets.UTF_8))
             })
             respond(ev, handled("created " + ev.path))
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             log.warn("create failed", e)
             respond(ev, failed(e.message ?: "create failed"))
         }

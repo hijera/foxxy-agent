@@ -31,6 +31,12 @@ class ToolExecPlanTest {
     }
 
     @Test
+    fun `line endings are not a difference`() {
+        val d = ToolExecPlan.decide("p/a.txt", "old\r\nline\r\n", "new", "old\nline\n", documentDirty = false)
+        assertEquals(ToolExecPlan.Action.APPLY, d.action)
+    }
+
+    @Test
     fun `missing file with empty before creates it`() {
         val d = ToolExecPlan.decide("p/new.txt", "", "body", null, documentDirty = false)
         assertEquals(ToolExecPlan.Action.CREATE, d.action)
