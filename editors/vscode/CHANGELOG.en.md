@@ -8,7 +8,12 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-25
+## Unreleased — 2026-10-30
+
+**Complete answers after the stream ends.**
+When a proxy or the embedded browser delivers the end-of-stream marker without a trailing blank line, the chat no longer starts a needless recovery or replaces the displayed answer with an older disk copy. Long answers keep their ending in the panel.
+
+## 0.3.36 — 2026-10-25
 
 **Safer preparation of Coddy updates.**
 Maintainers can preview upstream changes against FoxxyCode, split the port into consecutive waves and apply changes that merge cleanly. The helper preserves local edits and ignored files, checks for leftover Coddy naming and runs guards for retained FoxxyCode behavior on explicit request. Reviewed porting decisions can be recorded in one batch.
