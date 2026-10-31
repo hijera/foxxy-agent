@@ -706,6 +706,29 @@ func TestPromptVariantsIncludeResolvedAPIModel(t *testing.T) {
 	}
 }
 
+func TestKimiOpenAICompatiblePromptSelection(t *testing.T) {
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "moonshot", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "moonshot/kimi-k2.7-code", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "moonshot/kimi-k2.7-code"},
+	}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+
+	a := NewAgent(cfg, st, nil, nil)
+	want := []string{"moonshot-kimi-k2.7-code", "kimi-k2.7-code", "kimi"}
+	if got := a.promptVariants(); !slices.Equal(got, want) {
+		t.Fatalf("promptVariants() = %v, want %v", got, want)
+	}
+	prompt := a.buildSystemPrompt("agent", nil, nil)
+	for _, marker := range []string{"Model-family notes (Kimi)", "Reading and searching (context is limited)"} {
+		if !strings.Contains(prompt, marker) {
+			t.Errorf("Kimi system prompt should contain %q", marker)
+		}
+	}
+}
+
 // --- system_prompt.go: skills injection ------------------------------------
 
 // An explicit /name invocation carries the skill's body in the message that

@@ -17,6 +17,9 @@
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
 - Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
 
+**Guidance for Kimi models.**
+Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers.
+
 ## 0.3.38 — 2026-10-26
 
 **Android and Termux.**
