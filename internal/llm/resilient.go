@@ -198,6 +198,13 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			return resp, nil
 		}
 		lastErr = err
+		// fork(cut-keeps-complete-calls): a partial response can carry a whole
+		// tool call even before any text or finalized ToolCall chunk was emitted.
+		// Hand it to the agent next to the error; replaying would discard that
+		// delivered step and replace it with whatever the next request produces.
+		if resp != nil && len(WholeToolCalls(resp.ToolCalls)) > 0 {
+			return resp, err
+		}
 		if ctx.Err() != nil || !isRetryableLLMError(err) {
 			// Every call that ends here was otherwise silent in the log: the
 			// reason tells a guard's or a user's cancel from an error the

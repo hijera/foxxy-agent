@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // wantCall is a tool call the partial response must carry: a call whose
@@ -61,8 +62,38 @@ func TestWholeToolCallsKeepsOnlyValidArguments(t *testing.T) {
 		{name: "background_list", args: `{}`},
 		{name: "background_reap", args: "null"},
 	})
-	if got := WholeToolCalls(nil); got != nil && len(got) != 0 {
+	if got := WholeToolCalls(nil); len(got) != 0 {
 		t.Errorf("WholeToolCalls(nil) = %+v, want none", got)
+	}
+}
+
+// A different replay response must not replace the whole call from the cut
+// stream, even when no text or reasoning preceded its arguments.
+func TestOpenAIStreamCutWithWholeCallIsNotReplayed(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requests.Add(1) == 1 {
+			_, _ = io.WriteString(w, cutCallWholeFrame)
+			return
+		}
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	p, err := NewProvider(ProviderInput{
+		Type: "openai", Model: "test-model", BaseURL: srv.URL,
+		RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if !IsStreamTruncated(err) || resp == nil {
+		t.Fatalf("response = %+v, error = %v, want a partial response and truncation", resp, err)
+	}
+	checkKeptCalls(t, resp.ToolCalls, []wantCall{{name: "run_command", args: `{"command":"ls"}`}})
+	if got := requests.Load(); got != 1 {
+		t.Errorf("requests = %d, want 1", got)
 	}
 }
 

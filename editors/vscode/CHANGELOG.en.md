@@ -12,7 +12,8 @@
 
 - An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
 - A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
-- A cut answer keeps its completed last line: the continuation no longer writes it again and leaves no duplicates.
+- Whole tool calls survive a cut without an automatic replay replacing them, even when the model has not written any answer text yet.
+- A cut answer keeps its completed last line. Closing Markdown alone no longer preserves an unfinished line, preventing duplicated prefixes when the model restarts it.
 
 ## 0.3.38 — 2026-10-26
 

@@ -249,22 +249,31 @@ func (a *Agent) waitForStalledProvider(ctx context.Context, s *stallRetry, sessi
 	return true, false
 }
 
-// terminalLineEndings are the runes a finished line can end in: sentence
-// punctuation and the closing quotes, brackets and code markers a line cut
-// mid-write would not reach.
-const terminalLineEndings = ".!?…»\"'”’)]}`*"
-
 // lineReadsComplete reports whether a trailing line reads as a finished line
-// rather than a fragment the stream cut mid-write. Trailing space is not part
-// of the verdict.
+// rather than a fragment the stream cut mid-write. Closing formatting alone
+// is not a boundary: "2. **Safety**" can still be the start of a list item.
 func lineReadsComplete(line string) bool {
-	line = strings.TrimRight(line, " \t\r")
+	line = strings.TrimSpace(line)
 	if line == "" {
 		// Nothing after the line end: nothing was cut.
 		return true
 	}
+	// A standalone closing brace or code fence ends a structural line.
+	if line == "}" || line == "```" || line == "~~~" {
+		return true
+	}
+	// Preserve sentence punctuation inside a closing quote or Markdown span,
+	// but do not mistake the quote/span itself for a completed sentence.
+	line = strings.TrimRight(line, "»\"'”’)]}`*_ \t\r")
 	r, _ := utf8.DecodeLastRuneInString(line)
-	return strings.ContainsRune(terminalLineEndings, r)
+	if !strings.ContainsRune(".!?…", r) {
+		return false
+	}
+	// A bare ordered-list marker ("2.") has not delivered its item yet.
+	if r == '.' && strings.Trim(line[:len(line)-1], "0123456789") == "" {
+		return false
+	}
+	return true
 }
 
 // trimToResumeBoundary cuts a stalled partial answer back to a point the model can

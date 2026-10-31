@@ -153,9 +153,34 @@ func TestTrimToResumeBoundary(t *testing.T) {
 			want: "1. First rule.\n2. Second rule.",
 		},
 		{
-			name: "a completed last line ending in a bracket is kept whole",
+			name: "a bracket alone does not finish the last line",
 			in:   "Wrap up\nSee the docs (config.yaml)",
-			want: "Wrap up\nSee the docs (config.yaml)",
+			want: "Wrap up\n",
+		},
+		{
+			name: "a formatted sentence keeps its punctuation boundary",
+			in:   "First rule.\n**The second rule.**",
+			want: "First rule.\n**The second rule.**",
+		},
+		{
+			name: "closed bold text does not complete a list item",
+			in:   "First rule.\n2. **Safety**",
+			want: "First rule.\n",
+		},
+		{
+			name: "a bare list marker does not complete a list item",
+			in:   "First rule.\n2.",
+			want: "First rule.\n",
+		},
+		{
+			name: "a closed inline code span does not complete a line",
+			in:   "First rule.\nCall `parse(input)`",
+			want: "First rule.\n",
+		},
+		{
+			name: "a closing code fence is kept whole",
+			in:   "```go\nreturn nil\n```",
+			want: "```go\nreturn nil\n```",
 		},
 		{
 			name: "a completed code line ending in a brace is kept whole",

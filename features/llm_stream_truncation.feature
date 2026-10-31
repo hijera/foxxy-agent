@@ -23,6 +23,7 @@ Feature: Truncated LLM streams surface as errors
     When a streaming completion is requested
     Then the call fails with a truncation error
     And the partial response keeps tool call "run_command" with arguments {"command":"ls"}
+    And the provider receives only one request
 
   Scenario: A stream cut inside tool call arguments keeps no call
     Given an "openai" provider pointed at a stub server that cuts the stream inside tool call arguments

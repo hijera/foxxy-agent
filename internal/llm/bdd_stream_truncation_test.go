@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ var codexStreamTruncationScripts = map[string]string{
 }
 
 type streamTruncationState struct {
+	requests atomic.Int32
 	server   *httptest.Server
 	provider Provider
 	resp     *Response
@@ -70,6 +72,7 @@ func (s *streamTruncationState) reset() {
 	s.provider = nil
 	s.resp = nil
 	s.callErr = nil
+	s.requests.Store(0)
 }
 
 func (s *streamTruncationState) cleanup() {
@@ -132,6 +135,7 @@ func (s *streamTruncationState) aProviderPointedAtTruncatingStub(scenario string
 		return fmt.Errorf("unknown stub scenario %q", scenario)
 	}
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		s.requests.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, script)
 	}))
@@ -194,6 +198,13 @@ func (s *streamTruncationState) thePartialResponseKeepsToolCall(name, args strin
 	return fmt.Errorf("partial tool calls = %+v, want %s(%s)", s.resp.ToolCalls, name, args)
 }
 
+func (s *streamTruncationState) theProviderReceivesOneRequest() error {
+	if got := s.requests.Load(); got != 1 {
+		return fmt.Errorf("provider received %d requests, want 1: a whole call must not be replayed", got)
+	}
+	return nil
+}
+
 // thePartialResponseKeepsNoToolCalls is the other half: a call cut mid-JSON
 // never comes back. A response that carries nothing at all is the same verdict.
 func (s *streamTruncationState) thePartialResponseKeepsNoToolCalls() error {
@@ -244,6 +255,7 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the partial response preserves text "([^"]*)"$`, s.thePartialResponsePreservesText)
 	sc.Step(`^the partial response keeps tool call "([^"]*)" with arguments (.+)$`, s.thePartialResponseKeepsToolCall)
 	sc.Step(`^the partial response keeps no tool calls$`, s.thePartialResponseKeepsNoToolCalls)
+	sc.Step(`^the provider receives only one request$`, s.theProviderReceivesOneRequest)
 	sc.Step(`^the call succeeds with the complete text "([^"]*)"$`, s.theCallSucceedsWithCompleteText)
 	sc.Step(`^the reported stop reason is "([^"]*)"$`, s.theReportedStopReasonIs)
 }
