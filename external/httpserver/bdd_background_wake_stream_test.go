@@ -139,7 +139,7 @@ func (s *wakeStreamState) close() {
 		s.userDone = nil
 	}
 	if s.wakeDone != nil {
-		<-s.wakeDone
+		<-s.wakeDone //nolint:errcheck // Only completion is needed here.
 		s.wakeDone = nil
 	}
 	if s.ts != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/netx"
+	"github.com/hijera/foxxycode-agent/internal/swarm"
 	"github.com/hijera/foxxycode-agent/internal/webauth"
 )
 
@@ -136,7 +137,9 @@ func (r *runner) mcpRemoteProbes() []probe {
 // remoteProbes checks the remotes config.yaml names and the --remote target
 // of this run. A configured remote that is down is a warning - it is used
 // only when asked for - while a --remote target that rejects the token or
-// cannot be reached would fail the very command being dry-run.
+// cannot be reached would fail the very command being dry-run. Each is asked
+// with the token it would be used with: a configured entry's own, the run's
+// for the target.
 func (r *runner) remoteProbes() []probe {
 	var out []probe
 	for i := range r.req.Cfg.HTTPServer.Remotes {
@@ -145,39 +148,141 @@ func (r *runner) remoteProbes() []probe {
 			continue
 		}
 		out = append(out, func(ctx context.Context) []Check {
-			path := "httpserver.remotes[" + rem.Name + "]"
-			target := strings.TrimRight(strings.TrimSpace(rem.URL), "/") + "/v1/models"
-			status, _, err := r.get(ctx, &http.Client{}, target, nil, "")
-			if err != nil {
-				return []Check{r.check(StatusWarning, path, path+".url", fmt.Sprintf("cannot reach %s: %s", rem.URL, shortErr(err)),
-					"the remote is only used with --remote "+rem.Name+"; check the url and that foxxycode serve runs there")}
-			}
-			return []Check{r.check(StatusOK, path, path+".url", fmt.Sprintf("%s answers (HTTP %d)", rem.URL, status), "")}
+			base := strings.TrimRight(strings.TrimSpace(rem.URL), "/")
+			token := strings.TrimSpace(rem.Token)
+			a := r.askRemote(ctx, &http.Client{}, base, token)
+			return []Check{r.check(configuredRemoteVerdict(rem, a))}
 		})
 	}
 	if ropts := r.req.Remote; ropts != nil {
 		out = append(out, func(ctx context.Context) []Check {
-			const path = "--remote"
 			hc := ropts.HTTPClient
 			if hc == nil {
 				hc = &http.Client{}
 			}
-			status, _, err := r.get(ctx, hc, strings.TrimRight(ropts.BaseURL, "/")+"/v1/models", nil, ropts.Token)
-			if err != nil {
-				return []Check{{Status: StatusError, Path: path, Message: fmt.Sprintf("cannot reach %s: %s", ropts.BaseURL, shortErr(err)), Fix: "check the address and that foxxycode serve runs there"}}
-			}
-			switch status {
-			case http.StatusOK:
-				return []Check{{Status: StatusOK, Path: path, Message: ropts.BaseURL + " accepts the token"}}
-			case http.StatusUnauthorized, http.StatusForbidden:
-				return []Check{{Status: StatusError, Path: path, Message: fmt.Sprintf("%s rejected the token (HTTP %d)", ropts.BaseURL, status),
-					Fix: "pass --remote-token or set FOXXYCODE_REMOTE_TOKEN to the server's httpserver.auth_token"}}
-			default:
-				return []Check{{Status: StatusWarning, Path: path, Message: fmt.Sprintf("%s answered HTTP %d", ropts.BaseURL, status), Fix: "check that the address is a foxxycode serve server"}}
-			}
+			base := strings.TrimRight(ropts.BaseURL, "/")
+			return []Check{remoteTargetVerdict(base, r.askRemote(ctx, hc, base, ropts.Token))}
 		})
 	}
 	return out
+}
+
+// remoteAnswer is what a remote said to the questions a client asks it: its
+// model catalog, and when there is none, whether it is a swarm relay and
+// whether the relay takes the token.
+type remoteAnswer struct {
+	err    error
+	status int // GET /v1/models
+	relay  bool
+	// nodesStatus is the relay's answer to GET /swarm/nodes with the token;
+	// agents are the agent nodes it listed.
+	nodesStatus int
+	agents      []string
+}
+
+func (r *runner) askRemote(ctx context.Context, hc *http.Client, base, token string) remoteAnswer {
+	var a remoteAnswer
+	a.status, _, a.err = r.get(ctx, hc, base+"/v1/models", nil, token)
+	if a.err != nil || a.status == http.StatusOK {
+		return a
+	}
+	// A relay serves no /v1 at all and answers 404 whatever the token; its
+	// public info route says what it is.
+	status, body, err := r.get(ctx, hc, base+"/swarm/info", nil, "")
+	var info struct {
+		Swarm bool `json:"swarm"`
+	}
+	if err != nil || status != http.StatusOK || json.Unmarshal(body, &info) != nil || !info.Swarm {
+		return a
+	}
+	a.relay = true
+	status, body, err = r.get(ctx, hc, base+"/swarm/nodes", nil, token)
+	if err != nil {
+		return a
+	}
+	a.nodesStatus = status
+	var list struct {
+		Nodes []struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		} `json:"nodes"`
+	}
+	if status == http.StatusOK && json.Unmarshal(body, &list) == nil {
+		for _, n := range list.Nodes {
+			if n.Kind == "agent" && n.Name != "" {
+				a.agents = append(a.agents, n.Name)
+			}
+		}
+	}
+	return a
+}
+
+func refused(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
+// configuredRemoteVerdict judges an entry of httpserver.remotes. It is used
+// only when asked for, so nothing here is worse than a warning.
+func configuredRemoteVerdict(rem config.HTTPRemote, a remoteAnswer) (Status, string, string, string, string) {
+	path := "httpserver.remotes[" + rem.Name + "]"
+	withToken := strings.TrimSpace(rem.Token) != ""
+	switch {
+	case a.err != nil:
+		return StatusWarning, path, path + ".url", fmt.Sprintf("cannot reach %s: %s", rem.URL, shortErr(a.err)),
+			"the remote is only used with --remote " + rem.Name + "; check the url and that foxxycode serve runs there"
+	case a.relay && a.nodesStatus == http.StatusOK:
+		msg := fmt.Sprintf("%s is a swarm relay with %d agents", rem.URL, len(a.agents))
+		if withToken {
+			msg += " and accepts the token"
+		}
+		return StatusOK, path, path + ".url", msg, ""
+	case a.relay && refused(a.nodesStatus) && withToken:
+		return StatusWarning, path, path + ".token", fmt.Sprintf("the relay %s rejected the token (HTTP %d)", rem.URL, a.nodesStatus),
+			"set " + path + ".token to the relay's client token (its swarm.auth_token)"
+	case a.relay:
+		return StatusOK, path, path + ".url", rem.URL + " is a swarm relay; its client token comes from the browser or --remote-token", ""
+	case a.status == http.StatusOK && withToken:
+		return StatusOK, path, path + ".url", rem.URL + " accepts the token", ""
+	case refused(a.status) && withToken:
+		return StatusWarning, path, path + ".token", fmt.Sprintf("%s rejected the token (HTTP %d)", rem.URL, a.status),
+			"set " + path + ".token to the server's httpserver.auth_token"
+	case a.status == http.StatusNotFound:
+		return StatusWarning, path, path + ".url", fmt.Sprintf("%s answered HTTP 404 and is neither a foxxycode serve nor a swarm relay", rem.URL),
+			"check " + path + ".url"
+	default:
+		return StatusOK, path, path + ".url", fmt.Sprintf("%s answers (HTTP %d)", rem.URL, a.status), ""
+	}
+}
+
+// remoteTargetVerdict judges the --remote target, which the command being
+// dry-run is about to drive.
+func remoteTargetVerdict(base string, a remoteAnswer) Check {
+	const path = "--remote"
+	switch {
+	case a.err != nil:
+		return Check{Status: StatusError, Path: path, Message: fmt.Sprintf("cannot reach %s: %s", base, shortErr(a.err)), Fix: "check the address and that foxxycode serve runs there"}
+	case a.status == http.StatusOK:
+		return Check{Status: StatusOK, Path: path, Message: base + " accepts the token"}
+	case a.relay && refused(a.nodesStatus):
+		return Check{Status: StatusError, Path: path, Message: fmt.Sprintf("%s is a swarm relay and rejected the token (HTTP %d)", base, a.nodesStatus),
+			Fix: "pass the relay's client token (its swarm.auth_token) with --remote-token, FOXXYCODE_REMOTE_TOKEN or the token of its httpserver.remotes entry"}
+	case a.relay:
+		// A relay drives nothing itself: its nodes are what a client talks to.
+		fix := "point --remote at a node mounted under it: " + base + swarm.MountPath + "<name>"
+		if len(a.agents) > 0 {
+			mounts := make([]string, 0, len(a.agents))
+			for _, n := range a.agents {
+				mounts = append(mounts, base+swarm.MountPath+n)
+			}
+			fix = "point --remote at a node mounted under it: " + strings.Join(mounts, ", ")
+		}
+		return Check{Status: StatusError, Path: path, Message: base + " is a swarm relay, which serves no sessions of its own", Fix: fix}
+	case refused(a.status):
+		return Check{Status: StatusError, Path: path, Message: fmt.Sprintf("%s rejected the token (HTTP %d)", base, a.status),
+			Fix: "pass --remote-token or set FOXXYCODE_REMOTE_TOKEN to the server's httpserver.auth_token"}
+	default:
+		return Check{Status: StatusWarning, Path: path, Message: fmt.Sprintf("%s answered HTTP %d", base, a.status), Fix: "check that the address is a foxxycode serve server"}
+	}
 }
 
 // swarmProbes reaches the relays this node joins and, for a relay, the

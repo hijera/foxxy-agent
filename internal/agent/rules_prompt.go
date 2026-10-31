@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -69,20 +70,36 @@ func (a *Agent) standingPrompt(rendersRules bool) (rulesMD, instructionsMD strin
 
 // computeContextBreakdown estimates category sizes for the context UI.
 // fullSystem is the rendered system message; tools/skills/rules are subtracted for SystemPrompt.
+// readsImages says whether the pictures of the messages go out with them.
 func computeContextBreakdown(
 	fullSystem string,
 	skillsMD, toolsMD, rulesMD string,
 	messages []llm.Message,
+	readsImages bool,
 	toolDefs []llm.ToolDefinition,
 ) *session.ContextBreakdown {
-	toolsTok := session.EstimateTokens(toolsMD)
-	rulesTok := session.EstimateTokens(rulesMD)
-	skillsTok := session.EstimateTokens(skillsMD)
-	mcpTok := estimateMCPTokens(toolDefs)
-	convTok := session.EstimateTokens(conversationText(messages))
-	summaryTok := session.EstimateTokens(compactionSummaryText(messages))
-	fullTok := session.EstimateTokens(fullSystem)
-	sysTok := fullTok - toolsTok - rulesTok - skillsTok
+	toolsMDTok := session.EstimateContextTokens(toolsMD)
+	toolsTok := toolsMDTok
+	rulesTok := session.EstimateContextTokens(rulesMD)
+	skillsTok := session.EstimateContextTokens(skillsMD)
+	var mcpTok int
+	// toolsMD already includes names and descriptions. The provider receives
+	// schemas separately, so add those without counting the names twice.
+	for _, def := range toolDefs {
+		encoded, err := json.Marshal(def.InputSchema)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(def.Name, "__") {
+			mcpTok += session.EstimateContextTokens(string(encoded))
+		} else {
+			toolsTok += session.EstimateContextTokens(string(encoded))
+		}
+	}
+	convTok := conversationTokens(messages, readsImages)
+	summaryTok := session.EstimateContextTokens(compactionSummaryText(messages))
+	fullTok := session.EstimateContextTokens(fullSystem)
+	sysTok := fullTok - toolsMDTok - rulesTok - skillsTok
 	if sysTok < 0 {
 		sysTok = 0
 	}
@@ -133,20 +150,6 @@ func compactionSummaryText(msgs []llm.Message) string {
 		b.WriteString("\n\n")
 	}
 	return b.String()
-}
-
-func estimateMCPTokens(defs []llm.ToolDefinition) int {
-	var b strings.Builder
-	for _, d := range defs {
-		if strings.Contains(d.Name, "__") {
-			b.WriteString(d.Name)
-			b.WriteString(d.Description)
-		}
-	}
-	if b.Len() == 0 {
-		return 0
-	}
-	return session.EstimateTokens(b.String())
 }
 
 // FilterSkillsForContext wraps skills filter (unchanged semantics for skills only).

@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 from upstream_ledger import load_ledger, validate_ledger
-from upstream_branding import CONTENT_REPLACEMENTS
+from upstream_branding import content_replacements
 from upstream_preview import build_preview, check_mappings, tree, write_bundle
 
 
@@ -36,6 +36,14 @@ def adapt_patch(patch: bytes, replacements: dict) -> tuple[bytes, list[str]]:
             utf8 = False
         if binary or not utf8:
             warnings.append(f"Content left unchanged (binary or non-UTF-8): {header}")
+        # Git quotes unusual paths, but leaves the ASCII README basename intact.
+        # Inspect only file headers, never +++/--- lines inside a text hunk.
+        file_headers = part.split(b"\n@@", 1)[0].splitlines()
+        paths = [line[4:].rstrip(b"\t").strip(b'"').decode("utf-8", errors="surrogateescape")
+                 for line in file_headers if line.startswith((b"--- ", b"+++ "))]
+        content_mapping = content_replacements(*paths)
+        if not content_mapping and utf8 and not binary:
+            warnings.append(f"README content is not rebranded; review prose and examples manually: {header}")
         payload = False
         for line in part.splitlines(keepends=True):
             if line.startswith((b"GIT binary patch", b"@@")):
@@ -44,7 +52,7 @@ def adapt_patch(patch: bytes, replacements: dict) -> tuple[bytes, list[str]]:
             if not binary and line.startswith(b"index "):
                 continue
             if not payload or (utf8 and not binary):
-                for source, replacement in (CONTENT_REPLACEMENTS if payload else replacements).items():
+                for source, replacement in (content_mapping if payload else replacements).items():
                     line = line.replace(source.encode("ascii"), replacement.encode("ascii"))
             output.append(line)
     return b"".join(output), warnings

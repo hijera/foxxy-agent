@@ -7,7 +7,8 @@ Feature: Session settings from the dialogue
   session (#292). Every change is published as a versioned snapshot, so every
   browser tab mirrors it. A model switched while a turn runs answers from the
   turn's next request, and the answer in flight keeps the name of the model
-  that wrote it (#362).
+  that wrote it (#362). The transcript notes a change only when the agent made
+  it itself: what the user picked is already on the selectors.
 
   Background:
     Given a running foxxycode server with the models "fake/a" and "fake/b"
@@ -42,6 +43,15 @@ Feature: Session settings from the dialogue
     And the session permission mode is switched to "ask" over the API
     When the user sends "run it" and answers the first prompt with "allow"
     Then 1 permission prompt was shown
+
+  Scenario: Only a switch the agent made itself leaves a line in the transcript
+    Given the session was started on the model "fake/b" in the mode "agent"
+    And the browser switches the session to "fake/a"
+    And the user sends "/plan"
+    And the user sends "/agent"
+    When the user asks the agent to switch to "fake/b"
+    Then the model "b" answered 1 request
+    And the transcript shows the notices "Model: fake/b for this session"
 
   Scenario: A model switched during a turn answers the turn's next step
     Given the browser switches the session to "fake/b" while the model "a" answers

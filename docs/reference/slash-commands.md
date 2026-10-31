@@ -23,7 +23,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/quit`, `/exit` | console | Exits. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/compact [--model <id>] [instructions]` | console, web UI, ACP editors, `POST /v1/responses` | Summarises the older history and keeps the recent turns verbatim; the instructions steer the summariser; `--model` selects one configured model for this call on either engine. Listed only while `compaction.enable` is true; a manual compaction is always forced. | [Context compaction](../features/compaction.md#the-compact-command) |
 | `/export [md\|html\|json\|jsonl] [path] [--no-tools] [--no-thinking]` | console, web UI, ACP editors, `POST /v1/responses` | Writes the transcript into the session workspace; a directory receives `foxxycode-export-<timestamp>.<ext>`, a file name sets the format by extension. Under `--remote` the file lands on the server. | [Session export](../features/session-export.md#usage) |
-| `/plugin marketplace list\|add\|remove\|sync`, `/plugin install\|remove\|enable\|disable` | console, web UI, ACP editors, `POST /v1/responses` | Manages skill plugins and marketplaces, the chat twin of `foxxycode plugin`. | [Skills](../features/skills.md#the-plugin-command-cli-and-plugin-in-chat) |
+| `/plugin marketplace add\|list\|update\|remove`, `/plugin install <plugin>@<marketplace>`, `/plugin install\|remove\|enable\|disable` | console, web UI, ACP editors, `POST /v1/responses` | Manages skill plugins and marketplaces, the chat twin of `foxxycode plugin`: adding a marketplace installs nothing, `install <plugin>@<marketplace>` installs one plugin of it. | [Skills](../features/skills.md#the-plugin-command-cli-and-plugin-in-chat) |
 | `/start`, `/help` | Telegram | The greeting and the command list of the bot. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/context` | Telegram | The context window usage of the chat's session by category. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/clear` | Telegram | Starts a new session for the chat; the old one stays on disk, and `/resume` brings it back. | [Telegram gateway](../surfaces/gateway.md#session-lifecycle) |
@@ -55,7 +55,7 @@ Every skill file that the loader accepts is a command:
 
 The catalog reaches the model too: the system prompt carries a `## Slash commands` block listing every `/name` with its description (`skills.BuildSlashCatalogMarkdown`), and with `skills.auto_discovery` on, the model can pull a full body itself through the `load_skill` tool ([Tools](tools.md)).
 
-Five of those commands are there on a fresh install without anything being downloaded - `/configure-foxxycode`, `/rpa-init`, `/rpa-feat`, `/rpa-bugfix` and `/rpa-gen-rules`, the [standard delivery](../features/skills.md#the-standard-delivery) the binary writes into `${FOXXYCODE_HOME}/skills`.
+Six of those commands are there on a fresh install without anything being downloaded - `/configure-foxxycode`, `/crossreview`, `/rpa-init`, `/rpa-feat`, `/rpa-bugfix` and `/rpa-gen-rules`, the [standard delivery](../features/skills.md#the-standard-delivery) the binary writes into `${FOXXYCODE_HOME}/skills`.
 
 ## How a command in a prompt is parsed
 
@@ -64,7 +64,7 @@ The settings commands are taken first, by `session.ParseSettingsCommands`, befor
 - only the start of the typed text counts; a settings command in the middle of a sentence is prose, and a mention's attachment or a skill body is never read;
 - each command's value and its `--once`, `--count=N` or `--count N` flags are the words after its name, on its line; the flags may come before or after the value;
 - commands chain, on one line or on consecutive ones (`/model x --once /nothink --once review this`), and the first word that belongs to no command starts the prompt, which is kept verbatim and may itself be `/compact`, `/export` or a skill;
-- a prompt of commands only runs no turn and leaves nothing in the model's history; each change is reported as a notice;
+- a prompt of commands only runs no turn and leaves nothing in the model's history or the transcript: the web UI and the console show the change on their selectors and footer, while an editor, the Telegram bot and an HTTP client get a notice of each change as the answer;
 - the names are matched case-insensitively, aliases included, and win over a skill of the same name.
 
 The three built-ins are recognised on the whole prompt (`parseCompactCommand`, `parsePluginCommand` and `parseExportCommand` in `internal/agent`):

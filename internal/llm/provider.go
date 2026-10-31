@@ -30,6 +30,12 @@ type ImagePart struct {
 	// ThumbnailPath is the absolute path of the persisted, bounded PNG preview
 	// used by transcript clients. Providers never receive this file directly.
 	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+	// MIMEType and Size describe the picture a part carries. A picture a tool
+	// call showed the model is kept as its file (FilePath) with no DataURL,
+	// and the agent builds the data URL from that file when a request goes
+	// out, so the history holds no second, base64 copy of it.
+	MIMEType string `json:"mime_type,omitempty"`
+	Size     int    `json:"size,omitempty"`
 }
 
 // Message is a single turn in a conversation.
@@ -141,9 +147,13 @@ type StreamChunk struct {
 	// ToolCallDelta carries only an argument fragment, never an executable call.
 	ToolCallDelta *ToolCall
 	ToolCallNamed *ToolCall
-	StopReason    string
-	InputTokens   int
-	OutputTokens  int
+	// Attempt is the 1-based request attempt that produced this chunk, assigned
+	// by the resilience wrapper. Consumers accumulating argument previews reset
+	// them when it changes; zero means the provider was not wrapped.
+	Attempt      int
+	StopReason   string
+	InputTokens  int
+	OutputTokens int
 	// Progress marks a frame that advanced generation without delivering anything
 	// to the caller: a tool call's argument fragment, a thinking-block signature,
 	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the

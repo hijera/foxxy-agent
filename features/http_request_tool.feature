@@ -18,6 +18,14 @@ Feature: The agent sends HTTP requests it shapes itself
   operator never saw. Addresses in tools.http_request.allowlist never ask, and
   "bypass" asks about nothing.
 
+  Some headers belong to every request rather than to one call: a browser
+  User-Agent for a site that serves its files only to browsers, an Accept an
+  internal service expects. The operator names them once in
+  tools.http_request.default_headers. They take the place of the tool's own
+  defaults, a call's headers take the place of them - an empty value in the call
+  removing one - and the permission prompt shows them among the headers that go
+  out, naming the ones the configuration added.
+
   Background:
     Given a local HTTP service the agent can reach
 
@@ -114,3 +122,55 @@ Feature: The agent sends HTTP requests it shapes itself
       """
     Then the operator was asked 0 times
     And the service received "DELETE /items/7"
+
+  Scenario: A browser User-Agent from the configuration opens a site that turns tools away
+    Given the permission mode is "bypass"
+    And the service serves "/app.webmanifest" only to a browser
+    When the model calls http_request with:
+      """
+      {"url": "{service}/app.webmanifest"}
+      """
+    Then the tool answered with the status line "HTTP/1.1 415 Unsupported Media Type"
+    When the operator configures tools.http_request.default_headers:
+      """
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      Accept: application/manifest+json
+      """
+    And the model calls http_request with:
+      """
+      {"url": "{service}/app.webmanifest"}
+      """
+    Then the service received the header "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    And the service received the header "Accept: application/manifest+json"
+    And the tool answered with the status line "HTTP/1.1 200 OK"
+    And the tool answer contains "Content-Type: application/manifest+json"
+
+  Scenario: A call's own headers take the place of the configured ones
+    Given the permission mode is "bypass"
+    And the operator configures tools.http_request.default_headers:
+      """
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0"
+      X-Client: foxxycode-lab
+      """
+    When the model calls http_request with:
+      """
+      {"url": "{service}/items", "headers": {"user-agent": "probe/2", "X-Client": ""}}
+      """
+    Then the service received the header "User-Agent: probe/2"
+    And the service received no header "X-Client"
+
+  Scenario: The permission prompt shows the headers the configuration adds
+    Given the permission mode is "ask"
+    And the operator configures tools.http_request.default_headers:
+      """
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0"
+      """
+    When the model calls http_request with:
+      """
+      {"url": "{service}/items", "headers": {"X-Trace": "abc-123"}}
+      """
+    Then the operator was asked 1 time
+    And the permission prompt shows "User-Agent: Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0"
+    And the permission prompt shows "X-Trace: abc-123"
+    And the permission prompt shows "Headers from tools.http_request.default_headers: User-Agent"
+    And the service received the header "User-Agent: Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0"

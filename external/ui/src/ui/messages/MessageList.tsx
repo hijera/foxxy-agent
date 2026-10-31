@@ -433,6 +433,7 @@ export function MessageList(props: {
               ? { resultWasTruncated: true }
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
+            {...(it.images !== undefined ? { images: it.images } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

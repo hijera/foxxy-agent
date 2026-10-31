@@ -28,6 +28,7 @@ import {
   toolCallTargetText,
 } from "../chat/permissionToolPreview";
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
+import type { TranscriptFile } from "../chat/types";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
@@ -59,6 +60,7 @@ import { relativeToolTarget } from "../chat/toolTargetPath";
 import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
 import { formatStepDuration } from "./formatStepDuration";
+import { ToolImagePreviews } from "./ToolImagePreviews";
 
 /**
  * What the `question` tool put up, as it put it up: every question with the
@@ -257,6 +259,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   resultWasTruncated?: boolean | undefined;
   /** Final todo state saved with this call, used by structured todo previews. */
   todoPlan?: TodoPlanEntry[] | undefined;
+  /** Pictures the call showed the model (`read` on an image file), previewed
+   *  under the row. */
+  images?: readonly TranscriptFile[] | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -1093,6 +1098,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
           agentName={refusedAgentName}
           workspacePath={props.workspacePath}
         />
+      ) : null}
+      {status === "completed" && props.images && props.images.length > 0 ? (
+        <ToolImagePreviews images={props.images} />
       ) : null}
     </div>
   );

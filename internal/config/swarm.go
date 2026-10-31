@@ -35,7 +35,8 @@ type SwarmConfig struct {
 	Host string `yaml:"host"`
 	// Port is the relay's listen port. Zero falls back to 12346.
 	Port int `yaml:"port"`
-	// Name labels this relay in topology views and in a child's node path.
+	// Name labels this relay in topology views, in /swarm/info and in a
+	// child's node path. Empty: the host name it runs on.
 	Name string `yaml:"name"`
 
 	// AuthToken is the bearer credential clients present to this relay. A relay

@@ -697,6 +697,14 @@ body {
     max-width: 100%;
     box-sizing: border-box;
   }
+  .env-health-banner {
+    top: var(--foxxycode-mobile-bar-h);
+    z-index: 75;
+  }
+  .swarm-canvas-control {
+    width: 40px;
+    height: 40px;
+  }
 }
 
 .sr-only {
@@ -724,6 +732,12 @@ body {
   /* Narrow default; overwritten at runtime via NavRail ResizeObserver when column width changes */
   --rail-shell-track-width: calc(
     var(--rail-pill-track) + var(--rail-column-pad-end)
+  );
+  --foxxycode-dock-width: min(
+    1350px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 14px
+    )
   );
 }
 
@@ -1438,6 +1452,11 @@ a.rail-brand {
 @media (prefers-reduced-motion: reduce) {
   .session-activity-dot {
     animation: none;
+  }
+  .swarm-node-ring,
+  .swarm-graph-camera,
+  .swarm-canvas-control {
+    transition: none;
   }
 }
 
@@ -2533,14 +2552,14 @@ a.rail-brand {
 
 .hero {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto minmax(24px, 1fr) auto;
   flex: 1;
   display: grid;
-  /* Dock the hero title + composer toward the bottom of the empty screen so
-     the input field sits low (matching the active-chat composer position)
-     instead of floating in the vertical center. */
-  align-content: end;
+  /* Equal flexible rows center the title and composer. The footer owns its
+     last row, so a short panel scrolls instead of painting links over input. */
+  align-content: center;
   justify-items: center;
-  padding: 18px 0 32px;
+  padding: 18px 0 16px;
 
 }
 /* The turn's own numbers lead the line: its clock, the tokens generated in it, the
@@ -2556,11 +2575,13 @@ a.rail-brand {
 }
 
 .hero-composer {
+  grid-row: 3;
   min-width: 0;
   width: min(720px, 100%);
 }
 
 .hero-title {
+  grid-row: 2;
   margin: 0 0 18px;
   font-size: clamp(26px, 5vw, 44px);
   font-weight: 700;
@@ -3955,6 +3976,49 @@ a.rail-brand {
   color: var(--foxxycode-md-inline-code-fg);
 }
 
+/* The pictures a tool call showed the model (read on an image file) stand under
+   its row, open or closed, at the inset of the row's label: the preview is the
+   point, so it is not folded into the details. They hang close under the row
+   they belong to, and below them the transcript's own gap between rows is the
+   whole space, as after any other row. A card has the size and the manner of a
+   sent attachment, and a click opens the original enlarged. */
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0 14px;
+}
+
+.tool-image-card {
+  display: block;
+  width: 128px;
+  height: 96px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  cursor: zoom-in;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.tool-image-card:hover,
+.tool-image-card:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.tool-image-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 .foxxycode-memory-copilot-flat-banner {
   cursor: default;
   pointer-events: none;
@@ -4862,7 +4926,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 6px 6px 12px;
+  padding: 6px 12px;
   border-radius: 12px;
   background: var(--foxxycode-glass-panel-bg);
   backdrop-filter: var(--foxxycode-glass-panel-backdrop);
@@ -7013,7 +7077,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
     z-index: 70;
   }
   .shell {
-    --foxxycode-mobile-top-inset: calc(78px + env(safe-area-inset-top, 0px));
+    --foxxycode-mobile-top-inset: calc(
+      var(--foxxycode-mobile-bar-h) + var(--foxxycode-env-banner-h, 0px)
+    );
     /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
     --foxxycode-mobile-chat-stack-gap: 12px;
     --foxxycode-mobile-title-sticky-top: calc(
@@ -7029,6 +7095,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
     overflow: visible;
     grid-template-columns: unset;
     grid-template-rows: unset;
+    --foxxycode-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
   }
   /* Fixed: sticky was ineffective here while the shell/document chain still offset the rail on scroll (overflow/extra ancestors). */
   .rail-column {
@@ -8849,6 +8916,14 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .settings-array-remove {
   flex: 0 0 auto;
+}
+
+/* A map row (tools.http_request.default_headers): the name and the value side
+   by side in the field block, the value wider; each is the list's bare input. */
+.settings-map-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
 }
 
 /* --- Tabbed settings layout: vertical nav + content (desktop), horizontal tab strip (mobile) --- */
@@ -12170,22 +12245,11 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   gap: 6px;
 }
 
-.mode-env-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.4;
-}
-
-.mode-env-dot[data-remote="1"] {
-  background: #f59e0b; /* amber when driving a remote server */
-  opacity: 1;
-}
-
 .mode-menu--env {
   min-width: 240px;
   max-width: min(340px, calc(100vw - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .mode-menu--portal.mode-menu--env {
@@ -13292,7 +13356,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   bottom: 14px;
   left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
   right: 14px;
-  width: min(1350px, calc(100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 14px));
+  width: var(--foxxycode-dock-width);
   margin-inline: auto;
   z-index: 50;
   display: flex;
@@ -14164,6 +14228,8 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   background: var(--foxxycode-glass-panel-bg);
   backdrop-filter: var(--foxxycode-glass-panel-backdrop);
   box-shadow: var(--foxxycode-glass-panel-shadow);
+  width: var(--foxxycode-dock-width);
+  margin-inline: auto;
 }
 
 @media (max-width: 1199px) {
@@ -14176,6 +14242,8 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     right: max(8px, env(safe-area-inset-right, 0px));
     top: calc(var(--foxxycode-mobile-top-inset) + 6px);
     bottom: 8px;
+    width: auto;
+    margin-inline: 0;
   }
 }
 
@@ -14208,33 +14276,49 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 20px 24px 32px;
-  max-width: 1100px;
-  margin: 0 auto;
+  padding: 14px var(--swarm-inline, 24px);
   color: var(--text);
+  min-height: 100%;
+  box-sizing: border-box;
 }
 .swarm-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  display: grid;
+  align-items: center;
+  position: relative;
+  z-index: 3;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
+      170px,
+      210px
+    );
+  grid-template-areas: "title search actions";
+  column-gap: 32px;
+  margin: -14px calc(-1 * var(--swarm-inline, 24px)) 0;
+  padding: 14px var(--swarm-inline, 24px) 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 .swarm-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  grid-area: actions;
+  justify-content: flex-end;
 }
 .swarm-title {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
 }
 .swarm-subtitle {
-  margin: 4px 0 0;
-  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
-  font-size: 13px;
+  margin: 2px 0 0;
+  color: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  line-height: 1.35;
 }
 .swarm-graph-panel {
   position: relative;
@@ -14255,6 +14339,8 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
      declares, lifted against the text so it stays legible on all seven. */
   --swarm-running: var(--accent);
   --swarm-waiting: color-mix(in srgb, var(--diff-del-no) 62%, var(--text));
+  flex: 1;
+  min-height: 0;
 }
 .swarm-graph-summary {
   position: absolute;
@@ -14267,18 +14353,11 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   white-space: nowrap;
   border: 0;
 }
-.swarm-graph-scroll {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  border: 1px solid var(--foxxycode-glass-panel-border);
-  border-radius: var(--foxxycode-glass-panel-radius, var(--radius));
-  background: var(--swarm-ground);
-  padding: 10px;
-}
 .swarm-graph {
   display: block;
-  margin: 0 auto;
   font-family: inherit;
+  position: absolute;
+  inset: 0;
 }
 .swarm-spine-rule {
   stroke: color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
@@ -14301,28 +14380,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
 }
 .swarm-tier.is-parked .swarm-tier-label {
   font-style: italic;
-}
-.swarm-head-route {
-  fill: var(--accent);
-  stroke: none;
-}
-.swarm-head-idle {
-  fill: none;
-  stroke: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.swarm-head-down {
-  fill: none;
-  stroke: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.swarm-head-dial {
-  fill: color-mix(in srgb, var(--text) 66%, var(--foxxycode-blend-base));
-  stroke: none;
 }
 .swarm-graph-edges {
   pointer-events: none;
@@ -14560,10 +14617,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   stroke: var(--accent);
   stroke-width: 2;
 }
-.swarm-node.is-current .swarm-node-meta {
-  fill: var(--accent);
-  font-weight: 600;
-}
 .swarm-graph-nodes.is-tracing .swarm-node:not(.is-on-route) .swarm-node-label,
 .swarm-graph-nodes.is-tracing .swarm-node:not(.is-on-route) .swarm-node-meta,
 .swarm-graph-nodes.is-tracing
@@ -14579,6 +14632,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
+  justify-content: center;
 }
 .swarm-legend-item {
   display: inline-flex;
@@ -14599,8 +14653,10 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 10px;
   color: var(--text);
-  padding: 8px 12px;
+  padding: 8px 36px 8px 12px;
   font-size: 14px;
+  box-sizing: border-box;
+  font: inherit;
 }
 .swarm-search:focus-visible {
   outline: 2px solid var(--accent);
@@ -15196,7 +15252,11 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     /* Room for focus rings inside the scroller. */
     padding: 3px;
     margin: -3px;
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 16px),
+      transparent
+    );
     mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
   }
 
@@ -15236,7 +15296,11 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     /* Room for the 3px glow of the plan / ask / bypass chips and focus rings. */
     padding: 4px;
     margin: -4px;
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 16px),
+      transparent
+    );
     mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
   }
 
@@ -15332,6 +15396,18 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   .chat-header-tasks.has-tasks .chat-header-tasks-label {
     display: none;
   }
+
+  /* Settings maps (the default headers): a name and a value side by side left
+     the name 82px at 390px, User-Agent cut to "User-Ag". The value goes under
+     the name, the trash stays beside the pair, and the pairs stand further
+     apart than the two fields of one pair. */
+  .settings-map-entry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-map {
+    gap: 16px;
+  }
 }
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   /* The mirror draws the mention highlights under the textarea: the two
@@ -15341,7 +15417,9 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     font-size: 16px;
   }
 
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="color"]
+    ):not([type="file"]),
   select,
   textarea:not(#composer) {
     font-size: max(16px, 1em);
@@ -15400,9 +15478,6 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
    under it as a caption, so the row never breaks wherever it happens to run out. */
 
 @media (prefers-reduced-motion: reduce) {
-  .swarm-node-ring {
-    transition: none;
-  }
 
   .swarm-node-halo.is-running,
   .swarm-node-halo.is-waiting,
@@ -15508,4 +15583,295 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
 
 [data-effects="reduced"] .settings-skeleton-bar {
   animation: none;
+}
+
+.sessions-filter-item.starts-group {
+  margin-top: 5px;
+  padding-top: 11px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+}
+
+.mode-menu--sheet.mode-menu--env {
+  max-height: 80vh;
+}
+
+.mode-env-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: -4px 0 4px;
+  padding: 0 10px 0 26px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+}
+
+.mode-env-hint-action {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, var(--foxxycode-blend-base));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-env-hint-action:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+}
+
+.mode-env-nodes {
+  display: flex;
+  flex-direction: column;
+  margin: -2px 0 4px;
+  padding-left: 16px;
+}
+
+.mode-env-item.mode-env-node {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 12.5px;
+}
+
+.context-breakdown-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.context-breakdown-compact {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.context-breakdown-compact:disabled {
+  cursor: default;
+  opacity: 0.55;
+  text-decoration: none;
+}
+
+.context-breakdown-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.context-breakdown-note {
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+  font-size: 12px;
+}
+
+html:not([data-theme="light"]) .context-breakdown-error {
+  color: #f87171;
+}
+
+.swarm-title-block {
+  grid-area: title;
+  min-width: 0;
+}
+
+.swarm-graph-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: var(--foxxycode-glass-panel-radius, var(--radius));
+  background: var(--swarm-ground);
+  cursor: grab;
+  /* Dragging the canvas pans it; nothing in it is text to select. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.swarm-graph-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.swarm-graph-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.swarm-graph-camera {
+  transition: transform 0.12s ease-out;
+}
+
+.swarm-graph-camera[data-instant="true"] {
+  transition: none;
+}
+
+.swarm-graph-viewport.is-panning .swarm-graph-camera {
+  transition: none;
+}
+
+.swarm-layout-control,
+.swarm-viewport-control {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
+}
+
+.swarm-layout-control {
+  top: 10px;
+  left: 10px;
+}
+
+.swarm-viewport-control {
+  top: 10px;
+  right: 10px;
+}
+
+.swarm-canvas-control {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.swarm-canvas-control:hover,
+.swarm-canvas-control:focus-visible,
+.swarm-canvas-control[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--foxxycode-blend-base));
+}
+
+.swarm-canvas-control svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.swarm-node-relay.is-route-relay:not(.is-current) .swarm-node-ring {
+  opacity: 0.78;
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
+.swarm-search-box {
+  grid-area: search;
+  position: relative;
+}
+
+.swarm-search-kbd {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  min-width: 18px;
+  padding: 1px 5px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  color: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+  font:
+    11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  text-align: center;
+  pointer-events: none;
+}
+
+.swarm-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  margin: 0;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--text) 5%, transparent),
+      color-mix(in srgb, var(--text) 5%, transparent)
+    ),
+    var(--bg);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  scrollbar-width: thin;
+  z-index: 2;
+}
+
+.swarm-result-group {
+  padding: 4px 12px 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+}
+
+.swarm-result-here {
+  color: var(--accent);
+}
+
+.swarm-result-offline {
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+}
+
+/* Start-screen project links and active server version. */
+.hero-footer {
+  grid-row: 5;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 35%, var(--foxxycode-blend-base));
+  pointer-events: none;
+}
+
+.hero-footer a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.hero-footer a:hover {
+  color: color-mix(in srgb, var(--text) 65%, var(--foxxycode-blend-base));
+  text-decoration: underline;
+}
+
+.hero-footer-sep {
+  opacity: 0.5;
 }

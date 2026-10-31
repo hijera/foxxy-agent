@@ -79,7 +79,7 @@ type Tools struct {
 	WebSearch ToolWebSearch `yaml:"websearch"`
 
 	// HTTPRequest is the policy of the http_request tool: the addresses it may
-	// reach without asking the operator.
+	// reach without asking the operator, and the headers every request sends.
 	HTTPRequest ToolHTTPRequest `yaml:"http_request"`
 }
 

@@ -140,7 +140,9 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	// delta has reached the caller, replaying the turn would duplicate output.
 	// Atomic because a transport is free to deliver chunks from its own goroutine.
 	var emitted atomic.Bool
+	var attempt atomic.Int64
 	guarded := func(c StreamChunk) {
+		c.Attempt = int(attempt.Load())
 		if c.TextDelta != "" || c.ReasoningDelta != "" || c.ToolCall != nil {
 			emitted.Store(true)
 			first.Do(func() { diagnosticEvent(ctx, "llm.first_chunk", "elapsed_ms", time.Since(started).Milliseconds()) })
@@ -150,6 +152,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 		}
 	}
 	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+		attempt.Add(1)
 		return p.inner.Stream(ctx, messages, tools, guarded)
 	})
 	if emitted.Load() || !isVisionRejection(err, messages) {
@@ -158,7 +161,8 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 	p.logVisionFallback(ctx, err)
 	stripped := messagesWithoutImages(messages)
 	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
-		return p.inner.Stream(ctx, stripped, tools, onChunk)
+		attempt.Add(1)
+		return p.inner.Stream(ctx, stripped, tools, guarded)
 	})
 }
 
@@ -545,6 +549,16 @@ func isRetryableLLMError(err error) bool {
 		// replaying after emitted deltas would show the same text twice.
 		return !trunc.emitted
 	}
+	var und *streamUndecodableError
+	if errors.As(err, &und) {
+		// A frame that is not JSON is a corrupt stream, not a cut: final
+		// before and after output, whatever status or transport phrase the
+		// frame's text happens to hold. This branch sits after the truncation
+		// branch on purpose. A frame cut inside its JSON is a truncation that
+		// wraps this error as its cause, and that one is retried while
+		// nothing reached the caller.
+		return false
+	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) && transport.emitted {
 		// Same emitted contract for transport failures mid-stream; a fresh
@@ -583,7 +597,8 @@ func isTransientTransportError(err error) bool {
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
-	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNABORTED) || isWinsockConnectionDrop(err) {
 		return true
 	}
 	// Winsock reports the same failures under its own numbers, which the
@@ -611,6 +626,12 @@ func isTransientTransportError(err error) bool {
 		// stopped answering: the request died with it, a new connection will not.
 		"http2: client connection lost",
 		"connection reset by peer",
+		// The same deaths as the Unix and Windows systems word them once an
+		// error has been flattened to its text: ECONNABORTED, then Winsock's
+		// WSAECONNRESET and WSAECONNABORTED (see isWinsockConnectionDrop).
+		"software caused connection abort",
+		"forcibly closed by the remote host",
+		"aborted by the software in your host machine",
 		"unexpected EOF",
 		// The connection opened but the server never finished the handshake,
 		// so the request itself was never sent.
@@ -621,6 +642,25 @@ func isTransientTransportError(err error) bool {
 		}
 	}
 	return false
+}
+
+// Winsock's codes for an established connection that died under the request:
+// WSAECONNABORTED when the local stack gave up on it, WSAECONNRESET when the
+// remote host forcibly closed it. Go's net package returns them on Windows as
+// a bare syscall.Errno, which matches neither syscall.ECONNRESET (on Windows
+// an invented value of Go's own) nor the "connection reset by peer" text, and
+// only the windows build of syscall names them; the values are spelled out
+// so every build classifies them, and no Unix errno comes near them.
+const (
+	wsaeConnAborted syscall.Errno = 10053
+	wsaeConnReset   syscall.Errno = 10054
+)
+
+// isWinsockConnectionDrop reports a Windows socket error that means the
+// connection died, not the request (issue #389).
+func isWinsockConnectionDrop(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && (errno == wsaeConnReset || errno == wsaeConnAborted)
 }
 
 // isDialFailure reports a connection that was never established: a dial
@@ -659,6 +699,17 @@ func httpStatusFromError(err error) int {
 			return 0
 		}
 		return sse.code
+	}
+	// Typed like streamServerError above: a truncation's cause and an
+	// undecodable frame carry server bytes (the OpenAI reader's frame
+	// snippet), which must not be read as a status. Neither has one.
+	var trunc *streamTruncatedError
+	if errors.As(err, &trunc) {
+		return 0
+	}
+	var und *streamUndecodableError
+	if errors.As(err, &und) {
+		return 0
 	}
 	var ant *anthropic.Error
 	if errors.As(err, &ant) && ant.StatusCode > 0 {

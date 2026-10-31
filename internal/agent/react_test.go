@@ -433,11 +433,11 @@ func TestComputeContextBreakdownSubtractsParts(t *testing.T) {
 	skillsText := strings.Repeat("s", 100)
 	toolsText := strings.Repeat("t", 80)
 	rules := strings.Repeat("r", 40)
-	b := computeContextBreakdown(full, skillsText, toolsText, rules, nil, nil)
+	b := computeContextBreakdown(full, skillsText, toolsText, rules, nil, false, nil)
 	if b.SystemPrompt <= 0 {
 		t.Fatalf("system tokens: %d", b.SystemPrompt)
 	}
-	if b.Skills != session.EstimateTokens(skillsText) {
+	if b.Skills != session.EstimateContextTokens(skillsText) {
 		t.Fatalf("skills: got %d", b.Skills)
 	}
 }

@@ -382,3 +382,72 @@ Feature: Interactive console TUI
     When the console app starts
     And the operator types the mention "@foxxycode:mentions"
     Then the mention list offers "features/mentions"
+
+  Scenario: The console starts with hundreds of skills and a skill source that never answers
+    Given the skills directory holds 300 skills
+    And the skill sources name one that accepts connections and never answers
+    When the console app starts
+    Then the session holds the 300 skills
+    And the skill source was never contacted
+    And the editor accepts new input
+
+  Scenario: The console draws before its MCP servers answer
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    Then the screen shows the foxxycode version header
+    And the footer shows "MCP 0/1"
+    When the MCP server "slow" is released
+    Then the footer no longer shows "MCP 0/1"
+
+  Scenario: Servers run as a binary or over the network connect in the background and answer the turn
+    Given the console config declares an MCP server "native" run as a binary
+    And the console config declares an MCP server "remote" over streamable http
+    And the console config declares an MCP server "legacy" over sse
+    When the console app starts
+    Then the screen shows the foxxycode version header
+    When the operator submits the prompt "ask every server"
+    And the stub turn calls the tool of every MCP server
+    Then the screen shows the answer of every MCP server
+
+  Scenario: A prompt sent while an MCP server connects waits for its tools
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    And the operator submits the prompt "use the slow tool"
+    Then the status line shows "Connecting MCP servers"
+    When the MCP server "slow" is released
+    Then the stub turn was offered the MCP server "slow"
+
+  Scenario: A project server the trust gate holds is named in the transcript, not started
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    When the console app starts
+    Then the screen shows "MCP server project-tool waits for approval"
+    And the project MCP server "project-tool" has not been started
+    And the footer does not show "• MCP"
+
+  Scenario: Resuming a session restores its MCP approval notice
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    When the console app starts
+    Then the screen shows "MCP server project-tool waits for approval"
+    When the operator starts a new session
+    And the operator resumes the previous session
+    Then the screen shows "MCP server project-tool waits for approval"
+    And the project MCP server "project-tool" has not been started
+
+  Scenario: An approved project server connects in the background like a configured one
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    And the project MCP server "project-tool" is approved for that workspace
+    When the console app starts
+    Then the footer no longer shows "MCP 0/1"
+    And the project MCP server "project-tool" has been started
+    And the screen does not show "waits for approval"
+
+  Scenario: The tool list is the same for every turn once the servers answered
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    And the MCP server "slow" is released
+    And the footer no longer shows "MCP 0/1"
+    And the operator submits the prompt "first"
+    Then the stub turn was offered the MCP server "slow"
+    When the stub turn ends
+    And the operator submits the prompt "second"
+    Then the stub turn was offered the same MCP servers as the turn before

@@ -6,7 +6,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 
 - **Go** - the version `go.mod` declares (1.25 today); CI reads it from the same file.
 - **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test`, which builds those assets, runs the SPA's vitest suite and the OpenCode rules plugin test with `node --test`; and for `make lint`, whose shipped-tag pass embeds those assets and whose last step type-checks the SPA with `tsc`.
-- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.25 or newer - for `make lint`.
+- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.26 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.
 - **Python 3** - only for the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
 
@@ -133,3 +133,5 @@ The description says what the change is for, which tests were added or changed, 
 | The full workflow, testing and style rules | [.claude/rules/workflow.md](.claude/rules/workflow.md), [.claude/rules/testing.md](.claude/rules/testing.md), [.claude/rules/code-style.md](.claude/rules/code-style.md) |
 | Executable specs and end-to-end harnesses | `features/`, [examples/README.md](examples/README.md) |
 | The documentation map | [docs/nav.yaml](docs/nav.yaml) |
+
+- **`make bench-cli-startup`** and **`make bench-cli-startup-real`** - the performance checks of the console's startup, not a gate: the first is timed from spawn to the first frame and to a typed probe being echoed, in a real pty, with an empty, a real and a synthetic skill set and a source that never answers; the second does the same on a private copy of your own `~/.foxxycode` (never written to), MCP servers included, and reports when every one of them settled and which failed. Both need `examples/cli/requirements.txt` and a `cli`-tagged `build/foxxycode`; `BENCH_RUNS` sets the runs per case. A change that touches the startup path cites its numbers in a design record, the way `docs/plans/console-mcp-startup.md` does. The startup bounds CI enforces are in `cli_e2e_startup.py`: the first frame within seconds with a stdio MCP server that never answers, and within two seconds with 300 skills and a skill source that never answers.

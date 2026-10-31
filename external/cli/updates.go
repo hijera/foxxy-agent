@@ -288,13 +288,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case acp.SessionSettingsUpdate:
 		// A change of the session's settings, whoever made it: a command
 		// here, the web UI, an editor, the permission dialog, the model's
-		// own switch_model. The notice says what changed.
+		// own switch_model. The footer follows every one; only a change the
+		// agent made itself comes with a notice, the one line printed.
 		a.applySettingsSnapshot(u.Settings)
 		if notice := strings.TrimSpace(u.Notice); notice != "" {
 			a.appendStatus(roleDim, notice)
 		}
 	case settingsApplied:
 		a.applySettingsSnapshot(u.settings)
+	case session.MCPConnectUpdate:
+		a.applyMCPConnect(u)
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.LLMRetryUpdate:

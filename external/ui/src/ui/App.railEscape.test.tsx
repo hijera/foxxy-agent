@@ -330,3 +330,32 @@ test("on a relay the swarm is home: Escape leaves it, and closes what opened ove
   expect(screen.getByTestId("swarm-view")).toBeTruthy();
   expect(window.location.hash).toBe("");
 });
+
+// On a relay the map is home: its entry in the rail stays lit while the map is
+// on screen, and the brand, which starts a new chat on an agent, leads there
+// too - a relay has no chat to start (issue #401).
+test("on a relay the Swarm entry stays lit, and the brand leads to the map", async () => {
+  relay = true;
+  history.replaceState(null, "", "/");
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await screen.findByTestId("swarm-view");
+  await waitFor(() =>
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+  );
+  // The page is the relay's own, which has no documentation to read.
+  await waitFor(() => expect(screen.queryByTestId("nav-docs")).toBeNull());
+  fireEvent.click(await screen.findByTestId("nav-settings"));
+  await screen.findByTestId("settings-screen");
+  await waitFor(() =>
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "false"),
+  );
+  fireEvent.click(screen.getByTestId("nav-home"));
+  await screen.findByTestId("swarm-view");
+  await waitFor(() =>
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+  );
+});

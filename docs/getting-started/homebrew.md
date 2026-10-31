@@ -57,6 +57,11 @@ needs those files to exist before the binary that carries them is linked. It run
 **`npm install`**, because [Acceptable Formulae](https://docs.brew.sh/Acceptable-Formulae#versioned-and-verifiable-sources)
 forbids resolving a moving dependency set during a build.
 
+The formula leaves **`tmux`** out. [Formula Cookbook](https://docs.brew.sh/Formula-Cookbook#specifying-other-formulae-as-dependencies)
+does not allow the optional and recommended dependencies of a formula in homebrew/core, and keeps
+caveats for what the Homebrew packaging itself changes, so the recommendation stays with the cask
+and the pages here.
+
 Its **`test do`** block runs **`foxxycode -v`**, **`foxxycode sessions list`** and **`foxxycode skills list`** -
 three commands that need no network and no configuration, and that fail if the binary cannot reach
 **`~/.foxxycode`**.
@@ -149,3 +154,5 @@ version bumps and the submission is one-time work rather than per-release work. 
 side is small: **`brew install foxxycode`** starts working by name, the docs stop pointing at the release
 asset, and a formula install reports **`brew upgrade foxxycode`** from **`foxxycode update`** - which it
 already does.
+
+The cask recommends `tmux` in its caveats (`brew install tmux`) without installing it. Casks have no optional `depends_on`; the deb and rpm suggest it the same way.

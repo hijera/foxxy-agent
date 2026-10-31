@@ -8,10 +8,40 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-26
+## Unreleased — 2026-10-30
+
+- Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
+
+- Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.
+- Added manual compaction and its automatic threshold control to the Context popover; estimates now include tool schemas, reasoning and images and retain provider token anchors.
+- Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
+- User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
+- Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
 
 **Guidance for Kimi models.**
 Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers.
+
+## 0.3.38 — 2026-10-26
+
+**Android and Termux.**
+Native builds are available for Android arm64 and x86_64. The console and web UI run in Termux, with command execution, certificates and temporary files adapted to Android.
+
+**Pictures in exports from the download button.** HTML, PDF and DOCX retain uploaded images and pictures returned by tools while keeping tool arguments and output text hidden. JSON retains picture paths.
+
+**Images read directly from project files.**
+The agent can read a picture with the read tool and show a preview beneath its call. The picture stays with the chat, survives a restart and appears in exports that include tools.
+
+**Continuing background subagents.**
+Subagents and scheduled jobs have a separate connection recovery budget: five continuations with increasing pauses. A finished subagent can resume with its existing transcript.
+
+**Faster startup with MCP.**
+Servers connect concurrently in the background. The interface stays available, a prompt shows when it is waiting for tools, and an initialization timeout gets one retry.
+
+**HTTP headers, skill marketplaces and Codex models.**
+HTTP request settings can provide default headers. Adding a marketplace no longer installs all its skills: choose the plugin to install separately. The Codex catalog supplies available models and their context windows. Composer suggestions and the environment menu work more reliably in a narrow panel.
+
+**Export, skill installation and remote environment fixes.**
+HTML, PDF and DOCX files created by /export retain pictures from tool results. Installing a selected plugin respects its skills list, including plugins sharing a repository root. Brief Windows directory locks no longer immediately abort installation. Remote environment probes work in older embedded browsers.
 
 ## 0.3.36 — 2026-10-25
 

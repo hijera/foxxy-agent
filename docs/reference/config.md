@@ -45,16 +45,16 @@ Generated from `internal/config/config.schema.json` (the schema embedded into th
 <!-- docsgen:config:start -->
 ### `providers`
 
-API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores).
+API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type "codex" signs in with ChatGPT and reads no key.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `providers` | list of objects |  | API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores). |
+| `providers` | list of objects |  | API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type "codex" signs in with ChatGPT and reads no key. |
 | `providers[].name` | string |  | Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter. |
 | `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `codex`, `devin` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints, "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), "codex" for ChatGPT OAuth against the official Codex backend, or "devin" for a Devin account; see https://hijera.github.io/foxxy-agent/features/devin.md. |
 | `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1; for type "anthropic" use an Anthropic-compatible gateway. For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types "codex" and "devin", which always use their official endpoints. |
-| `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type "devin" it is a session token and wins over browser and CLI logins. |
-| `providers[].api_key_command` | string |  | Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. |
+| `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type "devin" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type "codex", which signs in with ChatGPT. |
+| `providers[].api_key_command` | string |  | Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for type "codex", which takes no key. |
 | `providers[].proxy` | string | inherit | inherit (the default, also empty) follows HTTP_PROXY/HTTPS_PROXY and NO_PROXY, or the operating system proxy when no environment proxy is set. none connects directly. An http, https, socks5 or socks5h URL overrides the inherited proxy while preserving NO_PROXY and loopback bypass. The setting covers completions, model lists, account usage and sign-in. Percent-encode special characters in proxy credentials. |
 | `providers[].timeout_ms` | integer | 0 | Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short. |
 | `providers[].usage_limits_panel` | boolean | true | Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected. |
@@ -70,7 +70,7 @@ Named model entries the agent and UI can select.
 | `models[].max_tokens` | integer |  | Upper bound on completion tokens per assistant message. A codex model never sends it (the Codex backend rejects max_output_tokens), so there it bounds nothing, and foxxycode -t and --dry-run warn about such a value. |
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
 | `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
-| `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model. |
+| `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. |
 | `models[].reasoning_levels` | list of strings |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, kimi-* including vendor-namespace ids such as moonshotai/kimi-k2-instruct, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
 | `models[].stream` | boolean | true | Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only. |
@@ -105,6 +105,8 @@ Defaults for the main agent loop (model id and safety caps).
 | `agent.loop_nudge_max` | integer | 2 | How many times one turn may be nudged back on track before the loop guard stops it with a notice. |
 | `agent.wait_for_limit_reset` | boolean | false | Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or "Limit resets at"); the turn lock and the client stream stay open while it waits, so it is off by default. |
 | `agent.wait_for_limit_reset_max_ms` | integer | 14400000 | Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits. |
+| `agent.llm_continue_background_max` | integer | 5 | Continuation budget per delegated subagent or scheduled run. Default 5; explicit 0 disables continuations. Memory children use llm_continue_max. Continuations do not consume max_turns; llm_continue disables both policies. |
+| `agent.llm_continue_background_delays_ms` | list of integers | [5000,20000,80000,120000,120000] | Pauses before background continuations in milliseconds. Default [5000, 20000, 80000, 120000, 120000]; the last entry repeats. Applies to delegated and scheduled runs, excluding memory children. |
 
 ### `autocomplete`
 
@@ -195,6 +197,7 @@ MCP settings that are not tied to a single server entry.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `mcp.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for the project-local <cwd>/.foxxycode/mcp.json, which travels with the checkout: "ask" keeps its servers cold until the operator approves that exact declaration for that workspace; "allow" starts them automatically (trusted workspaces only); "deny" never loads them. |
+| `mcp.idle_timeout_seconds` | integer or null | 300 | Seconds an MCP server that no session holds any more keeps running before FoxxyCode stops it: a project server once the last session of its workspace let it go, a server an ACP client sent once the last session that sent it closed. A session that takes the server in the meantime finds it running. The global servers that foxxycode serve, the console and foxxycode acp start with the process are not affected, and a server switched off, no longer approved, removed or declared differently stops at once. 0 stops a server as soon as the last session lets it go. |
 
 ### `tools`
 
@@ -236,8 +239,9 @@ Filesystem and shell policy for built-in tools.
 | `tools.websearch.cache_ttl_seconds` | integer | 300 | Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off. |
 | `tools.websearch.searxng_url` | string | "" | Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose. |
 | `tools.websearch.brave_api_key` | string | "" | Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${FOXXYCODE_HOME}/.env), so the key need not be stored here. |
-| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://hijera.github.io/foxxy-agent/features/http-requests.md. |
+| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/http-requests.md. |
 | `tools.http_request.allowlist` | list of strings | [] | Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). "*" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy. |
+| `tools.http_request.default_headers` | map of strings | {} | Headers every http_request call sends unless the call names the header itself: a browser User-Agent for a site that turns tools away, an Accept an internal service expects. They take the place of the tool's own defaults (its foxxycode-agent User-Agent), a call's headers take the place of them - an empty value in the call removes one - and an empty value here leaves the header out of every call that does not set it. A name is letters, digits, - and _, starting with a letter. Host, Content-Type, Content-Length and Transfer-Encoding describe a single request and are refused, and so are the hop-by-hop headers (Connection, Keep-Alive, Proxy-Connection, TE, Trailer, Upgrade) and Proxy-Authorization, which an https request would carry through the proxy's tunnel to every origin. The headers go to every destination the tool reaches, so a credential here reaches all of them; the permission prompt names them and shows the value only of one that describes the client (User-Agent, Accept...), config_get keeps their values from the model, and webfetch, URL mentions and the model providers never send them. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/http-requests.md#default-headers. |
 
 ### `subagents`
 
@@ -309,6 +313,7 @@ Summarize older turns when the conversation approaches the model's context windo
 | `compaction.result_eviction.keep_recent` | integer | 2 | Most recent evictable results kept as a working window. |
 | `compaction.result_eviction.min_result_bytes` | integer | 2000 | Results at or below this size are never evicted. |
 | `compaction.result_eviction.start_percent` | integer | 50 | Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does. |
+| `compaction.auto_enable` | boolean or null | true | Enable automatic compaction at threshold_percent. Set false to keep manual /compact and the Context popover action available without automatic compaction. Defaults to true. |
 
 ### `title`
 
@@ -330,7 +335,7 @@ Optional memory subagent (implementation in external/memory; enable at runtime w
 | `memory.model` | string | "" | Exact models[].model id the memory subagent runs on; empty uses the session's model. |
 | `memory.fallback_models` | list of strings |  | Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~. |
-| `memory.wait_seconds` | integer or null | 20 | How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer. |
+| `memory.wait_seconds` | integer or null | 20 | How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks panel. |
 | `memory.timeout_seconds` | integer | 300 | Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool. |
 | `memory.keep_runs` | integer or null | 20 | Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run. |
 | `memory.recall_max_turns` | integer | 6 | Bounds the memory subagent's ReAct rounds together with persist_max_turns; the cap is the larger of the two. |
@@ -365,6 +370,7 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.remotes` | list of objects |  | Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote. |
 | `httpserver.remotes[].name` | string |  | Display name in the environment selector. |
 | `httpserver.remotes[].url` | string |  | Base URL of the remote foxxycode http server. |
+| `httpserver.remotes[].token` | string |  | Bearer token to present to this remote: a relay's client token (swarm.auth_token) or a server's httpserver.auth_token, usually a ${ENV} reference. Optional and opt-in: every browser that reads this configuration receives it, and foxxycode --remote <name> uses it when --remote-token is not given. A node mounted under a relay (<url>/swarm/nodes/<name>) takes the relay's token. |
 
 ### `swarm`
 
@@ -375,7 +381,7 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.enable` | boolean | false | Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay. |
 | `swarm.host` | string | "" | Bind address for the relay when the CLI does not pass --swarm-host. Empty falls back to 0.0.0.0. |
 | `swarm.port` | integer | 0 | Listen port for the relay. 0 falls back to 12346. |
-| `swarm.name` | string | "" | Label for this relay in topology views and in a child's node path. |
+| `swarm.name` | string | "" | Label for this relay in topology views, in /swarm/info and in a child's node path. Empty: the host name it runs on. |
 | `swarm.auth_token` | string | "" | Bearer credential clients present to this relay. A relay reaches every node with that node's own credential, so an unauthenticated relay bound off loopback is a fleet-wide open door and the server refuses to start unless allow_insecure is set. Never echoed back. |
 | `swarm.pairing_tokens` | list of strings | [] | Credentials a node must present to register. Empty closes registration unless insecure_open_registration is set. Never echoed back. |
 | `swarm.allow_insecure` | boolean | false | Permit binding off loopback without a client token. |

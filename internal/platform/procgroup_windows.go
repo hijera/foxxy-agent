@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -26,6 +28,45 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
+}
+
+// KillTreeOnClose puts the process cmd started into a job object that ends
+// every process in it once the job is closed, and returns the function that
+// closes it. What the process starts from then on joins the job too, so the
+// job reaches a child that outlived its parent - the node an npx started,
+// once npx has exited - where TerminateProcessGroup's taskkill /T, which
+// walks the tree down from a live parent, finds nothing. The job also ends
+// the tree when this process exits without closing it. A child the process
+// started in the moment between its start and this call is not in the job.
+// On failure the returned function does nothing and the error says why.
+func KillTreeOnClose(cmd *exec.Cmd) (func(), error) {
+	noop := func() {}
+	if cmd == nil || cmd.Process == nil {
+		return noop, nil
+	}
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return noop, fmt.Errorf("create job object: %w", err)
+	}
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
+		_ = windows.CloseHandle(job)
+		return noop, fmt.Errorf("set job limits: %w", err)
+	}
+	proc, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
+	if err != nil {
+		_ = windows.CloseHandle(job)
+		return noop, fmt.Errorf("open process: %w", err)
+	}
+	defer func() { _ = windows.CloseHandle(proc) }()
+	if err := windows.AssignProcessToJobObject(job, proc); err != nil {
+		_ = windows.CloseHandle(job)
+		return noop, fmt.Errorf("assign process to job: %w", err)
+	}
+	var once sync.Once
+	return func() { once.Do(func() { _ = windows.CloseHandle(job) }) }, nil
 }
 
 // TerminateProcessGroup kills the process tree started by cmd. Windows has no

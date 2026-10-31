@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,25 +33,11 @@ func TestEverySpawnSiteHidesItsConsoleWindow(t *testing.T) {
 		unused[key] = true
 	}
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "build", "dist", "vendor":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
-			return nil
-		}
-
+	for _, path := range guardGoFiles(t, root) {
 		fset := token.NewFileSet()
 		file, parseErr := parser.ParseFile(fset, path, nil, 0)
 		if parseErr != nil {
-			return parseErr
+			t.Fatalf("%s: %v", path, parseErr)
 		}
 		rel := filepath.ToSlash(mustRel(t, root, path))
 
@@ -77,15 +64,52 @@ func TestEverySpawnSiteHidesItsConsoleWindow(t *testing.T) {
 		if total := countCalls(file, "exec", "Command", "CommandContext"); total != spawnsInFuncs {
 			t.Errorf("%s starts a process outside any function, where no window can be hidden", rel)
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking the tree: %v", err)
 	}
 
 	for key := range unused {
 		t.Errorf("spawnSiteExceptions lists %s, which no longer starts a process there", key)
 	}
+}
+
+// guardGoFiles lists the .go sources the guard covers: everything git tracks
+// plus everything not ignored - the same set a commit could carry. A worktree
+// the worktree tool or an editor leaves inside the checkout is a gitignored
+// copy of this very tree, and walking it fails the guard with the stale spawn
+// sites of the snapshot it holds (internal/docsgen filters its walks the same
+// way). Without git - a tarball, a zip download - the whole tree is covered.
+func guardGoFiles(t *testing.T, root string) []string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard").Output()
+	if err == nil {
+		var files []string
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasSuffix(line, ".go") && !strings.HasSuffix(line, "_test.go") {
+				files = append(files, filepath.Join(root, line))
+			}
+		}
+		return files
+	}
+	var files []string
+	werr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "build", "dist", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".go") && !strings.HasSuffix(d.Name(), "_test.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if werr != nil {
+		t.Fatalf("walking the tree: %v", werr)
+	}
+	return files
 }
 
 // countCalls counts calls to pkg.name(...) under node. An empty pkg matches the

@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,4 +120,61 @@ func TestPluginMarketplaceLifecycleFromLocalGit(t *testing.T) {
 	if len(ListSources(cfg)) != 0 {
 		t.Fatalf("source not removed: %v", ListSources(cfg))
 	}
+}
+
+// TestPluginInstallAndMarketplaceAddLeaveOtherSourcesAlone: installing a
+// source syncs that source alone, and adding a marketplace only reads its list,
+// so a broken source elsewhere in skills.sources neither runs nor shows up as a
+// failure in the answer.
+func TestPluginInstallAndMarketplaceAddLeaveOtherSourcesAlone(t *testing.T) {
+	offlineSystemSources(t)
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	setup := func(t *testing.T) (*config.Config, string, string) {
+		repo := t.TempDir()
+		writeMarketplaceManifest(t, repo, "demo", "1.0.0")
+		gitCommitAllRepo(t, repo, true, "v1")
+		broken := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "no-such-repo"))
+		home := t.TempDir()
+		cfgPath := filepath.Join(home, "config.yaml")
+		if err := os.WriteFile(cfgPath, []byte(fmt.Sprintf("skills:\n  sources:\n    - %q\n", broken)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg := &config.Config{
+			Paths:  config.Paths{Home: home, ConfigPath: cfgPath},
+			Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}, Sources: []string{broken}},
+		}
+		return cfg, "file://" + filepath.ToSlash(repo), home
+	}
+
+	t.Run("install", func(t *testing.T) {
+		cfg, market, _ := setup(t)
+		out, err := RunPluginCommand(context.Background(), cfg, ".", []string{"install", market})
+		if err != nil {
+			t.Fatalf("plugin install: %v", err)
+		}
+		if !strings.Contains(out, "1 added, 0 updated, 0 failed.") {
+			t.Fatalf("plugin install answered %q, want only the named source synced", out)
+		}
+		if len(ListSources(cfg)) != 2 {
+			t.Errorf("sources = %v, want the broken one kept and the installed one added", ListSources(cfg))
+		}
+	})
+	t.Run("marketplace add", func(t *testing.T) {
+		cfg, market, home := setup(t)
+		out, err := RunPluginCommand(context.Background(), cfg, ".", []string{"marketplace", "add", market})
+		if err != nil {
+			t.Fatalf("plugin marketplace add: %v", err)
+		}
+		if !strings.Contains(out, `Added marketplace "m"`) || !strings.Contains(out, "1 plugin(s)") || strings.Contains(out, "failed") {
+			t.Fatalf("plugin marketplace add answered %q", out)
+		}
+		if _, err := os.Stat(filepath.Join(home, "skills", "demo")); !os.IsNotExist(err) {
+			t.Errorf("marketplace add installed demo: %v", err)
+		}
+		if got := ListSources(cfg); len(got) != 1 {
+			t.Errorf("sources = %v, want marketplace add to leave skills.sources alone", got)
+		}
+	})
 }

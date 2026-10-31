@@ -9,7 +9,7 @@
     "providers": {
       "type": "array",
       "title": "LLM providers",
-      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores).",
+      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -40,11 +40,11 @@
           },
           "api_key": {
             "type": "string",
-            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a session token and wins over browser and CLI logins."
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type \"codex\", which signs in with ChatGPT."
           },
           "api_key_command": {
             "type": "string",
-            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY."
+            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for type \"codex\", which takes no key."
           },
           "proxy": {
             "type": "string",
@@ -96,7 +96,7 @@
           },
           "multimodal": {
             "type": "boolean",
-            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model.",
+            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary.",
             "default": false
           },
           "reasoning_levels": {
@@ -127,7 +127,10 @@
         "queue_mode": {
           "type": "string",
           "description": "Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use.",
-          "enum": ["steer", "after_turn"]
+          "enum": [
+            "steer",
+            "after_turn"
+          ]
         },
         "model": {
           "type": "string",
@@ -287,6 +290,27 @@
           "description": "Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits.",
           "default": 14400000,
           "minimum": 0
+        },
+        "llm_continue_background_max": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Continuation budget per delegated subagent or scheduled run. Default 5; explicit 0 disables continuations. Memory children use llm_continue_max. Continuations do not consume max_turns; llm_continue disables both policies.",
+          "default": 5
+        },
+        "llm_continue_background_delays_ms": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Pauses before background continuations in milliseconds. Default [5000, 20000, 80000, 120000, 120000]; the last entry repeats. Applies to delegated and scheduled runs, excluding memory children.",
+          "default": [
+            5000,
+            20000,
+            80000,
+            120000,
+            120000
+          ]
         }
       }
     },
@@ -611,6 +635,15 @@
             "allow",
             "deny"
           ]
+        },
+        "idle_timeout_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Seconds an MCP server that no session holds any more keeps running before FoxxyCode stops it: a project server once the last session of its workspace let it go, a server an ACP client sent once the last session that sent it closed. A session that takes the server in the meantime finds it running. The global servers that foxxycode serve, the console and foxxycode acp start with the process are not affected, and a server switched off, no longer approved, removed or declared differently stops at once. 0 stops a server as soon as the last session lets it go.",
+          "default": 300,
+          "minimum": 0
         }
       }
     },
@@ -834,7 +867,7 @@
         "http_request": {
           "type": "object",
           "title": "HTTP requests",
-          "description": "Policy of the http_request tool, the agent's curl. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://hijera.github.io/foxxy-agent/features/http-requests.md.",
+          "description": "Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/http-requests.md.",
           "additionalProperties": false,
           "properties": {
             "allowlist": {
@@ -844,6 +877,14 @@
               },
               "description": "Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). \"*\" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy.",
               "default": []
+            },
+            "default_headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Headers every http_request call sends unless the call names the header itself: a browser User-Agent for a site that turns tools away, an Accept an internal service expects. They take the place of the tool's own defaults (its foxxycode-agent User-Agent), a call's headers take the place of them - an empty value in the call removes one - and an empty value here leaves the header out of every call that does not set it. A name is letters, digits, - and _, starting with a letter. Host, Content-Type, Content-Length and Transfer-Encoding describe a single request and are refused, and so are the hop-by-hop headers (Connection, Keep-Alive, Proxy-Connection, TE, Trailer, Upgrade) and Proxy-Authorization, which an https request would carry through the proxy's tunnel to every origin. The headers go to every destination the tool reaches, so a credential here reaches all of them; the permission prompt names them and shows the value only of one that describes the client (User-Agent, Accept...), config_get keeps their values from the model, and webfetch, URL mentions and the model providers never send them. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/http-requests.md#default-headers.",
+              "default": {}
             }
           }
         }
@@ -1113,7 +1154,7 @@
             "integer",
             "null"
           ],
-          "description": "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer.",
+          "description": "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks panel.",
           "default": 20
         },
         "timeout_seconds": {
@@ -1251,6 +1292,14 @@
               "maximum": 100
             }
           }
+        },
+        "auto_enable": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Enable automatic compaction at threshold_percent. Set false to keep manual /compact and the Context popover action available without automatic compaction. Defaults to true.",
+          "default": true
         }
       }
     },
@@ -1409,6 +1458,10 @@
               "url": {
                 "type": "string",
                 "description": "Base URL of the remote foxxycode http server."
+              },
+              "token": {
+                "type": "string",
+                "description": "Bearer token to present to this remote: a relay's client token (swarm.auth_token) or a server's httpserver.auth_token, usually a ${ENV} reference. Optional and opt-in: every browser that reads this configuration receives it, and foxxycode --remote <name> uses it when --remote-token is not given. A node mounted under a relay (<url>/swarm/nodes/<name>) takes the relay's token."
               }
             }
           }
@@ -1445,7 +1498,7 @@
         },
         "name": {
           "type": "string",
-          "description": "Label for this relay in topology views and in a child's node path.",
+          "description": "Label for this relay in topology views, in /swarm/info and in a child's node path. Empty: the host name it runs on.",
           "default": ""
         },
         "auth_token": {

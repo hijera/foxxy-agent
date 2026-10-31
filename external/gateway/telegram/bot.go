@@ -463,6 +463,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		allowDraft: rich && !isGroup,
 		draftID:    b.draftSeq.Add(1),
 	})
+	sender.pictures = st
 
 	// Anything else in this process that can show a session follows along.
 	// The chat stays in charge: permission prompts and questions never leave

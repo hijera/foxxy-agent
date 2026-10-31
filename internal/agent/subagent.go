@@ -92,6 +92,9 @@ var subagentMandatoryExclusions = []string{
 	"plan_exit",
 	// A child runs on the model its parent (or its definition) chose.
 	"switch_model",
+	// A child shares the parent's workspace; moving it mid-run would strand
+	// every tool of both, and the child has no switcher wired anyway.
+	"worktree_create",
 }
 
 // The process-wide limiter and the per-parent permission arbiters. Both are
@@ -118,8 +121,9 @@ type permissionArbiter struct {
 }
 
 // relayedPermissionOptions keeps the per-call answers of a forwarded prompt
-// and drops the "always" ones: a child lives for one turn, so a standing grant
-// could not outlive the call it was given for and would only mislead.
+// and drops the "always" ones: a run of a child is one turn, and a resumed run
+// starts without the grants of the earlier one, so a standing grant could not
+// outlive the call it was given for and would only mislead.
 func relayedPermissionOptions(opts []acp.PermissionOption) []acp.PermissionOption {
 	out := make([]acp.PermissionOption, 0, len(opts))
 	for _, o := range opts {
@@ -486,6 +490,17 @@ func (s *subagentSender) Flush() {
 	s.mu.Unlock()
 }
 
+// ProviderRecovery writes the reconnect the child's turn is about to make into
+// the task log, after the text the child had written: which failure cut the
+// call and when the run tries again (issue #389). Without it a run that waits
+// out a provider outage reads as a hung one for minutes.
+func (s *subagentSender) ProviderRecovery(err error, delay time.Duration, attempt, budget int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flushLines(true)
+	_, _ = fmt.Fprintf(s.out, "↻ provider failed (%v); reconnecting in %s (attempt %d of %d)\n", err, humanDuration(delay), attempt, budget)
+}
+
 func (s *subagentSender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	return s.relay.Request(ctx, params)
 }
@@ -551,7 +566,31 @@ type subagentRun struct {
 	turns      int
 	status     string // end_turn | cancelled | failed | ...
 	err        error
-	mu         sync.Mutex
+	// resumable marks a run spawn_agent started, the only kind its parent can
+	// continue with resume: a scheduled run's parent is a job session that
+	// never takes a turn, and the memory child is the runtime's own.
+	resumable bool
+	// created says the child session exists, so its transcript is there to
+	// resume; a run that failed to create it has nothing to continue.
+	created bool
+	// prior is how many messages the child's transcript held when this run
+	// started, compaction summaries not counted: zero for a new child, the
+	// earlier runs' for a resumed one. The run's turns and its report are read
+	// past them (runMessages).
+	prior int
+	mu    sync.Mutex
+}
+
+// unfinished reports a run that ended without its report: an error, a stop
+// or a timeout. Callers hold mu.
+func (r *subagentRun) unfinished() bool {
+	return r.err != nil || r.status == "cancelled"
+}
+
+// offersResume reports whether the run's report tells the parent to continue
+// it: a spawn_agent run whose child exists. Callers hold mu.
+func (r *subagentRun) offersResume() bool {
+	return r.resumable && r.created
 }
 
 // displayName is what logs and reports call the run: the name it was given,
@@ -578,12 +617,29 @@ func (a *Agent) subagentDepth() int {
 }
 
 // canSpawn reports whether this session may spawn at all: the feature is on, a
-// runtime is wired, and the depth limit leaves room.
+// runtime is wired, and the depth limit leaves room - or a spawn allowlist the
+// session's own definition declared extends it exactly one generation past
+// the cap.
 func (a *Agent) canSpawn() bool {
 	if a.cfg == nil || !a.cfg.Subagents.ResolvedEnabled() || a.subagentRuntime == nil {
 		return false
 	}
-	return a.subagentDepth() < a.cfg.Subagents.EffectiveMaxDepth()
+	depth := a.subagentDepth()
+	maxDepth := a.cfg.Subagents.EffectiveMaxDepth()
+	if depth < maxDepth {
+		return true
+	}
+	return depth == maxDepth && len(a.spawnAllowlist()) > 0
+}
+
+// spawnAllowlist is the set of subagent names this session's own definition
+// lets it delegate to (already scope-filtered at spawn time), or nil for an
+// ordinary, unrestricted session.
+func (a *Agent) spawnAllowlist() []string {
+	if a.subagent == nil {
+		return nil
+	}
+	return a.subagent.Spawns
 }
 
 // canSpawnInMode adds the mode rule to canSpawn: the read-only modes (ask,
@@ -623,7 +679,11 @@ func (a *Agent) subagentCatalogBlock() string {
 		return ""
 	}
 	cwd := a.state.GetCWD()
-	entries := subagents.BuildCatalog(a.subagentDefinitions(), a.cfg.Subagents.ResolvedProjectTrust(),
+	defs := a.subagentDefinitions()
+	if allow := a.spawnAllowlist(); len(allow) > 0 {
+		defs = subagents.DefinitionsMatching(defs, allow)
+	}
+	entries := subagents.BuildCatalog(defs, a.cfg.Subagents.ResolvedProjectTrust(),
 		subagents.CanonicalWorkspace(cwd), subagents.NewTrustStore(a.cfg.Paths.Home))
 	return subagents.PromptBlock(entries)
 }
@@ -709,17 +769,41 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		return "", fmt.Errorf("subagents are disabled (subagents.enable is false)")
 	}
 	maxDepth := cfg.Subagents.EffectiveMaxDepth()
-	if a.subagentDepth() >= maxDepth {
-		return "", fmt.Errorf("this session cannot spawn subagents: subagents.max_depth is %d and this session already runs at depth %d", maxDepth, a.subagentDepth())
+	depth := a.subagentDepth()
+	spawnAllow := a.spawnAllowlist()
+	// Below the cap any session spawns; at the cap only a definition with a
+	// spawn allowlist still may (and only the names on it, enforced below);
+	// past it nobody does.
+	if depth > maxDepth || (depth == maxDepth && len(spawnAllow) == 0) {
+		return "", fmt.Errorf("this session cannot spawn subagents: subagents.max_depth is %d and this session already runs at depth %d", maxDepth, depth)
 	}
 	if len(req.Prompt) > subagents.MaxPromptBytes {
 		return "", fmt.Errorf("spawn_agent: prompt is %d bytes, the limit is %d", len(req.Prompt), subagents.MaxPromptBytes)
 	}
+	// A resumed run continues a finished child of this session in its own
+	// session (issue #389); everything below decides it like a new spawn,
+	// against the definition as it is now.
+	var resumed *resumeTarget
+	if ref := strings.TrimSpace(req.Resume); ref != "" {
+		target, err := a.findResumeTarget(ref, req.Agent)
+		if err != nil {
+			return "", err
+		}
+		resumed = target
+	}
 
 	defs := a.subagentDefinitions()
-	def := subagents.FindByName(defs, req.Agent)
+	spawnable := defs
+	if len(spawnAllow) > 0 {
+		spawnable = subagents.DefinitionsMatching(defs, spawnAllow)
+	}
+	def := subagents.FindByName(spawnable, req.Agent)
 	if def == nil {
-		return "", fmt.Errorf("unknown subagent %q; available: %s", req.Agent, strings.Join(subagents.VisibleNames(defs), ", "))
+		if len(spawnAllow) > 0 && subagents.FindByName(defs, req.Agent) != nil {
+			return "", fmt.Errorf("subagent %q may only delegate to %s; %q is not on its spawns allowlist",
+				a.subagent.Name, strings.Join(spawnAllow, ", "), req.Agent)
+		}
+		return "", fmt.Errorf("unknown subagent %q; available: %s", req.Agent, strings.Join(subagents.VisibleNames(spawnable), ", "))
 	}
 	cwd := a.state.GetCWD()
 	workspace := subagents.CanonicalWorkspace(cwd)
@@ -746,8 +830,15 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	childPerm := subagents.NarrowPermissionMode(effectivePermMode(a.state, cfg), def.PermissionMode)
 	childDepth := a.subagentDepth() + 1
 
+	// The child's spawn allowlist, already narrowed by scope: a project
+	// definition's spawns is ignored here so a checked-in file cannot widen
+	// the depth guard. It decides both which names the child may delegate
+	// to (via SubagentMeta.Spawns below) and whether it gets spawn_agent at
+	// the boundary depth at all.
+	childSpawns := def.EffectiveSpawns()
+
 	exclusions := append([]string(nil), subagentMandatoryExclusions...)
-	if childDepth >= maxDepth {
+	if childDepth > maxDepth || (childDepth == maxDepth && len(childSpawns) == 0) {
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
 	effective := subagents.EffectiveTools(a.parentToolNames(parentMode), ToolSetForMode(childMode, cfg.Tools.PlanNoSelfRunEnabled()), def, exclusions)
@@ -776,6 +867,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			return "", fmt.Errorf("spawn_agent: unknown model %q (configured: %s)", req.Model, strings.Join(configuredModels(cfg), ", "))
 		}
 		model = req.Model
+	case resumed != nil && resumed.model != "" && cfg.FindModelEntry(resumed.model) != nil:
+		// A resumed child goes on with the model that wrote its transcript.
+		model = resumed.model
 	case def.Model != "":
 		if cfg.FindModelEntry(def.Model) != nil {
 			model = def.Model
@@ -809,6 +903,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	childID, err := session.NewSessionID()
 	if err != nil {
 		return "", fmt.Errorf("cannot start subagent %q: %w", def.Name, err)
+	}
+	if resumed != nil {
+		childID = resumed.childID
 	}
 	background := req.Background || def.Background
 
@@ -866,6 +963,16 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	if unknownModel != "" {
 		modelNote = fmt.Sprintf("model %q is not configured; using the parent's model %q", unknownModel, model)
 	}
+	if resumed != nil && req.Model == "" && resumed.model != "" && cfg.FindModelEntry(resumed.model) == nil {
+		// The model that wrote the transcript was removed from the
+		// configuration since: the run goes on with another, and says so.
+		note := fmt.Sprintf("model %q the child ran on is not configured any more; the resumed run uses %q", resumed.model, model)
+		a.log.Warn("resumed subagent's model is not configured any more", "agent", def.Name, "model", resumed.model, "using", model)
+		if modelNote != "" {
+			modelNote += "\n"
+		}
+		modelNote += note
+	}
 	snap, run, err := a.launchChildRun(ctx, rt, childLaunch{
 		spec: session.SubagentSpec{
 			ID:                childID,
@@ -879,10 +986,12 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			Title:             label,
 			Role:              def.Role,
 			Tools:             effective,
+			Spawns:            childSpawns,
 			Depth:             childDepth,
 			MaxTurns:          def.MaxTurns,
 			ConnectMCP:        connectMCP,
 			ClientMCPServers:  a.parentSessionMCPDeclarations(),
+			Resume:            resumed != nil,
 		},
 		def:             def,
 		prompt:          prompt,
@@ -925,7 +1034,11 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Started subagent %s as background task %s (child session %s).\n", def.Name, snap.ID, childID)
+	started := "Started"
+	if resumed != nil {
+		started = "Resumed"
+	}
+	fmt.Fprintf(&b, "%s subagent %s as background task %s (child session %s).\n", started, def.Name, snap.ID, childID)
 	fmt.Fprintf(&b, "Hard timeout %s.\n", humanSecondsAgent(snap.TimeoutSeconds))
 	switch {
 	case snap.NotifyOnFinish:
@@ -1001,6 +1114,7 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 		def:        l.def,
 		name:       l.spec.Name,
 		system:     l.system,
+		resumable:  !l.system,
 		childID:    childID,
 		prompt:     l.prompt,
 		parentMode: l.parentMode,
@@ -1011,12 +1125,21 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 	var finishOnce sync.Once
 	finish := func() {
 		finishOnce.Do(func() {
-			// Work the child launched settles before its transcript is sealed,
-			// and its records leave the pool's memory with it: the bundle keeps
-			// them, and a retired session is not coming back for them.
-			pool.StopSession(childID)
-			pool.ReleaseSession(childID)
-			rt.RetireSubagentSession(childID)
+			// A resumed run that never took the child over - another run of
+			// it still holds the session - owns nothing of it: that run
+			// settles and retires the child itself.
+			run.mu.Lock()
+			owned := run.created || !l.spec.Resume
+			run.mu.Unlock()
+			if owned {
+				// Work the child launched settles before its transcript is
+				// sealed, and its records leave the pool's memory with it:
+				// the bundle keeps them, and a retired session is not coming
+				// back for them.
+				pool.StopSession(childID)
+				pool.ReleaseSession(childID)
+				rt.RetireSubagentSession(childID)
+			}
 			if l.cleanup != nil {
 				l.cleanup()
 			}
@@ -1047,7 +1170,11 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 		}
 		run.sender = newSubagentSender(out, l.relay)
 		run.sender.onUsage = func(in, outTokens int) { pool.SetAgentUsage(parentID, taskID, in, outTokens) }
-		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) starting\n", l.spec.Name, taskID, childID)
+		verb := "starting"
+		if l.spec.Resume {
+			verb = "resuming"
+		}
+		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) %s\n", l.spec.Name, taskID, childID, verb)
 		if l.modelNote != "" {
 			_, _ = fmt.Fprintln(out, l.modelNote)
 		}
@@ -1111,7 +1238,7 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 	if err != nil {
 		run.mu.Lock()
 		run.status = "failed"
-		run.err = fmt.Errorf("create subagent session: %w", err)
+		run.err = fmt.Errorf("%s: %w", errCreateChildSession, err)
 		if ctx.Err() != nil {
 			run.status = "cancelled"
 		}
@@ -1119,14 +1246,19 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 		return
 	}
 	st = created
+	run.mu.Lock()
+	run.created = true
+	run.prior = messagesBesidesSummaries(st.GetMessages())
+	run.mu.Unlock()
 
 	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: run.prompt}}
 	res, err := rt.RunSubagentTurn(ctx, run.childID, prompt, run.sender)
 
 	run.mu.Lock()
 	defer run.mu.Unlock()
-	run.turns = assistantRounds(st.GetMessages())
-	run.report = subagentReport(st.GetMessages(), res)
+	written := runMessages(st.GetMessages(), run.prior)
+	run.turns = assistantRounds(written)
+	run.report = subagentReport(written, res)
 	switch {
 	case err != nil:
 		run.status = "failed"
@@ -1166,6 +1298,134 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 	}
 }
 
+// errCreateChildSession opens the error of a run whose child session could
+// not be created: a run like that left no transcript to resume, and the wake
+// it causes must not offer one (WakeInstruction).
+const errCreateChildSession = "create subagent session"
+
+// resumeTarget is the earlier run of this session a spawn_agent call
+// continues: the child session that keeps its transcript and what the task
+// rows recorded about it.
+type resumeTarget struct {
+	childID string
+	// model is the model the child's latest run worked on.
+	model string
+}
+
+// findResumeTarget resolves the run a spawn_agent resume names - a task id or
+// a child session id - among this session's own agent tasks: those the pool
+// holds and those the bundle recorded for an earlier process. Only a finished
+// delegation to the named subagent qualifies. A run of the child still in
+// flight is refused, and so is the runtime's own memory child, whose rows say
+// so; a child of another session is never among these rows at all.
+func (a *Agent) findResumeTarget(ref, agentName string) (*resumeTarget, error) {
+	parentID := a.state.GetID()
+	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
+	rows := a.backgroundPool(sd).SessionTasks(parentID, sd)
+	childID := ""
+	for _, row := range rows {
+		if row.Kind != bgtask.KindAgent || row.Agent == nil || strings.TrimSpace(row.Agent.SessionID) == "" {
+			continue
+		}
+		if row.ID == ref || row.Agent.SessionID == ref {
+			childID = row.Agent.SessionID
+			break
+		}
+	}
+	if childID == "" {
+		return nil, fmt.Errorf("spawn_agent: no subagent run of this session matches resume %q; pass the task id (bg_...) or the child session id (sess_...) an earlier spawn_agent result named", ref)
+	}
+	var latest *bgtask.Snapshot
+	for i := range rows {
+		row := &rows[i]
+		if row.Kind != bgtask.KindAgent || row.Agent == nil || row.Agent.SessionID != childID {
+			continue
+		}
+		if row.Agent.System {
+			return nil, fmt.Errorf("spawn_agent: %s is a %s run the runtime started on its own, not a subagent this session delegated to; it cannot be resumed", ref, row.Agent.Name)
+		}
+		if !row.Status.Finished() {
+			return nil, fmt.Errorf("spawn_agent: subagent %s is still running as task %s; wait for it with background_wait or stop it with background_stop before you resume it", row.Agent.Name, row.ID)
+		}
+		if latest == nil || row.StartedAt.After(latest.StartedAt) {
+			latest = row
+		}
+	}
+	if name := latest.Agent.Name; name != agentName {
+		return nil, fmt.Errorf("spawn_agent: %s is a run of subagent %q, not %q; pass agent %q to resume it", ref, name, agentName, name)
+	}
+	// The transcript's paths and results belong to the workspace the child
+	// worked in, and trust and the tool set are decided for this session's
+	// workspace now: a child of another workspace is not continued here.
+	if was, now := strings.TrimSpace(latest.CWD), strings.TrimSpace(a.state.GetCWD()); was != "" && now != "" &&
+		!session.SameDirectory(was, now) {
+		return nil, fmt.Errorf("spawn_agent: subagent %s worked in %s and this session works in %s now; its transcript belongs to that workspace, so start a new subagent for the task here", latest.Agent.Name, was, now)
+	}
+	// A run whose child session was never created left no transcript, and a
+	// child deleted since has none any more.
+	onDisk, err := session.ChildTranscriptOnDisk(sd, childID, latest.Agent.Name)
+	if err != nil {
+		return nil, fmt.Errorf("spawn_agent: cannot read the transcript of subagent %s (session %s): %w", latest.Agent.Name, childID, err)
+	}
+	if !onDisk {
+		return nil, fmt.Errorf("spawn_agent: the transcript of subagent %s (session %s) is not on disk: its run never got its session, or the session was deleted since; start a new subagent for the task", latest.Agent.Name, childID)
+	}
+	return &resumeTarget{childID: childID, model: latest.Agent.Model}, nil
+}
+
+// resumeHint tells the parent how to go on with a run that ended without its
+// report: its transcript keeps the work it did, so the same child continues
+// it rather than a new one starting over on the same task from an empty
+// context (issue #389). Callers hold run.mu.
+func resumeHint(run *subagentRun) string {
+	var b strings.Builder
+	if llm.IsTransientProviderError(run.err) {
+		b.WriteString("The run was cut by a failure of the model provider, not by its task. ")
+	}
+	fmt.Fprintf(&b, "Its transcript keeps the work it did: to go on with this task, call spawn_agent with resume=%q and agent %q and a prompt that says what to do now, instead of starting a new subagent.",
+		run.taskID, run.displayName())
+	return b.String()
+}
+
+// runMessages is what one run wrote into a child's transcript: everything
+// after the run's own prompt. prior is how many messages other than
+// compaction summaries the transcript held when the run started. A
+// compaction during the run inserts summaries and removes nothing, so the
+// messages that are not summaries keep their order, the first prior of them
+// are the earlier runs', and the next one is this run's prompt, wherever the
+// summaries landed and whatever the prompt says. A run that never got its
+// prompt in wrote nothing.
+func runMessages(msgs []llm.Message, prior int) []llm.Message {
+	seen := 0
+	for i, m := range msgs {
+		if m.CompactionSummary {
+			continue
+		}
+		if seen < prior {
+			seen++
+			continue
+		}
+		if m.Role == llm.RoleUser {
+			return msgs[i+1:]
+		}
+		// Not the prompt a run starts with: keep it, it is the run's.
+		return msgs[i:]
+	}
+	return nil
+}
+
+// messagesBesidesSummaries counts the messages of a transcript that are not
+// compaction summaries: the measure runMessages reads a run's part by.
+func messagesBesidesSummaries(msgs []llm.Message) int {
+	n := 0
+	for _, m := range msgs {
+		if !m.CompactionSummary {
+			n++
+		}
+	}
+	return n
+}
+
 // parentSessionMCPDeclarations returns the ACP client-supplied MCP declarations
 // of this session, so a child can redial them.
 func (a *Agent) parentSessionMCPDeclarations() []config.MCPServerConfig {
@@ -1186,10 +1446,14 @@ func formatSubagentReport(run *subagentRun, st *session.State) string {
 	if run.err != nil {
 		fmt.Fprintf(&b, "error: %v\n", run.err)
 	}
+	if run.offersResume() && run.unfinished() {
+		b.WriteString(resumeHint(run))
+		b.WriteString("\n")
+	}
 	b.WriteString("--- report ---\n")
 	report := strings.TrimSpace(run.report)
 	if report == "" && st != nil {
-		report = strings.TrimSpace(lastAssistantPlainText(st.GetMessages()))
+		report = strings.TrimSpace(lastAssistantPlainText(runMessages(st.GetMessages(), run.prior)))
 	}
 	if report == "" {
 		report = "(the subagent produced no final message)"
@@ -1206,14 +1470,19 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 	run.mu.Lock()
 	report := strings.TrimSpace(run.report)
 	runErr := run.err
+	runStatus := run.status
 	turns := run.turns
+	hint := ""
+	if run.offersResume() {
+		hint = resumeHint(run)
+	}
 	run.mu.Unlock()
 	if report == "" {
 		report = "(the subagent produced no final message)"
 	}
 	status := string(snap.Status)
 	if status == "" {
-		status = run.status
+		status = runStatus
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.displayName(), status, turns)
@@ -1224,6 +1493,10 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 	}
 	if snap.Status != "" && snap.Status.Finished() && snap.Status != bgtask.StatusSucceeded {
 		fmt.Fprintf(&b, "The subagent did not succeed (status %s); treat its report accordingly.\n", snap.Status)
+		if hint != "" {
+			b.WriteString(hint)
+			b.WriteString("\n")
+		}
 	}
 	b.WriteString("The user did not see this report: restate what matters in your own reply. ")
 	fmt.Fprintf(&b, "The full transcript is session %s (Tasks panel → Show transcript).", run.childID)

@@ -20,7 +20,11 @@ func restoreContextBreakdown(st *State) {
 }
 
 func (m *Manager) sendContextUsageUpdate(sessionID string, st *State) {
-	if m == nil || m.server == nil || st == nil {
+	if m == nil || st == nil {
+		return
+	}
+	sender := m.currentSender()
+	if sender == nil {
 		return
 	}
 	b := st.GetLastContextBreakdown()
@@ -35,7 +39,7 @@ func (m *Manager) sendContextUsageUpdate(sessionID string, st *State) {
 	if size <= 0 {
 		return
 	}
-	_ = m.server.SendSessionUpdate(sessionID, acp.UsageUpdate{
+	_ = sender.SendSessionUpdate(sessionID, acp.UsageUpdate{
 		SessionUpdate: acp.UpdateTypeUsage,
 		Used:          b.EstimatedTotal,
 		Size:          size,

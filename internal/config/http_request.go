@@ -3,13 +3,18 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/textproto"
 	"net/url"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/http/httpguts"
 )
 
 // ToolHTTPRequest is the YAML tools.http_request section: the policy of the
-// http_request tool.
+// http_request tool and the headers every request it sends carries.
 type ToolHTTPRequest struct {
 	// Allowlist names the destinations a request may reach without a
 	// permission prompt: a host ("api.github.com"), a subdomain wildcard
@@ -20,14 +25,115 @@ type ToolHTTPRequest struct {
 	// unchecked certificate - but not the file it would write, which follows
 	// the write policy, nor a proxy, which is a destination of its own.
 	Allowlist []string `yaml:"allowlist"`
+
+	// DefaultHeaders are request headers every http_request call sends unless
+	// the call names the header itself. They take the place of the tool's own
+	// defaults (its foxxycode-agent User-Agent), and a call's headers take the
+	// place of them, an empty value there removing one; an empty value here
+	// leaves the header out of every call that does not set it. They go to
+	// every destination the tool reaches and nowhere else: webfetch, URL
+	// mentions and the model providers never send them.
+	DefaultHeaders map[string]string `yaml:"default_headers"`
 }
 
-// validate trims the entries in place and refuses one that cannot match.
+// validate trims the allowlist entries in place and refuses one that cannot
+// match, and refuses a default header the tool could not send.
 func (h *ToolHTTPRequest) validate() error {
 	for i := range h.Allowlist {
 		h.Allowlist[i] = strings.TrimSpace(h.Allowlist[i])
 		if _, err := parseHTTPAllowRule(h.Allowlist[i]); err != nil {
 			return fmt.Errorf("tools.http_request.allowlist[%d]: %w", i, err)
+		}
+	}
+	return validateHTTPDefaultHeaders(h.DefaultHeaders)
+}
+
+// httpHeadersOfOneRequest are the headers http_request derives from each call:
+// the host of its address, the type of its payload and the payload's framing.
+// A value for every request cannot stand for them, so default_headers refuses
+// them; a call that needs another value sets it in its own headers.
+var httpHeadersOfOneRequest = map[string]bool{
+	"Host":              true,
+	"Content-Type":      true,
+	"Content-Length":    true,
+	"Transfer-Encoding": true,
+}
+
+// httpHeadersOfOneConnection are the hop-by-hop headers: they describe the
+// connection a request travels on, not the client, and one set for every
+// request can break them all - HTTP/2 refuses a request carrying Upgrade.
+var httpHeadersOfOneConnection = map[string]bool{
+	"Connection":       true,
+	"Keep-Alive":       true,
+	"Proxy-Connection": true,
+	"Te":               true,
+	"Trailer":          true,
+	"Upgrade":          true,
+}
+
+// httpProxyCredentialHeader is refused as a default header for another reason:
+// through a proxy an https request tunnels, and a header the request carries
+// reaches the origin inside the tunnel, so a proxy's credential set here would
+// go to every destination rather than to the proxy.
+const httpProxyCredentialHeader = "Proxy-Authorization"
+
+// httpDefaultHeaderName is the shape of a name default_headers takes: letters,
+// digits, "-" and "_", starting with a letter - the shape of every header in
+// use. HTTP allows more (dots, digits first), and a call may send such a name in
+// its own headers, but a key of this map is also a segment of a config path
+// (config_set, foxxycode -t), where a dot splits it and a number reads as a list
+// position.
+var httpDefaultHeaderName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
+
+// HTTPDefaultHeaderNameOK reports whether name is a header name
+// tools.http_request.default_headers accepts: letters, digits, "-" and "_",
+// starting with a letter. A call may send any other name in its own headers.
+func HTTPDefaultHeaderNameOK(name string) bool {
+	return httpDefaultHeaderName.MatchString(name)
+}
+
+// HTTPHeaderForbiddenAsDefault reports whether canonicalName is a header that
+// cannot stand as a default for every request: one the tool derives from each
+// call, a hop-by-hop header, or a proxy credential. The tool refuses them
+// where the request is built as well as the loader.
+func HTTPHeaderForbiddenAsDefault(canonicalName string) bool {
+	return httpHeadersOfOneRequest[canonicalName] ||
+		httpHeadersOfOneConnection[canonicalName] ||
+		canonicalName == httpProxyCredentialHeader
+}
+
+// validateHTTPDefaultHeaders refuses a name that is not a header name of that
+// shape, two spellings of one header, a header the tool derives from each
+// request and a value that would break the header line. The map is left as
+// written: the tool trims names and values when it sends them.
+func validateHTTPDefaultHeaders(headers map[string]string) error {
+	names := make([]string, 0, len(headers))
+	for name := range headers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	seen := make(map[string]string, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if !httpDefaultHeaderName.MatchString(name) {
+			return fmt.Errorf("tools.http_request.default_headers: %q is not a header name this map takes: letters, digits, - and _, starting with a letter (a call can still send any other name in its own headers)", raw)
+		}
+		key := textproto.CanonicalMIMEHeaderKey(name)
+		if first, dup := seen[key]; dup {
+			return fmt.Errorf("tools.http_request.default_headers: %q and %q name the same header; keep one", first, raw)
+		}
+		seen[key] = raw
+		if httpHeadersOfOneRequest[key] {
+			return fmt.Errorf("tools.http_request.default_headers.%s: %s describes a single request - http_request derives it from each call, and a call that needs another value sets it in its own headers", name, key)
+		}
+		if httpHeadersOfOneConnection[key] {
+			return fmt.Errorf("tools.http_request.default_headers.%s: %s belongs to one connection, not to every request (HTTP/2 refuses a request that carries Upgrade, for one); a call that needs it sets it in its own headers", name, key)
+		}
+		if key == httpProxyCredentialHeader {
+			return fmt.Errorf("tools.http_request.default_headers.%s: an https request carries its headers to the origin through the proxy's tunnel, so this would reach every destination; put the credential into the proxy address instead (HTTPS_PROXY, or a call's proxy as http://user:password@host:port)", name)
+		}
+		if !httpguts.ValidHeaderFieldValue(strings.TrimSpace(headers[raw])) {
+			return fmt.Errorf("tools.http_request.default_headers.%s: the value may not contain line breaks or control characters", name)
 		}
 	}
 	return nil

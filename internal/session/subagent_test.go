@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -513,7 +514,7 @@ func TestDeleteSessionTreeCancelsAnActiveParentTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-turnDone:
+	case <-turnDone: //nolint:errcheck // Only completion is needed here.
 	case <-time.After(10 * time.Second):
 		t.Fatal("the cancelled turn did not return")
 	}
@@ -1125,7 +1126,11 @@ func TestRunPlanAdmissionRacesDeletion(t *testing.T) {
 	}
 	deleteDone := make(chan error, 1)
 	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
-	time.Sleep(50 * time.Millisecond)
+	for deadline := time.Now().Add(10 * time.Second); !m.IsDeletingForTest(parent.ID); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("delete did not mark the session")
+		}
+	}
 	select {
 	case err := <-deleteDone:
 		t.Fatalf("the delete returned %v while the plan run was still registered", err)
@@ -1639,6 +1644,569 @@ func TestSurfaceSystemPromptLastsExactlyOneTurn(t *testing.T) {
 // newTestSessionID mints a session id for a test; an entropy failure is a test
 // failure rather than a panic.
 func newTestSessionID(t testing.TB) string {
+	t.Helper()
+	id, err := session.NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// ---- issue #389: a parent resumes its finished child ----
+
+// resumableChild creates a child of parent, runs its one turn and retires it,
+// the state a finished spawn_agent run leaves behind.
+func resumableChild(t *testing.T, m *session.Manager, parent *session.State, root string) session.SubagentSpec {
+	t.Helper()
+	spec := session.SubagentSpec{
+		ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+		Title: "agent reviewer: check the diff", Tools: []string{"read"}, Depth: 1,
+	}
+	if _, err := m.CreateSubagentSession(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "check the diff"}}, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	m.RetireSubagentSession(spec.ID)
+	return spec
+}
+
+// A parent that resumes its finished child gets the child's own session back:
+// the transcript the earlier run wrote, the title it was given, and the task
+// and the tool set of the new run, live and on disk. The next turn appends to
+// that transcript; no second bundle appears.
+func TestResumeSubagentSessionReopensTheRetiredChild(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	bundle := store.SessionPath(spec.ID)
+
+	resumed := spec
+	resumed.TaskID = "bg_2"
+	resumed.Title = "agent reviewer: resumed"
+	resumed.Tools = []string{"read", "grep"}
+	resumed.Resume = true
+	child, err := m.CreateSubagentSession(context.Background(), resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SessionByID(spec.ID) != child {
+		t.Fatal("the resumed child must be the live session under its id")
+	}
+	if msgs := child.GetMessages(); len(msgs) != 1 || msgs[0].Content != "check the diff" {
+		t.Fatalf("the resumed child holds %+v, want the earlier run's transcript", msgs)
+	}
+	meta := child.Subagent()
+	if meta == nil || meta.TaskID != "bg_2" || meta.ParentSessionID != parent.ID || strings.Join(meta.Tools, ",") != "read,grep" {
+		t.Fatalf("resumed meta = %+v", meta)
+	}
+	if got := child.GetTitlePinned(); got != spec.Title {
+		t.Fatalf("title = %q, want the child's own %q", got, spec.Title)
+	}
+	if !child.IsSubagentRun() {
+		t.Fatal("a resumed child is still a subagent run")
+	}
+
+	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go on"}}, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	m.RetireSubagentSession(spec.ID)
+	snap, err := store.ReadSnapshot(spec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.SubagentTaskID != "bg_2" || snap.Meta.ParentSessionID != parent.ID || snap.Meta.TitlePinned != spec.Title {
+		t.Fatalf("persisted meta = %+v", snap.Meta)
+	}
+	if len(snap.Messages) != 2 || snap.Messages[1].Content != "go on" {
+		t.Fatalf("persisted transcript = %+v, want both runs' prompts", snap.Messages)
+	}
+	if got := store.SessionPath(spec.ID); got != bundle {
+		t.Fatalf("the child moved from %s to %s", bundle, got)
+	}
+	// A surface still reads it as a read-only transcript.
+	if _, err := m.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: spec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: spec.ID, Prompt: []acp.ContentBlock{{Type: "text", Text: "x"}}})
+	if !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("a resumed child must stay read-only for every surface, got %v", err)
+	}
+}
+
+// Only a finished child of the calling parent is resumed; every refusal leaves
+// the live map and the bundle as they were.
+func TestResumeSubagentSessionRefusals(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	other := newParent(t, m, root)
+	ctx := context.Background()
+
+	running := session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_3", CWD: root}
+	if _, err := m.CreateSubagentSession(ctx, running); err != nil {
+		t.Fatal(err)
+	}
+	finished := resumableChild(t, m, parent, root)
+
+	jobID := newPortTestSessionID(t)
+	if _, err := m.EnsureSchedulerJobSession(ctx, session.SchedulerJobSessionSpec{ID: jobID, JobID: "nightly", CWD: root}); err != nil {
+		t.Fatal(err)
+	}
+	scheduled := session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: jobID, Name: "nightly", TaskID: "bg_1", CWD: root,
+		Scheduler: &session.SchedulerRunMeta{JobID: "nightly", Trigger: "manual"}}
+	if _, err := m.CreateSubagentSession(ctx, scheduled); err != nil {
+		t.Fatal(err)
+	}
+	m.RetireSubagentSession(scheduled.ID)
+
+	resume := func(spec session.SubagentSpec) session.SubagentSpec {
+		spec.Resume = true
+		spec.TaskID = "bg_9"
+		return spec
+	}
+	cases := []struct {
+		name string
+		spec session.SubagentSpec
+		live bool
+	}{
+		{"a child still running", resume(running), true},
+		{"a child of another parent", func() session.SubagentSpec { s := resume(finished); s.ParentSessionID = other.ID; return s }(), false},
+		{"a scheduled run", resume(scheduled), false},
+		{"a session with no bundle", resume(session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", CWD: root}), false},
+		{"an ordinary session", resume(session.SubagentSpec{ID: other.ID, ParentSessionID: parent.ID, Name: "reviewer", CWD: root}), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			before := m.SessionByID(c.spec.ID)
+			if _, err := m.CreateSubagentSession(ctx, c.spec); err == nil {
+				t.Fatal("the resume must be refused")
+			} else if c.name == "a child still running" && !errors.Is(err, session.ErrChildLive) {
+				t.Fatalf("error = %v, want ErrChildLive", err)
+			}
+			if got := m.SessionByID(c.spec.ID); got != before || (c.live && got == nil) {
+				t.Fatalf("a refused resume changed the live entry of %s", c.spec.ID)
+			}
+		})
+	}
+	snap, err := store.ReadSnapshot(finished.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ParentSessionID != parent.ID || snap.Meta.SubagentTaskID != "bg_1" {
+		t.Fatalf("a refused resume rewrote the child bundle: %+v", snap.Meta)
+	}
+}
+
+// A transcript a surface loaded to show it is not a run: resuming the child
+// replaces that read-only copy with the run's own state.
+func TestResumeSubagentSessionTakesOverATranscriptLoadedForReading(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	if _, err := m.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: spec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	loaded := m.SessionByID(spec.ID)
+	if loaded == nil {
+		t.Fatal("the transcript was not loaded")
+	}
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	child, err := m.CreateSubagentSession(context.Background(), resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child == loaded || m.SessionByID(spec.ID) != child {
+		t.Fatal("the run must own the live entry, not the copy loaded for reading")
+	}
+	if meta := child.Subagent(); meta == nil || strings.Join(meta.Tools, ",") != "read" || meta.TaskID != "bg_2" {
+		t.Fatalf("resumed meta = %+v", meta)
+	}
+}
+
+// A resume that fails once the live entry is taken leaves the bundle as the
+// earlier runs left it: it is theirs, not the failed resume's to remove.
+func TestResumeSubagentSessionRollbackKeepsTheBundle(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.SetSubagentPublishHookForTest(func(*session.State) { cancel() })
+	defer m.SetSubagentPublishHookForTest(nil)
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	if _, err := m.CreateSubagentSession(ctx, resumed); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want a cancellation", err)
+	}
+	if m.SessionByID(spec.ID) != nil {
+		t.Fatal("the live entry must be rolled back")
+	}
+	snap, err := store.ReadSnapshot(spec.ID)
+	if err != nil {
+		t.Fatalf("the child bundle is gone: %v", err)
+	}
+	if snap.Meta.SubagentTaskID != "bg_1" || len(snap.Messages) != 1 {
+		t.Fatalf("the rolled back resume rewrote the bundle: %+v", snap.Meta)
+	}
+}
+
+// A grant belongs to the run it was given in: an earlier run's "always" answer
+// does not let the resumed run past a gate the parent and the definition, as
+// they are now, would stop it at.
+func TestResumeSubagentSessionLeavesTheEarlierRunsGrantsBehind(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root}
+	child, err := m.CreateSubagentSession(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.AddCommandGrantIfNew("rm -rf build")
+	child.AddWriteGrantIfNew("/etc/hosts")
+	child.AddHTTPGrantIfNew("https://example.test")
+	m.RetireSubagentSession(spec.ID)
+	if snap, err := store.ReadSnapshot(spec.ID); err != nil || len(snap.PermissionCommands) != 1 {
+		t.Fatalf("the earlier run's grants were not stored: %+v, %v", snap, err)
+	}
+
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	again, err := m.CreateSubagentSession(context.Background(), resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(again.GetPermissionCommandGrants()) + len(again.GetPermissionWriteGrants()) + len(again.GetPermissionHTTPGrants()); got != 0 {
+		t.Fatalf("the resumed run inherited %d grants of the earlier run", got)
+	}
+	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go on"}}, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.ReadSnapshot(spec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.PermissionCommands)+len(snap.PermissionWriteKeys)+len(snap.PermissionHTTPKeys) != 0 {
+		t.Fatalf("the bundle still holds the earlier run's grants: %+v %+v %+v", snap.PermissionCommands, snap.PermissionWriteKeys, snap.PermissionHTTPKeys)
+	}
+}
+
+// A child deleted on its own while its parent resumes it stays deleted: a
+// delete that ends before the resume publishes leaves the resume nothing to
+// write, and one that starts after the publish finds the run and refuses it.
+// Either way no bundle comes back.
+func TestResumeSubagentSessionRacesADeleteOfTheChild(t *testing.T) {
+	for _, when := range []string{"before the publish", "after the publish"} {
+		t.Run(when, func(t *testing.T) {
+			m, store, root := newSubagentTestManager(t)
+			parent := newParent(t, m, root)
+			spec := resumableChild(t, m, parent, root)
+			deleted := make(chan error, 1)
+			remove := func(*session.State) { deleted <- m.DeleteSessionTree(spec.ID, nil) }
+			if when == "before the publish" {
+				m.SetSubagentPrePublishHookForTest(remove)
+				defer m.SetSubagentPrePublishHookForTest(nil)
+			} else {
+				m.SetSubagentPublishHookForTest(remove)
+				defer m.SetSubagentPublishHookForTest(nil)
+			}
+			resumed := spec
+			resumed.Resume = true
+			resumed.TaskID = "bg_2"
+			_, err := m.CreateSubagentSession(context.Background(), resumed)
+			if derr := <-deleted; derr != nil {
+				t.Fatalf("delete: %v", derr)
+			}
+			if !errors.Is(err, session.ErrSessionGone) && !errors.Is(err, session.ErrSessionDeleting) {
+				t.Fatalf("resume error = %v, want the child named gone or being deleted", err)
+			}
+			if m.SessionByID(spec.ID) != nil {
+				t.Fatal("the refused resume left a live entry")
+			}
+			if _, statErr := os.Stat(filepath.Join(store.SessionPath(parent.ID), session.ChildSessionsDirName, spec.ID)); !os.IsNotExist(statErr) {
+				t.Fatalf("the deleted child's bundle came back: %v", statErr)
+			}
+		})
+	}
+}
+
+// A delete that finds a resumed child running stops the task of that run:
+// until the run's first save the bundle still names the earlier run's task,
+// so the live state is what says which task is running.
+func TestSessionTreeNamesTheTaskOfTheRunningResume(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	var seen []session.SessionTreeNode
+	m.SetSubagentPublishHookForTest(func(*session.State) {
+		nodes, err := m.SessionTree(spec.ID)
+		if err != nil {
+			t.Error(err)
+		}
+		seen = nodes
+	})
+	defer m.SetSubagentPublishHookForTest(nil)
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	if _, err := m.CreateSubagentSession(context.Background(), resumed); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) == 0 || seen[0].ID != spec.ID || seen[0].SubagentTaskID != "bg_2" {
+		t.Fatalf("tree root = %+v, want the child with the resumed run's task bg_2", seen)
+	}
+	parentTree, err := m.SessionTree(parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range parentTree {
+		if n.ID == spec.ID && n.SubagentTaskID != "bg_2" {
+			t.Fatalf("the parent's tree names task %q for the running child, want bg_2", n.SubagentTaskID)
+		}
+	}
+}
+
+// The copy of a transcript a surface loaded is superseded when a resumed run
+// takes its entry over: whatever still touches the copy writes nothing, so the
+// run's history is never overwritten with the older one.
+func TestResumeSubagentSessionSilencesTheCopyItDisplaced(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	if _, err := m.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: spec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	copyState := m.SessionByID(spec.ID)
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	if _, err := m.CreateSubagentSession(context.Background(), resumed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go on"}}, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	copyState.AddMessage(llm.Message{Role: llm.RoleUser, Content: "written through the displaced copy"})
+	// A save of the copy that got past its persist hook before the takeover
+	// reaches the store after the run's own save; the store refuses it too.
+	if err := store.Save(copyState); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PatchSessionMetaActivitySync(copyState); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.ReadSnapshot(spec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, msg := range snap.Messages {
+		if strings.Contains(msg.Content, "displaced copy") {
+			t.Fatal("the displaced copy wrote the bundle over the resumed run")
+		}
+	}
+	if len(snap.Messages) != 2 || snap.Messages[1].Content != "go on" || snap.Meta.SubagentTaskID != "bg_2" {
+		t.Fatalf("the bundle lost the resumed run: %d messages, task %s", len(snap.Messages), snap.Meta.SubagentTaskID)
+	}
+}
+
+// A resumed child is not written before its run holds the child's turn lock:
+// reopening it changes nothing on disk, so a second process resuming the same
+// child at the same moment finds the lock taken with nothing of its own
+// written. The run's first message is the first save.
+func TestResumeSubagentSessionWritesNothingBeforeItsTurn(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	meta := filepath.Join(store.SessionPath(spec.ID), "session.json")
+	before, err := os.ReadFile(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	if _, err := m.CreateSubagentSession(context.Background(), resumed); err != nil {
+		t.Fatal(err)
+	}
+	if after, err := os.ReadFile(meta); err != nil || string(after) != string(before) {
+		t.Fatalf("reopening the child rewrote its session.json before the run's turn (err %v)", err)
+	}
+	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go on"}}, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.ReadSnapshot(spec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.SubagentTaskID != "bg_2" {
+		t.Fatalf("the run's turn did not save the child: task %s", snap.Meta.SubagentTaskID)
+	}
+}
+
+// A run stopped in the middle of a batch of calls leaves the rest of the batch
+// without results, which an OpenAI-compatible provider refuses to be sent.
+// The resumed run answers those calls as never run before its first step.
+func TestResumeSubagentSessionAnswersTheCallsTheEarlierRunNeverRan(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root}
+	child, err := m.CreateSubagentSession(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.AddMessage(llm.Message{Role: llm.RoleUser, Content: "check both files"})
+	child.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+		{ID: "call_a", Name: "read", InputJSON: `{"path":"a.go"}`},
+		{ID: "call_b", Name: "read", InputJSON: `{"path":"b.go"}`},
+	}})
+	child.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_a", Content: "package a"})
+	m.RetireSubagentSession(spec.ID)
+
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	again, err := m.CreateSubagentSession(context.Background(), resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := again.GetMessages()
+	last := msgs[len(msgs)-1]
+	if len(msgs) != 4 || last.Role != llm.RoleTool || last.ToolCallID != "call_b" || !strings.Contains(last.Content, "no result was recorded") ||
+		!strings.Contains(last.Content, "check the current state") {
+		t.Fatalf("the resumed transcript ends with %+v, want call_b answered with an unknown outcome", last)
+	}
+	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go on"}}, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.ReadSnapshot(spec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) != 5 || snap.Messages[3].ToolCallID != "call_b" {
+		t.Fatalf("the saved transcript lost the answer to call_b: %d messages", len(snap.Messages))
+	}
+
+	// A batch left unanswered in the middle of the transcript - a resumed
+	// run's prompt already follows it - is answered where it stands, right
+	// after the results the batch has.
+	middle := session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_4", CWD: root}
+	mid, err := m.CreateSubagentSession(context.Background(), middle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mid.AddMessage(llm.Message{Role: llm.RoleUser, Content: "check both files"})
+	mid.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_x", Name: "read"}, {ID: "call_y", Name: "read"}}})
+	mid.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_x", Content: "x"})
+	mid.AddMessage(llm.Message{Role: llm.RoleUser, Content: "go on"})
+	m.RetireSubagentSession(middle.ID)
+	middleResumed := middle
+	middleResumed.Resume = true
+	middleResumed.TaskID = "bg_5"
+	repaired, err := m.CreateSubagentSession(context.Background(), middleResumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := repaired.GetMessages()
+	if len(got) != 5 || got[3].ToolCallID != "call_y" || !strings.Contains(got[3].Content, "no result was recorded") || got[4].Content != "go on" {
+		t.Fatalf("the batch in the middle was not answered where it stands: %+v", got)
+	}
+
+	// A transcript whose last batch is answered is left exactly as it was.
+	done := resumableChild(t, m, parent, root)
+	resumedDone := done
+	resumedDone.Resume = true
+	resumedDone.TaskID = "bg_3"
+	st, err := m.CreateSubagentSession(context.Background(), resumedDone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(st.GetMessages()); got != 1 {
+		t.Fatalf("an answered transcript grew to %d messages", got)
+	}
+}
+
+// The manager keeps a child in the folder it worked in even when the task
+// record that asked for the resume did not say where that was.
+func TestResumeSubagentSessionRefusesAnotherFolder(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	resumed := spec
+	resumed.Resume = true
+	resumed.TaskID = "bg_2"
+	resumed.CWD = t.TempDir()
+	if _, err := m.CreateSubagentSession(context.Background(), resumed); err == nil || !strings.Contains(err.Error(), "it worked in") {
+		t.Fatalf("resume from another folder = %v, want a refusal", err)
+	}
+	if m.SessionByID(spec.ID) != nil {
+		t.Fatal("the refused resume left a live entry")
+	}
+	if snap, err := store.ReadSnapshot(spec.ID); err != nil || snap.Meta.SubagentTaskID != "bg_1" {
+		t.Fatalf("the refused resume touched the bundle: %+v, %v", snap.Meta, err)
+	}
+}
+
+// What a resume checks before it launches: a bundle that holds a run of the
+// subagent, not one that is missing, a bare layout a process left when it died
+// before the child's first save, or another subagent's; a bundle that cannot
+// be read is an error, not a bundle that is gone.
+func TestChildTranscriptOnDisk(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	spec := resumableChild(t, m, parent, root)
+	parentDir := store.SessionPath(parent.ID)
+
+	if ok, err := session.ChildTranscriptOnDisk(parentDir, spec.ID, "reviewer"); !ok || err != nil {
+		t.Fatalf("a finished child = %v, %v, want on disk", ok, err)
+	}
+	if ok, err := session.ChildTranscriptOnDisk(parentDir, spec.ID, "writer"); ok || err != nil {
+		t.Fatalf("another subagent's child = %v, %v, want not a run of writer", ok, err)
+	}
+	if ok, err := session.ChildTranscriptOnDisk(parentDir, newPortTestSessionID(t), "reviewer"); ok || err != nil {
+		t.Fatalf("a child with no bundle = %v, %v, want not on disk", ok, err)
+	}
+	bare := newPortTestSessionID(t)
+	if _, err := store.EnsureChildLayout(parent.ID, bare); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := session.ChildTranscriptOnDisk(parentDir, bare, "reviewer"); ok || err != nil {
+		t.Fatalf("a bare layout = %v, %v, want not on disk", ok, err)
+	}
+	broken := newPortTestSessionID(t)
+	if err := os.MkdirAll(filepath.Join(parentDir, session.ChildSessionsDirName, broken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parentDir, session.ChildSessionsDirName, broken, "session.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.ChildTranscriptOnDisk(parentDir, broken, "reviewer"); err == nil {
+		t.Fatal("an unreadable session.json must be an error, not a missing transcript")
+	}
+}
+
+// Two spellings of one folder are one directory: a symlink, and on a file
+// system that ignores case, a different case.
+func TestSameDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if !session.SameDirectory(dir, dir+string(filepath.Separator)+".") {
+		t.Fatal("a path and its cleaned spelling differ")
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err == nil && !session.SameDirectory(dir, link) {
+		t.Fatal("a folder and a symlink to it differ")
+	}
+	if session.SameDirectory(dir, t.TempDir()) {
+		t.Fatal("two folders are the same")
+	}
+	if runtime.GOOS == "windows" && !session.SameDirectory(dir, strings.ToUpper(dir)) {
+		t.Fatal("two spellings of one folder differ on Windows")
+	}
+}
+
+func newPortTestSessionID(t *testing.T) string {
 	t.Helper()
 	id, err := session.NewSessionID()
 	if err != nil {

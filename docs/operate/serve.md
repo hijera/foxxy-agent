@@ -11,7 +11,10 @@ The subsystems share more than the manager. A background task the agent started 
 when it ends (`notify_on_finish`, on by default) whichever subsystems run: the process owns the
 waker, and hands each woken turn to the Telegram chat bound to the session, else to the
 HTTP server, else runs it through the manager itself
-([Background tasks](../features/background-tasks.md#under-foxxycode-serve)).
+([Background tasks](../features/background-tasks.md#under-foxxycode-serve)). The MCP servers are
+shared the same way: the servers of the global configuration start with the process and
+serve every session of every subsystem, subagents and scheduled runs included, and a
+project's servers run once per workspace ([MCP](../features/mcp.md#shared-servers)).
 
 This page is about keeping that process running and keeping it current.
 
@@ -261,12 +264,14 @@ What happens next depends on what moved:
 | Change | Effect |
 |--------|--------|
 | models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /foxxycode/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](../surfaces/web-ui.md)) |
-| the Telegram token, the scheduler's directory or timeout | that subsystem alone is rebuilt in place |
-| a subsystem's `enable` | it is started or stopped |
+| the Telegram token, the scheduler's directory or timeout, a relay's `swarm` settings other than its address | that subsystem alone is rebuilt in place |
+| a subsystem's `enable` | it is started, on the address the new configuration gives it, or stopped |
+| `mcp_servers` | a server added or switched on starts, one removed or switched off stops once no session holds it, and one whose declaration changed is started from the new one; the others keep their processes |
+| `mcp.idle_timeout_seconds` | a server that goes unheld from then on waits the new time before it stops |
 | a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart |
 
-Everything else a surface reads once when it is constructed - the relay's own
-credentials and TLS, the `swarm.join` registrations - still needs a restart you ask for,
+Everything else a surface reads once when it is constructed - such as the `swarm.join`
+registrations the HTTP server of a node makes - still needs a restart you ask for,
 `foxxycode serve restart` or Ctrl-C and up again. Only the address is picked up on its own,
 because it is the one an operator changes from the screen that the address is serving.
 
@@ -293,6 +298,15 @@ logs that a restart is due and keeps the old listener. The unit `foxxycode serve
 sets that variable, plus `SuccessExitStatus=75` and `RestartForceExitStatus=75`, so the
 restart is not recorded as a failure. A unit or a supervisor of your own needs the
 variable too.
+
+A process started as a swarm relay alone opens no session store, so the HTTP server, the
+gateway and the scheduler - the surfaces that run agent turns - cannot start in it; a
+reload that turns one of them on asks for a fresh process the same way, or says a restart
+is due. A change that needs a fresh process is weighed before anything in it is applied:
+it goes through the pre-flight a fresh process runs, and one that pre-flight would refuse,
+such as a surface this binary was built without, is refused whole. Nothing is stopped,
+started or rebuilt, the log names the reason, and the process is not restarted into a
+configuration nothing can start.
 
 ## Which form to use
 

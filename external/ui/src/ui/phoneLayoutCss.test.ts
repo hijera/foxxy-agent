@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 // @ts-ignore -- shared source composition is plain JavaScript.
 import { readStyleSource } from "../../postcss-fork-styles.mjs";
 
-import { PHONE_MAX_WIDTH_PX } from "./shellBreakpoint";
+import { PHONE_MAX_WIDTH_PX, SHELL_STACK_MAX_WIDTH_PX } from "./shellBreakpoint";
 
 // jsdom does no layout, so the phone layout is pinned here by its rules; the
 // live check at 360-430px (docs/surfaces/web-ui.md, Phone layout) measures it.
@@ -184,6 +184,15 @@ describe("phone settings", () => {
     expectDecl(head, "justify-content", /^flex-end$/);
     expectDecl(declarations(phone, ".mcp-list-item-text"), "flex-basis", /^calc\(100% - var\(--mcp-row-inset\)\)$/);
   });
+
+  test("a map row puts the value under the name instead of squeezing both", () => {
+    // Side by side the name of a default header was 82px at 390px and
+    // User-Agent read "User-Ag". On a phone the pair stacks, and the pairs
+    // stand further apart than the two fields of one pair.
+    expectDecl(declarations(topLevel, ".settings-map-entry"), "grid-template-columns", /^minmax\(0,\s*2fr\) minmax\(0,\s*3fr\)$/);
+    expectDecl(declarations(phone, ".settings-map-entry"), "grid-template-columns", /^minmax\(0,\s*1fr\)$/);
+    expectDecl(declarations(phone, ".settings-map"), "gap", /^16px$/);
+  });
 });
 
 describe("text fields do not make iOS Safari zoom", () => {
@@ -212,4 +221,25 @@ test("Android resizes the layout for the on-screen keyboard, so the docked compo
   expect(meta).not.toBeNull();
   expect(meta![1]).toMatch(/width=device-width/);
   expect(meta![1]).toMatch(/interactive-widget=resizes-content/);
+});
+
+// The alert about an environment that does not answer is fixed at the top of
+// the page. On the stacked shell the rail is a top bar fixed there too, above
+// it, so the alert sat behind the bar and only its button showed (issue #401).
+describe("the environment banner on the stacked shell", () => {
+  const stacked = mediaBlocks(
+    new RegExp(`^@media\\s*\\(max-width:\\s*${SHELL_STACK_MAX_WIDTH_PX}px\\)\\s*$`),
+  );
+
+  test("hangs under the top bar rather than behind it", () => {
+    expectDecl(declarations(stacked, ".env-health-banner"), "top", /^var\(--foxxycode-mobile-bar-h\)$/);
+  });
+
+  test("moves everything the top inset places down by its own height", () => {
+    expectDecl(
+      declarations(stacked, ".shell"),
+      "--foxxycode-mobile-top-inset",
+      /var\(--foxxycode-mobile-bar-h\)\s*\+\s*var\(--foxxycode-env-banner-h,\s*0px\)/,
+    );
+  });
 });

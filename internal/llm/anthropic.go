@@ -127,11 +127,15 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		input string
 	}
 	toolUseMap := make(map[int64]*toolUseAccum)
+	// toolUseOrder keeps the content-block indexes of the tool_use blocks in
+	// the order they started. The indexes are block positions in the message,
+	// so a text block before a tool call makes the call's index 1, not 0.
+	var toolUseOrder []int64
 
 	finalizeAnthropicToolUses := func() []ToolCall {
 		var out []ToolCall
-		for i := int64(0); i < int64(len(toolUseMap)); i++ {
-			acc, ok := toolUseMap[i]
+		for _, idx := range toolUseOrder {
+			acc, ok := toolUseMap[idx]
 			if !ok {
 				continue
 			}
@@ -173,6 +177,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				// this is the Anthropic twin of the openai tool-argument case.
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
+					// Argument fragments stay on emit: a retry after them would
+					// replay the fragments into the same progress state, doubling
+					// the counts. The announcement alone bypasses emit.
 					emit(StreamChunk{ToolCallDelta: &ToolCall{ID: acc.id, Name: acc.name, InputJSON: d.PartialJSON}})
 				}
 				progress()
@@ -181,11 +188,17 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.ContentBlockStartEvent:
 			cb := e.ContentBlock
 			if cb.Type == "tool_use" {
+				if _, seen := toolUseMap[e.Index]; !seen {
+					toolUseOrder = append(toolUseOrder, e.Index)
+				}
 				toolUseMap[e.Index] = &toolUseAccum{
 					id:   cb.ID,
 					name: cb.Name,
 				}
-				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: cb.ID, Name: cb.Name}})
+				// An announcement is a hint, not output: it goes to onChunk
+				// directly, as the openai path does, so a stream cut while the
+				// arguments are still arriving stays replayable.
+				onChunk(StreamChunk{ToolCallNamed: &ToolCall{ID: cb.ID, Name: cb.Name}})
 			}
 			progress()
 
@@ -224,6 +237,29 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					CachedInputTokens:  cachedInputTokens,
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
+		}
+		// The SDK decodes every framed event with json.Unmarshal, so an event
+		// whose JSON stops short surfaces here as a syntax error at the end
+		// of its input: a cut inside the event (issue #384), held to the
+		// truncation contract of the branch below - the delivered text and
+		// thinking next to the error, no tool_use blocks, whose input may be
+		// cut mid-JSON, the decoder's error kept as the cause. With nothing
+		// delivered the truncation error goes back alone, unlike the stall
+		// branch, whose transport wrapper carries the guard's own error: here
+		// the decoder's error is the more specific cause.
+		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
+			truncErr := fmt.Errorf("anthropic stream: %w", trunc)
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+				return &Response{
+					Content:            fullContent,
+					Reasoning:          thinkingBuf.String(),
+					ReasoningSignature: thinkingSig,
+					InputTokens:        inputTokens,
+					OutputTokens:       outputTokens,
+					CachedInputTokens:  cachedInputTokens,
+				}, truncErr
+			}
+			return nil, truncErr
 		}
 		// Same transport wrapper as the openai path: the emitted flag lets
 		// classification retry status-less failures only while nothing was
@@ -282,23 +318,7 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 
 		switch m.Role {
 		case RoleUser:
-			if len(m.ImageParts) > 0 {
-				var blocks []anthropic.ContentBlockParamUnion
-				if m.Content != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
-				}
-				for _, ip := range m.ImageParts {
-					if mediaType, b64, ok := splitImageDataURL(ip.DataURL); ok {
-						blocks = append(blocks, anthropic.NewImageBlockBase64(mediaType, b64))
-					}
-				}
-				if len(blocks) == 0 {
-					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
-				}
-				result = append(result, anthropic.NewUserMessage(blocks...))
-			} else {
-				result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
-			}
+			result = append(result, anthropic.NewUserMessage(anthropicUserBlocks(m)...))
 
 		case RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
@@ -329,6 +349,31 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 	}
 
 	return system, result
+}
+
+// anthropicUserBlocks is a user message as the Messages API takes it: the
+// text, with every attached file that is not a picture appended as a labelled
+// block the way the other providers carry it, then the pictures as image
+// blocks - base64 data from a data URL, an https address as it is. A message
+// of pictures alone sends no empty text block, which the API refuses.
+func anthropicUserBlocks(m Message) []anthropic.ContentBlockParamUnion {
+	text := m.Content
+	var images []anthropic.ContentBlockParamUnion
+	for _, ip := range m.ImageParts {
+		kind, mime, payload := sortAttachment(ip)
+		switch {
+		case kind == attachedPicture && payload != "":
+			images = append(images, anthropic.NewImageBlockBase64(mime, payload))
+		case kind == attachedPicture:
+			images = append(images, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: ip.DataURL}))
+		default:
+			text += attachmentText(ip, kind, mime)
+		}
+	}
+	if text == "" && len(images) > 0 {
+		return images
+	}
+	return append([]anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(text)}, images...)
 }
 
 func (p *anthropicProvider) buildParams(system string, messages []anthropic.MessageParam, tools []ToolDefinition) anthropic.MessageNewParams {

@@ -41,6 +41,12 @@ func (a *Agent) setContextBreakdown(b *session.ContextBreakdown, persist bool) {
 	}
 	cp := *b
 	cp.Sum()
+	if previous := rs.GetLastContextBreakdown(); previous != nil && cp.ProviderInputTokens == 0 &&
+		previous.ProviderModel == a.state.EffectiveModelID(a.cfg) {
+		cp.ProviderInputTokens = previous.ProviderInputTokens
+		cp.ProviderEstimateTokens = previous.ProviderEstimateTokens
+		cp.ProviderModel = previous.ProviderModel
+	}
 	rs.SetLastContextBreakdown(&cp)
 
 	if persist {
@@ -147,7 +153,42 @@ func (a *Agent) refreshConversationContextUsage(persist bool) {
 		b = &session.ContextBreakdown{}
 	}
 	visible := a.prunedForLLM(a.llmVisibleMessages())
-	b.Conversation = session.EstimateTokens(conversationText(visible))
-	b.Summary = session.EstimateTokens(compactionSummaryText(visible))
+	b.Conversation = conversationTokens(visible, a.modelReadsImages())
+	b.Summary = session.EstimateContextTokens(compactionSummaryText(visible))
 	a.setContextBreakdown(b, persist)
+}
+
+// recordProviderInputTokens ties a provider's last input count to the prompt
+// estimate captured just before the request went out (estimateAtSend), so the
+// anchor always describes the same prompt the provider counted. A zero count
+// means the provider did not report usage on this response; the previous
+// anchor is kept, because a missing reading says nothing about the context
+// size - the anchor only moves on a compaction or a model change.
+func (a *Agent) recordProviderInputTokens(tokens, estimateAtSend int) {
+	if tokens <= 0 {
+		return
+	}
+	rs, ok := a.state.(rulesState)
+	if !ok {
+		return
+	}
+	b := rs.GetLastContextBreakdown()
+	if b == nil {
+		return
+	}
+	b.ProviderInputTokens = tokens
+	b.ProviderEstimateTokens = estimateAtSend
+	b.ProviderModel = a.state.EffectiveModelID(a.cfg)
+	rs.SetLastContextBreakdown(b)
+}
+
+func (a *Agent) clearProviderInputTokens() {
+	if rs, ok := a.state.(rulesState); ok {
+		if b := rs.GetLastContextBreakdown(); b != nil {
+			b.ProviderInputTokens = 0
+			b.ProviderEstimateTokens = 0
+			b.ProviderModel = ""
+			rs.SetLastContextBreakdown(b)
+		}
+	}
 }

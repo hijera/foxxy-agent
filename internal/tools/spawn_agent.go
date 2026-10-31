@@ -26,7 +26,8 @@ func SpawnAgentTool() *tooling.Tool {
 				"By default the call waits and returns the child's final report; the user does not see that report, so restate what matters in your reply. " +
 				"With background:true it returns a task id at once, and the finished run wakes you with its report by default, so you can end your turn; " +
 				"background_wait or background_output collect it sooner and background_stop terminates it. Use it for work that would flood this context or for independent pieces that can run in parallel; " +
-				"do not delegate a one-step task you can do directly.",
+				"do not delegate a one-step task you can do directly. " +
+				"A run that stopped before its report (a provider failure, its timeout, its turn limit) keeps its transcript: continue it with resume instead of starting a new subagent on the same task.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -67,6 +68,12 @@ func SpawnAgentTool() *tooling.Tool {
 						"type":        "boolean",
 						"description": "For a background run: wake yourself with the outcome when it finishes (default true where available); set false explicitly to prevent a wake. A completed result you collect or a task you stop does not wake you again",
 					},
+					"resume": map[string]interface{}{
+						"type": "string",
+						"description": "Continue a finished run of this session instead of starting a new subagent: its task id (bg_...) or its child session id (sess_...) from an earlier spawn_agent result. " +
+							"The child keeps its transcript and takes prompt as its next message, so say only what it should do now (for example, go on from where it stopped). " +
+							"agent must name the same subagent; a run still in flight cannot be resumed",
+					},
 				},
 				"required": []interface{}{"agent", "prompt"},
 			},
@@ -85,6 +92,7 @@ type spawnAgentArgs struct {
 	ExpectedSeconds int    `json:"expected_seconds"`
 	TimeoutSeconds  int    `json:"timeout_seconds"`
 	NotifyOnFinish  *bool  `json:"notify_on_finish"`
+	Resume          string `json:"resume"`
 }
 
 func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -112,5 +120,6 @@ func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
 		NotifyOnFinish:  args.NotifyOnFinish == nil || *args.NotifyOnFinish,
+		Resume:          strings.TrimSpace(args.Resume),
 	})
 }

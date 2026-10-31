@@ -159,7 +159,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update** (pending file-writing calls may include `_meta.foxxycode.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution), **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **turn_progress** (`startedAt`, `elapsedMs`, `outputTokens`, `estimated` for the running turn, sent at start and while model output arrives), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **llm_retry** (`{\"phase\":\"waiting\",\"attempt\":1,\"delayMs\":60000}` then `{\"phase\":\"retrying\"}`, emitted only while a turn is parked between two attempts at the same model call because the provider produced no output — transient status, not a transcript row), **background_wake** (background tasks finished with **notify_on_finish**, enabled by default, and the server started a new agent turn carrying their outcomes), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`stop_notice`** when the turn stopped before its answer: the notice the answer has already streamed), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update** (pending file-writing calls may include `_meta.foxxycode.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution; a completed call that showed the model a picture, **read** on an image file, carries `_meta.foxxycode.images` with each picture's `name`, `mime_type`, `asset`, `url` and `preview_url`), **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **turn_progress** (`startedAt`, `elapsedMs`, `outputTokens`, `estimated` for the running turn, sent at start and while model output arrives), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **llm_retry** (`{\"phase\":\"waiting\",\"attempt\":1,\"delayMs\":60000}` then `{\"phase\":\"retrying\"}`, emitted only while a turn is parked between two attempts at the same model call because the provider produced no output — transient status, not a transcript row), **background_wake** (background tasks finished with **notify_on_finish**, enabled by default, and the server started a new agent turn carrying their outcomes), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`stop_notice`** when the turn stopped before its answer: the notice the answer has already streamed), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -234,6 +234,7 @@ func openAPISpec() map[string]interface{} {
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
 						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
 						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
+						"A row inside a git checkout also carries **repoRoot**, the main checkout path shared by its worktrees, so clients can group conversations by project. " +
 						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(foxxycodePagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
@@ -1279,10 +1280,36 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/info": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Which build serves this API, and where",
+					"description": "Names the version of the foxxycode binary serving this API, the same string `foxxycode -v` prints, and the host name of the machine it runs on. The web UI shows the version in the start screen's footer, for the server the page is talking to (the local one, a remote or a node reached through a relay), and names the machine the page runs on by its host name on the swarm map.",
+					"operationId": "foxxycodeInfoGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The build and the machine",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type":     "object",
+										"required": []string{"object", "version", "hostname"},
+										"properties": map[string]interface{}{
+											"object":   map[string]interface{}{"type": "string", "enum": []string{"foxxycode.info"}},
+											"version":  map[string]interface{}{"type": "string", "example": "1.2.35"},
+											"hostname": map[string]interface{}{"type": "string", "description": "The machine's host name; empty when the system does not say."},
+										},
+									},
+								},
+							},
+						},
+						"401": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers, and the **token** of an **`httpserver.remotes`** entry that carries one: the page presents it to that remote). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1674,8 +1701,8 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/subagents": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
-					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
-						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **role_bytes**) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**, and the hidden orchestrator **crossreview**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **spawns**, **role_bytes**; a bound the file does not declare is absent, which means it inherits) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. The role body itself is never served. Errors are **`{\"error\":{\"message\"}}`** JSON. " +
 						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
 					"operationId": "listSubagents",
 					"parameters": []interface{}{
@@ -2186,7 +2213,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/export": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Export the session transcript as a downloadable document",
-					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool/system rows are omitted — into the requested **format** and returns it as a `Content-Disposition: attachment` download. GitHub-flavoured markdown in message content is preserved across formats: headings, emphasis, strikethrough, links (with their targets), nested and task lists, blockquotes, thematic breaks, syntax-highlighted code blocks, and **tables**, which render as real tables rather than rows of pipe characters. Images that resolve to a file in the session's own assets directory are embedded in the document (as a `data:` URI in **html**); remote URLs are never fetched at export time and render as a caption plus a link. The **html**, **pdf** and **docx** documents drop the ambient editor state the agent appends to each user turn (the `<foxxycode_ide_context>` active-file / open-tabs block and the `<foxxycode_terminal_context>` summary), and render the `<foxxycode_session_assets>` uploads wrapper as an **Attachments** section rather than as raw XML; **json** keeps everything verbatim for re-import. The disposition carries an ASCII `filename` plus an RFC 8187 `filename*=UTF-8''…` so non-Latin titles survive. The bundled UI only exposes this action once at least one assistant answer exists; the server applies the same guard and returns **404** for a session that has none.",
+					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool arguments, tool output text and system rows are omitted, while uploaded images and pictures returned by tools remain as dialogue attachments — into the requested **format** and returns it as a `Content-Disposition: attachment` download. GitHub-flavoured markdown in message content is preserved across formats: headings, emphasis, strikethrough, links (with their targets), nested and task lists, blockquotes, thematic breaks, syntax-highlighted code blocks, and **tables**, which render as real tables rather than rows of pipe characters. Images that resolve to a file in the session's own assets directory are embedded in the document (as a `data:` URI in **html**); remote URLs are never fetched at export time and render as a caption plus a link. The **html**, **pdf** and **docx** documents drop the ambient editor state the agent appends to each user turn (the `<foxxycode_ide_context>` active-file / open-tabs block and the `<foxxycode_terminal_context>` summary), and render the `<foxxycode_session_assets>` uploads wrapper as an **Attachments** section rather than as raw XML; **json** keeps transcript text verbatim and lists picture paths in `entries[].attachments`; it does not embed image bytes. With `tools=true`, tool pictures remain under `entries[].tool_calls[].pictures` instead of being repeated as attachments. The disposition carries an ASCII `filename` plus an RFC 8187 `filename*=UTF-8''…` so non-Latin titles survive. The bundled UI only exposes this action once at least one assistant answer exists; the server applies the same guard and returns **404** for a session that has none.",
 					"operationId": "exportSession",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
@@ -2197,6 +2224,20 @@ func openAPISpec() map[string]interface{} {
 							"description": "Output format.",
 							"schema":      map[string]interface{}{"type": "string", "enum": []string{"json", "html", "pdf", "docx"}},
 						},
+						map[string]interface{}{
+							"name":        "tools",
+							"in":          "query",
+							"required":    false,
+							"description": "Keep the tool calls and their output in the document (`tools=true` or `tools=1`). Off by default: the panel exports the dialogue alone.",
+							"schema":      map[string]interface{}{"type": "boolean", "default": false},
+						},
+						map[string]interface{}{
+							"name":        "no_thinking",
+							"in":          "query",
+							"required":    false,
+							"description": "Leave out the assistant's reasoning blocks (`no_thinking=true` or `no_thinking=1`).",
+							"schema":      map[string]interface{}{"type": "boolean", "default": false},
+						},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -2206,10 +2247,9 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"session_id":  map[string]string{"type": "string"},
-											"title":       map[string]string{"type": "string"},
-											"exported_at": map[string]string{"type": "string"},
-											"messages":    map[string]interface{}{"type": "array", "items": map[string]string{"type": "object"}},
+											"version": map[string]string{"type": "integer"},
+											"session": map[string]interface{}{"type": "object", "description": "Session metadata: id, title, exported_at, cwd (the workspace), model and transcript counts."},
+											"entries": map[string]interface{}{"type": "array", "description": "Transcript entries; user uploads and tool pictures appear in attachments (path, optional name) when tool details are omitted.", "items": map[string]string{"type": "object"}},
 										},
 									},
 								},
@@ -2276,7 +2316,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/assets/{name}/thumbnail": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Read a persisted session image thumbnail",
-					"description": "Returns the bounded PNG preview created for an uploaded image. The asset name comes from a user message **`files[].preview_url`**; arbitrary original asset bytes are not exposed by this route.",
+					"description": "Returns the bounded PNG preview created for an uploaded image or for a picture a tool call showed the model. The asset name comes from **`files[].preview_url`** of a user or tool message; arbitrary original asset bytes are not exposed by this route.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "name", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
@@ -2324,7 +2364,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself. Emits **event: session_rewound** with **`{object, sessionId, messagesRev}`** after a rewind, so watching clients reload their transcripts. Emits **event: session_settings** with **`{object, sessionId, settings, notice, source}`** whenever any surface changes session settings; **settings.version** lets clients discard older snapshots.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"foxxycode.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /foxxycode/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /foxxycode/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"foxxycode.session_rewound\", sessionId, messagesRev}`**) after a **POST /foxxycode/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"foxxycode.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /foxxycode/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"foxxycode.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /foxxycode/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /foxxycode/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"foxxycode.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /foxxycode/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -2688,7 +2728,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. A prompt persisted by a turn that no longer runs (a restart, a stream that ended) is answered here as well: the answer resumes that turn in the background on the composer relay, and a prompt the resumed turn raises is asked the way a woken turn's is - an **http_request** whose **tools.http_request.default_headers** changed since its prompt is asked again with the request it would send now. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3236,13 +3276,13 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/sync": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Sync remote skill sources",
-					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory, then refreshes every marketplace added with `plugin marketplace add` and reinstalls only the plugins installed from it. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
 					"operationId": "syncSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "source", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Sync only this marketplace source; omit to sync all configured sources.",
+							"description": "Sync only this source; a marketplace added with `plugin marketplace add` refreshes only the plugins installed from it. Omit to sync everything.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -3326,7 +3366,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/available": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List installable marketplace plugins",
-					"description": "Fetches every configured marketplace manifest (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
+					"description": "Fetches the manifest of every configured source and of every marketplace added with `plugin marketplace add` (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
 					"operationId": "listAvailablePlugins",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
@@ -3337,7 +3377,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/install": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Install one plugin from a marketplace",
-					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises).",
+					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises). Answers 400 when the plugin or the source is unknown, and when nothing could be installed (an archive refused, a plugin without skills), with the reason in the error message.",
 					"operationId": "installPlugin",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3363,7 +3403,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/updates": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Check installed remote skills for updates",
-					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists.",
+					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update.",
 					"operationId": "checkSkillUpdates",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -3381,7 +3421,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/{name}/update": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Update a skill to its latest version",
-					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. Fails with 400 when the skill was not installed from a remote source.",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace added with `plugin marketplace add` reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source.",
 					"operationId": "updateSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3424,7 +3464,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. A codex or devin row that is not the row the machine-wide CLI login of its type stands in for (**`cli_login_row`** on **GET /foxxycode/providers/{name}/codex-auth**) and holds no sign-in of its own answers **`{ok:false}`** without the backend being contacted - one CLI login is one account and serves one row only. Returns **`{ok:true, models:[{id,name,vision,context_window}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token, listing every model the account is offered, asked as Codex release 0.999.0 so that a model the backend reserves for a recent Codex release is not left out). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. A codex or devin row that is not the row the machine-wide CLI login of its type stands in for (**`cli_login_row`** on **GET /foxxycode/providers/{name}/codex-auth**) and holds no sign-in of its own answers **`{ok:false}`** without the backend being contacted - one CLI login is one account and serves one row only. Returns **`{ok:true, models:[{id,name,vision,context_window}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3752,7 +3792,11 @@ func openAPISpec() map[string]interface{} {
 						"timeout_seconds": map[string]string{"type": "integer", "description": "The definition's own run limit; absent defers to the call and subagents.default_timeout_seconds."},
 						"max_turns":       map[string]string{"type": "integer", "description": "Cap on the child's ReAct rounds; absent follows subagents.max_turns, then agent.max_turns."},
 						"background":      map[string]string{"type": "boolean", "description": "The definition forces detached runs whatever the call asks for."},
-						"role_bytes":      map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
+						"spawns": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Spawn allowlist from the frontmatter (same pattern syntax as tools): names the child may delegate to, including one level past subagents.max_depth. Honored for builtin and user scope only; a project definition's declaration is shown but ignored.",
+						},
+						"role_bytes": map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
 					},
 					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
 				},
@@ -3852,7 +3896,7 @@ func openAPISpec() map[string]interface{} {
 						"description": map[string]string{"type": "string"},
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
-						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else the SKILL.md frontmatter version. Absent when unknown."},
+						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else `sha256:` and the first 12 hex digits of the archive for a plugin installed from a zip archive, else the SKILL.md frontmatter version. Absent when unknown."},
 						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
 						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for bundled skills, which cannot be deleted."},
 					},
@@ -3888,7 +3932,7 @@ func openAPISpec() map[string]interface{} {
 									"source":           map[string]string{"type": "string", "description": "Configured source it was installed from."},
 									"version":          map[string]string{"type": "string", "description": "Installed version."},
 									"latest":           map[string]string{"type": "string", "description": "Latest version declared by the source."},
-									"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version."},
+									"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version, or, when either is an archive digest (`sha256:` and 12 hex digits), different from it."},
 								},
 							},
 						},
@@ -4212,7 +4256,7 @@ func openAPISpec() map[string]interface{} {
 						"files": map[string]interface{}{
 							"type":        "array",
 							"readOnly":    true,
-							"description": "FoxxyCode transcript extension for uploaded files on a user row.",
+							"description": "FoxxyCode transcript extension: the files uploaded with a user row, and on a tool row the pictures its call showed the model (read on an image file), which the bundled UI previews on the call's row.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeMessageFile"},
 						},
 						"tool_call_id": map[string]string{"type": "string"},
@@ -4238,6 +4282,10 @@ func openAPISpec() map[string]interface{} {
 						"preview_url": map[string]interface{}{
 							"type":        "string",
 							"description": "Session-scoped URL for a bounded PNG preview; present only when the backend persisted a decodable image thumbnail.",
+						},
+						"url": map[string]interface{}{
+							"type":        "string",
+							"description": "Session-scoped URL of the original bytes (GET /foxxycode/sessions/{id}/assets/{name}); present while the asset is still in the session's bundle.",
 						},
 					},
 					"required": []string{"name", "mime_type"},
@@ -4703,8 +4751,9 @@ func openAPISpec() map[string]interface{} {
 							"description": "Path of the interpreter run_command executes through on the server host.",
 							"example":     "/usr/bin/bash",
 						},
-						"repo_root": map[string]string{"type": "string"},
-						"branch":    map[string]string{"type": "string"},
+						"repo_root":   map[string]string{"type": "string"},
+						"base_branch": map[string]string{"type": "string"},
+						"branch":      map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]string{"type": "string"},

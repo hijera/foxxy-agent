@@ -129,8 +129,8 @@ export function dedupeAdjacentDuplicateThinkingCompleted(
  * server length), append the local tail so the UI keeps streaming text until reload.
  * When lengths match, replace the last assistant row if local has a longer body.
  *
- * Notices the server keeps at the end of a turn (`uiLog`: a settings change made
- * from the permission dialog, an error) can be persisted while the turn is still
+ * Notices the server keeps at the end of a turn (`uiLog`: a settings change the
+ * agent made itself, an error) can be persisted while the turn is still
  * streaming - before the answer the live view is already showing. Such a trailing
  * notice the local list does not hold yet takes no part in the prefix comparison:
  * it goes after the local tail, instead of making the snapshot look like a

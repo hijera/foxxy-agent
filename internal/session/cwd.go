@@ -90,17 +90,33 @@ func (m *Manager) SetSessionWorkspace(ctx context.Context, st *State, dir string
 		return err
 	}
 	defer unlock()
+	return m.setSessionWorkspaceDuringTurn(ctx, st, abs)
+}
+
+// SetSessionWorkspaceDuringTurn moves a session whose caller owns its turn lock.
+// Startup remains asynchronous, but the next model step waits for its new servers.
+func (m *Manager) SetSessionWorkspaceDuringTurn(ctx context.Context, st *State, dir string) error {
+	abs, err := ValidateWorkspaceDir(dir)
+	if err != nil {
+		return err
+	}
+	if err := m.setSessionWorkspaceDuringTurn(ctx, st, abs); err != nil {
+		return err
+	}
+	return st.WaitMCPReady(ctx)
+}
+
+func (m *Manager) setSessionWorkspaceDuringTurn(ctx context.Context, st *State, abs string) error {
 	prevCWD := st.GetCWD()
 	st.SetCWD(abs)
 	if SameWorkspacePath(prevCWD, abs) {
 		return nil
 	}
 	// Keep slow MCP handshakes off the request path; the next turn waits for readiness.
-	settle, publish := st.beginConfiguredMCPConnectWithPublisher()
-	go func() {
-		defer settle()
-		m.startConfiguredMCPServersWithPublisher(context.Background(), st, abs, publish)
-	}()
+	m.supersedeBackgroundMCP(st)
+	st.replaceConfiguredMCPClients(nil)
+	st.resetMCPNoAnswer()
+	m.startBackgroundMCPConnect(st)
 	m.reloadWorkspaceCatalogs(ctx, st)
 	return nil
 }

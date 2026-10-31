@@ -93,11 +93,10 @@ func NewClient(opts JoinOptions) (*Client, error) {
 		return nil, fmt.Errorf("swarm join: relay url is required")
 	}
 	if strings.TrimSpace(opts.Name) == "" {
-		host, err := os.Hostname()
-		if err != nil || strings.TrimSpace(host) == "" {
+		opts.Name = HostNodeName()
+		if opts.Name == "" {
 			return nil, fmt.Errorf("swarm join: name is required and the host name is unavailable")
 		}
-		opts.Name = sanitiseNodeName(host)
 	}
 	if err := ValidateNodeName(opts.Name); err != nil {
 		return nil, fmt.Errorf("swarm join: %w", err)
@@ -346,6 +345,17 @@ func randomID() (string, error) {
 
 // sanitiseNodeName turns a host name into something usable as a path segment,
 // since that is what a node name becomes on every hop.
+// HostNodeName is the name a node or a relay goes by when its configuration
+// gives it none: the machine's host name, cut to the characters a node name
+// may hold. Empty when the system reports no host name.
+func HostNodeName() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return sanitiseNodeName(strings.TrimSpace(host))
+}
+
 func sanitiseNodeName(host string) string {
 	var b strings.Builder
 	for _, r := range host {

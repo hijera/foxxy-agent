@@ -67,11 +67,15 @@ func Serve(ctx context.Context, opts Options) error {
 		s.AttachBackgroundWaker()
 	}
 
-	tokenOn := len(opts.Cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0
+	// From here on the server's own configuration is the one to read: New
+	// caught up with any replacement the manager made after opts.Cfg was
+	// taken, which the warnings and the relays joined below have to see too.
+	cfg := s.activeCfg()
+	tokenOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0
 	loginOn := s.loginPolicyNow().enabled
 	authOn := tokenOn || loginOn
 	effHost, _, _ := net.SplitHostPort(opts.ListenAddr)
-	if !authOn && !opts.Cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
+	if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
 		log.Warn("HTTP API is reachable without authentication",
 			"addr", opts.ListenAddr,
 			"hint", "sign-in for the browser: `foxxycode serve set-password`, or "+LoginUserEnvVar+" / "+LoginPasswordEnvVar+"; "+
@@ -92,7 +96,7 @@ func Serve(ctx context.Context, opts Options) error {
 	// Joining a relay is what makes this agent reachable from a swarm. It runs
 	// alongside the listener rather than before it, because the relay may dial
 	// straight back and should find the API already up.
-	stopSwarm := startSwarmJoins(ctx, opts.Cfg, opts.Home, s.Handler(), log)
+	stopSwarm := startSwarmJoins(ctx, cfg, opts.Home, s.Handler(), log)
 	defer stopSwarm()
 
 	srv := httpx.NewServer(opts.ListenAddr, s.Handler())

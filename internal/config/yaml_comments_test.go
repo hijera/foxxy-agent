@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // documentedConfig is the shape of a hand-maintained config: a leading block with the
@@ -323,6 +326,31 @@ func TestSettingsSaveWithoutEditsLeavesTheFileAsItWas(t *testing.T) {
 	}
 }
 
+// A remote's token written as an environment reference stays one: the page reads the
+// expanded token to talk to the remote and sends it back with the next save, and that
+// save must not write the secret into the file in its place (issue #401).
+func TestSettingsSaveKeepsARemoteTokenSpelledAsAnEnvironmentReference(t *testing.T) {
+	t.Setenv("FOXXYCODE_TEST_RELAY_TOKEN", "relay-client")
+	live, raw := settingsSaveFixture(t, spelledConfig+`httpserver:
+  remotes:
+    - name: office-relay
+      url: http://relay.lan:12346
+      token: ${FOXXYCODE_TEST_RELAY_TOKEN}
+`)
+	if got := live.HTTPServer.Remotes[0].Token; got != "relay-client" {
+		t.Fatalf("remote token = %q, want the environment's value", got)
+	}
+	got := saveFromSettings(t, live, func(doc map[string]any) {
+		object(t, doc, "agent")["max_turns"] = 41
+	})
+	if !strings.Contains(got, "token: ${FOXXYCODE_TEST_RELAY_TOKEN}") || strings.Contains(got, "relay-client") {
+		t.Errorf("the save wrote the remote's token instead of its reference:\n%s", got)
+	}
+	if strings.Contains(raw, "max_turns: 41") || !strings.Contains(got, "max_turns: 41") {
+		t.Errorf("the edit next to the remote did not land:\n%s", got)
+	}
+}
+
 // A value the operator changed is written the way they typed it, in a single value and
 // in a list alike; the values around it keep their spelling.
 func TestSettingsSaveWritesAChangedPathAsTyped(t *testing.T) {
@@ -617,5 +645,143 @@ func TestSettingsSaveKeepsWhatAnotherSaveWroteAfterTheRead(t *testing.T) {
 	want := strings.Replace(onDisk, "dir: ${FOXXYCODE_HOME}/memory", "dir: "+filepath.Clean("/srv/memory"), 1)
 	if string(out) != want {
 		t.Errorf("saved config:\n%s\nwant:\n%s", out, want)
+	}
+}
+
+// tools.http_request.default_headers is a map the form edits row by row. A save
+// without edits leaves it as written - the order, the quotes and a header left
+// empty on purpose - and a save that changes, removes and adds headers writes
+// exactly that, the untouched headers staying where they were.
+func TestSettingsSaveEditsTheDefaultHeaders(t *testing.T) {
+	raw := `# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json
+tools:
+  http_request:
+    default_headers:
+      X-Client: foxxycode-lab
+      User-Agent: ""
+      Accept: application/json
+`
+	live, raw := settingsSaveFixture(t, raw)
+	if got := saveFromSettings(t, live, nil); got != raw {
+		t.Errorf("a save without edits rewrote the headers:\n%s\nwant:\n%s", got, raw)
+	}
+	got := saveFromSettings(t, live, func(doc map[string]any) {
+		headers, ok := object(t, object(t, doc, "tools"), "http_request")["default_headers"].(map[string]any)
+		if !ok {
+			t.Fatalf("the served document has no default_headers map: %#v", doc["tools"])
+		}
+		headers["Accept"] = "application/manifest+json"
+		delete(headers, "X-Client")
+		headers["X-Trace"] = "abc-123"
+	})
+	var saved struct {
+		Tools struct {
+			HTTPRequest struct {
+				DefaultHeaders map[string]string `yaml:"default_headers"`
+			} `yaml:"http_request"`
+		} `yaml:"tools"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &saved); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"User-Agent": "", "Accept": "application/manifest+json", "X-Trace": "abc-123"}
+	if !reflect.DeepEqual(saved.Tools.HTTPRequest.DefaultHeaders, want) {
+		t.Fatalf("saved headers %v, want %v:\n%s", saved.Tools.HTTPRequest.DefaultHeaders, want, got)
+	}
+	if strings.Index(got, "User-Agent") > strings.Index(got, "Accept") {
+		t.Errorf("the save reordered the headers the form left in place:\n%s", got)
+	}
+}
+
+// The headers of a map the form was served can change on disk before the save:
+// another save or config_set adds one, or removes one. A save that did not touch
+// them leaves them as the file has them - the added one stays, the removed one
+// stays removed - and an edit the form did make still wins.
+func TestSettingsSaveKeepsHeadersSomebodyElseAddedOrRemoved(t *testing.T) {
+	raw := `# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json
+tools:
+  http_request:
+    default_headers:
+      Accept: application/json
+      X-Old: gone-soon
+`
+	live, raw := settingsSaveFixture(t, raw)
+	onDisk := strings.Replace(raw, "      X-Old: gone-soon\n", "      X-Trace: abc-123\n", 1)
+	if err := os.WriteFile(live.Paths.ConfigPath, []byte(onDisk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	headersOf := func(saved string) map[string]string {
+		t.Helper()
+		var doc struct {
+			Tools struct {
+				HTTPRequest struct {
+					DefaultHeaders map[string]string `yaml:"default_headers"`
+				} `yaml:"http_request"`
+			} `yaml:"tools"`
+		}
+		if err := yaml.Unmarshal([]byte(saved), &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc.Tools.HTTPRequest.DefaultHeaders
+	}
+
+	untouched := saveFromSettings(t, live, func(doc map[string]any) {
+		object(t, doc, "agent")["max_turns"] = 7
+	})
+	if got, want := headersOf(untouched), map[string]string{"Accept": "application/json", "X-Trace": "abc-123"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a save that did not touch the headers wrote %v, want the file's %v:\n%s", got, want, untouched)
+	}
+
+	edited := saveFromSettings(t, live, func(doc map[string]any) {
+		headers := object(t, object(t, doc, "tools"), "http_request")["default_headers"].(map[string]any)
+		headers["X-Old"] = "edited"
+	})
+	if got, want := headersOf(edited), map[string]string{"Accept": "application/json", "X-Trace": "abc-123", "X-Old": "edited"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a save that edited a header removed since wrote %v, want %v:\n%s", got, want, edited)
+	}
+}
+
+// The same merge holds when a map empties or appears on one side: a form that
+// removed the last header it was served keeps a header written on disk since,
+// and a form that adds the first header of a map keeps one written on disk since.
+func TestSettingsSaveMergesHeadersAcrossAnEmptyMap(t *testing.T) {
+	headersOf := func(saved string) map[string]string {
+		t.Helper()
+		var doc struct {
+			Tools struct {
+				HTTPRequest struct {
+					DefaultHeaders map[string]string `yaml:"default_headers"`
+				} `yaml:"http_request"`
+			} `yaml:"tools"`
+		}
+		if err := yaml.Unmarshal([]byte(saved), &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc.Tools.HTTPRequest.DefaultHeaders
+	}
+	const modeline = "# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json\n"
+
+	live, raw := settingsSaveFixture(t, modeline+"tools:\n  http_request:\n    default_headers:\n      X-Old: gone-soon\n")
+	onDisk := strings.Replace(raw, "      X-Old: gone-soon\n", "      X-Old: gone-soon\n      X-New: added\n", 1)
+	if err := os.WriteFile(live.Paths.ConfigPath, []byte(onDisk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	emptied := saveFromSettings(t, live, func(doc map[string]any) {
+		object(t, object(t, doc, "tools"), "http_request")["default_headers"] = map[string]any{}
+	})
+	if got, want := headersOf(emptied), map[string]string{"X-New": "added"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a form that removed its last header wrote %v, want %v:\n%s", got, want, emptied)
+	}
+
+	live, raw = settingsSaveFixture(t, modeline+"agent:\n  max_turns: 40\n")
+	onDisk = raw + "tools:\n  http_request:\n    default_headers:\n      X-Disk: added\n"
+	if err := os.WriteFile(live.Paths.ConfigPath, []byte(onDisk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := saveFromSettings(t, live, func(doc map[string]any) {
+		object(t, object(t, doc, "tools"), "http_request")["default_headers"] = map[string]any{"X-Form": "added"}
+	})
+	if got, want := headersOf(first), map[string]string{"X-Disk": "added", "X-Form": "added"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a form that added the first header wrote %v, want %v:\n%s", got, want, first)
 	}
 }

@@ -169,14 +169,21 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			// is collected on .done, so this only names it.
 			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
 				streamingCalls[ev.Item.ID] = ToolCall{ID: ev.Item.CallID, Name: ev.Item.Name}
-				emit(StreamChunk{ToolCallNamed: &ToolCall{
-					ID:   ev.Item.CallID,
-					Name: ev.Item.Name,
-				}})
+				// An announcement is a hint, not output: onChunk directly, as the
+				// openai path does, so a stream cut mid-arguments stays replayable.
+				if onChunk != nil {
+					onChunk(StreamChunk{ToolCallNamed: &ToolCall{
+						ID:   ev.Item.CallID,
+						Name: ev.Item.Name,
+					}})
+				}
 			}
 		case "response.function_call_arguments.delta":
 			if tc, ok := streamingCalls[ev.ItemID]; ok && ev.Delta.OfString != "" {
 				tc.InputJSON = ev.Delta.OfString
+				// Argument fragments stay on emit: a retry after them would
+				// replay the fragments into the same progress state, doubling
+				// the counts. The announcement alone bypasses emit.
 				emit(StreamChunk{ToolCallDelta: &tc})
 			}
 		case "response.output_item.done":
@@ -238,6 +245,24 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		}
 	}
 
+	// partialWithoutTools is what a cut answer hands back next to its error:
+	// the text and reasoning already delivered, never the tool calls, which
+	// must not run on the strength of an answer that never finished; nil when
+	// nothing worth keeping arrived.
+	partialWithoutTools := func() *Response {
+		if strings.TrimSpace(fullContent) == "" && strings.TrimSpace(reasoning) == "" {
+			return nil
+		}
+		return &Response{
+			Content:            fullContent,
+			Reasoning:          reasoning,
+			ReasoningSignature: p.encodeReasoningItems(reasoningItems),
+			InputTokens:        inputTokens,
+			OutputTokens:       outputTokens,
+			CachedInputTokens:  cachedInputTokens,
+		}
+	}
+
 	if err := stream.Err(); err != nil {
 		err = codexRequestError(err)
 		if errors.Is(err, context.Canceled) && (strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0) {
@@ -251,6 +276,16 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				OutputTokens:       outputTokens,
 				CachedInputTokens:  cachedInputTokens,
 			}, fmt.Errorf("codex stream: %w", err)
+		}
+		// The SDK decodes every framed event with json.Unmarshal, so an event
+		// whose JSON stops short surfaces here as a syntax error at the end
+		// of its input. That is a cut inside the event (issue #384), the
+		// terminal event itself included, and it takes the contract of a
+		// stream cut short of its terminal event: the delivered text and
+		// reasoning next to a truncation error, no tool calls, the decoder's
+		// error kept as the cause.
+		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
+			return partialWithoutTools(), fmt.Errorf("codex stream: %w", trunc)
 		}
 		// Same transport wrapper as the openai and anthropic paths: a failure
 		// mid-read is retried only while nothing reached the caller, and an
@@ -269,17 +304,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			// deltas reached the caller no retry replays them.
 			streamErr = codexStreamEventError("response incomplete: "+incompleteReason, "", emitted)
 		}
-		if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoning) != "" {
-			return &Response{
-				Content:            fullContent,
-				Reasoning:          reasoning,
-				ReasoningSignature: p.encodeReasoningItems(reasoningItems),
-				InputTokens:        inputTokens,
-				OutputTokens:       outputTokens,
-				CachedInputTokens:  cachedInputTokens,
-			}, streamErr
-		}
-		return nil, streamErr
+		return partialWithoutTools(), streamErr
 	}
 
 	if stopReason == "" {
@@ -438,23 +463,25 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 				instructions = append(instructions, m.Content)
 			}
 		case RoleUser:
+			// A picture goes as an input_image part, the way the Codex CLI
+			// attaches one; any other file is decoded into the text as a
+			// labelled block.
 			text := m.Content
+			var images responses.ResponseInputMessageContentListParam
 			for _, ip := range m.ImageParts {
-				// The Codex backend text path cannot carry binary attachments; inline a
-				// decoded, labelled block for non-image files and note image URLs.
-				if strings.HasPrefix(dataURLMIME(ip.DataURL), "image/") {
+				kind, mime, _ := sortAttachment(ip)
+				if kind != attachedPicture {
+					text += attachmentText(ip, kind, mime)
 					continue
 				}
-				label := ip.Name
-				if label == "" {
-					label = "file"
-				}
-				text += fmt.Sprintf("\n\n[File: %s]\n%s", label, decodeDataURL(ip.DataURL))
+				image := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+				image.OfInputImage.ImageURL = openai.String(ip.DataURL)
+				images = append(images, image)
 			}
-			items = append(items, responses.ResponseInputItemParamOfInputMessage(
-				responses.ResponseInputMessageContentListParam{
-					responses.ResponseInputContentParamOfInputText(text),
-				}, "user"))
+			content := responses.ResponseInputMessageContentListParam{
+				responses.ResponseInputContentParamOfInputText(text),
+			}
+			items = append(items, responses.ResponseInputItemParamOfInputMessage(append(content, images...), "user"))
 		case RoleAssistant:
 			// Reasoning items come first: they precede the output they produced,
 			// which is the order the Responses API expects them replayed in.

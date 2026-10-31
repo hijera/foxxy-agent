@@ -3,6 +3,8 @@ package shell
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
@@ -28,6 +30,9 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 					"command": map[string]interface{}{
 						"type":        "string",
 						"description": "Shell command to execute",
+					},
+					"cwd": map[string]interface{}{
+						"type": "string", "description": "Optional directory for this command only, absolute or relative to the session workspace",
 					},
 					"permission_rationale": map[string]interface{}{
 						"type":        "string",
@@ -87,6 +92,7 @@ func shellDescription(commandShell platform.Shell) string {
 
 type runCommandArgs struct {
 	Command             string `json:"command"`
+	CWD                 string `json:"cwd"`
 	PermissionRationale string `json:"permission_rationale"`
 	TimeoutSeconds      int    `json:"timeout_seconds"`
 	Background          bool   `json:"background"`
@@ -102,6 +108,23 @@ func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooli
 	args, err := tooling.ParseArgs[runCommandArgs](argsJSON)
 	if err != nil {
 		return "", err
+	}
+	if env == nil {
+		return "", fmt.Errorf("run_command requires a workspace environment")
+	}
+	if args.CWD != "" {
+		cwd := args.CWD
+		if !filepath.IsAbs(cwd) {
+			cwd = filepath.Join(env.CWD, cwd)
+		}
+		cwd = filepath.Clean(cwd)
+		fi, err := os.Stat(cwd)
+		if err != nil || !fi.IsDir() {
+			return "", fmt.Errorf("command cwd is not a directory: %s", cwd)
+		}
+		copyEnv := *env
+		copyEnv.CWD = cwd
+		env = &copyEnv
 	}
 
 	if args.Background {

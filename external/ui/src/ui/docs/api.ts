@@ -1,3 +1,4 @@
+import { localFetch } from "../env/remoteEnv";
 /**
  * The documentation built into the binary (`GET /foxxycode/docs`,
  * `/foxxycode/docs/page`, `/foxxycode/docs/search`). The environment shim routes these
@@ -55,7 +56,10 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<DocsResul
   }
   let res: Response;
   try {
-    res = await fetch(path, init);
+    // The documentation is the local binary's: the page reads it from the
+    // server it was loaded from, never through a remote, a node or a relay
+    // (issue #401).
+    res = await localFetch(path, init);
   } catch (e) {
     if ((e as { name?: string })?.name === "AbortError") {
       throw e;

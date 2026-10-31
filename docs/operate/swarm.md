@@ -74,6 +74,16 @@ swarm:
 `swarm.join` is honoured by every `foxxycode serve` process, whether or not it runs a relay of its
 own. That symmetry is how relays chain.
 
+Set `swarm.join[].token` explicitly when possible; a credential dedicated to the parent relay is
+recommended, and an explicit value always wins. When a relay omits that token, it falls back to its
+configured `swarm.auth_token` so the parent can enter the child relay through its mount. Agents do
+not receive this fallback: an agent with no join token registers with no node credential.
+
+Names are optional. A join entry without `name` claims the host name of the machine it runs on
+(dots become dashes, since the name is a path segment), and a relay without `swarm.name` goes by
+its host name as well, in `/swarm/info`, on the map and in the routes of its sessions. Set a name
+when two machines share a host name, or when the host name says nothing useful.
+
 ## Two transports
 
 **Direct** — the relay dials the node's `advertise_url`. Use it when the relay can reach the
@@ -81,7 +91,8 @@ node.
 
 **Tunnel** — leave `advertise_url` out. The node dials the relay, the relay takes over that
 connection, and from then on the relay sends requests down it while the node answers them.
-This is the only way in when a network accepts no inbound connections.
+This is the only way in when a network accepts no inbound connections, a phone on a mobile
+network among them ([Android phones as swarm nodes](../tutorials/swarm-android-nodes.md)).
 
 The tunnel is prior-knowledge HTTP/2 over a connection that started as an ordinary HTTP
 request, so there is no bespoke frame protocol and no new dependency. Everything above the
@@ -192,39 +203,85 @@ like "this machine has no work".
 
 ## The UI
 
-Connecting is the ordinary environment flow: the chip in the composer, **Add remote**, the
-relay's address and its client token. Because the environment answers as a relay, a **Swarm**
-entry appears in the rail - on a plain agent it is not there at all.
+Connecting is the ordinary environment flow: the chip in the composer, **Connect to…**, the
+relay's address and its client token - or an entry of `httpserver.remotes` that names the relay,
+with its `token` when you keep it there ([Remote mode](remote.md#the-token)). A page served from
+another machine, a laptop's `foxxycode serve` for one, also needs its origin in the relay's
+`swarm.cors.allowed_origins`; the environment menu says so on the relay's line when that is what
+stands in the way, and lists the relay's agents once it accepts the token, so a node is one click
+away from the menu too. Because the environment answers as a relay, a **Swarm** entry appears in
+the rail - on a plain agent it is not there at all.
 
-The Swarm screen shows the topology, a search box that goes to the relay, node filter chips,
-and sessions grouped under the node that owns them.
+The Swarm screen shows the topology and a search box that goes to the relay. It opens in a dock as
+wide as the documentation reader's, and the map fills it.
 
-**A relay's home screen is the swarm.** A relay serves no `/foxxycode/*` at all - no sessions, no
-workspace, no model - so there is nothing for a composer to send to and nothing for a history
-drawer to list. Pointed at a relay the app therefore drops the chat screen, hides History and
+**Choose a layout, then explore the canvas.** The map starts in **Tree layout**, the rooted view
+that shows hop tiers. The **Graph layout** is a deterministic rooted graph for inspecting rings and
+cross-links: the relay is its root, or the local computer is the root when the map shows the machine
+that started the connection. It trends down by shortest-route depth without putting every hop on a
+rigid horizontal row, and its links are smooth curves. The choice belongs only to this browser,
+under localStorage key `foxxycode_swarm_layout`; it does not change the relay configuration or another
+browser. A saved legacy `star` value migrates to Graph; if the key is absent, unavailable or invalid,
+Tree remains the default.
+
+The map has Tree and Graph selectors plus **Zoom out**, **Fit graph**, and **Zoom in** controls.
+Wheel zoom centres on the pointer; drag pans in both axes even when the graph is fitted; two fingers
+pinch to zoom; and a drag or pinch does not activate a node. With the canvas focused, **`+`** or
+**`=`** zooms in, **`-`** zooms out, and **`0`** fits the entire graph. Canvas controls are 40px
+touch targets on the stacked shell. Fit resets the camera, as does changing the relay or layout;
+ordinary five-second topology polling does not discard a manual pan or zoom, though it keeps the
+camera inside changed graph bounds.
+
+![The map canvas in Tree layout, with the layout selectors and the zoom controls](../assets/swarm/map-dark-1280.png)
+
+*The map canvas: this machine, its relay and the node behind it, with the Tree and Graph selectors and the camera controls.*
+
+The route in use is an accent path. Every relay it crosses is outlined, with the relay the app is
+currently driving outlined more strongly; alternate routes remain visibly secondary. This makes a
+transit relay readable as part of the connection without implying that it is the selected target.
+
+**A relay's home screen is the swarm.** Of an agent's API a relay serves only its own settings
+(`/foxxycode/config*`) - no sessions, no workspace, no model, no documentation - so there is nothing
+for a composer to send to and nothing for a history drawer to list. Pointed at a relay the app therefore drops the chat screen, hides History and
 Scheduler in the rail, and shows the map instead. The environment selector moves into the
-map's header, since the composer that usually carries it is not on screen. Enter a node and
-all of it comes back, because the node does have those things.
+map's header, since the composer that usually carries it is not on screen. The selector remains in
+that header even while the map reports an error, including a relay that needs a token, so the
+operator can switch environments or supply the needed credentials. Enter a node and all of it
+comes back, because the node does have those things.
 
-**Working on a node.** Click a node on the map and the app points at that node's mount. From
-there every screen that already existed drives it - the history drawer lists that node's
-sessions, the composer shows its working directory and its model catalog - with a relay in the
-middle and nothing aware of it. A long conversation on the node is read page by page there too:
-each read names its page in the query string, which the mount carries to the node unchanged,
-over a tunnel as well ([Long sessions](../surfaces/web-ui.md#long-sessions)). Coming back to the map, that node is marked *you are here* and
-the route to it is drawn as one connected path.
+**Working on a node.** Click a node on the map and the app points at that node's mount, with the
+map left open over it until you choose what to do there. From there every screen that already
+existed drives it - the history drawer lists that node's
+sessions, the composer shows its working directory and its model catalog, Settings edits that
+node's configuration - with a relay in the middle and nothing aware of it. A long conversation on
+the node is read page by page there too: each read names its page in the query string, which the
+mount carries to the node unchanged, over a tunnel as well
+([Long sessions](../surfaces/web-ui.md#long-sessions)). The documentation reader is the one
+screen that stays with the page's own server: the pages are the ones the local binary carries.
+
+![The swarm map opened over a node, with the local machine the connection starts from](../assets/swarm/map-over-node-dark-1280.png)
+
+*The map opened over a node: the machine the page runs on at the top, the route to the node the app is on drawn as one path*
 
 **Watching from the map.** Each node says what it is doing, from the same aggregated session
 list the search uses: how many sessions it holds, how many turns are in flight, and whether
 something there is waiting on a permission prompt. Start work on several machines, come back to
-the map, and it says which of them finished and which is asking you a question. Clicking the one
-that is asking opens that very session rather than a blank chat.
+the map, and it says which of them finished and which is asking you a question. Click the one
+that is asking and the app switches to it with the map still open; its History shows the session
+that waits for you.
 
 **Going back and switching.** The Swarm entry stays in the rail while you are inside a node,
-because the relay you came through is remembered; clicking it returns to the swarm, where
-another node is one click away. Without that memory there would be no way back but to type
-the relay's address again: from inside a node, the relay's own routes are no longer under the
-base URL.
+because the relay you came through is remembered. It opens the relay's map over the node without
+leaving it: the map is read from the relay directly, with the same client token, and the node's
+History, Scheduler and chat stay where they are, so nothing reloads. On that map the node you are
+on carries a ring, as the relay's card does when you are on the relay, with the route to it drawn
+as one connected path; another node is one
+click away, and a click on the node you are on does nothing. A switch between nodes, or between a
+node and its relay, does not reload the page. Above the relay the map draws the
+machine the page runs on, named by its host name, as where the connection starts: a click on it
+goes back to Local. A click on the relay connects to the relay itself, and a relay chained under it
+opens on its own map, reached through this one. On the relay itself the relay is not a button:
+there is nothing to connect to.
 
 **Where the SPA comes from.** Built with `-tags "swarm ui"` the relay serves the console at its
 own address, so a relay is something you open in a browser. It is the same bundle a node
@@ -240,13 +297,39 @@ opened from any node and pointed at the relay.
 | Whether this process relays at all | `swarm.enable` in `config.yaml`, or `--swarm` / `--swarm=false` |
 | Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
 | Which relays this process joins | `swarm.join` in `config.yaml` - honoured whether or not this process relays |
-| Relays offered in the UI environment menu | `httpserver.remotes` (name and URL only; tokens stay in the browser) |
-| Credentials out of the file | `FOXXYCODE_SWARM_TOKEN`, `FOXXYCODE_SWARM_PAIRING_TOKEN`, `--auth-token`, `--pairing-token` |
+| Relays offered in the UI environment menu | `httpserver.remotes` of the page's server: name, URL and, optionally, the client token (`token`, best as a `${ENV}` reference) |
+| Pages served elsewhere that may call the relay | `swarm.cors` (`enable`, `allowed_origins`) |
+| Credentials out of the file | `FOXXYCODE_SWARM_TOKEN`, `FOXXYCODE_SWARM_PAIRING_TOKEN`, `--swarm-auth-token`, `--swarm-pairing-token` |
 
-There is deliberately **no Settings page for the relay**. It is a deployment - a bind address
-and credentials for a whole fleet - and a page served by one of its own nodes is the wrong
-place to edit that. Node credentials are never returned by a config read, and a save preserves
-them by destination, so editing anything else in Settings cannot strip them.
+**The relay's own Settings.** Opened on the relay (its map is the page's home), the Settings
+drawer edits the relay's deployment and its log: the **Swarm relay** tab (name, listen address,
+client and pairing tokens, CORS, TLS, lease and fan-out timeouts, upstreams, joins) and **Logger**.
+There is no Sessions tab, because a relay holds no sessions. The routes are the agent's own -
+`GET /foxxycode/config/schema`, `GET /foxxycode/config`, `POST /foxxycode/config/validate`, `PUT
+/foxxycode/config` - served by the relay behind its client token, and they carry only those two
+sections: the rest of the host's configuration - a model provider's key, the HTTP server - is
+neither shown nor written through the relay, and a save naming another section is refused.
+
+![The Settings drawer on a relay](../assets/swarm/relay-settings-dark-1280.png)
+
+*The relay's settings: its deployment, with the credentials write-only*
+
+Every credential is write-only there, as a config read serves it: a token field shows whether one
+is set, an empty field keeps it, a value replaces it. Pairing tokens are a list replaced whole.
+A save is written over the relay's `config.yaml` with its comments and spellings kept, and the
+relay is rebuilt on it: nodes register and open their tunnels again within seconds, and a stream
+in flight through the relay is cut and resumed by the client. A new listen address takes a
+restart, which a relay under the dispatcher or systemd gets by itself. So does turning on the
+HTTP server, the gateway or the scheduler in the file of a process started as a relay alone: it
+opened no session store, and those surfaces run agent turns. A new client token signs
+out every client, the page you are saving from included: enter the new one in the environment menu.
+The **Logger** tab is saved like the rest, and the relay reads it when it starts next, as an agent
+does with its own logger settings.
+An edit of the file is picked up the same way, without a restart.
+
+Changing a relay's settings through another relay is refused: a relay chained under this one is
+reached through a mount like any node, but its tokens and its registration rules decide who joins
+it, and a client of the parent is not its operator. Reading them through the mount works.
 
 ## Security
 
@@ -259,7 +342,9 @@ Three credentials, three jobs:
 | per-node `token` | the relay | acting as that node |
 
 **A relay is a fleet-wide door.** It holds every node's credential, so whoever holds its
-client token controls every node it reaches, transitively through every hop. This is stated
+client token controls every node it reaches, transitively through every hop - its sessions, its
+tools and its settings, the secrets a node's `GET /foxxycode/config` hands back (provider keys,
+remote tokens) included. This is stated
 rather than mitigated: there are no per-node client ACLs in this version. Give each node a
 credential minted for its relay rather than your own, put TLS in front, and keep the pairing
 token secret.
@@ -289,6 +374,10 @@ aimed at a node's API would climb back out into the relay's own routes.
 
 Credentials are preserved across a config save by **destination**, not by label: renaming an
 entry keeps its token, pointing it at a new address does not.
+
+The relay's own Settings (above) edit it with the client token, which already controls every node
+it reaches; they add no power the token did not have, and they cannot be reached through a parent
+relay's mount.
 
 ## Encryption and proxies
 

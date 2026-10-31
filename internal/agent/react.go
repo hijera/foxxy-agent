@@ -97,14 +97,17 @@ type SessionState interface {
 
 // Agent runs the ReAct loop for a single session turn.
 type Agent struct {
-	cfg             *config.Config
-	state           SessionState
-	server          acp.UpdateSender
-	log             *slog.Logger
-	registry        *tools.Registry
-	environment     platform.Environment
-	providerFactory func(llm.ProviderInput) (llm.Provider, error)
-	configReloader  func(context.Context) ([]string, error)
+	cfg                  *config.Config
+	state                SessionState
+	server               acp.UpdateSender
+	log                  *slog.Logger
+	registry             *tools.Registry
+	environment          platform.Environment
+	providerFactory      func(llm.ProviderInput) (llm.Provider, error)
+	configReloader       func(context.Context) ([]string, error)
+	workspaceSwitcher    func(context.Context, string) error
+	workspaceContextCWD  string
+	workspaceContextText string
 
 	// titleOnce keeps the session-title pass to a single launch per turn, whichever
 	// exit path reaches it first.
@@ -131,6 +134,9 @@ type Agent struct {
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
+	// callImages are the pictures the running tool call handed the model
+	// (Env.AttachImage, tool_images.go); they ride on that call's result.
+	callImages []llm.ImagePart
 
 	// loopPins names read/grep results the loop guard rescued from eviction after a
 	// re-read loop, so the content the model kept circling back for stays in the
@@ -224,6 +230,28 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 		return
 	}
 	a.configReloader = reload
+}
+
+// SetWorkspaceSwitcher connects worktree_create to the session manager's
+// workspace reload path. Child sessions cannot move their inherited workspace.
+func (a *Agent) SetWorkspaceSwitcher(switchTo func(context.Context, string) error) {
+	if a != nil {
+		a.workspaceSwitcher = switchTo
+	}
+}
+
+func (a *Agent) wireWorkspaceTool(env *tools.Env) {
+	if a.workspaceSwitcher == nil || a.subagent != nil {
+		return
+	}
+	env.SwitchWorkspace = func(ctx context.Context, dir string) error {
+		if err := a.workspaceSwitcher(ctx, dir); err != nil {
+			return err
+		}
+		a.resetHooks()
+		a.workspaceContextCWD = ""
+		return nil
+	}
 }
 
 // Run executes the ReAct loop and returns the stop reason.
@@ -417,7 +445,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
@@ -453,7 +480,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
 		PreviewServer:     previewServerSettings(a.cfg),
+		AttachImage:       a.attachToolImage,
+		ImageRefusal:      a.toolImageRefusal,
 	}
+	httpRequestEnv(toolEnv, a.cfg)
+	a.wireWorkspaceTool(toolEnv)
 	// The model's own model switch; a subagent runs on what its parent chose.
 	if a.subagent == nil && a.settings() != nil {
 		toolEnv.SwitchModel = a.switchModel
@@ -1157,7 +1188,7 @@ func (a *Agent) runReActLoop(
 
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
-		sendMessages := withTurnContext(withToolRules(a.prunedForLLM(messages)), turnCtx)
+		sendMessages := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), turnCtx)
 		if forceAnswer && len(sendMessages) > 0 && sendMessages[0].Role == llm.RoleSystem {
 			// One request with the tools withheld: its system prompt must not
 			// describe tools the model cannot call. Rendered for this request only
@@ -1173,6 +1204,19 @@ func (a *Agent) runReActLoop(
 			"messages": len(sendMessages),
 			"tools":    len(callDefs),
 		})
+		// The estimate the provider's incoming input_tokens is anchored to is
+		// taken here, while the breakdown still describes the prompt about to
+		// be sent - anything persisted or refreshed during the call must not
+		// move it.
+		estimateAtSend := 0
+		if rs, ok := a.state.(rulesState); ok {
+			if b := rs.GetLastContextBreakdown(); b != nil {
+				estimateAtSend = b.EstimatedTotal
+			}
+		}
+		// The call's own clock: when it went out, when the first chunk came
+		// back and how many followed. It names the silence in the errors
+		// below and is the debug-level account of every call.
 		callStart := time.Now()
 		a.log.Debug("llm call started",
 			"session", sessionID, "turn", turn, "call", llmCalls,
@@ -1182,11 +1226,16 @@ func (a *Agent) runReActLoop(
 			"first_token_timeout", firstTokenTimeout, "stream_idle_timeout", streamIdle)
 		a.progress.beginCall()
 		inputProgress := make(map[string]*toolInputProgress)
+		streamAttempt := 0
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
+			if chunk.Attempt > 0 && chunk.Attempt != streamAttempt {
+				streamAttempt = chunk.Attempt
+				inputProgress = make(map[string]*toolInputProgress)
+			}
 			if chunk.Progress {
 				// Carries no content by construction: it exists only to say the
 				// model is still working, so it re-arms the guards and stops here.
@@ -1361,7 +1410,7 @@ func (a *Agent) runReActLoop(
 				// fork(continue-path): the partial answer is kept either way; with
 				// agent.llm_continue off, or its budget at 0, the turn ends here and
 				// says why, which is what upstream 1.1.47 always does.
-				continueMax := a.cfg.Agent.EffectiveLLMContinueMax()
+				continueMax := a.continuationBudget()
 				if !a.cfg.Agent.LLMContinueEnabled() || continueMax == 0 {
 					return string(acp.StopReasonRefused), continueOffError(stallIdle)
 				}
@@ -1405,7 +1454,8 @@ func (a *Agent) runReActLoop(
 				case strings.TrimSpace(partialContent) == "":
 					nudge = stallNoTextNudge
 				}
-				pause := continueDelay(a.cfg.Agent.EffectiveLLMContinueStallDelays(), stallContinues)
+				pause := a.continuationPause(stallContinues-1, true, streamErr)
+				a.reportProviderRecovery(streamErr, pause, stallContinues, a.continuationBudget())
 				a.log.Warn("provider stopped sending data mid-answer; continuing",
 					"idle", stallIdle, "continuation", stallContinues, "restarts", attemptRestarts, "pause", pause)
 				// Tell the client the turn is parked. It is still showing the half-written
@@ -1423,7 +1473,7 @@ func (a *Agent) runReActLoop(
 					if a.state.IsUserCancelledTurn() {
 						return string(acp.StopReasonCancelled), nil
 					}
-					return string(acp.StopReasonRefused), fmt.Errorf("%w (the pause before carrying on the answer was interrupted: %v)", stallAbortError(stallIdle, stallContinues-1, attemptRestarts), err)
+					return string(acp.StopReasonRefused), fmt.Errorf("%w (the pause before carrying on the answer was interrupted: %w)", stallAbortError(stallIdle, stallContinues-1, attemptRestarts), err)
 				}
 				messages = a.buildMessages(sys.Content)
 				// LLM-facing only; never persisted to the transcript.
@@ -1493,7 +1543,7 @@ func (a *Agent) runReActLoop(
 					}
 					// A shutdown or a deadline, not the user: the turn ends with
 					// the limit it was waiting on and says what cut the wait.
-					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %w)", reset, err)
 				}
 				resetRetries("quota_reset_wait")
 				turn--
@@ -1510,7 +1560,7 @@ func (a *Agent) runReActLoop(
 			if hasAnyOutput && !stalled && ctx.Err() == nil && !a.state.IsUserCancelledTurn() &&
 				a.cfg.Agent.LLMContinueEnabled() && llm.IsTransientProviderError(streamErr) {
 				kept := a.keepInterruptedAnswer(transport.model, answerBuf.String(), reasoningBuf.String(), reasonClockStart, reasonClockEnd)
-				if stallContinues >= a.cfg.Agent.EffectiveLLMContinueMax() {
+				if stallContinues >= a.continuationBudget() {
 					return string(acp.StopReasonRefused), providerGaveUpError(streamErr, stallContinues)
 				}
 				seen, repeated := attemptRepeats.Observe(attemptFingerprint(reasoningBuf.String(), answerBuf.String(), nil))
@@ -1521,7 +1571,8 @@ func (a *Agent) runReActLoop(
 				retryAllowance = nil
 				nextCallReason = "continuation"
 				recoveryTurns++
-				pause := errorContinueDelay(&a.cfg.Agent, stallContinues-1, streamErr)
+				pause := a.continuationPause(stallContinues-1, false, streamErr)
+				a.reportProviderRecovery(streamErr, pause, stallContinues, a.continuationBudget())
 				a.log.Warn("provider failed mid-answer; carrying the answer on after a pause",
 					"error", streamErr, "pause", pause, "continuation", stallContinues,
 					"kept_partial_answer", kept, "restarts", attemptRestarts)
@@ -1540,7 +1591,7 @@ func (a *Agent) runReActLoop(
 					}
 					// A deadline or a shutdown, not the user: the turn ends
 					// with the failure it was recovering from.
-					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before carrying on the answer was interrupted: %v)", streamErr, err)
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before carrying on the answer was interrupted: %w)", streamErr, err)
 				}
 				messages = a.buildMessages(sys.Content)
 				nudge := providerRecoveryNudge
@@ -1649,6 +1700,7 @@ func (a *Agent) runReActLoop(
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
+		a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
 
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
@@ -1940,7 +1992,7 @@ func (a *Agent) runReActLoop(
 			// AGENTS.md it would otherwise bring back.
 			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false, turn)
-			toolResultMsg := toolResultMessage(tc, result, execErr, callRules)
+			toolResultMsg := a.callResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
@@ -1974,6 +2026,15 @@ func (a *Agent) runReActLoop(
 			turnCtx = a.buildTurnContext(sys)
 			a.refreshContextBreakdown(sys, turnCtx)
 		}
+		if toolEnv.WorkspaceChanged {
+			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
+			toolDefs = a.currentToolDefinitions(mode)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
+			a.refreshContextBreakdown(sys, turnCtx)
+			toolEnv.WorkspaceChanged = false
+		}
 		if toolEnv.ConfigReloaded {
 			// config_commit or config_rollback replaced the live configuration.
 			// Refresh everything the next model call depends on, at the safe
@@ -1982,7 +2043,7 @@ func (a *Agent) runReActLoop(
 			toolDefs = a.currentToolDefinitions(mode)
 			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
 			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
-			toolEnv.HTTPAllowlist = append([]string(nil), a.cfg.Tools.HTTPRequest.Allowlist...)
+			httpRequestEnv(toolEnv, a.cfg)
 			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
 			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
 			toolEnv.Background = a.backgroundPool(sd)
@@ -2190,6 +2251,7 @@ func loopAbortError(c loopAbortChannel) error {
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
+	a.callImages = nil
 	defer func() {
 		env.ToolCallID = ""
 		a.currentToolCallID = ""
@@ -2314,7 +2376,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if tc.Name == toolweb.ToolHTTPRequest {
 			// Raw arguments would bury the address and the files in JSON;
 			// the prompt shows the request as it would go out.
-			promptBody = permission.HTTPRequestPromptBody(tc.InputJSON, env.CWD)
+			promptBody = permission.HTTPRequestPromptBody(env, tc.InputJSON)
 		}
 		if tc.Name == "config_commit" {
 			// The commit call itself carries no arguments, so the dialog must
@@ -2503,6 +2565,13 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 		}
 	}
 	previewMeta = session.AttachTodoPlanMeta(previewMeta, todoPlanSnapshot)
+	if status == "completed" && execErr == nil {
+		// The pictures the call showed the model (read on an image file), for
+		// the surfaces that preview them: the web UI on the call's row, a
+		// Telegram chat as photos. After a reload they come from the result
+		// message itself, which keeps them.
+		previewMeta = session.ToolImagesMeta(previewMeta, toolImagesForSurfaces(sessionID, a.callImages))
+	}
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
@@ -2549,6 +2618,15 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 		available = filtered
 	}
 	defs := FilterToolDefinitions(available, toolSet)
+	if a.workspaceSwitcher == nil || a.subagent != nil {
+		filtered := defs[:0]
+		for _, def := range defs {
+			if def.Name != tools.ToolWorktreeCreate {
+				filtered = append(filtered, def)
+			}
+		}
+		defs = filtered
+	}
 	if ModeAllowsMCPTools(mode) {
 		defs = append(defs, a.mcpToolDefinitions()...)
 	}
@@ -2694,7 +2772,7 @@ func (a *Agent) applySkillSettings(ctx context.Context, name string, sk *skills.
 	if ap == nil {
 		return
 	}
-	ch := session.SettingsChange{Source: "skill:" + name}
+	ch := session.SettingsChange{Source: session.SettingsSourceSkill + name}
 	if m := sk.Model; m != "" && a.state.TurnSetting(session.SettingModel) == "" {
 		ch.Model = &m
 	}
@@ -2878,7 +2956,7 @@ func (a *Agent) switchModel(ctx context.Context, req tooling.ModelSwitch) (strin
 	if ap == nil {
 		return "", fmt.Errorf("switch_model is not available in this session")
 	}
-	ch := session.SettingsChange{Source: "model"}
+	ch := session.SettingsChange{Source: session.SettingsSourceModel}
 	if req.Model != "" {
 		ch.Model = &req.Model
 	}

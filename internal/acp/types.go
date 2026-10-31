@@ -388,12 +388,14 @@ type SessionSettings struct {
 }
 
 // SessionSettingsUpdate announces a change of a session's settings with the
-// whole snapshot, and a one-line notice of what the change was.
+// whole snapshot, and a one-line notice when the agent made the change itself.
 type SessionSettingsUpdate struct {
 	SessionUpdate string          `json:"sessionUpdate"` // "session_settings"
 	Settings      SessionSettings `json:"settings"`
-	// Notice says what changed, for a surface that shows it ("Model:
-	// qwen3.8-27b for the next 2 turns"); empty for a plain resend.
+	// Notice says what the agent changed itself - its switch_model call, a
+	// skill's frontmatter - for a surface that shows it ("Model: qwen3.8-27b
+	// for this session"); empty for a plain resend and for a change the
+	// operator made, which the surface's selectors show already.
 	Notice string `json:"notice,omitempty"`
 	// Source names who asked for the change.
 	Source string `json:"source,omitempty"`

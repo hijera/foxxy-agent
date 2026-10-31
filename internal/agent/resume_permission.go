@@ -14,6 +14,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/plans"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
 // ResumeAfterPermission executes a tool call that was approved via POST /permission after the HTTP
@@ -75,23 +76,48 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 		}
 		tc.InputJSON = shown
 	}
+	// An http_request prompt showed the request as the configuration built it
+	// then, the headers it adds to every request included. When the
+	// configuration has moved since, the answer was given for another request:
+	// the call goes through the gate again and asks with the one it would send.
+	askAgain := tc.Name == toolweb.ToolHTTPRequest && httpPromptMoved(sd, tc, toolEnv)
 	// A call the current mode refuses (a pending agent-mode write approved
 	// after switching to ask) must not leave an "allow always" grant behind:
 	// the grant would outlive the refusal and apply once the mode changes back.
 	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled())
-	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
+	if st := sessionStatePtr(a.state); st != nil && !refusedByMode && !askAgain {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
 	}
-	if !refusedByMode {
+	if !refusedByMode && !askAgain {
 		a.switchPermissionModeFromDialog(ctx, toolEnv, perm)
 	}
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
 	}
 	callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
-	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true, 0)
-	a.state.AddMessage(toolResultMessage(tc, result, execErr, callRules))
+	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), !askAgain, 0)
+	a.state.AddMessage(a.callResultMessage(tc, result, execErr, callRules))
 	return a.continueReAct(ctx, mode, toolEnv)
+}
+
+// httpPromptMoved reports whether the http_request prompt persisted for tc
+// reads otherwise than the prompt the call would get in env now. The server
+// resumes a call only while its prompt is on record, so a record gone or
+// holding another call by the time it is read here means the prompt was
+// changed under the answer: that asks again too.
+func httpPromptMoved(sessionDir string, tc llm.ToolCall, env *tools.Env) bool {
+	if strings.TrimSpace(sessionDir) == "" {
+		return false
+	}
+	rec, err := session.ReadPendingPermission(sessionDir)
+	if err != nil || rec == nil || strings.TrimSpace(rec.ToolCall.ToolCallID) != tc.ID {
+		return true
+	}
+	var shown strings.Builder
+	for _, item := range rec.ToolCall.Content {
+		shown.WriteString(item.Content.Text)
+	}
+	return shown.String() != permission.HTTPRequestPromptBody(env, tc.InputJSON)
 }
 
 func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
@@ -131,7 +157,6 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
@@ -157,7 +182,11 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
+		AttachImage:       a.attachToolImage,
+		ImageRefusal:      a.toolImageRefusal,
 	}
+	httpRequestEnv(env, a.cfg)
+	a.wireWorkspaceTool(env)
 	a.applySubagentEnv(env, mode)
 	a.wireFileEditHook(env)
 	if a.subagent == nil && a.settings() != nil {
@@ -177,7 +206,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
 			env.PermissionMode = effectivePermMode(a.state, next)
 			env.CommandAllowlist = append([]string(nil), next.Tools.CommandAllowlist...)
-			env.HTTPAllowlist = append([]string(nil), next.Tools.HTTPRequest.Allowlist...)
+			httpRequestEnv(env, next)
 			env.SSHConnectTimeout = next.Tools.SSHConnectTimeout
 			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
 			env.Background = a.backgroundPool(sessionDir)

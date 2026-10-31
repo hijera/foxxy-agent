@@ -17,7 +17,7 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `read` | Read text with an optional 1-based line range, or list a directory; shared encoding detection supports UTF-16 and legacy code pages, while binary files are refused with type and size | `path`, `offset`, `limit`, `recursive`, `show_hidden`, `keep` | none | agent, plan, docs, ask, debug |
+| `read` | Read text with an optional 1-based line range, or list a directory; shared encoding detection supports UTF-16 and legacy code pages, and PNG, JPEG, GIF and WebP pictures are sent to multimodal models ([Images](../features/images.md)); other binary files are refused with type and size | `path`, `offset`, `limit`, `recursive`, `show_hidden`, `keep` | none | agent, plan, docs, ask, debug |
 | `keep_result` | Mark a page already read or a grep result as useful so result eviction keeps it ([Context compaction](../features/compaction.md#result-eviction)) | `path`, `offset`, `limit`, `pattern` | none | agent, plan, docs, ask, debug |
 | `glob` | Find files by glob pattern, newest first, at most 100 paths | `pattern`, `path` | none | agent, plan, docs, ask, debug |
 | `grep` | Regular-expression search over file contents | `pattern`, `path`, `glob`, `case_sensitive`, `max_results`, `keep` | none | agent, plan, docs, ask, debug |
@@ -46,7 +46,8 @@ The `background_*` tools are registered only while `tools.background` is enabled
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `run_command` | Run a shell command in the workspace through the host shell; `background: true` returns a task id and wakes the agent on completion by default where available. A foreground command that outlives its timeout is handed to the pool and also wakes on completion by default; `notify_on_finish: false` disables either wake | `command`, `permission_rationale`, `timeout_seconds`, `background`, `notify_on_finish`, `expected_seconds` | command | agent, plan, debug |
+| `run_command` | Run a shell command in the workspace through the host shell; `background: true` returns a task id and wakes the agent on completion by default where available. A foreground command that outlives its timeout is handed to the pool and also wakes on completion by default; `notify_on_finish: false` disables either wake | `command`, `cwd`, `permission_rationale`, `timeout_seconds`, `background`, `notify_on_finish`, `expected_seconds` | command | agent, plan, debug |
+| `worktree_create` | Fetch origin, create or reuse a [feature worktree](../features/worktrees.md), and move the session into it | `branch` | always | agent, debug |
 | `background_list` | List the session's background tasks with status, elapsed time and estimate | none | none | agent, plan, debug |
 | `background_output` | Return the captured stdout and stderr of a task | `task_id`, `tail_lines` | none | agent, plan, debug |
 | `background_wait` | Wait for a task to finish, bounded by a default and a maximum | `task_id`, `timeout_seconds` | none | agent, plan, debug |
@@ -103,7 +104,7 @@ Working-copy tools for a workspace that is an SVN checkout; they are registered 
 
 `websearch` asks the engines named in `tools.websearch.engines` (Brave then Bing by default) and reports each one's outcome next to the results, so an engine that answered a challenge page is named rather than counted as nothing found; a search where every engine was turned away fails instead of returning an empty list. Which engines exist, how the relevance gate discards an unrelated result set, and how to point it at your own SearXNG: [Web search](../features/web-search.md).
 
-`http_request` is the tool for everything else over HTTP: APIs, services on localhost, uploads and downloads. It refuses no address, which is why it is gated; `webfetch` shares its client and differs in the SSRF guard, the fixed `GET` and the Markdown conversion ([HTTP requests](../features/http-requests.md#webfetch-on-the-same-client)).
+`http_request` is the tool for everything else over HTTP: APIs, services on localhost, uploads and downloads. It refuses no address, which is why it is gated; `webfetch` shares its client and differs in the SSRF guard, the fixed `GET` and the Markdown conversion ([HTTP requests](../features/http-requests.md#webfetch-on-the-same-client)). Headers the operator wants on every request, such as a browser `User-Agent`, go into `tools.http_request.default_headers`, which only `http_request` sends and a call's own `headers` override ([Default headers](../features/http-requests.md#default-headers)).
 
 ## Interaction, skills and subagents
 
@@ -116,7 +117,7 @@ Working-copy tools for a workspace that is an SVN checkout; they are registered 
 | `load_skill` | Load the full instructions of a catalogued skill by name; registered only while `skills.auto_discovery` is on ([Skills](../features/skills.md)) | `name` | none | agent, plan, ask |
 | `foxxycode_docs_search` | Search FoxxyCode's own documentation, built into the binary, with BM25 over the sections ([Built-in documentation](../features/built-in-docs.md#the-agents-tools)) | `query`, `limit` | none | agent, plan, ask |
 | `foxxycode_docs_read` | Read a page or a section of that documentation, or its contents without a page; long pages come in parts | `page`, `offset` | none | agent, plan, ask |
-| `spawn_agent` | Delegate a self-contained task to a subagent, waiting for its report or running it as a background task. A detached child wakes the parent on completion by default where available; `notify_on_finish: false` disables it ([Subagents](../features/subagents.md#the-spawn_agent-tool)) | `agent`, `prompt`, `description`, `model`, `reasoning`, `background`, `expected_seconds`, `timeout_seconds`, `notify_on_finish` | none itself; the child's own calls prompt through the parent | agent, plan (the child of a plan-mode parent stays in plan mode); hidden in ask, at `subagents.max_depth` and where no runtime exists, such as a scheduled run |
+| `spawn_agent` | Delegate a self-contained task to a subagent, waiting for its report or running it as a background task. A detached child wakes the parent on completion by default where available; `notify_on_finish: false` disables it. `resume` continues a finished run in its own child session instead of starting over ([Subagents](../features/subagents.md#the-spawn_agent-tool)) | `agent`, `prompt`, `description`, `model`, `reasoning`, `background`, `expected_seconds`, `timeout_seconds`, `notify_on_finish`, `resume` | none itself; the child's own calls prompt through the parent | agent, plan (the child of a plan-mode parent stays in plan mode); hidden in ask, at `subagents.max_depth` unless the session's own definition declared a `spawns` allowlist, and where no runtime exists, such as a scheduled run |
 | `switch_model` | Change the model or reasoning level only when the user asks; applies from the next request for the session by default, or only this turn with `scope: turn` ([Session settings](../features/session-settings.md#changing-the-model-on-request)) | `model`, `reasoning`, `scope` (`session` or `turn`) | none | agent, plan, ask; never offered to a subagent |
 
 ## Todo checklist

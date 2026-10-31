@@ -43,3 +43,37 @@ test("the close control is a framed square that lightens under the pointer", () 
   expect(compact).toMatch(/width:\s*24px/);
   expect(compact).toMatch(/height:\s*24px/);
 });
+
+/** The body of the first top-level rule with exactly this selector. */
+function body(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}\\s*\\{([^}]+)\\}`, "m").exec(css)?.[1] ?? "";
+}
+
+function px(block: string, prop: string): number {
+  const m = new RegExp(`(?:^|;|\\s)${prop}:\\s*(-?[\\d.]+)px`).exec(block);
+  return m ? Number(m[1]) : NaN;
+}
+
+/** The right edge of a `padding` shorthand (one to four lengths). */
+function paddingRight(block: string): number {
+  const m = /(?:^|;|\s)padding:\s*([^;]+);/.exec(block);
+  const parts = (m?.[1] ?? "").trim().split(/\s+/).map((v) => parseFloat(v));
+  return parts.length === 1 ? parts[0]! : parts[1]!;
+}
+
+// A queued message sits right above the composer card, the two as wide as each
+// other, and each row ends in a small square control: the queued row in its
+// remove cross, the card's first row in the improve-prompt wand. The cross used
+// to stand 6px further right than the wand; the two now share one vertical line.
+test("the remove cross of a queued message lines up with the improve-prompt button", () => {
+  const item = body(".composer-queue-item");
+  const remove = body(".sessions-close.composer-queue-remove");
+  const row = body(".composer-context-row");
+  const wand = body(".composer-enhance-btn");
+  const border = 1; // both are glass panels with a 1px border
+  expect(item).toMatch(/border:\s*1px solid/);
+  const crossCentre = border + paddingRight(item) + px(remove, "width") / 2;
+  const wandCentre = border + paddingRight(row) + px(wand, "width") / 2;
+  expect(crossCentre).toBe(wandCentre);
+});

@@ -3,6 +3,8 @@ export type SessionRow = {
   title?: string;
   updatedAt?: string;
   cwd?: string;
+  /** Main checkout shared by this session's worktree and its siblings. */
+  repoRoot?: string;
   /** Flat labels the session is filed under; normalized by the server. */
   tags?: string[];
   /** True while the session sits in the archive rather than the working list. */

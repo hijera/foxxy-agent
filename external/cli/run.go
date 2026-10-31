@@ -257,6 +257,7 @@ func Run(args []string, deps CommandDeps) error {
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
 		startScheduler(ctx, cfg, mgr, log)
+		defer mgr.CloseMCP()
 		return PrintPrompt(ctx, mgr, popts)
 	}
 
@@ -273,6 +274,12 @@ func Run(args []string, deps CommandDeps) error {
 		}
 	} else {
 		app = buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
+	}
+	// The global MCP servers start with a local manager: they stop with the
+	// console on every way out, a startup that fails before the terminal is
+	// taken included.
+	if c, ok := app.mgr.(interface{ CloseMCP() }); ok {
+		defer c.CloseMCP()
 	}
 	llmWarmupNotices(log, cfg)
 
@@ -317,6 +324,7 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	}
 	lateSender := &lateBoundSender{}
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	wireLocalManager(mgr)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	// A task the model started with notify_on_finish begins its own turn in
@@ -350,6 +358,9 @@ func startScheduler(ctx context.Context, cfg *config.Config, mgr *session.Manage
 // model catalog, footer, and header follow the file.
 func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.UpdateSender, log *slog.Logger) *agent.Agent {
 	loop := agent.NewAgent(mgr.Cfg(), st, snd, log)
+	loop.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
+		return mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
+	})
 	// The manager owns child sessions, so a turn on this surface can spawn
 	// subagents like every other surface.
 	loop.SetSubagentRuntime(mgr)
@@ -404,8 +415,31 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 	return app, nil
 }
 
+// wireLocalManager sets what the interactive console asks of a manager it
+// owns: the configured MCP servers connect in the background, so the first
+// frame is drawn while they come up and a prompt sent before they answer
+// waits for its tool list on the status line (mcp_status.go). The servers of
+// the global configuration start with the console and stay up for all its
+// sessions, so /new and /resume reuse them instead of starting them again.
+func wireLocalManager(mgr *session.Manager) {
+	mgr.SetBackgroundMCPConnect(true)
+	mgr.StartGlobalMCPServers()
+}
+
 // lateBoundSender lets the manager be constructed before the app exists.
 type lateBoundSender struct{ inner acp.UpdateSender }
+
+// SendControlUpdate forwards a backend-local control notification to the
+// console once it exists; the manager's background MCP connect reports
+// through it.
+func (l *lateBoundSender) SendControlUpdate(sessionID string, update any) error {
+	if controls, ok := l.inner.(interface {
+		SendControlUpdate(sessionID string, update any) error
+	}); ok {
+		return controls.SendControlUpdate(sessionID, update)
+	}
+	return nil
+}
 
 func (l *lateBoundSender) SendSessionUpdate(sessionID string, update interface{}) error {
 	if l.inner == nil {
@@ -478,6 +512,11 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		app.screen.FinishInline()
 		app.screen.Stop()
 		term.Stop()
+		// The MCP servers of a local manager stop with the console, once the
+		// terminal is back: their exit may take a moment.
+		if c, ok := app.mgr.(interface{ CloseMCP() }); ok {
+			c.CloseMCP()
+		}
 	}
 	defer func() {
 		if r := recover(); r != nil {

@@ -101,6 +101,7 @@ func (a *Agent) exportTranscript(args exportCommandArgs) string {
 		Model:      a.state.EffectiveModelID(a.cfg),
 		Messages:   a.state.GetMessages(),
 		ExportedAt: time.Now().UTC(),
+		SessionDir: a.state.GetPersistedSessionDir(),
 	}
 	if st := sessionStatePtr(a.state); st != nil {
 		in.Title = st.ConversationTitle()

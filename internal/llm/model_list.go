@@ -68,10 +68,18 @@ const modelListTimeout = 15 * time.Second
 // skipped rather than staged.
 var catalogModelIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// codexModelsClientVersion is the numeric compatibility sentinel accepted by
-// the Codex models endpoint and used by Codex source/test builds. It is a Codex
-// protocol version, not the independently versioned FoxxyCode application version.
-const codexModelsClientVersion = "0.0.0"
+// codexModelsClientVersion is the Codex release the model catalog is asked
+// for; it has nothing to do with FoxxyCode's own version. The backend leaves out
+// every model whose minimal_client_version is above it, because a Codex binary
+// that old cannot run that model. FoxxyCode runs every model through its own loop
+// and tools, so it asks as a release far above the ones the gates name (0.155.0
+// at most on 2026-09-27) and lists every model gated below it; Zed sends the
+// same value for the same reason. The value stays a 0.x release, since the
+// backend answers 1.0.0 and above with model settings no Codex release gets, so
+// a model gated to Codex 1.0.0 or later stays out until this value moves.
+// "0.0.0", what a Codex source build sends, is answered as an older release,
+// which hid gpt-6-sol and gpt-6-luna while gpt-6-astra was listed (issue #394).
+const codexModelsClientVersion = "0.999.0"
 
 // defaultModelListBaseURL returns the base URL used for model listing when the
 // provider config leaves api_base empty.
@@ -244,8 +252,9 @@ func positiveTokenCount(raw json.RawMessage) int {
 }
 
 // fetchCodexCatalog returns the raw Codex model catalog: fetched online with
-// the signed-in credential when the provider has one, read from the Codex CLI
-// cache otherwise.
+// the signed-in credential when the caller names a credential file, read from
+// the Codex CLI cache when it names none. A provider row always names one
+// (config.ProviderAuthPath), so every row, signed in or not, asks online.
 func fetchCodexCatalog(ctx context.Context, in ProviderInput) ([]codexModelCacheEntry, error) {
 	if strings.TrimSpace(in.AuthPath) != "" {
 		return fetchCodexCatalogOnline(ctx, in, codexBaseURL())
@@ -302,27 +311,35 @@ func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL stri
 type codexModelCacheEntry struct {
 	Slug        string `json:"slug"`
 	DisplayName string `json:"display_name"`
-	// Visibility is "list" for the models Codex offers in its own picker and
-	// "hide" for the internal ones (gpt-reserve, codex-auto-review). An empty
-	// value means the catalog does not say, which is not the same as hidden:
-	// caches written by older Codex builds carry no visibility at all.
+	// Visibility is "list" for the models Codex offers in its own picker;
+	// "hide" (gpt-reserve, codex-auto-review) and "none" keep a model out of
+	// it, as does any other value. An empty value means the catalog does not
+	// say, which is not the same as hidden: caches written by older Codex
+	// builds carry no visibility at all.
 	Visibility string `json:"visibility"`
 	// Priority is how Codex itself ranks the catalog, lowest first. It decides
 	// which model a fresh sign-in adopts as the default.
 	Priority int `json:"priority"`
+	// ContextWindow is the window Codex works with for the model (272000 for
+	// every model the catalog serves on 2026-09-27); max_context_window is
+	// only the ceiling Codex lets an operator raise it to. Raw, so a value in an unexpected shape reads
+	// as no window instead of failing the whole catalog.
+	ContextWindow json.RawMessage `json:"context_window"`
 }
 
-// codexVisibilityHidden marks a catalog row Codex keeps out of its own picker.
-const codexVisibilityHidden = "hide"
+// codexVisibilityListed marks a catalog row Codex offers in its own picker;
+// Codex shows a row there only when its visibility is exactly this value.
+const codexVisibilityListed = "list"
 
-// visibleCodexModels drops the hidden rows, the unnamed ones, and the
-// duplicates, keeping the catalog order for callers that rank it themselves.
+// visibleCodexModels keeps the rows Codex lists (and those of a legacy cache
+// that says nothing), dropping the unnamed ones and the duplicates, in the
+// catalog order for callers that rank it themselves.
 func visibleCodexModels(models []codexModelCacheEntry) []codexModelCacheEntry {
 	seen := make(map[string]struct{}, len(models))
 	out := make([]codexModelCacheEntry, 0, len(models))
 	for _, m := range models {
 		id := strings.TrimSpace(m.Slug)
-		if id == "" || m.Visibility == codexVisibilityHidden {
+		if id == "" || (m.Visibility != "" && m.Visibility != codexVisibilityListed) {
 			continue
 		}
 		if _, dup := seen[id]; dup {
@@ -355,7 +372,11 @@ func normalizeCodexModels(models []codexModelCacheEntry) []ModelEntry {
 	visible := visibleCodexModels(models)
 	out := make([]ModelEntry, 0, len(visible))
 	for _, m := range visible {
-		out = append(out, ModelEntry{ID: m.Slug, Name: strings.TrimSpace(m.DisplayName)})
+		out = append(out, ModelEntry{
+			ID:            m.Slug,
+			Name:          strings.TrimSpace(m.DisplayName),
+			ContextWindow: positiveTokenCount(m.ContextWindow),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out

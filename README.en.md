@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="MIT License" /></a>
   <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
@@ -23,7 +23,7 @@
   <a href="https://hijera.github.io/foxxy-agent/?lang=en"><strong>Website</strong></a> - downloads, screenshots, <a href="https://hijera.github.io/foxxy-agent/compare/?lang=en">comparison</a>, <a href="https://hijera.github.io/foxxy-agent/changelog/?lang=en">changelog</a>
 </p>
 
-> **Foxxy Agent is based on [coddy-agent](https://github.com/coddy-project/coddy-agent)** by the Coddy project (MIT).
+> **FoxxyCode (the `foxxy-agent` repository) is based on [coddy-agent](https://github.com/coddy-project/coddy-agent)** by the Coddy project (MIT).
 > This fork keeps the upstream architecture and stays merge-compatible with it, while rebranding the
 > distribution (repository, binary name, releases) and focusing on easy IDE adaptation.
 

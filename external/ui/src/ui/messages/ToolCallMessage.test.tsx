@@ -2289,3 +2289,68 @@ test("an offer of nothing but a free slot still shows that slot", () => {
   expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
   expect(rows[0]?.textContent).toContain("hello");
 });
+
+// A read that showed the model a picture previews it under the row, without
+// opening the row: the preview is what the reader wants to see.
+test("a read that showed the model a picture previews it under the row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="r1"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText='{"path":"screenshots/after.png"}'
+      resultText="screenshots/after.png: PNG image, 4x3, 83 bytes. The picture is attached for you to look at."
+      images={[
+        {
+          name: "after.png",
+          mimeType: "image/png",
+          previewUrl: "/foxxycode/sessions/s1/assets/after-1a2b.png/thumbnail",
+          url: "/foxxycode/sessions/s1/assets/after-1a2b.png",
+        },
+      ]}
+    />,
+  );
+  const details = screen.getByTestId("tool-details-r1") as HTMLDetailsElement;
+  expect(details.open).toBe(false);
+  const thumb = screen.getByTestId("tool-image-thumb");
+  expect(thumb).toHaveAttribute("src", "/foxxycode/sessions/s1/assets/after-1a2b.png/thumbnail");
+  expect(details.contains(thumb)).toBe(false);
+
+  fireEvent.click(screen.getByLabelText("Open after.png enlarged"));
+  const shown = document.querySelector(
+    ".docs-lightbox-stage img",
+  ) as HTMLImageElement | null;
+  expect(shown?.getAttribute("src")).toBe("/foxxycode/sessions/s1/assets/after-1a2b.png");
+
+  fireEvent.click(screen.getByTestId("docs-lightbox-close"));
+  expect(document.querySelector(".docs-lightbox")).toBeNull();
+});
+
+test("a picture without a thumbnail previews its original, and a failed read none", () => {
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="r2"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText='{"path":"pic.webp"}'
+      resultText="pic.webp: WebP image"
+      images={[{ name: "pic.webp", mimeType: "image/webp", url: "/foxxycode/sessions/s1/assets/pic-9f.webp" }]}
+    />,
+  );
+  expect(screen.getByTestId("tool-image-thumb")).toHaveAttribute("src", "/foxxycode/sessions/s1/assets/pic-9f.webp");
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="r2"
+      title="read"
+      kind="read"
+      status="failed"
+      argsText='{"path":"pic.webp"}'
+      resultText="error: read: pic.webp: the session's model does not read images"
+      images={[{ name: "pic.webp", mimeType: "image/webp", url: "/foxxycode/sessions/s1/assets/pic-9f.webp" }]}
+    />,
+  );
+  expect(screen.queryByTestId("tool-image-thumb")).toBeNull();
+});

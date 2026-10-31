@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check android check-android bench-cli-startup bench-cli-startup-real security sec-trivy sec-semgrep sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -117,6 +117,32 @@ ui-typecheck:
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/foxxycode/
+
+# ---- Android (Termux) ----
+#
+# The Android build is linked with cgo by the NDK against Bionic, for arm64 and
+# x86_64: a position-independent executable naming the Android system linker
+# as its interpreter, which is the one shape Termux can start where it runs
+# programs as `/system/bin/linker64 <path>` (Android 10 and later for a Termux
+# that targets them, the Google Play build). The static GOOS=linux binary is
+# refused there with `has unexpected e_type: 2`. Bionic gives the binary the
+# system's resolver and its own arguments; a build without cgo gets neither,
+# and internal/platform/android_nocgo.go stops it. scripts/android-cc.sh finds
+# the NDK (ANDROID_NDK_HOME, or the newest one in the SDK). TAGS works as for
+# `build`. See docs/getting-started/android.md.
+ANDROID_ARCHS ?= arm64 amd64
+
+ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
+android: ui-build
+endif
+
+android:
+	@mkdir -p $(BUILD_DIR)
+	@set -e; for arch in $(ANDROID_ARCHS); do \
+		cc=$$(scripts/android-cc.sh $$arch); \
+		echo "GOOS=android GOARCH=$$arch CGO_ENABLED=1 CC=$$cc go build -o $(BUILD_DIR)/foxxycode-android-$$arch"; \
+		GOOS=android GOARCH=$$arch CGO_ENABLED=1 CC=$$cc go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/foxxycode-android-$$arch ./cmd/foxxycode/; \
+	done
 
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:
@@ -353,6 +379,42 @@ BENCHTIME ?= 1s
 test-perf:
 	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
 
+# AppSec gate (issue #374): trivy (dependency vulnerabilities, secrets;
+# misconfig report-only) and semgrep (SAST) over the checkout. One script is
+# the only scanner invocation — CI's security.yaml calls `make security`, so
+# local runs and the pipeline share versions, flags and thresholds. A binary
+# on PATH is used when present; otherwise the pinned docker image runs
+# (SEC_DOCKER=0 forbids the fallback). Reports and the severity summary land
+# in dist/security/. SEC_FAIL_TRIVY (default CRITICAL, vuln+secret only) and
+# SEC_FAIL_SEMGREP (default off — report only until the backlog shrinks) set
+# the gate. Guide: docs/contributing/security-scanning.md.
+security:
+	scripts/security-scan.sh
+
+sec-trivy:
+	SEC_SCANNERS=trivy scripts/security-scan.sh
+
+sec-semgrep:
+	SEC_SCANNERS=semgrep scripts/security-scan.sh
+
+# Same scans with the gate off: findings never fail this target, operational
+# errors (missing tool, dead docker, crashed scan) still do.
+sec-report:
+	SEC_FAIL_TRIVY=off SEC_FAIL_SEMGREP=off scripts/security-scan.sh
+
+# Console startup timings: the first frame timed in a real pty (pexpect + pyte,
+# examples/cli/requirements.txt), with an empty, a real and a synthetic skill
+# set and a source that never answers. Not a CI gate: the numbers are read by
+# a person (docs/plans/console-mcp-startup.md keeps the ones a change cited).
+# bench-cli-startup-real runs the same on a private copy of the operator's
+# own ~/.foxxycode, MCP servers included, and reports when every one settled.
+BENCH_RUNS ?= 5
+bench-cli-startup: $(BINARY)
+	python3 examples/cli/bench_tui_startup.py --bin main=$(BINARY) --runs $(BENCH_RUNS) --out $(BUILD_DIR)/bench-cli-startup.json
+
+bench-cli-startup-real: $(BINARY)
+	python3 examples/cli/bench_tui_real.py --bin main=$(BINARY) --runs $(BENCH_RUNS) --out $(BUILD_DIR)/bench-cli-startup-real.json
+
 # Type-check the Windows build without a Windows machine.
 #
 # The suite above runs on the host only, so every file behind //go:build windows
@@ -384,6 +446,17 @@ check-windows:
 	GOOS=windows go vet -tags=swarm ./...
 	GOOS=windows go vet -tags=http,swarm ./...
 	GOOS=windows go vet -tags=desktop,http,scheduler,memory ./...
+
+# Type-check the Android build without a device, test files included.
+#
+# internal/platform has files only GOOS=android compiles - android_init.go and
+# the cgo guard - so the host suite and linter never see them, the way
+# check-windows covers the Windows half. The build is cgo, so this needs the
+# NDK too. The ui tag is left out for the same reason as there.
+check-android:
+	GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$$(scripts/android-cc.sh arm64) go vet ./...
+	GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$$(scripts/android-cc.sh arm64) go vet -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=android GOARCH=amd64 CGO_ENABLED=1 CC=$$(scripts/android-cc.sh amd64) go vet -tags=$(LINT_TAGS_NO_UI_CSV) ./...
 
 # Clean build artifacts.
 clean:

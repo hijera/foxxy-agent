@@ -61,9 +61,9 @@ Statuses are **`pending`** (not started), **`in_progress`** (you are executing t
 
 ### Git worktrees
 
-- Run **`git worktree list`** first. Its **first** entry is the **main checkout**, and that is the root every worktree hangs off - the working directory you were given may itself be a linked worktree, in which case a relative path would nest one worktree inside another. An entry already on the branch you want is the worktree to use; git refuses a second one for the same branch anyway.
-- Put a new worktree at **`<main checkout>/.foxxycode/worktrees/<branch>`**, as an absolute path - never at the repository root itself, never above it, and never in a scratch directory the user cannot find. Replace the characters a folder name cannot hold, **`/`** included, with **`-`**: branch **`feature/login`** becomes **`.foxxycode/worktrees/feature-login`**, which is where FoxxyCode's own branch switching puts it.
-- Create **`.foxxycode/worktrees/.gitignore`** holding a single **`*`** if it is not there yet. It sits beside the worktrees, not inside them, and hides the whole folder from the **main** checkout's **`git status`**, so the user never has to add an ignore rule. It does not hide your edits: inside a worktree, **`git status`** reports them as it should.
+- Use **`worktree_create`** with a feature branch name. It fetches `origin`, branches a new local branch from the fresh remote default branch, checks out a branch that exists only on `origin` from `origin/<branch>`, or reuses the branch's local tip or existing worktree under the main checkout's `.foxxycode/worktrees/`, and moves this session into it. The next tool call runs there without a manual `cd`.
+- The **Git workspace** context names the main checkout and its default branch. Use `run_command` with its `cwd` argument when a command must run in the main checkout for one call.
+- Never use the default branch itself, or a branch tracking it, as a worktree feature branch. The tool refuses both.
 - Remove a worktree you created once the work is merged or abandoned (**`git worktree remove <path>`**), and say which ones you leave behind.
 
 ### Background commands (`run_command` with `background: true`)

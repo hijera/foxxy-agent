@@ -90,7 +90,7 @@ models:
   - model: "openai/gpt-4o"
     max_tokens: 8192
     temperature: 0.2
-    multimodal: true              # model accepts image/file inputs; UI shows file attachment button
+    multimodal: true              # model accepts image/file inputs; UI shows file attachment button; read shows it image files
 
   # Reasoning models expose a reasoning-level selector in the composer.
   # Levels are auto-detected from the model id (gpt-5* -> minimal,low,medium,high;
@@ -152,6 +152,8 @@ agent:
   #                                     # keep-alive comments do not count; llm_stall_timeout_ms is still read
   # llm_continue: true            # carry on a cut answer (off: the turn ends at the cut and says why)
   # llm_continue_max: 3           # continuations per turn before it ends with a notice
+  # llm_continue_background_max: 5  # subagents and scheduled jobs; memory uses the ordinary budget
+  # llm_continue_background_delays_ms: [5000, 20000, 80000, 120000, 120000]
   # llm_continue_stall_delays_ms: [0]  # pause before each continuation after a stall; last entry repeats
   # llm_continue_error_delays_ms: [5000, 20000]  # pause before carrying on after a 5xx or a dropped stream
   # llm_continue_retry_after_max_ms: 120000       # honour a longer Retry-After up to this (0 ignores it)
@@ -290,6 +292,13 @@ mcp:
   # allow: start them automatically (only for workspaces you already trust)
   # deny:  never load project-local servers at all
   project_trust: ask
+  # Every session shares one running copy of a server: a global server is one
+  # process for the whole FoxxyCode process (foxxycode serve, the console and foxxycode acp
+  # start them at once and keep them up), a project server one per workspace.
+  # Seconds a server that no session holds any more keeps running before it is
+  # stopped, so the next session finds it up; 0 stops it at once. A server
+  # switched off, no longer approved or removed stops at once either way.
+  idle_timeout_seconds: 300
 
 tools:
   # Controls when the agent asks for user approval before running tools.
@@ -392,6 +401,12 @@ tools:
   # An entry here also covers uploads and verify_tls: false for that destination; a proxy
   # needs an entry of its own, and under ask a download to a file still asks. The tool
   # refuses no address (localhost included), so bypass reaches anything the host can.
+  # default_headers go out with every request unless the call names the header itself
+  # (a call's value wins, and an empty value leaves the header out); Host, Content-Type,
+  # Content-Length, Transfer-Encoding, the hop-by-hop headers (Connection, Upgrade, ...) and
+  # Proxy-Authorization are refused. They reach every destination the
+  # model sends a request to, so keep credentials out unless that is the intent.
+  # webfetch and the model providers never send them.
   # See docs/features/http-requests.md.
   # http_request:
   #   allowlist:
@@ -399,6 +414,9 @@ tools:
   #     - "*.internal.example.com"    # subdomains only
   #     - localhost:8080              # host and port
   #     - https://api.example.com/v1/ # an address prefix
+  #   default_headers:
+  #     User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  #     Accept: application/json
 
 # Subagents: child agents the model can delegate to with spawn_agent. A definition is a
 # markdown file with YAML frontmatter (name, description, model, mode, tools,
@@ -415,7 +433,8 @@ tools:
 #     - "${CWD}/.foxxycode/agents"       # project scope
 #   project_trust: ask              # ask | allow | deny
 #   max_concurrent: 4               # subagent runs in flight across the whole process
-#   max_depth: 1                    # 1 = children cannot spawn further; 0 = nobody spawns
+#   max_depth: 1                    # 1 = children cannot spawn further (a definition's
+                                   #   `spawns` allowlist excepted); 0 = nobody spawns
 #   default_timeout_seconds: 1800   # hard limit when the definition and the call give none
 #   max_turns: 0                    # 0 follows agent.max_turns
 
@@ -468,10 +487,25 @@ tools:
 #   allow_insecure: false   # silence the non-loopback-without-auth startup warning
 #   cors:
 #     enable: false
-#     allowed_origins: ["http://localhost:5173"]  # or ["*"] to allow any (bearer still applies)
-#   remotes:                # remote foxxycode http servers offered in the UI env selector
-#     - name: "staging"
-#       url: "https://foxxy.example.com"
+#     allowed_origins: ["http://localhost:12345"]
+#   # Remote foxxycode serve servers and swarm relays offered in the UI environment selector and
+#   # resolved by `foxxycode --remote <name>`. An entry may carry the token to present (usually a
+#   # ${ENV} reference): every browser that reads this config receives it, which is the choice
+#   # of whoever writes it here. Without one, the UI keeps the token in the browser per remote
+#   # and the console reads --remote-token or FOXXYCODE_REMOTE_TOKEN. A relay also has to list the
+#   # page's origin in its swarm.cors.allowed_origins.
+#   remotes:
+#     - name: "prod box"
+#       url: "https://box.example:12345"
+#     - name: "office relay"
+#       url: "http://relay.lan:12346"
+#       token: "${FOXXYCODE_RELAY_TOKEN}"   # the relay's client token (its swarm.auth_token)
+
+# Embedded web UI (only with -tags http,ui). Set enable: false to run an API-only server
+# (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
+# requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
+# ui:
+#   enable: true
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${FOXXYCODE_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
@@ -489,7 +523,7 @@ tools:
 # saves markdown under memory.dir (default ${FOXXYCODE_HOME}/memory) and <session cwd>/memory (project). Its report reaches
 # the main model in the <turn_context> block after the history, never in the system prompt, so the provider's prompt
 # cache keeps covering the conversation; the main agent never sees the memory_* tools. The run is
-# watched and kept in the Tasks drawer like a spawn_agent child (docs/features/memory.md).
+# watched and kept in the Tasks panel like a spawn_agent child (docs/features/memory.md).
 # memory.model is the model the memory subagent runs on. Set it to an exact models[].model id when you want memory
 # pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to use the session's model.
 # memory:
@@ -500,7 +534,7 @@ tools:
 #   dir: "" # default ${FOXXYCODE_HOME}/memory when empty
 #   wait_seconds: 20     # how long a turn waits for the report before its first model call; 0 never waits
 #   timeout_seconds: 300 # hard limit of one memory run (capped by tools.background.max_timeout_seconds)
-#   keep_runs: 20        # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+#   keep_runs: 20        # finished memory runs kept per session in the Tasks panel; 0 keeps all
 #   recall_max_turns: 6  # the child's round cap is the larger of the two
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
@@ -520,6 +554,7 @@ tools:
 # compaction:
 #   engine: foxxycode           # foxxycode (default) | opencode
 #   enable: true
+#   auto_enable: true      # false disables only the automatic threshold trigger
 #   model: ""
 #   fallback_models: []     # tried in order when the summarizer above them fails; the session
 #                           # model is the last resort whether or not it is listed
@@ -577,8 +612,8 @@ tools:
 # Full reference: docs/operate/swarm.md
 # ----------------------------------------------------------------------------
 # swarm:
-#   enable: false       # run the relay here; independent of the join list below
-#   name: "outer"
+#   enable: false        # run the relay here; independent of the join list below
+#   name: "outer"          # empty: the host name this relay runs on
 #   host: "0.0.0.0"
 #   port: 12346
 #   # A relay reaches every node with that node's own credential, so an open one
@@ -604,7 +639,7 @@ tools:
 #   # That symmetry is the whole of relay chaining.
 #   join:
 #     - url: "https://relay.example"
-#       name: "nas02"
+#       name: "nas02"      # empty: the host name, dots turned into dashes
 #       pairing_token: "${FOXXYCODE_SWARM_PAIRING_TOKEN}"
 #       # Where the relay can reach this process. Leave it out and this process
 #       # dials the relay instead, which is the only way in from a network that

@@ -22,6 +22,12 @@ Feature: Driving one node through a relay
     When I call "/foxxycode/sessions" on node "nas02" with the client token
     Then the node saw the authorization "Bearer node-secret"
 
+  Scenario: A browser enters a child relay with hop-local credentials
+    Given a child relay "inner" with client token "inner-client" registered under the outer relay
+    When a browser using only the outer client token reads the mounted child relay endpoints
+    Then the mounted child relay identifies itself as "inner"
+    And the child relay saw "Bearer inner-client", not the outer client token
+
   Scenario: A streamed answer arrives chunk by chunk
     When I stream "/v1/responses" from node "nas02" with the client token
     Then I receive the streamed chunks as they are produced

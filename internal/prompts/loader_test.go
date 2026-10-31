@@ -114,9 +114,9 @@ func TestAskPromptKeepsRefusingRequestedChanges(t *testing.T) {
 	}
 }
 
-// The agent invents a place for a git worktree unless the prompt names one,
-// and what it invents ends up untracked at the repository root.
-func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
+// The agent uses the worktree tool instead of constructing git commands and
+// guessing where the new checkout belongs.
+func TestAgentPromptUsesWorktreeTool(t *testing.T) {
 	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
@@ -125,14 +125,18 @@ func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
 		t.Fatalf("Render agent: %v", err)
 	}
 	for _, want := range []string{
-		".foxxycode/worktrees",            // the directory itself
-		"main checkout",                   // resolved, not relative to a linked worktree
-		"feature-login",                   // the branch name is mapped to a folder name
-		".foxxycode/worktrees/.gitignore", // the ignore file sits beside the worktrees
+		"worktree_create",
+		".foxxycode/worktrees",
+		"main checkout",
+		"default branch",
+		"without a manual `cd`",
 	} {
 		if !strings.Contains(result, want) {
-			t.Errorf("agent prompt should mention %q so worktrees land where FoxxyCode puts them", want)
+			t.Errorf("agent prompt should mention %q for tool-based worktrees", want)
 		}
+	}
+	if strings.Contains(result, "git worktree add") {
+		t.Error("agent prompt still teaches manual worktree creation")
 	}
 }
 

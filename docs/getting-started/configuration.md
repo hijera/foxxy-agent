@@ -158,6 +158,7 @@ Agent name, title, and build version are not configurable here. They are fixed i
 # used as the key (credential helper, like git/docker helpers or AWS credential_process). It lets a provider fetch
 # short-lived or login-issued keys without storing a static secret. On failure resolution falls back to NAME_API_KEY.
 # Resolution order: literal api_key -> api_key_command stdout -> NAME_API_KEY env.
+# A codex row reads none of the three and runs no helper: it signs in with ChatGPT (foxxycode providers login).
 providers:
   - name: "openai"
     type: "openai"
@@ -317,7 +318,7 @@ memory:
   dir: "" # long-term memory root; empty = $FOXXYCODE_HOME/memory. Supports ${FOXXYCODE_HOME} and ~ when set.
   wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
   timeout_seconds: 300  # hard limit of one memory run
-  keep_runs: 20         # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+  keep_runs: 20         # finished memory runs kept per session in the Tasks panel; 0 keeps all
   recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
@@ -729,7 +730,7 @@ models:
   - model: "nd-tech/qwen3.6-35b-a3b"
 ```
 
-Each row signs in separately: the Sign In button on its row in Settings, or **`foxxycode providers login <name>`** in a terminal. A row config.yaml does not list yet is created by its login when **`--type`** names the type (**`foxxycode providers login codex-work --type codex`**). The login lands under **`$FOXXYCODE_HOME/providers/<name>/`**, a model of the row is **`<name>/<model id>`**, and the row's **`<NAME>_API_KEY`** variable (**`CODEX_WORK_API_KEY`**, **`ND_TECH_API_KEY`**) belongs to that row only.
+Each row signs in separately: the Sign In button on its row in Settings, or **`foxxycode providers login <name>`** in a terminal. A row config.yaml does not list yet is created by its login when **`--type`** names the type (**`foxxycode providers login codex-work --type codex`**). The login lands under **`$FOXXYCODE_HOME/providers/<name>/`**, a model of the row is **`<name>/<model id>`**, and the row's **`<NAME>_API_KEY`** variable (**`ND_TECH_API_KEY`**) belongs to that row only; a codex row reads no key variable at all.
 
 The Codex CLI login (**`~/.codex/auth.json`**, **`CODEX_HOME`**) and the Devin CLI login are one account each, so each stands in for one row without a login of its own: the only row of its type, or, when there are several, the row named **`codex`** (**`devin`**). Every other row signs in itself instead of quietly running on that account - adding a second codex row to a setup whose only row, **`chatgpt`**, ran on the Codex CLI login leaves **`chatgpt`** unsigned too, until it signs in or is renamed **`codex`**. The startup log, **`foxxycode --dry-run`**, **`foxxycode providers list`** and the Settings row name such a row and the row the CLI login serves, and **`--devin-cli`** refuses a row the Devin CLI login does not serve.
 
@@ -744,6 +745,14 @@ With the default 10 extra attempts, a streamed model that stays completely silen
 
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Both the immediate first-token replay and later reissues after a stall wait spend this allowance; `llm_stall_retry_max_wait_ms` also limits the time spent waiting. Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
 
-`/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: coddy` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
+`/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: foxxycode` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
 
 Provider account usage sources are `neuraldeep`, `codex` and `devin`. `usage_limits_panel: false` disables their reads as well as the UI and console display. Codex and Devin use their managed login; explicit credentials that shadow it do not report unrelated subscription quotas.
+
+## Automatic compaction and shared servers
+
+`compaction.auto_enable` defaults to `true`. Set it to `false` to disable the threshold trigger while retaining `/compact` and the Context popover action. `compaction.enable` remains the master switch for both. Both `foxxycode` and `opencode` engines support it.
+
+`mcp.idle_timeout_seconds` defaults to 300; 0 stops an unheld server immediately. Long-running surfaces keep global servers alive until process exit. Project and `${CWD}` declarations share a connection only within their canonical workspace.
+
+`httpserver.remotes[]` may specify `name`, `url` and an optional `token`, usually `${ENV}`. The configuration API returns that token to browsers; the console uses it unless `--remote-token` overrides it. A relay exposes only its `swarm` and `logger` settings and uses `swarm.cors` for browser origins.

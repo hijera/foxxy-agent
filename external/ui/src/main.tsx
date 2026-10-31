@@ -17,6 +17,7 @@ import { installEmbedHostBridge } from "./ui/embedHostBridge";
 import { installEmbedExternalLinks } from "./ui/embedExternalLinks";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
+import { EnvScope } from "./ui/env/EnvScope";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 
 // Install the remote fetch shim before anything renders so every /v1/* and /foxxycode/* request
@@ -43,7 +44,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             inside AppErrorBoundary so a crash in it is still caught. */}
         <ConfirmProvider>
           <AuthGate>
-            <App />
+            <EnvScope><App /></EnvScope>
           </AuthGate>
         </ConfirmProvider>
       </I18nProvider>

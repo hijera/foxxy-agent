@@ -189,12 +189,12 @@ export const messagesEn: Record<string, string> = {
   "composer.env.groupEnvironment": "Environment",
   "composer.env.groupRemote": "Remote",
   "composer.env.localThisOrigin": "Local (this origin)",
-  "composer.env.addFormTitle": "Add a remote",
+  "composer.env.addFormTitle": "Connect to a server",
   "composer.env.namePlaceholder": "name",
   "composer.env.tokenPlaceholder": "bearer token (empty if none)",
   "composer.env.connect": "Connect",
   "composer.env.cancel": "Cancel",
-  "composer.env.addRemote": "+ Add remote…",
+  "composer.env.addRemote": "Connect to…",
 
   "composer.workspace.recent": "Recent",
   "composer.workspace.openFolder": "Open folder…",
@@ -229,8 +229,16 @@ export const messagesEn: Record<string, string> = {
   "composer.folderModal.go": "Go",
   "composer.folderModal.cannotList": "Cannot list {path}",
 
-  "env.banner.unreachable":
-    "Remote {name} is unreachable or unauthorized — check that it is running, that {cors} allows this origin, and that the token is correct.",
+  "env.banner.down":
+    "{name} does not answer. Check that it is running and that its address is right.",
+  "env.banner.unauthorizedAgent":
+    "{name} refuses the token. Enter the token its {agentToken} names for this environment.",
+  "env.banner.unauthorizedRelay":
+    "The relay {name} refuses the token. It takes its client token, {relayToken}.",
+  "env.banner.corsRelay":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay.",
+  "env.banner.corsEither":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a foxxycode serve.",
   "env.banner.switchLocal": "Switch to Local",
   "env.error.cannotReach":
     "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
@@ -414,14 +422,14 @@ export const messagesEn: Record<string, string> = {
   "swarm.state.offline": "offline",
   "swarm.state.noRoute": "no route",
   "swarm.search.placeholder": "Search by task, folder, node or address",
-  "swarm.results.label": "Sessions matching the search",
+  "swarm.results.label": "Search results",
   "swarm.empty.noSwarm": "No swarm here.",
   "swarm.empty.looking": "Looking…",
-  "swarm.empty.noMatches": "No sessions match.",
+  "swarm.empty.noMatches": "Nothing matches the search.",
   "swarm.empty.noNodes": "No nodes have joined yet.",
   "swarm.error.notRelay": "This environment is not a swarm relay.",
   "swarm.error.needsToken":
-    "This relay needs a token. Add it with Connect in the environment menu.",
+    "This relay needs a token. Enter it with Connect to… in the environment menu.",
   "swarm.session.working": "working",
   "swarm.session.waiting": "waiting",
   "usage.resets": "resets {time}",
@@ -1064,6 +1072,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.list_dir": "browsing a directory",
   "tool.name.mkdir": "creating a directory",
   "tool.name.touch": "creating a file",
+  "tool.name.worktree_create": "creating a worktree",
   "tool.name.mv": "moving a path",
   "tool.name.rm": "removing a path",
   "tool.name.rmdir": "removing a directory",
@@ -1672,6 +1681,8 @@ export const messagesEn: Record<string, string> = {
   "status.mcp": "Calling {tool} on the MCP server {server}",
   "sessions.backgroundRunning": "Background tasks running",
   "messages.openAttachmentImage": "Open {fileName} enlarged",
+  "messages.toolImages": "Pictures the call showed the model",
+  "messages.openToolImage": "Open {fileName} enlarged",
   "settings.fieldHint.aria": "About {label}",
   "settings.fieldHint.ariaGeneric": "About this field",
   "settings.section.scheduler.label": "Scheduler",
@@ -1732,7 +1743,8 @@ export const messagesEn: Record<string, string> = {
   "subagents.catalog.hideDeclared": "Hide declared bounds",
   "sessions.manage.legend": "Session management",
   "sessions.archiveFailed": "The conversation was not archived",
-  "sessions.unarchiveFailed": "The conversation was not taken out of the archive",
+  "sessions.unarchiveFailed":
+    "The conversation was not taken out of the archive",
   "chat.transcriptEarlier.show": "Show earlier messages",
   "chat.transcriptEarlier.loading": "Loading earlier messages…",
   "chat.transcriptEarlier.failed": "Earlier messages did not load.",
@@ -1768,12 +1780,14 @@ export const messagesEn: Record<string, string> = {
   "structuredTool.noTasks": "No background tasks",
   "structuredTool.noLeftovers": "No processes left over from an earlier run",
   "structuredTool.stillRunning": "Still running after a {seconds}s wait",
-  "structuredTool.earlierDropped": "Earlier output was dropped; the full log is in the session bundle",
+  "structuredTool.earlierDropped":
+    "Earlier output was dropped; the full log is in the session bundle",
   "structuredTool.noOutput": "No output yet",
   "structuredTool.stops": "Stops",
   "structuredTool.stopsAfter": "{seconds}s after it started",
   "structuredTool.stopsManually": "when it is stopped",
-  "structuredTool.alreadyRunning": "The server for this folder was already running",
+  "structuredTool.alreadyRunning":
+    "The server for this folder was already running",
   "structuredTool.noDocsHits": "No section matches",
   "structuredTool.docsContents": "Documentation contents",
   "structuredTool.docsLines": "lines {from}-{to} of {total}",
@@ -1801,4 +1815,173 @@ export const messagesEn: Record<string, string> = {
   "skills.switch.disabledTitle": "Disabled - click to enable",
   "skills.switch.disableAria": "Disable {name}",
   "skills.switch.enableAria": "Enable {name}",
+
+  "settings.map.namePlaceholder": "Name",
+  "settings.map.valuePlaceholder": "Value",
+  "settings.map.nameAria": "{label} {n}: name",
+  "settings.map.valueAria": "{label} {n}: value",
+  "settings.schema.tools.http_request.label": "HTTP requests",
+  "settings.schema.tools.http_request.desc":
+    "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+  "settings.schema.tools.http_request.allowlist.label": "Allowlist",
+  "settings.schema.tools.http_request.allowlist.desc":
+    'Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); "*" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.',
+  "settings.schema.tools.http_request.default_headers.label": "Default headers",
+  "settings.schema.tools.http_request.default_headers.desc":
+    "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.",
+  "settings.section.swarm.label": "Swarm relay",
+  "settings.section.swarm.desc": "Address, tokens, CORS, nodes",
+  "settings.secret.keep": "Set. Leave empty to keep it",
+  "settings.secret.unset": "Not set",
+  "settings.secret.listSet.one":
+    "{count} is set and not shown. Values entered here replace it.",
+  "settings.secret.listSet.other":
+    "{count} are set and not shown. Values entered here replace them all.",
+  "settings.schema.swarm.label": "Swarm relay",
+  "settings.schema.swarm.desc":
+    "This relay's deployment: its name and address, the tokens of its clients and nodes, CORS for pages served elsewhere, the nodes it dials itself and the relays it joins. A save rebuilds the relay; a new address takes a restart.",
+  "settings.schema.swarm.name.label": "Name",
+  "settings.schema.swarm.name.desc":
+    "The relay's name on the map and in /swarm/info.",
+  "settings.schema.swarm.host.label": "Listen host",
+  "settings.schema.swarm.host.desc":
+    "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart.",
+  "settings.schema.swarm.port.label": "Listen port",
+  "settings.schema.swarm.port.desc": "Port to bind. Takes effect on a restart.",
+  "settings.schema.swarm.auth_token.label": "Client token",
+  "settings.schema.swarm.auth_token.desc":
+    "Bearer token a client presents to use this relay, and every node behind it. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
+  "settings.schema.swarm.pairing_tokens.label": "Pairing tokens",
+  "settings.schema.swarm.pairing_tokens.desc":
+    "Tokens a node presents to join this relay. The list is not shown; tokens entered here replace the ones set.",
+  "settings.schema.swarm.cors.label": "CORS",
+  "settings.schema.swarm.cors.desc":
+    "Pages served from another origin, such as a laptop's foxxycode serve, that may call this relay from the browser.",
+  "settings.schema.swarm.cors.enable.label": "Enable CORS",
+  "settings.schema.swarm.cors.enable.desc":
+    "Answer cross-origin requests from the origins below.",
+  "settings.schema.swarm.cors.allowed_origins.label": "Allowed origins",
+  "settings.schema.swarm.cors.allowed_origins.desc":
+    "Exact origins, for example http://localhost:12345, or * for any.",
+  "settings.schema.swarm.tls.label": "TLS",
+  "settings.schema.swarm.tls.desc":
+    "Certificate and key the relay serves HTTPS with. Both or neither.",
+  "settings.schema.swarm.tls.cert_file.label": "Certificate file",
+  "settings.schema.swarm.tls.cert_file.desc": "PEM certificate chain.",
+  "settings.schema.swarm.tls.key_file.label": "Key file",
+  "settings.schema.swarm.tls.key_file.desc": "PEM private key.",
+  "settings.schema.swarm.lease_ttl_seconds.label": "Lease TTL (seconds)",
+  "settings.schema.swarm.lease_ttl_seconds.desc":
+    "How long a registration lasts without a refresh; nodes refresh at a third of it.",
+  "settings.schema.swarm.fanout_timeout_seconds.label":
+    "Fan-out timeout (seconds)",
+  "settings.schema.swarm.fanout_timeout_seconds.desc":
+    "How long the aggregated session list and the topology wait for a node.",
+  "settings.schema.swarm.upstreams.label": "Upstreams",
+  "settings.schema.swarm.upstreams.desc":
+    "Nodes this relay dials itself, pinned on the map whether or not they check in.",
+  "settings.schema.swarm.upstreams.name.label": "Name",
+  "settings.schema.swarm.upstreams.name.desc":
+    "Name the node is mounted under: /swarm/nodes/<name>.",
+  "settings.schema.swarm.upstreams.url.label": "URL",
+  "settings.schema.swarm.upstreams.url.desc":
+    "Address the relay dials the node at.",
+  "settings.schema.swarm.upstreams.kind.label": "Kind",
+  "settings.schema.swarm.upstreams.kind.desc":
+    "agent, or relay for a relay chained under this one.",
+  "settings.schema.swarm.upstreams.token.label": "Token",
+  "settings.schema.swarm.upstreams.token.desc":
+    "The node's own bearer token, which the relay presents when it proxies.",
+  "settings.schema.swarm.upstreams.dial.label": "Dialling",
+  "settings.schema.swarm.upstreams.dial.desc":
+    "How the relay reaches the node: an outbound proxy and the certificate check.",
+  "settings.schema.swarm.upstreams.dial.proxy.label": "Proxy",
+  "settings.schema.swarm.upstreams.dial.proxy.desc":
+    "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
+  "settings.schema.swarm.upstreams.dial.ca_file.label": "CA file",
+  "settings.schema.swarm.upstreams.dial.ca_file.desc":
+    "PEM bundle trusted for the node's certificate, besides the system roots.",
+  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
+    "Skip certificate check",
+  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
+    "For a lab only: every connection is logged as insecure.",
+  "settings.schema.swarm.join.label": "Joins",
+  "settings.schema.swarm.join.desc":
+    "Parent relays this relay registers into, which is how relays chain.",
+  "settings.schema.swarm.join.url.label": "Relay URL",
+  "settings.schema.swarm.join.url.desc":
+    "Parent relay this relay registers into.",
+  "settings.schema.swarm.join.name.label": "Name",
+  "settings.schema.swarm.join.name.desc":
+    "Name this relay registers under; empty takes the host name.",
+  "settings.schema.swarm.join.pairing_token.label": "Pairing token",
+  "settings.schema.swarm.join.pairing_token.desc":
+    "The parent's pairing token.",
+  "settings.schema.swarm.join.advertise_url.label": "Advertise URL",
+  "settings.schema.swarm.join.advertise_url.desc":
+    "Address the parent dials this relay at. Empty dials out: the parent drives this relay back down a tunnel.",
+  "settings.schema.swarm.join.token.label": "Token",
+  "settings.schema.swarm.join.token.desc":
+    "This relay's own client token, which the parent presents when it proxies.",
+  "settings.schema.swarm.join.dial.label": "Dialling",
+  "settings.schema.swarm.join.dial.desc":
+    "How this relay reaches the parent: an outbound proxy and the certificate check.",
+  "settings.schema.swarm.join.dial.proxy.label": "Proxy",
+  "settings.schema.swarm.join.dial.proxy.desc":
+    "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
+  "settings.schema.swarm.join.dial.ca_file.label": "CA file",
+  "settings.schema.swarm.join.dial.ca_file.desc":
+    "PEM bundle trusted for the parent's certificate, besides the system roots.",
+  "settings.schema.swarm.join.dial.insecure_skip_verify.label":
+    "Skip certificate check",
+  "settings.schema.swarm.join.dial.insecure_skip_verify.desc":
+    "For a lab only: every connection is logged as insecure.",
+  "settings.schema.swarm.allow_private_upstreams.label":
+    "Private upstream hosts",
+  "settings.schema.swarm.allow_private_upstreams.desc":
+    "Host names allowed to resolve into private ranges when a node advertises a URL.",
+  "settings.schema.swarm.allow_insecure.label": "Allow without a client token",
+  "settings.schema.swarm.allow_insecure.desc":
+    "Let a relay bound off loopback run without a client token. For a lab only.",
+  "settings.schema.swarm.insecure_open_registration.label": "Open registration",
+  "settings.schema.swarm.insecure_open_registration.desc":
+    "Let any node join without a pairing token. For a lab only.",
+  "settings.schema.compaction.auto_enable.label": "Automatic compaction",
+  "settings.schema.compaction.auto_enable.desc":
+    "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.",
+  "mcp.error.request": "MCP request failed: {message}",
+  "subagents.fact.spawns": "may spawn",
+  "chat.contextCompactAt": "Compact at {percent}%",
+  "chat.contextCompactNow": "Compact now",
+  "chat.contextCompacting": "Compacting…",
+  "chat.contextCompactError": "Could not compact context",
+  "chat.contextCompactNothing": "Nothing to compact yet",
+  "composer.env.enterToken": "Enter token",
+  "composer.env.hint.down": "Does not answer.",
+  "composer.env.hint.agentToken":
+    "Refuses the token. It takes the token of its httpserver.auth_token.",
+  "composer.env.hint.relayToken":
+    "The relay refuses the token. It takes its client token, swarm.auth_token.",
+  "composer.env.hint.configToken":
+    "The token of this entry in httpserver.remotes is refused.",
+  "composer.env.hint.cors":
+    "Blocked by CORS. Allow {origin} in swarm.cors.allowed_origins (relay) or httpserver.cors.allowed_origins (foxxycode serve).",
+  "composer.env.relay": "relay",
+  "composer.env.nodeOffline": "offline",
+  "swarm.close": "Close the swarm map",
+  "swarm.graph.enterRelay": "Connect to the relay {node}",
+  "swarm.graph.enterClient": "Open the local machine",
+  "swarm.layout.label": "Graph layout",
+  "swarm.layout.tree": "Tree layout",
+  "swarm.layout.graph": "Graph layout",
+  "swarm.viewport.zoomIn": "Zoom in",
+  "swarm.viewport.zoomOut": "Zoom out",
+  "swarm.viewport.fit": "Fit graph",
+  "swarm.tier.client": "this machine",
+  "swarm.results.nodes": "Nodes",
+  "swarm.results.sessions": "Sessions",
+  "settings.mcp.error.load": "Could not load MCP servers: {message}",
+  "settings.mcp.error.request": "MCP request failed: {message}",
+  "settings.subagents.fact.spawns": "may spawn",
+  "chat.footer.github": "GitHub",
 };

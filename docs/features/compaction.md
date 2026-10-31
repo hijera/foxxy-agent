@@ -25,14 +25,16 @@ Over HTTP the same action is `POST /foxxycode/sessions/{id}/compact` with an opt
 
 ## Automatic compaction
 
-The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the context window of the session's model. When the estimate reaches `compaction.threshold_percent` of the window (80 by default) the history is compacted before the call: once before the first model call of a turn, a turn resumed after a permission answer included, again between rounds when tool results grew the context past the threshold mid-turn, and before the first request to a model the session switched to, whose window may be smaller ([Session settings](session-settings.md#what-happens-when-you-send-one)). Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+The agent compares context usage with the session model's window. After a model call reports `input_tokens`, the next check uses that count plus an estimate of content added since the call. When the provider reports no count, the estimate includes the system prompt, tool definitions and schemas, rules, skills, MCP, message text, tool arguments, reasoning and images. The estimate budgets more room for code and non-ASCII text than the old runes/4 rule. At `compaction.threshold_percent` (80 by default), older history is compacted before the next model call: before the first call of a turn, after a permission answer, between rounds as tool results grow the context, and before the first call to a newly selected model whose window may be smaller ([Session settings](session-settings.md#what-happens-when-you-send-one)). Set `compaction.auto_enable: false` to keep manual compaction while disabling this trigger. Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+
+![The Context compaction settings with separate master and automatic switches](../assets/compaction/compaction-settings-auto-dark-1280.png)
 
 ### The context window
 
 Every reader resolves the window the same way - the trigger, the `usage_update` behind the console's context percentage, and the `max_context_tokens` of `GET /v1/models` that the web UI draws its context ring against - so what the ring shows is what the trigger measures:
 
 1. the model entry's `max_context_tokens`;
-2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio) or `context_window`. The listing is read for `neuraldeep` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com, Anthropic or Codex, whose listings carry no window. It is read when a turn starts, when the model list is served and when a session switches to the model, with a turn waiting at most three seconds for a listing that has never answered - the step after a switch in the middle of a turn waits the same way before it measures - and it is trusted for an hour; a failed read is retried after five minutes;
+2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio) or `context_window` (the Codex catalog, where it is the window Codex itself works with, 272000 for every model it serves today; the larger `max_context_window` next to it is only the ceiling Codex lets its own `model_context_window` setting raise that to, and FoxxyCode does not read it). The listing is read for `neuraldeep`, `devin` and `codex` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com or Anthropic, whose listings carry no window. It is read when a turn starts, when the model list is served and when a session switches to the model, with a turn waiting at most three seconds for a listing that has never answered - the step after a switch in the middle of a turn waits the same way before it measures - and it is trusted for an hour; a failed read is retried after five minutes, or at the next read once the row signs in or out from Settings;
 3. 128000.
 
 Set `max_context_tokens` when the provider reports no window, or a larger one than the deployment actually serves (a local server started with a smaller context).
@@ -90,6 +92,11 @@ The summary row is a user-role message flagged `compaction_summary` that starts 
 
 After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /foxxycode/sessions/{id}/stats` returns the same breakdown by category. Every client of a shared session reads the smaller number: the tab that sent the turn from its own stream, another tab watching the turn from `GET /foxxycode/sessions/{id}/composer-stream` (the same frames), and a tab that only views the session from the stats it reloads when `turn_ended` arrives. A compaction folds the turns before the kept tail, so the numbers fall when the bulk of the context sits in older turns; a large last message stays verbatim until newer turns push it past `keep_recent_turns`.
 
+The Context popover places a manual compaction action beside its title. With automation enabled it shows the configured threshold, such as **Compact at 95%**; with `auto_enable: false` it shows **Compact now**. Clicking starts the same `POST /foxxycode/sessions/{id}/compact` action as `/compact`, shows progress and refreshes the transcript and context indicator when it finishes.
+
+![Context popover with the manual compaction action and configured threshold](../assets/compaction/context-popover-threshold-dark-1280.png)
+*Context popover rendered from the running web UI at 1280px.*
+
 The web UI also updates the session's context window from `usage_update.size` on either stream. If a provider listing arrives after `/v1/models` returned the 128000 fallback, the ring adopts the reported window without a reload. Stats refreshes preserve that live window; selecting a different model or saving the configuration uses the model listing until a fresh usage update arrives. A window received for one session never changes another session's ring.
 
 ![Context using the fallback window](../assets/compaction/context-window-before-dark-1280.png)
@@ -104,7 +111,7 @@ In the web UI the summary is a foldout row labelled **context compacted**, style
 
 ## Two engines
 
-This fork carries two implementations behind `compaction.engine`. Everything above describes the default, **`coddy`** (the value keeps the name of the upstream project it was ported from): a summary row is inserted and only the window from the last summary onward is replayed. The fork's original engine, **`opencode`**, flags the older messages `compacted` and filters them out of the payload while the transcript keeps them; it triggers at 85 % by default (clamped to 50..99) and caps the summary at `compaction.max_tokens` (4096). Both republish the context estimate right after they fold history, so the context ring drops without a reload.
+This fork carries two implementations behind `compaction.engine`. Everything above describes the default, **`foxxycode`** (the value `coddy` is accepted as an alias of it): a summary row is inserted and only the window from the last summary onward is replayed. The fork's original engine, **`opencode`**, flags the older messages `compacted` and filters them out of the payload while the transcript keeps them; it triggers at 85 % by default (clamped to 50..99) and caps the summary at `compaction.max_tokens` (4096). Both republish the context estimate right after they fold history, so the context ring drops without a reload.
 
 The two differ only in how the summary is written back. Everything else on this page holds for both, because both come through the same door (`CompactSession`): `/compact`, `POST /foxxycode/sessions/{id}/compact` and the model's own `compact_context` tool fold with whichever engine the session runs on; a history larger than the summarizer's window is folded in passes; `compaction.fallback_models` is walked when a summarizer fails; the `PreCompact` and `PostCompact` hooks fire; and the live `compact_context` row says what is running. A second compaction on the `opencode` engine reads the summary the first one wrote, so nothing it held is lost. The one thing the `opencode` engine does not have is "summarize everything": it always keeps at least the last user turn verbatim, for the manual command too.
 
@@ -126,8 +133,9 @@ Eviction is the second projection over the same history: the persisted transcrip
 
 ```yaml
 compaction:
-  engine: coddy            # coddy (default) or opencode, see Two engines
+  engine: foxxycode        # foxxycode (default) or opencode, see Two engines
   enable: true             # master switch: the command and the automatic trigger
+  auto_enable: true        # false keeps manual compaction and disables the threshold trigger
   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
   keep_recent_turns: 2     # user turns kept verbatim; 0 summarises everything
   model: ""                # models[].model for the summariser; empty = the session's model
@@ -140,8 +148,9 @@ compaction:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `engine` | `coddy` | the implementation: `coddy` inserts a summary row, `opencode` flags and filters older messages |
+| `engine` | `foxxycode` | the implementation: `foxxycode` inserts a summary row, `opencode` flags and filters older messages |
 | `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
+| `auto_enable` | `true` | automatic threshold trigger; manual actions remain available when false |
 | `threshold_percent` | `80` (`85` for opencode) | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `max_tokens` | `4096` | the completion cap of the opencode engine's summary |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |

@@ -15,12 +15,14 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1033,7 +1035,7 @@ func newSubagentRig(t *testing.T, tweak func(cfg *config.Config)) *subagentRig {
 		Paths:     config.Paths{Home: r.home, CWD: r.cwd, ConfigPath: filepath.Join(r.home, "config.yaml")},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
-		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8, LLMStallRetryDelaysMS: []int{0}, LLMContinueBackgroundDelaysMS: []int{0}},
 		Sessions:  config.Sessions{Dir: filepath.Join(root, "sessions")},
 	}
 	cfg.Tools.PermissionMode = config.PermModeAsk
@@ -1159,6 +1161,20 @@ func (r *subagentRig) approve(name string) {
 func (r *subagentRig) approvedDefinition(name, extra string) {
 	r.writeDefinition(name, extra)
 	r.approve(name)
+}
+
+// userDefinition writes a definition into the agent home: user scope needs no
+// trust receipt, and only builtin and user scope honour a spawns allowlist.
+func (r *subagentRig) userDefinition(name, extra string) {
+	r.t.Helper()
+	dir := filepath.Join(r.home, "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		r.t.Fatal(err)
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: Unit helper %s.\n%s---\nYou are the unit subagent %s.\n", name, name, extra, name)
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
 }
 
 func (r *subagentRig) agentTasks() []bgtask.Snapshot {
@@ -1483,6 +1499,142 @@ func TestSpawnSubagentDepthGateRemovesSpawnAgentAtTheLimit(t *testing.T) {
 	}
 	if len(nested) != 1 || nested[0].Status != bgtask.StatusSucceeded || nested[0].Agent == nil || nested[0].Agent.SessionID != leaf.ID {
 		t.Fatalf("nested tasks = %+v", nested)
+	}
+}
+
+// toolResultFor finds the result the scripted provider saw for one tool call,
+// so a refused call's own error text can be asserted.
+func (p *scriptedProvider) toolResultFor(callID string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, req := range p.requests {
+		for _, m := range req {
+			if m.Role == llm.RoleTool && m.ToolCallID == callID {
+				return m.Content, true
+			}
+		}
+	}
+	return "", false
+}
+
+// A definition that declares spawns delegates exactly one generation past
+// subagents.max_depth, only to the names on the list, and the deeper
+// children never get spawn_agent.
+func TestSpawnAllowlistExtendsOneLevelPastTheDepthCap(t *testing.T) {
+	rig := newSubagentRig(t, nil) // max_depth 1: the coordinator sits at the cap
+	rig.userDefinition("coordinator", "spawns: [reviewer]\n")
+	rig.userDefinition("reviewer", "")
+	rig.userDefinition("other", "")
+	rig.setChildProvider(func(st *session.State) llm.Provider {
+		if st.Subagent() != nil && st.Subagent().Name == "coordinator" {
+			return scripted(
+				toolStep(spawnCall("call-other", "other", false)),
+				toolStep(spawnCall("call-rev", "reviewer", false)),
+				answerStep("REPORT: quorum merged"),
+			)
+		}
+		return scripted(answerStep("REPORT: reviewer done"))
+	})
+
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("coordinator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, res); !strings.Contains(env.Body, "quorum merged") {
+		t.Fatalf("coordinator report = %q", env.Body)
+	}
+
+	coord := rig.childByDepth(1)
+	if coord == nil || coord.Subagent().Name != "coordinator" {
+		t.Fatal("the coordinator child did not run")
+	}
+	if got := coord.Subagent().Spawns; len(got) != 1 || got[0] != "reviewer" {
+		t.Fatalf("coordinator meta spawns = %v", got)
+	}
+	if !rig.childProviderOf(coord).everOffered(tools.ToolSpawnAgent) {
+		t.Fatal("a coordinator at the depth cap keeps spawn_agent through its allowlist")
+	}
+	if prompt, ok := rig.childProviderOf(coord).firstSystemPrompt(); ok {
+		if !strings.Contains(prompt, "reviewer") {
+			t.Error("the coordinator's catalog does not list its allowlisted reviewer")
+		}
+		if strings.Contains(prompt, "Unit helper other") {
+			t.Error("the coordinator's catalog lists a name outside its allowlist")
+		}
+	}
+
+	// The allowlisted reviewer ran one level past the cap...
+	reviewer := rig.childByDepth(2)
+	if reviewer == nil || reviewer.Subagent().Name != "reviewer" {
+		t.Fatal("the allowlisted reviewer did not spawn")
+	}
+	// ...and a child past the cap never gets spawn_agent itself.
+	if rig.childProviderOf(reviewer).everOffered(tools.ToolSpawnAgent) {
+		t.Fatal("a child past the depth cap was offered spawn_agent")
+	}
+
+	// The name outside the list was refused, naming the allowlist.
+	if res, ok := rig.childProviderOf(coord).toolResultFor("call-other"); !ok ||
+		!strings.Contains(res, "spawns allowlist") {
+		t.Fatalf("refusal for a non-allowlisted spawn = %q (found %v)", res, ok)
+	}
+}
+
+// A project-scope spawns declaration is parsed and shown in the catalog but
+// must not widen the depth guard.
+func TestSpawnsOnAProjectDefinitionIsIgnored(t *testing.T) {
+	rig := newSubagentRig(t, nil) // max_depth 1
+	rig.approvedDefinition("coordinator", "spawns: [reviewer]\n")
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
+
+	if _, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("coordinator")); err != nil {
+		t.Fatal(err)
+	}
+	coord := rig.childByDepth(1)
+	if got := coord.Subagent().Spawns; len(got) != 0 {
+		t.Fatalf("a project definition's spawns reached the session meta: %v", got)
+	}
+	if rig.childProviderOf(coord).everOffered(tools.ToolSpawnAgent) {
+		t.Fatal("a project-scope spawns declaration handed a capped child spawn_agent")
+	}
+	for _, st := range rig.childStates() {
+		if st.Subagent() != nil && st.Subagent().Depth == 2 {
+			t.Fatal("a coordinator whose spawns was ignored still spawned")
+		}
+	}
+}
+
+// The allowlist restricts the names a coordinator may delegate to at any
+// depth, not only at the boundary.
+func TestSpawnAllowlistRestrictsBelowTheCap(t *testing.T) {
+	two := 2
+	rig := newSubagentRig(t, func(cfg *config.Config) { cfg.Subagents.MaxDepth = &two })
+	rig.userDefinition("coordinator", "spawns: [reviewer]\n")
+	rig.userDefinition("reviewer", "")
+	rig.userDefinition("other", "")
+	rig.setChildProvider(func(st *session.State) llm.Provider {
+		if st.Subagent() != nil && st.Subagent().Name == "coordinator" {
+			return scripted(
+				toolStep(spawnCall("call-other", "other", false)),
+				answerStep("REPORT: coordinator done"),
+			)
+		}
+		return scripted(answerStep("REPORT: leaf"))
+	})
+
+	if _, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("coordinator")); err != nil {
+		t.Fatal(err)
+	}
+	coord := rig.childByDepth(1)
+	if res, ok := rig.childProviderOf(coord).toolResultFor("call-other"); !ok ||
+		!strings.Contains(res, "spawns allowlist") {
+		t.Fatalf("below the cap the allowlist still restricts: %q (found %v)", res, ok)
+	}
+	for _, st := range rig.childStates() {
+		if st.Subagent() != nil && st.Subagent().Depth == 2 {
+			t.Fatal("a non-allowlisted spawn below the cap still ran")
+		}
 	}
 }
 
@@ -2322,4 +2474,553 @@ func TestSpawnSubagentGrandchildNarrowingSurvivesABypassChild(t *testing.T) {
 	if auditor.GetPermissionMode() != config.PermModeAsk {
 		t.Fatalf("auditor mode = %q", auditor.GetPermissionMode())
 	}
+}
+
+// ---- issue #389: a child that loses its provider ----
+
+// TestSubagentSenderLogsReconnects: the task log says when the run lost its
+// provider and when it tries again, after the text it had written, instead of
+// going quiet for the minutes a reconnect can take.
+func TestSubagentSenderLogsReconnects(t *testing.T) {
+	var out bytes.Buffer
+	s := newSubagentSender(&out, nil)
+	_ = s.SendSessionUpdate("sess_x", acp.MessageChunkUpdate{SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+		Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: "Reading the files"}})
+	s.ProviderRecovery(errors.New("read tcp: wsarecv: forcibly closed"), 20*time.Second, 2, 5)
+	want := "[assistant] Reading the files\n" +
+		"↻ provider failed (read tcp: wsarecv: forcibly closed); reconnecting in 20s (attempt 2 of 5)\n"
+	if got := out.String(); got != want {
+		t.Fatalf("sink =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// switchableProvider fails every call while broken is set, the way a provider
+// that is down does, and follows its script otherwise.
+func switchableProvider(broken *atomic.Bool, cause error, steps ...scriptStep) *scriptedProvider {
+	return &scriptedProvider{
+		steps: steps,
+		fail: func(int) (string, error) {
+			if broken.Load() {
+				return "", cause
+			}
+			return "", nil
+		},
+	}
+}
+
+// A run the parent resumes continues the child session of the earlier run: the
+// same transcript, a new task, the report and the turn count of this run only,
+// and a task log that says the subagent is resuming.
+func TestSpawnSubagentResumeContinuesTheSameChild(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	var broken atomic.Bool
+	broken.Store(true)
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return switchableProvider(&broken, errors.New("the provider refused the request"),
+			toolStep(llm.ToolCall{ID: "call_ls", Name: "print_tree", InputJSON: `{"path":"."}`}),
+			answerStep("REPORT: resumed"))
+	})
+	first, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("worker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := parseSubagentEnvelope(t, first)
+	if failed.Status != string(bgtask.StatusFailed) {
+		t.Fatalf("first run = %s", first)
+	}
+	if !strings.Contains(first, `spawn_agent with resume="`+failed.Task+`"`) {
+		t.Fatalf("the failed run does not say how to resume it:\n%s", first)
+	}
+
+	broken.Store(false)
+	req := spawnReq("worker")
+	req.Resume = failed.Task
+	req.Prompt = "Go on from where you stopped."
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, res)
+	if env.Session != failed.Session || env.Task == failed.Task {
+		t.Fatalf("resumed run = task %s session %s, want a new task on session %s", env.Task, env.Session, failed.Session)
+	}
+	if env.Status != string(bgtask.StatusSucceeded) || strings.TrimSpace(env.Body) != "REPORT: resumed" || env.Turns != 2 {
+		t.Fatalf("resumed run = %s", res)
+	}
+	if log := rig.taskOutput(env.Task); !strings.Contains(log, "subagent worker (task "+env.Task+", session "+env.Session+") resuming") {
+		t.Fatalf("the task log does not say the run resumes the child:\n%s", log)
+	}
+	rig.assertRetired(env.Session, rig.parent.ID)
+	snap, err := rig.store.ReadSnapshot(env.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.SubagentTaskID != env.Task {
+		t.Fatalf("the child bundle names task %s, want the resumed run's %s", snap.Meta.SubagentTaskID, env.Task)
+	}
+	var prompts []string
+	for _, m := range snap.Messages {
+		if m.Role == llm.RoleUser {
+			prompts = append(prompts, m.Content)
+		}
+	}
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "Go on from where you stopped.") {
+		t.Fatalf("the child transcript holds the prompts %q, want the first task and the follow-up", prompts)
+	}
+	if got := rig.childBundles(); len(got) != 1 {
+		t.Fatalf("the parent holds child bundles %v, want the one resumed child", got)
+	}
+}
+
+// A resumed run reports what it wrote itself: when it writes nothing, the
+// earlier run's answer is not passed off as its report, and neither are the
+// earlier run's rounds counted as its turns.
+func TestSpawnSubagentResumedRunReportsOnlyWhatItWrote(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	var broken atomic.Bool
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return switchableProvider(&broken, errors.New("the provider refused the request"), answerStep("REPORT: first run"))
+	})
+	first, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("worker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := parseSubagentEnvelope(t, first)
+	if done.Status != string(bgtask.StatusSucceeded) {
+		t.Fatalf("first run = %s", first)
+	}
+
+	broken.Store(true)
+	req := spawnReq("worker")
+	req.Resume = done.Session
+	req.Prompt = "One more check."
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, res)
+	if env.Status != string(bgtask.StatusFailed) || env.Turns != 0 {
+		t.Fatalf("resumed run = %s", res)
+	}
+	if strings.Contains(res, "REPORT: first run") {
+		t.Fatalf("the resumed run passes the earlier answer off as its report:\n%s", res)
+	}
+	if log := rig.taskOutput(env.Task); strings.Contains(log, "REPORT: first run") {
+		t.Fatalf("the resumed run's log carries the earlier answer:\n%s", log)
+	}
+}
+
+// finishedHandle is a pool handle whose run is already over.
+type finishedHandle struct{}
+
+func (finishedHandle) Wait() (int, error)          { return 0, nil }
+func (finishedHandle) Stop(time.Duration) error    { return nil }
+func (finishedHandle) PID() int                    { return 0 }
+func (finishedHandle) ProcessStartedAt() time.Time { return time.Time{} }
+
+// Resume continues a finished subagent run of this session and nothing else:
+// the refusals name what was wrong, and none of them starts a run.
+func TestSpawnSubagentResumeRefusals(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	rig.approvedDefinition("other", "")
+	release := make(chan struct{})
+	defer close(release)
+	rig.setChildProvider(func(st *session.State) llm.Provider {
+		if strings.Contains(st.GetTitlePinned(), "held") {
+			return scripted(waitStep(release, answerStep("REPORT: held")))
+		}
+		return scripted(answerStep("REPORT: done"))
+	})
+	parent := rig.parentAgent()
+	finished := parseSubagentEnvelope(t, mustSpawn(t, parent, spawnReq("worker")))
+
+	held := spawnReq("worker")
+	held.Description = "held"
+	held.Background = true
+	if _, err := parent.spawnSubagent(context.Background(), held); err != nil {
+		t.Fatal(err)
+	}
+	running := rig.lastAgentTask()
+
+	// A memory run is the runtime's own child, never a delegation to resume.
+	memory, err := bgtask.Default().Launch(bgtask.Spec{
+		SessionID: rig.parent.ID, Kind: bgtask.KindAgent, Label: "memory",
+		Agent: &bgtask.AgentInfo{Name: "memory", SessionID: newPortTestSessionID(t), System: true},
+	}, func(string, io.Writer) (bgtask.Handle, error) { return finishedHandle{}, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	rig.waitTask(memory.ID)
+
+	cases := []struct {
+		name  string
+		agent string
+		ref   string
+		want  string
+	}{
+		{"unknown run", "worker", "bg_99999", "no subagent run of this session"},
+		{"another session's child", "worker", newPortTestSessionID(t), "no subagent run of this session"},
+		{"a run still in flight", "worker", running.ID, "still running"},
+		{"the same child named by its session while it runs", "worker", running.Agent.SessionID, "still running"},
+		{"a system run", "memory", memory.ID, "cannot be resumed"},
+		{"another definition", "other", finished.Task, `a run of subagent "worker"`},
+	}
+	before := len(rig.agentTasks())
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := spawnReq(c.agent)
+			req.Resume = c.ref
+			_, err := parent.spawnSubagent(context.Background(), req)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("resume %s = %v, want a refusal naming %q", c.ref, err, c.want)
+			}
+		})
+	}
+	if got := len(rig.agentTasks()); got != before {
+		t.Fatalf("a refused resume started a run: %d agent tasks, want %d", got, before)
+	}
+}
+
+func mustSpawn(t *testing.T, a *Agent, req tooling.SpawnRequest) string {
+	t.Helper()
+	res, err := a.spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// A run that did not succeed says how to go on with it in its own session,
+// in the parent's envelope and at the end of its log; a run that succeeded
+// carries no such line.
+func TestSubagentReportsTellHowToResumeARunThatDidNotSucceed(t *testing.T) {
+	failed := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_1", taskID: "bg_4", resumable: true, created: true,
+		status: "failed", err: errors.New("LLM error: read tcp: connection reset by peer"), startedAt: time.Now()}
+	hint := `spawn_agent with resume="bg_4"`
+	if out := formatForegroundResult(failed, bgtask.Snapshot{ID: "bg_4", Status: bgtask.StatusFailed}); !strings.Contains(out, hint) {
+		t.Fatalf("envelope of a failed run lacks %q:\n%s", hint, out)
+	}
+	if out := formatSubagentReport(failed, nil); !strings.Contains(out, hint) {
+		t.Fatalf("report block of a failed run lacks %q:\n%s", hint, out)
+	}
+	// A run that never got its child session has no transcript to go on with.
+	stillborn := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_3", taskID: "bg_6", resumable: true,
+		status: "failed", err: errors.New("create subagent session: parent is gone"), startedAt: time.Now()}
+	if out := formatForegroundResult(stillborn, bgtask.Snapshot{ID: "bg_6", Status: bgtask.StatusFailed}); strings.Contains(out, "resume=") {
+		t.Fatalf("a run without a child session offers to resume it:\n%s", out)
+	}
+	// A scheduled run and the memory child are nobody's to resume: the job
+	// session never takes a turn, and the memory child is the runtime's own.
+	scheduled := &subagentRun{name: "nightly", childID: "sess_4", taskID: "bg_7", created: true,
+		status: "failed", err: errors.New("LLM error: read tcp: connection reset by peer"), startedAt: time.Now()}
+	if out := formatSubagentReport(scheduled, nil); strings.Contains(out, "resume=") {
+		t.Fatalf("a scheduled run's report offers spawn_agent resume:\n%s", out)
+	}
+	done := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_2", taskID: "bg_5", resumable: true, created: true,
+		status: "end_turn", report: "ok", startedAt: time.Now()}
+	if out := formatForegroundResult(done, bgtask.Snapshot{ID: "bg_5", Status: bgtask.StatusSucceeded}); strings.Contains(out, "resume=") {
+		t.Fatalf("a succeeded run carries a resume hint:\n%s", out)
+	}
+	if out := formatSubagentReport(done, nil); strings.Contains(out, "resume=") {
+		t.Fatalf("the report block of a succeeded run carries a resume hint:\n%s", out)
+	}
+}
+
+// A resume that cannot take the child over - another run of it still holds the
+// session - fails on its own and leaves that run alone: the live child is not
+// retired under it, and the work it started is not stopped. The tool refuses
+// such a resume before it launches anything; this is the runtime's own guard
+// behind that check.
+func TestResumeThatLosesTheChildLeavesTheRunningRunAlone(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(release) }) }
+	// A failed assertion must not leave the first child parked on its script.
+	defer releaseFirst()
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(waitStep(release, answerStep("REPORT: first")))
+	})
+	req := spawnReq("worker")
+	req.Background = true
+	parent := rig.parentAgent()
+	if _, err := parent.spawnSubagent(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	holder := rig.lastAgentTask()
+	childID := holder.Agent.SessionID
+	deadline := time.Now().Add(testWait)
+	for rig.mgr.SessionByID(childID) == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	live := rig.mgr.SessionByID(childID)
+	if live == nil {
+		t.Fatal("the first run's child never went live")
+	}
+
+	snap, _, err := parent.launchChildRun(context.Background(), rig.mgr, childLaunch{
+		spec: session.SubagentSpec{
+			ID: childID, ParentSessionID: rig.parent.ID, Name: "worker", CWD: rig.cwd,
+			Mode: "agent", Tools: []string{"read"}, Depth: 1, Resume: true,
+		},
+		prompt: "a second resume", label: "agent worker: duplicate", timeoutSeconds: 60, detached: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lost := rig.waitTask(snap.ID)
+	if lost.Status != bgtask.StatusFailed || !strings.Contains(lost.Error, "still running") {
+		t.Fatalf("the losing resume = %s (%s), want failed because the child is still running", lost.Status, lost.Error)
+	}
+	if rig.mgr.SessionByID(childID) != live {
+		t.Fatal("the losing resume retired the child another run still works on")
+	}
+	if got, err := bgtask.Default().Get(rig.parent.ID, holder.ID); err != nil || got.Status != bgtask.StatusRunning {
+		t.Fatalf("the first run = %+v, %v, want it still running", got, err)
+	}
+	releaseFirst()
+	if done := rig.waitTask(holder.ID); done.Status != bgtask.StatusSucceeded {
+		t.Fatalf("the first run = %s (%s), want succeeded", done.Status, done.Error)
+	}
+}
+
+// A compaction during a resumed run can insert summaries anywhere in front of
+// the run's prompt and push the earlier run's messages past the length the
+// transcript had when the run started. The run's own messages are still the
+// ones after its prompt: never the earlier run's, whatever the two prompts
+// say.
+func TestRunMessagesFindsTheRunsOwnPrompt(t *testing.T) {
+	summary := func(s string) llm.Message {
+		return llm.Message{Role: llm.RoleUser, Content: s, CompactionSummary: true}
+	}
+	user := func(s string) llm.Message { return llm.Message{Role: llm.RoleUser, Content: s} }
+	assistant := func(s string) llm.Message { return llm.Message{Role: llm.RoleAssistant, Content: s} }
+	texts := func(msgs []llm.Message) string {
+		var out []string
+		for _, m := range msgs {
+			out = append(out, m.Content)
+		}
+		return strings.Join(out, "|")
+	}
+	cases := []struct {
+		name  string
+		msgs  []llm.Message
+		prior int
+		want  string
+	}{
+		{"a new child", []llm.Message{user("task"), assistant("r1"), {Role: llm.RoleTool, Content: "out"}, assistant("r2")}, 0, "r1|out|r2"},
+		{"summaries pushed the earlier run past its length", []llm.Message{summary("s1"), summary("s2"), user("p1"), assistant("a1"), user("p2"), assistant("a2")}, 2, "a2"},
+		{"a resumed run that wrote nothing", []llm.Message{summary("s1"), summary("s2"), user("p1"), assistant("a1"), user("p2")}, 2, ""},
+		{"the same prompt twice", []llm.Message{summary("s1"), summary("s2"), user("Check the build"), assistant("Build is green"), user("Check the build")}, 2, ""},
+		{"a prompt the turn rewrote", []llm.Message{summary("s1"), user("p1"), assistant("a1"), user("p2 with an attachment"), assistant("a2")}, 2, "a2"},
+		{"a Stop hook follow-up", []llm.Message{user("p1"), assistant("a1"), user("p2"), assistant("a2"), user("[Stop hook] go on"), assistant("a3")}, 2, "a2|[Stop hook] go on|a3"},
+		{"a summary inside the run", []llm.Message{user("p1"), assistant("a1"), user("p2"), summary("s"), assistant("a2")}, 2, "s|a2"},
+		{"a run whose prompt never got in", []llm.Message{user("p1"), assistant("a1")}, 2, ""},
+	}
+	for _, c := range cases {
+		if got := texts(runMessages(c.msgs, c.prior)); got != c.want {
+			t.Errorf("%s: run wrote %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// A resumed run goes on with the model that wrote the child's transcript; when
+// that model was removed from the configuration since, the run takes another
+// one and its task log says which, instead of switching in silence.
+func TestSpawnSubagentResumeNamesAModelThatIsGone(t *testing.T) {
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "fake/other", MaxTokens: 100})
+	})
+	rig.approvedDefinition("worker", "")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(answerStep("REPORT: first"), answerStep("REPORT: second"))
+	})
+	req := spawnReq("worker")
+	req.Model = "fake/other"
+	first := parseSubagentEnvelope(t, mustSpawn(t, rig.parentAgent(), req))
+	if got := rig.lastAgentTask().Agent.Model; got != "fake/other" {
+		t.Fatalf("first run model = %q", got)
+	}
+
+	rig.cfg.Models = rig.cfg.Models[:1]
+	again := spawnReq("worker")
+	again.Resume = first.Task
+	env := parseSubagentEnvelope(t, mustSpawn(t, rig.parentAgent(), again))
+	if env.Status != string(bgtask.StatusSucceeded) {
+		t.Fatalf("resumed run = %+v", env)
+	}
+	task := rig.lastAgentTask()
+	if task.Agent.Model != "fake/model" {
+		t.Fatalf("resumed run model = %q, want the parent's fake/model", task.Agent.Model)
+	}
+	if log := rig.taskOutput(task.ID); !strings.Contains(log, `model "fake/other" the child ran on is not configured any more; the resumed run uses "fake/model"`) {
+		t.Fatalf("the task log does not say the model changed:\n%s", log)
+	}
+}
+
+// A child's transcript belongs to the workspace it worked in; after the
+// session moved to another one, the child is not continued there.
+func TestSpawnSubagentResumeRefusesAChildOfAnotherWorkspace(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
+	first := parseSubagentEnvelope(t, mustSpawn(t, rig.parentAgent(), spawnReq("worker")))
+	elsewhere := t.TempDir()
+	rig.parent.SetCWD(elsewhere)
+	req := spawnReq("worker")
+	req.Resume = first.Task
+	before := len(rig.agentTasks())
+	_, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "works in "+elsewhere+" now") {
+		t.Fatalf("resume across workspaces = %v, want a refusal naming both", err)
+	}
+	if got := len(rig.agentTasks()); got != before {
+		t.Fatalf("the refused resume started a run: %d agent tasks, want %d", got, before)
+	}
+}
+
+// After a restart the pool holds nothing of the earlier process: the rows come
+// from the parent's bundle and the child from its own, and a resume by task id
+// or by session id continues the same child as it would have in-process.
+func TestSpawnSubagentResumeAfterARestart(t *testing.T) {
+	for _, by := range []string{"task id", "session id"} {
+		t.Run(by, func(t *testing.T) {
+			rig := newSubagentRig(t, nil)
+			rig.approvedDefinition("worker", "")
+			var broken atomic.Bool
+			broken.Store(true)
+			rig.setChildProvider(func(*session.State) llm.Provider {
+				return switchableProvider(&broken, errors.New("the provider refused the request"), answerStep("REPORT: after the restart"))
+			})
+			first := parseSubagentEnvelope(t, mustSpawn(t, rig.parentAgent(), spawnReq("worker")))
+			if first.Status != string(bgtask.StatusFailed) {
+				t.Fatalf("first run = %+v", first)
+			}
+
+			// The restart: a new manager over the same sessions root, and a pool
+			// that forgot the earlier process's records.
+			bgtask.Default().ReleaseSession(rig.parent.ID)
+			rig.mgr.ForgetLiveSession(rig.parent.ID)
+			broken.Store(false)
+			runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+				return rig.agentFor(st, snd).Run(ctx, prompt)
+			}
+			mgr := session.NewManager(rig.cfg, rig.client, runner, slog.Default(), rig.cwd, &session.FileStore{Root: rig.cfg.Sessions.Dir})
+			rig.mgr = mgr
+			if _, err := mgr.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: rig.parent.ID}); err != nil {
+				t.Fatal(err)
+			}
+			rig.parent = mgr.SessionByID(rig.parent.ID)
+
+			req := spawnReq("worker")
+			req.Resume = first.Task
+			if by == "session id" {
+				req.Resume = first.Session
+			}
+			env := parseSubagentEnvelope(t, mustSpawn(t, rig.parentAgent(), req))
+			if env.Session != first.Session || env.Status != string(bgtask.StatusSucceeded) || strings.TrimSpace(env.Body) != "REPORT: after the restart" {
+				t.Fatalf("resume after the restart = %+v", env)
+			}
+			snap, err := rig.store.ReadSnapshot(first.Session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			users := 0
+			for _, m := range snap.Messages {
+				if m.Role == llm.RoleUser {
+					users++
+				}
+			}
+			if users != 2 {
+				t.Fatalf("the child transcript holds %d prompts, want the first task and the resume", users)
+			}
+		})
+	}
+}
+
+// failingCreateRuntime refuses to create child sessions, the way a manager
+// does while the parent is being deleted or the disk is full.
+type failingCreateRuntime struct{ *session.Manager }
+
+func (failingCreateRuntime) CreateSubagentSession(context.Context, session.SubagentSpec) (*session.State, error) {
+	return nil, errors.New("subagent parent session is not live")
+}
+
+// A run whose child session was never created left no transcript: resuming it
+// is refused before anything starts, with the reason, rather than launched to
+// fail.
+func TestSpawnSubagentResumeRefusesARunThatNeverGotItsSession(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	parent := rig.parentAgent()
+	parent.SetSubagentRuntime(failingCreateRuntime{rig.mgr})
+	stillborn := parseSubagentEnvelope(t, mustSpawn(t, parent, spawnReq("worker")))
+	if stillborn.Status != string(bgtask.StatusFailed) || strings.Contains(mustSpawnResultText(t, rig, stillborn.Task), "resume=") {
+		t.Fatalf("stillborn run = %+v", stillborn)
+	}
+	req := spawnReq("worker")
+	req.Resume = stillborn.Task
+	before := len(rig.agentTasks())
+	_, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "is not on disk") {
+		t.Fatalf("resume of a run without a session = %v, want a refusal", err)
+	}
+	if got := len(rig.agentTasks()); got != before {
+		t.Fatalf("the refused resume started a run: %d agent tasks, want %d", got, before)
+	}
+}
+
+// mustSpawnResultText is the task log of taskID.
+func mustSpawnResultText(t *testing.T, rig *subagentRig, taskID string) string {
+	t.Helper()
+	return rig.taskOutput(taskID)
+}
+
+// A scheduled run is nobody's to resume through spawn_agent: the job session
+// never takes a turn. Its report says how it failed and nothing about resume.
+func TestScheduledRunReportOffersNoResume(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	var broken atomic.Bool
+	broken.Store(true)
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return switchableProvider(&broken, errors.New("the provider refused the request"))
+	})
+	runID := newPortTestSessionID(t)
+	snap, err := RunScheduledJob(context.Background(), rig.cfg, rig.mgr, bgtask.Default(), slog.Default(), ScheduledRunSpec{
+		JobID:         "nightly",
+		JobSessionID:  rig.parent.ID,
+		JobSessionDir: rig.parent.GetPersistedSessionDir(),
+		RunSessionID:  runID,
+		Label:         "nightly (manual)",
+		Trigger:       "manual",
+		CWD:           rig.cwd,
+		Mode:          "agent",
+		Instruction:   "Check the build and report.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := bgtask.Default().Wait(context.Background(), rig.parent.ID, snap.ID, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != bgtask.StatusFailed {
+		t.Fatalf("scheduled run = %s, want failed", done.Status)
+	}
+	if log := rig.taskOutput(snap.ID); !strings.Contains(log, "=== subagent report ===") || strings.Contains(log, "resume=") {
+		t.Fatalf("scheduled run report offers spawn_agent resume or is missing:\n%s", log)
+	}
+}
+
+func newPortTestSessionID(t *testing.T) string {
+	t.Helper()
+	id, err := session.NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

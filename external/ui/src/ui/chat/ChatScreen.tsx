@@ -1,4 +1,5 @@
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import { HeroFooter } from "./HeroFooter";
 import {
   useCallback,
   useEffect,
@@ -79,7 +80,11 @@ export function ChatScreen(props: {
   onUsageBannerDismiss?: (key: string) => void;
   contextPct?: number;
   maxContextTokens?: number;
-  contextBreakdown?: import("./ContextBreakdownPopover").ContextBreakdown | null;
+  contextBreakdown?:
+    | import("./ContextBreakdownPopover").ContextBreakdown
+    | null;
+  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  onContextCompacted?: (() => void) | undefined;
   mode: string;
   modes: string[];
   llmModels?: string[];
@@ -707,6 +712,8 @@ export function ChatScreen(props: {
                 {...(props.contextBreakdown !== undefined
                   ? { contextBreakdown: props.contextBreakdown }
                   : {})}
+                compactionSettings={props.compactionSettings}
+                onContextCompacted={props.onContextCompacted}
                 {...(props.llmModels !== undefined &&
                 props.llmModels.length > 0 &&
                 props.onLlmModelChange !== undefined
@@ -781,6 +788,7 @@ export function ChatScreen(props: {
               />
             )}
           </div>
+          <HeroFooter />
         </div>
       ) : (
         <div className="chat-stack" ref={chatStackRef}>
@@ -891,13 +899,15 @@ export function ChatScreen(props: {
                   {...(props.contextPct !== undefined
                     ? { contextPct: props.contextPct }
                     : {})}
-                {...(props.maxContextTokens !== undefined
-                  ? { maxContextTokens: props.maxContextTokens }
-                  : {})}
-                {...(props.contextBreakdown !== undefined
-                  ? { contextBreakdown: props.contextBreakdown }
-                  : {})}
-                {...(props.llmModels !== undefined &&
+                  {...(props.maxContextTokens !== undefined
+                    ? { maxContextTokens: props.maxContextTokens }
+                    : {})}
+                  {...(props.contextBreakdown !== undefined
+                    ? { contextBreakdown: props.contextBreakdown }
+                    : {})}
+                  compactionSettings={props.compactionSettings}
+                  onContextCompacted={props.onContextCompacted}
+                  {...(props.llmModels !== undefined &&
                   props.llmModels.length > 0 &&
                   props.onLlmModelChange !== undefined
                     ? {

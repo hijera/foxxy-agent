@@ -73,7 +73,7 @@ func (s *wsFeatureState) close() {
 		default:
 		}
 		select {
-		case <-s.turnDone:
+		case <-s.turnDone: //nolint:errcheck // Only completion is needed here.
 		case <-time.After(5 * time.Second):
 		}
 		s.turnGate, s.turnEntered, s.turnDone = nil, nil, nil
@@ -215,6 +215,19 @@ func (s *wsFeatureState) gitRepo(name, branchList string) error {
 		if err := bddGit(dir, "branch", b); err != nil {
 			return err
 		}
+	}
+	origin := filepath.Join(s.root, name+"-origin.git")
+	if err := bddGit(dir, "clone", "--bare", dir, origin); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "remote", "add", "origin", origin); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "fetch", "origin"); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "remote", "set-head", "origin", "-a"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -596,6 +609,44 @@ func (s *wsFeatureState) worktreePathDiffersFromRoot() error {
 	return nil
 }
 
+func (s *wsFeatureState) contextDefaultBranch(branch string) error {
+	ctxBody, err := s.freshContext()
+	if err != nil {
+		return err
+	}
+	if got := ctxBody["base_branch"]; got != branch {
+		return fmt.Errorf("base_branch = %v, want %s", got, branch)
+	}
+	return nil
+}
+
+func (s *wsFeatureState) sessionListMainCheckout(name string) error {
+	res, err := http.Get(s.ts.URL + "/foxxycode/sessions")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			RepoRoot string `json:"repoRoot"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return err
+	}
+	for _, row := range body.Sessions {
+		if row.ID == s.sessionID {
+			want := s.folders[name]
+			if bddNormPath(row.RepoRoot) != bddNormPath(want) {
+				return fmt.Errorf("repoRoot = %q, want %q", row.RepoRoot, want)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("session %s missing from list", s.sessionID)
+}
+
 // worktreePathInsideRepo asserts the session landed on rel (a slash-separated
 // path) below the repository folder, which is where FoxxyCode keeps its worktrees.
 func (s *wsFeatureState) worktreePathInsideRepo(rel, name string) error {
@@ -789,6 +840,8 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the context lists branches "([^"]+)"$`, s.contextListsBranches)
 	sc.Step(`^the context reports the session is (not )?in a worktree$`, s.contextWorktreeFlag)
 	sc.Step(`^the worktree path differs from the repository root$`, s.worktreePathDiffersFromRoot)
+	sc.Step(`^the context names "([^"]+)" as the default branch$`, s.contextDefaultBranch)
+	sc.Step(`^the session list names "([^"]+)" as its main checkout$`, s.sessionListMainCheckout)
 	sc.Step(`^the worktree path is "([^"]+)" inside repository "([^"]+)"$`, s.worktreePathInsideRepo)
 	sc.Step(`^repository "([^"]+)" reports no untracked files$`, s.repoHasNoUntrackedFiles)
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.sessionCwdPersistedAs)

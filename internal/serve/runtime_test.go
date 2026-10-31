@@ -3,11 +3,13 @@ package serve
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 type recordingBroker struct {
@@ -144,5 +146,90 @@ func TestRuntimeDetachedPermissionCancelReachesEverySurface(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the runtime never returned after the run ended")
+	}
+}
+
+// A relay alone opens no session store, so there is no manager to hold the live
+// configuration. The runtime holds it instead, and a reload goes through the
+// same three questions a manager answers - what is live, replace it, who is
+// watching - so a relay's settings take effect the way an agent's do (issue
+// #401).
+func TestRuntimeWithoutAManagerHoldsTheLiveConfiguration(t *testing.T) {
+	first := &config.Config{}
+	first.Swarm.Name = "office"
+	rt := &Runtime{}
+	if err := rt.Init(Options{Cfg: first}); err != nil {
+		t.Fatal(err)
+	}
+	if rt.Mgr != nil {
+		t.Fatal("a process that runs no turns opened a session manager")
+	}
+	if rt.Cfg() != first {
+		t.Fatal("the runtime does not serve the configuration it started with")
+	}
+	var seen []*config.Config
+	remove := rt.AddConfigObserver(func(c *config.Config) { seen = append(seen, c) })
+	next := &config.Config{}
+	next.Swarm.Name = "office-2"
+	rt.ReplaceConfig(next)
+	if rt.Cfg() != next || len(seen) != 1 || seen[0] != next {
+		t.Fatalf("replace: live=%p seen=%v", rt.Cfg(), seen)
+	}
+	remove()
+	rt.ReplaceConfig(first)
+	if len(seen) != 1 {
+		t.Fatal("a removed observer still hears replacements")
+	}
+	rt.ReplaceConfig(nil)
+	if rt.Cfg() != first {
+		t.Fatal("a nil configuration replaced the live one")
+	}
+}
+
+// A relay alone holds its configuration in the runtime, and two overlapping
+// replacements reach the supervisor in the order they were stored, as they do
+// through a manager: the other order left it rebuilding the relay on the older
+// one.
+func TestRuntimeReplacementsReachObserversInTheOrderTheyWereStored(t *testing.T) {
+	rt := &Runtime{}
+	if err := rt.Init(Options{Cfg: &config.Config{}}); err != nil {
+		t.Fatal(err)
+	}
+	first, second := &config.Config{}, &config.Config{}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var last *config.Config
+	remove := rt.AddConfigObserver(func(c *config.Config) {
+		if c == first {
+			close(entered)
+			<-release
+		}
+		mu.Lock()
+		last = c
+		mu.Unlock()
+	})
+	defer remove()
+	firstDone, secondDone := make(chan struct{}), make(chan struct{})
+	go func() { rt.ReplaceConfig(first); close(firstDone) }()
+	<-entered
+	go func() { rt.ReplaceConfig(second); close(secondDone) }()
+	// Give a second replacement that is not held back the time to publish
+	// before the first one's publication resumes.
+	select {
+	case <-secondDone:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	for _, done := range []chan struct{}{firstDone, secondDone} {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a replacement never finished")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if last != rt.Cfg() {
+		t.Fatalf("the observer was left on %p while the runtime holds %p", last, rt.Cfg())
 	}
 }

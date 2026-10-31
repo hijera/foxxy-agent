@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="Лицензия MIT" /></a>
   <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Тесты для PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="Среда ACP" /></a>
@@ -23,11 +23,11 @@
   <a href="https://hijera.github.io/foxxy-agent/?lang=ru"><strong>Сайт</strong></a> - загрузки, скриншоты, <a href="https://hijera.github.io/foxxy-agent/compare/?lang=ru">сравнение</a>, <a href="https://hijera.github.io/foxxy-agent/changelog/?lang=ru">изменения</a>
 </p>
 
-> **Foxxy Agent основан на [foxxy-agent](https://github.com/hijera/foxxy-agent)** проекта FoxxyCode (MIT).
+> **FoxxyCode (репозиторий `foxxy-agent`) основан на [coddy-agent](https://github.com/coddy-project/coddy-agent)** проекта Coddy (MIT).
 > Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
 > оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.
 
-**Что FoxxyCode добавляет к foxxy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
+**Что FoxxyCode добавляет к coddy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
 
 - **Нативное настольное окно (WebView2)** с системными уведомлениями, звуковым сигналом и пошаговым знакомством при первом запуске
 - **Глубокая интеграция с IDE** — контекст открытых файлов (`<foxxycode_ide_context>`), отслеживание терминала (`@terminal`), упоминание файлов перетаскиванием, выбор папки проекта, метаданные проекта из `.vscode`/`.idea` и нативные встроенные diff в IntelliJ
@@ -260,7 +260,7 @@ mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 
 **Провайдеры и модели**
 
-- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Вход из терминала также добавляет провайдера, модели подписки и **`agent.model`** в **`config.yaml`**, если их там нет (**`--no-config`** это пропускает). Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** печатает короткий код и страницу хаба для подтверждения (device flow, RFC 8628: браузер может быть на любой машине — именно это нужно серверу по SSH; **`--browser`** просит loopback-callback, который завершается только в браузере на этой машине; **`--api-base`** выбирает эндпоинт и переносит на него существующую строку), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
+- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In the ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Вход из терминала также добавляет провайдера, модели подписки и **`agent.model`** в **`config.yaml`**, если их там нет (**`--no-config`** это пропускает). Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** печатает короткий код и страницу хаба для подтверждения (device flow, RFC 8628: браузер может быть на любой машине — именно это нужно серверу по SSH; **`--browser`** просит loopback-callback, который завершается только в браузере на этой машине; **`--api-base`** выбирает эндпоинт и переносит на него существующую строку), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
 - **`models`** — доступные для выбора модели. Строка **`model`** имеет вид **`<provider_name>/<api_model_id>`**, где **`provider_name`** совпадает с `providers[].name`. Доступные параметры: **`max_tokens`**, **`temperature`** и опциональный **`max_context_tokens`**.
 - **`agent`** — опциональное поле **`model`** выбирает стандартную модель ReAct; если задано, оно должно совпадать с одной из записей **`models[].model`**. Без него интерактивные поверхности выбирают модель на сессию сами, а `foxxycode -p`, `foxxycode acp` и API-вызовы без явной модели сообщают об отсутствии настроенной модели. Параметр **`max_turns`** ограничивает один пользовательский запрос (0, по умолчанию — без лимита; повторы без ответа и продолжения оборванного ответа бюджет не расходуют). Поверх этого ограничения работает защита от зацикливания **`loop_guard`** (по умолчанию **`true`**): поток ответа, выродившийся в повтор одного и того же фрагмента, обрывается (**`loop_stream_repeat_cycles`**), инструмент, который запрашивают снова и снова с теми же аргументами, перестаёт выполняться (**`loop_tool_repeat_limit`**), а целая последовательность вызовов, которую модель крутит по кругу, — тоже (**`loop_tool_cycle_repeats`**: именно это ловит ротацию вроде «читаю A, читаю B, читаю A…», которую счётчик подряд идущих повторов не видит). Сначала модель подталкивают вернуться к задаче; что делать с циклом, пережившим **`loop_nudge_max`** подсказок, решает **`loop_stuck_action`**: по умолчанию **`quarantine`** — зациклившиеся вызовы перестают исполняться до конца хода, а сам ход продолжается и доходит до ответа (если кроме цикла ничего не осталось, у модели забирают инструменты и просят ответить тем, что уже собрано); **`stop`** возвращает прежнее поведение и завершает ход уведомлением.
 
@@ -587,6 +587,14 @@ tools:
   require_permission_for_commands: true
 ```
 
+## Upstream 1.2.36–1.2.45 capabilities
+
+- `/crossreview` coordinates external code-agent CLIs and internal reviewers; trusted built-in and user definitions may declare bounded `spawns`.
+- `worktree_create` fetches origin, creates a feature worktree and moves the session into it. History groups it under the main project. See [Git worktrees](docs/features/worktrees.md).
+- MCP connections are shared across sessions, with workspace isolation, idle release and asynchronous startup.
+- The Context popover supports manual compaction and an independent automatic threshold switch. Remote environments support configured tokens and relay settings.
+- `make security` runs the same Trivy and Semgrep package locally and in CI. See [Application security](docs/contributing/security-scanning.md).
+
 ## Архитектура
 
 ```text
@@ -608,7 +616,7 @@ LLM  Инструменты Навыки  MCP
 ## Документация
 
 - [Встроенная документация](docs/features/built-in-docs.md) — страницы внутри бинарника, поиск и чтение через веб-интерфейс, консоль, CLI и инструменты агента
-- [Отличия FoxxyCode от foxxy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
+- [Отличия FoxxyCode от coddy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
 - [Дорожная карта](ROADMAP.md) — планы по версиям 0.3.x–0.6.x и что из них уже вышло
 - [Сборка из исходников](docs/contributing/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**
 - [Обновление FoxxyCode](docs/getting-started/update.md) — **`foxxycode update`**, артефакты релизов, **`PATH`** и **`make install`**
