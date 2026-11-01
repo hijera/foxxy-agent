@@ -83,7 +83,9 @@ export function ChatScreen(props: {
   contextBreakdown?:
     | import("./ContextBreakdownPopover").ContextBreakdown
     | null;
-  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  compactionSettings?:
+    | { enabled: boolean; autoEnabled: boolean; threshold: number }
+    | undefined;
   onContextCompacted?: (() => void) | undefined;
   mode: string;
   modes: string[];
@@ -104,6 +106,7 @@ export function ChatScreen(props: {
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
   onDraftChange: (v: string) => void;
+  onMentionArtifact?: (path: string) => void;
   onSend: (text: string, files?: File[]) => void;
   /** Pass-through to Composer: captured paste-chip literals (see Composer). */
   onPasteChipCaptured?: (key: string, literal: string) => void;
@@ -158,8 +161,6 @@ export function ChatScreen(props: {
   onCloseBackgroundTasks?: () => void;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
-  onOpenBackgroundTask?: (taskId: string) => void;
-  onStopBackgroundTask?: (taskId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
@@ -521,7 +522,10 @@ export function ChatScreen(props: {
     if (!vv) return undefined;
     const root = document.documentElement;
     const apply = () => {
-      root.style.setProperty("--foxxycode-keyboard-inset", `${keyboardInset(window)}px`);
+      root.style.setProperty(
+        "--foxxycode-keyboard-inset",
+        `${keyboardInset(window)}px`,
+      );
       if (!isEmpty) syncTranscriptPosition();
     };
     apply();
@@ -601,12 +605,8 @@ export function ChatScreen(props: {
     ...(props.backgroundNowMs !== undefined
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
-    ...(props.onOpenBackgroundTask
-      ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
-      : {}),
-    ...(props.onStopBackgroundTask
-      ? { onStopBackgroundTask: props.onStopBackgroundTask }
-      : {}),
+    ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
+    ...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {}),
   };
 
   const mainClassName = [
@@ -763,9 +763,15 @@ export function ChatScreen(props: {
                   ? {
                       queuedMessages: props.queuedMessages ?? [],
                       onQueue: props.onQueue,
-                      ...(props.queueMode ? { queueMode: props.queueMode } : {}),
-                      ...(props.onQueueModeChange ? { onQueueModeChange: props.onQueueModeChange } : {}),
-                      ...(props.onSetQueuedMode ? { onSetQueuedMode: props.onSetQueuedMode } : {}),
+                      ...(props.queueMode
+                        ? { queueMode: props.queueMode }
+                        : {}),
+                      ...(props.onQueueModeChange
+                        ? { onQueueModeChange: props.onQueueModeChange }
+                        : {}),
+                      ...(props.onSetQueuedMode
+                        ? { onSetQueuedMode: props.onSetQueuedMode }
+                        : {}),
                       ...(props.onCancelQueued
                         ? { onCancelQueued: props.onCancelQueued }
                         : {}),
@@ -959,9 +965,15 @@ export function ChatScreen(props: {
                     ? {
                         queuedMessages: props.queuedMessages ?? [],
                         onQueue: props.onQueue,
-                        ...(props.queueMode ? { queueMode: props.queueMode } : {}),
-                        ...(props.onQueueModeChange ? { onQueueModeChange: props.onQueueModeChange } : {}),
-                        ...(props.onSetQueuedMode ? { onSetQueuedMode: props.onSetQueuedMode } : {}),
+                        ...(props.queueMode
+                          ? { queueMode: props.queueMode }
+                          : {}),
+                        ...(props.onQueueModeChange
+                          ? { onQueueModeChange: props.onQueueModeChange }
+                          : {}),
+                        ...(props.onSetQueuedMode
+                          ? { onSetQueuedMode: props.onSetQueuedMode }
+                          : {}),
                         ...(props.onCancelQueued
                           ? { onCancelQueued: props.onCancelQueued }
                           : {}),

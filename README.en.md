@@ -600,6 +600,14 @@ LLM   Tools    Skills    MCP
 
 See [Architecture docs](docs/contributing/architecture.md) for full details.
 
+## Upstream 1.2.46–1.2.54 capabilities
+
+- Immutable downloadable files and inline image previews through `share_file`.
+- History state dots, persistent collapsed groups, richer subagent cards and workspace controls.
+- Session-scoped MCP management, explicit background activation and recovery from removed worktrees.
+- Provider proxy authentication, repaired outbound tool-call pairing and Anthropic history fixes.
+- Vendored Crossreview 2.0 with independent reviewers and trusted project rosters.
+
 ## Documentation
 
 - [Built-in documentation](docs/features/built-in-docs.md) - pages in the binary, searchable and readable through the web UI, console, CLI and agent tools

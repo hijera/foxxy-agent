@@ -46,6 +46,7 @@ The `background_*` tools are registered only while `tools.background` is enabled
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
+| `share_file` | Copy one regular, non-symlink file from the workspace into the current persisted session as an immutable downloadable artifact. The copy is content-addressed, capped at 25 MiB (100 MiB per session), and does not enter model prompt content or transcript exports. It is unavailable to subagents. | `path` | always | agent |
 | `run_command` | Run a shell command in the workspace through the host shell; `background: true` returns a task id and wakes the agent on completion by default where available. A foreground command that outlives its timeout is handed to the pool and also wakes on completion by default; `notify_on_finish: false` disables either wake | `command`, `cwd`, `permission_rationale`, `timeout_seconds`, `background`, `notify_on_finish`, `expected_seconds` | command | agent, plan, debug |
 | `worktree_create` | Fetch origin, create or reuse a [feature worktree](../features/worktrees.md), and move the session into it | `branch` | always | agent, debug |
 | `background_list` | List the session's background tasks with status, elapsed time and estimate | none | none | agent, plan, debug |

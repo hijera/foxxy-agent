@@ -8,7 +8,13 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-30
+## Unreleased — 2026-11-01
+
+**Shared files and chat state.** The agent can publish completed files inline with its answer, with downloads, image previews and source-file actions. History distinguishes unseen errors, acknowledged errors and waits for user input; collapsed groups retain their state. Internal file placement markers stay out of exported text.
+
+**Workspaces and independent review.** MCP Settings follows the selected chat's workspace, connections start in the background when the chat opens, and sessions from removed worktrees recover to the main checkout. Folder and branch search, subagent cards and Tasks are improved. Crossreview 2.0 supports independent reviewers and trusted project rosters. Provider proxy authentication, Anthropic history and permission-resumed tool-call pairing are fixed.
+
+## 0.3.39 — 2026-10-30
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 

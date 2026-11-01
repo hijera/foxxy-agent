@@ -355,6 +355,49 @@ func TestAllSurfacesRecordBackgroundConnect(t *testing.T) {
 	}
 }
 
+// TestActivateDeferredMCPStartsAStoredSessionsServersInTheBackground proves
+// the explicit activation path warms a restored session without making its
+// passive load eager. Repeating activation must keep the one worker and its
+// leases rather than starting the configured declaration again.
+func TestActivateDeferredMCPStartsAStoredSessionsServersInTheBackground(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	if !st.configuredMCPDeferred() {
+		t.Fatal("stored session was not deferred")
+	}
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("activate deferred MCP: %v", err)
+	}
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("repeat activation: %v", err)
+	}
+	if !waitUntil(t, 10*time.Second, func() bool {
+		snap, recorded := st.MCPConnectSnapshot()
+		return recorded && snap.Done
+	}) {
+		t.Fatal("background activation did not settle")
+	}
+	if got := clientNames(st); len(got) != 1 || got[0] != "alpha" {
+		t.Fatalf("clients after activation = %v, want [alpha]", got)
+	}
+	if st.configuredMCPDeferred() {
+		t.Fatal("activation left the deferred marker set")
+	}
+}
+
+func TestActivateDeferredMCPSkipsArchivedSessions(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	st.SetArchived(true)
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("activate archived session: %v", err)
+	}
+	if !st.configuredMCPDeferred() {
+		t.Fatal("activation consumed an archived session's deferred marker")
+	}
+	if _, recorded := st.MCPConnectSnapshot(); recorded {
+		t.Fatal("activation started an archived session's MCP servers")
+	}
+}
+
 // TestHeldServerIsReportedNotDialed: a project declaration the gate holds
 // shows as held in the snapshot and is not counted as connectable.
 func TestHeldServerIsReportedNotDialed(t *testing.T) {

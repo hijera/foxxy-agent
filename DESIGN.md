@@ -431,7 +431,7 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   **`App.archiveSession.test.tsx`**).
 - **An archived row is dimmed** (**`.session-item.is-archived`**): its title drops to 45% text and its
   tags to 60% opacity. Put aside and still in play differ by exactly that. The archive **mark**
-  (**`.session-archived-mark`**) leads the row beside the activity dot and the unread dot, where states
+  (**`.session-archived-mark`**) leads the row beside its state dot, where states
   belong - it is not a chip among the tags, which are labels the operator chose.
 - **A running turn is a pulsing dot** (**`.session-activity-dot`**, **`sessionRowShowsActivity`**), not a
   spinner: the **unread dot** a finished background turn leaves behind (8px, violet) made **a third
@@ -441,7 +441,15 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   **The open conversation carries it too**: it is the turn the reader is most likely waiting on, and a
   row without the mark reads as finished. Its row follows this tab's own view of the turn
   (**`generating`** in **`App.tsx`**) rather than the last listing, which is only refreshed on a poll.
-  Only a turn waiting on the reader drops the dot, for the permission or question mark.
+  A row always reserves the same **24px** state-mark track: its 16px marker slot starts at the left edge,
+  leaving the remaining space between marker and text. An idle session's transparent neutral
+  **`.session-idle-dot`** ring keeps a finished row distinct from a group heading while the larger permission
+  and question marks occupy the same track without moving its title or tags. A real failed
+  turn carries **`lastErrorSeq`** in the session activity data: while its generation is newer than the
+  read cursor it is a filled red **`.session-error-dot`**; opening that session advances the cursor and
+  turns the mark into a red outline (**`.is-seen`**) until a later successful turn clears it. An unseen
+  error wins over the generic violet unread-completion dot. A permission or question waiting on the
+  reader owns the slot instead, so it renders no idle or error ring behind its own mark. A question marker stays still: the turn is waiting for a person rather than making progress.
 - **The composer's slot on an archived conversation** is **`.archived-session-notice`**, cut from the
   same glass panel as the subagent notice beside it (**`--foxxycode-glass-panel-bg`** plus the backdrop
   filter) - it stands over the transcript, and a wash of the text colour is transparent on a dark
@@ -450,10 +458,10 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
   wash. **The first chip starts where the title's text starts**, never under the state marks: the link
   (**`.session-row-link`**) is a two-column grid, **`auto minmax(0, 1fr)`**, the marks
-  (**`.session-row-marks`**, rendered only when the row has one) hold the first column and keep their
-  own 6px to the title, and the title line (**`.session-row-leading`**) and the tags share the second.
-  Neither carries a nudge of its own. A row with no mark leaves the first column empty, so title and
-  tags both start at the row's edge; covered by **`sessionRowTagsAlignCss.test.ts`**. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
+  (**`.session-row-marks`**, rendered for every row) hold the first column and keep their own 6px to
+  the title, and the title line (**`.session-row-leading`**) and the tags share the second. Neither
+  carries a nudge of its own; the idle ring makes that alignment stable in every grouping mode, covered
+  by **`sessionRowTagsAlignCss.test.ts`**. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
   and sits **inline after the title**, because it qualifies the title rather than the row.
 - **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is
   hovered) opens **`.session-row-menu`**: **pin**, **rename** and **tags** - the three that change where

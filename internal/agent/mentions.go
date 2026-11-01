@@ -97,7 +97,7 @@ func (a *Agent) resolveQueuedMessage(text string) string {
 	if st := sessionStatePtr(a.state); st != nil {
 		blocks = st.ResolveQueuedMentions(blocks)
 	}
-	blocks = append(blocks, invokedSkillBlocks(text, a.state.GetSkills())...)
+	blocks = append(blocks, invokedSkillBlocks(text, a.state.GetSkills(), a.managedSkillsDir())...)
 	blocks = a.attachActivatedRules(blocks)
 	return contentBlocksToText(blocks)
 }

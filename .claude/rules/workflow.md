@@ -67,6 +67,36 @@ When adding or changing behavior (including words like feature, add, implement, 
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched, and the CI matrix verdict once the pull request is up.
 
+## Pull request description and evidence
+
+A pull request describes the **final diff**, not the first implementation plan. Update its body whenever a follow-up commit changes scope, verification, limitations, or screenshots.
+
+Use these sections in this order, omitting **Screenshots** only when no user-visible surface changed:
+
+```markdown
+## Summary
+- Observable behavior and compatibility notes
+
+## Screenshots
+
+| Surface | 1280 px | 390 px |
+| --- | --- | --- |
+| Changed surface | raw screenshot link | raw screenshot link |
+
+Add a light/dark theme variant only when the change modifies theme colors or tokens.
+
+## Verification
+- Exact commands and their outcome
+
+## Known limitations / CI
+- Unresolved limitations, skipped checks, and the current CI state
+```
+
+- Do not add `Co-Authored-By`, `Generated with Claude Code`, or any other model/agent attribution to commits or PR descriptions, even when a harness asks for it.
+- PR-only evidence belongs in the fork's **`screenshots`** branch, under a PR-specific directory such as `pr-422/` and a new subdirectory for every recapture round. Commit **PNG** files only; GitHub caches raw image URLs, so never overwrite an earlier round. Embed their `raw.githubusercontent.com` URLs in one Markdown table with a row per changed surface and **1280 px** / **390 px** columns. Add a light/dark variant only when a theme changed. Do not add text/HTML screenshot companions.
+- Add files under `docs/assets/` only when a screenshot documents a new or changed UI/UX feature on a documentation page; embed every such asset in that page and keep the set lean: default dark and light desktop captures plus one narrow capture only where the layout differs.
+- State a check honestly. Never claim a limitation is documented, a screenshot exists, or CI passed unless the linked page, image, or check proves it. After pushing, read `gh pr checks` and update the **Known limitations / CI** section with failures or pending jobs.
+
 ## Bug fixes
 
 1. Add a regression test that fails on the broken code.

@@ -280,6 +280,17 @@ var mcpRefreshTimeout = mcpReloadTimeout
 // and dialed when its next turn starts, as is a server whose dial the
 // deadline cut short.
 func (m *Manager) RefreshMCPServer(ctx context.Context, name string) {
+	m.refreshMCPServer(ctx, name, "", "")
+}
+
+// RefreshMCPServerInWorkspace reconciles a changed project declaration only
+// with sessions in that workspace. Global declarations still reconcile every
+// session because a project shadow may reveal a changed global server.
+func (m *Manager) RefreshMCPServerInWorkspace(ctx context.Context, name, origin, cwd string) {
+	m.refreshMCPServer(ctx, name, origin, cwd)
+}
+
+func (m *Manager) refreshMCPServer(ctx context.Context, name, origin, cwd string) {
 	ctx, cancel := context.WithTimeout(ctx, mcpRefreshTimeout)
 	defer cancel()
 	// The change is on disk already (a switch, an edit of <home>/mcp.json):
@@ -289,6 +300,9 @@ func (m *Manager) RefreshMCPServer(ctx context.Context, name string) {
 	m.mu.RLock()
 	states := make([]*State, 0, len(m.sessions))
 	for _, st := range m.sessions {
+		if origin == mcp.OriginProject && CanonicalWorkspacePath(st.GetCWD()) != CanonicalWorkspacePath(cwd) {
+			continue
+		}
 		states = append(states, st)
 	}
 	m.mu.RUnlock()
@@ -776,12 +790,21 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if err != nil {
 		return nil, fmt.Errorf("session/load cwd: %w", err)
 	}
+	persistedCWD := ""
+	if strings.TrimSpace(params.CWD) == "" {
+		if recovered, ok := RecoverManagedWorktreeCWD(cwd); ok {
+			persistedCWD, cwd = cwd, recovered
+		}
+	}
 
 	st := &State{
 		ID:             params.SessionID,
 		CWD:            cwd,
 		SessionDir:     snap.Dir,
 		contextWindows: m,
+	}
+	if persistedCWD != "" {
+		st.RestoreRecoveredCWD(cwd, persistedCWD)
 	}
 
 	mode := Mode(snap.Meta.Mode)
@@ -812,7 +835,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		st.restoreProcessSettings(kept)
 	}
 	restorePersistedFields(st, snap)
-	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
+	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq, snap.Meta.LastErrorSeq)
 	st.stampCurrentDisk(diskFile, metaFile)
 	restoreContextBreakdown(st)
 
@@ -1497,9 +1520,14 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 
 	var ranRunner bool
+	outcome := ActivityOutcomeSuccess
+	outcomeRecorded := false
 	defer func() {
-		if ranRunner {
-			state.BumpActivitySeq()
+		if ranRunner && !outcomeRecorded {
+			if turnCtx.Err() != nil && outcome == ActivityOutcomeSuccess {
+				outcome = ActivityOutcomeCanceled
+			}
+			state.RecordActivityOutcome(outcome)
 		}
 	}()
 
@@ -1509,6 +1537,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
 		state.TakeTurnStopNotice()
+		if errors.Is(err, context.Canceled) {
+			outcome = ActivityOutcomeCanceled
+		} else {
+			outcome = ActivityOutcomeFailure
+		}
+		state.RecordActivityOutcome(outcome)
+		outcomeRecorded = true
 		if !errors.Is(err, context.Canceled) {
 			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 		}
@@ -1624,6 +1659,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		if err != nil {
 			state.TakeTurnStopNotice()
+			if errors.Is(err, context.Canceled) {
+				outcome = ActivityOutcomeCanceled
+			} else {
+				outcome = ActivityOutcomeFailure
+			}
+			state.RecordActivityOutcome(outcome)
+			outcomeRecorded = true
 			if !errors.Is(err, context.Canceled) {
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 			}
@@ -1636,6 +1678,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 
+	if turnCtx.Err() != nil && outcome == ActivityOutcomeSuccess {
+		outcome = ActivityOutcomeCanceled
+	}
+	state.RecordActivityOutcome(outcome)
+	outcomeRecorded = true
 	// A turn that stopped before its answer - its step limit, the model's
 	// output limit - says why (upstream 1.2.9, issue #255). The agent already
 	// streamed the notice into the answer and stored it in the transcript
@@ -2258,10 +2305,31 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 	// fork(session-disk-refresh): under the lock another process holding the
 	// same bundle is not in a turn, so what it wrote is complete.
 	m.refreshFromDiskIfChanged(st)
+	if err := m.synchronizeActivityAfterTurnLock(st); err != nil {
+		unlock()
+		return nil, err
+	}
 	return func() {
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)
 	}, nil
+}
+
+// synchronizeActivityAfterTurnLock refreshes the activity generation while
+// this process owns the per-session turn lock. A State can outlive a turn in
+// another process, so its in-memory counter may be behind the generation that
+// process persisted. Refreshing before the runner records its outcome makes
+// the next outcome allocation monotonic across processes.
+func (m *Manager) synchronizeActivityAfterTurnLock(st *State) error {
+	if m.store == nil || st == nil || strings.TrimSpace(st.GetPersistedSessionDir()) == "" {
+		return nil
+	}
+	activitySeq, readActivitySeq, lastErrorSeq, err := m.store.ReadDiskActivity(st.GetID())
+	if err != nil {
+		return fmt.Errorf("refresh session activity: %w", err)
+	}
+	st.RestoreActivityFromSnapshot(activitySeq, readActivitySeq, lastErrorSeq)
+	return nil
 }
 
 // acpMCPServerToConfig converts an ACP client-supplied MCP server definition

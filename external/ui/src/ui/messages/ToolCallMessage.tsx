@@ -29,6 +29,7 @@ import {
 } from "../chat/permissionToolPreview";
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
 import type { TranscriptFile } from "../chat/types";
+import type { ToolArtifact } from "../chat/toolArtifacts";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
@@ -61,6 +62,7 @@ import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
 import { formatStepDuration } from "./formatStepDuration";
 import { ToolImagePreviews } from "./ToolImagePreviews";
+import { ToolArtifactCards } from "./ToolArtifactCards";
 
 /**
  * What the `question` tool put up, as it put it up: every question with the
@@ -262,6 +264,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   /** Pictures the call showed the model (`read` on an image file), previewed
    *  under the row. */
   images?: readonly TranscriptFile[] | undefined;
+  /** Files deliberately shared by a completed share_file tool call. */
+  artifacts?: readonly ToolArtifact[] | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -281,6 +285,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   workspacePath?: string | undefined;
   /** Opens the child transcript of a subagent this call spawned. */
   onOpenSubagentTranscript?: ((sessionId: string) => void) | undefined;
+  /** Opens a child session in the current SPA shell. */
+  onOpenSession?: (sessionId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  deepest match first when the row spells a path. */
   pathRoots?: readonly string[] | undefined;
@@ -335,6 +341,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const rawNameLower = rawName.toLowerCase();
   const kindLower = (props.kind || "").trim().toLowerCase();
   const isLoadSkillTool = rawNameLower === "load_skill";
+  const isShareFileTool = rawNameLower === "share_file" || kindLower === "share_file";
   const isWebSearchTool = rawNameLower === "websearch";
   const isWebFetchTool = rawNameLower === "webfetch";
   const isSchedulerToolCall = isSchedulerTool(rawNameLower);
@@ -486,7 +493,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       ) {
         return formatStepDuration(props.durationMs);
       }
-      return "-";
+      return "";
     }
     if (permissionWaiting && frozenElapsedMs !== null) {
       return formatStepDuration(frozenElapsedMs);
@@ -503,7 +510,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     ) {
       return formatStepDuration(props.durationMs);
     }
-    return "-";
+    return "";
   }, [
     frozenElapsedMs,
     isQuestionTool,
@@ -750,7 +757,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
     ) &&
     !!(resultBody && resultBody.length > 0);
-  const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
+  const hasConnectedResult = (showToolPreview || !!spawnAgent) && (showPatchResult || showResult);
   const backgroundTask = props.backgroundTask;
   // Present only for a spawn_agent row whose child session exists: the
   // parent transcript shows the wait, the child's own transcript shows the
@@ -790,8 +797,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     showToolPreview ||
     showPatchResult ||
     showResult ||
-    !!toggleButton ||
-    !!backgroundTask;
+    !!toggleButton;
 
   // What trails the label on the summary row: the target, the failure marker and
   // the duration. They travel together (.thinking-trail), so a label that leaves no
@@ -957,7 +963,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 sessionId={(props.sessionId || "").trim()}
               />
             ) : null}
-            {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
             {isSvnTool && (
               <SvnAction
                 name={rawName}
@@ -974,6 +979,17 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 interactive={false}
                 overflowControls={isLargePreviewTool}
                 toolStatus={status}
+              />
+            ) : null}
+            {spawnAgent ? (
+              <SpawnAgentCard
+                details={spawnAgent}
+                {...(props.backgroundTask
+                  ? { backgroundTask: props.backgroundTask }
+                  : {})}
+                {...((props.onOpenSession || props.onOpenSubagentTranscript)
+                  ? { onOpenSession: props.onOpenSession || props.onOpenSubagentTranscript }
+                  : {})}
               />
             ) : null}
             {schedulerCard ? (
@@ -1035,52 +1051,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 </div>
               </div>
             ) : null}
-            {backgroundTask ? (
-              <div
-                className="tool-bgtask-actions"
-                data-testid={`tool-bgtask-actions-${backgroundTask.id}`}
-              >
-                {props.onOpenBackgroundTask ? (
-                  <button
-                    type="button"
-                    className="tool-overflow-toggle"
-                    data-testid={`tool-bgtask-open-${backgroundTask.id}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      props.onOpenBackgroundTask?.(backgroundTask.id);
-                    }}
-                  >
-                    {t("messages.toolBgTaskOpen")}
-                  </button>
-                ) : null}
-                {subagentSessionId && props.onOpenSubagentTranscript ? (
-                  <button
-                    type="button"
-                    className="tool-overflow-toggle"
-                    data-testid={`tool-bgtask-transcript-${backgroundTask.id}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      props.onOpenSubagentTranscript?.(subagentSessionId);
-                    }}
-                  >
-                    {t("messages.toolSubagentOpenTranscript")}
-                  </button>
-                ) : null}
-                {backgroundTask.running && props.onStopBackgroundTask ? (
-                  <button
-                    type="button"
-                    className="tool-overflow-toggle"
-                    data-testid={`tool-bgtask-stop-${backgroundTask.id}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      props.onStopBackgroundTask?.(backgroundTask.id);
-                    }}
-                  >
-                    {t("messages.toolBgTaskStop")}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
             {toggleButton ? (
               <div className="tool-result-toggle-row">{toggleButton}</div>
             ) : null}
@@ -1101,6 +1071,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       ) : null}
       {status === "completed" && props.images && props.images.length > 0 ? (
         <ToolImagePreviews images={props.images} />
+      ) : null}
+      {status === "completed" &&
+      isShareFileTool &&
+      props.artifacts &&
+      props.artifacts.length > 0 ? (
+        <ToolArtifactCards artifacts={props.artifacts} />
       ) : null}
     </div>
   );

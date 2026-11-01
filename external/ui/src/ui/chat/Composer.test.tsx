@@ -1085,6 +1085,22 @@ test("narrow editor embed: off mode — no keyboard send", () => {
   fireEvent.keyDown(ta, { key: "Enter" });
   fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
   expect(onSend).not.toHaveBeenCalled();
+
+
+  vi.unstubAllGlobals();
+});
+
+test("Ctrl+Enter expands a fence marker into an editable monospace code block", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const onSend = vi.fn(); const onChange = vi.fn();
+  render(<Composer value={"before\n```"} isEmpty={false} generating={false} mode="agent" modes={["agent"]} onModeChange={() => {}} onChange={onChange} onSend={onSend} />);
+  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  ta.setSelectionRange("before\n```".length, "before\n```".length);
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenCalledWith("before\n```\n\n```");
+  expect(ta.closest(".composer-stack")).toHaveClass("composer-code-editing");
   vi.unstubAllGlobals();
 });
 

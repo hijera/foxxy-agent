@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -25,16 +26,29 @@ var hopByHop = []string{
 type Proxy struct {
 	srv    *httptest.Server
 	direct *http.Transport
+	target *url.URL
 
 	mu    sync.Mutex
 	paths []string
 }
 
 // New starts a proxy. Close it when the test ends.
-func New() *Proxy {
-	p := &Proxy{direct: &http.Transport{}}
+func New() *Proxy { return newProxy(nil) }
+
+func newProxy(target *url.URL) *Proxy {
+	p := &Proxy{direct: &http.Transport{}, target: target}
 	p.srv = httptest.NewServer(http.HandlerFunc(p.relay))
 	return p
+}
+
+// NewForTarget forwards a synthetic provider hostname to a local test origin.
+// This exercises an explicit proxy without defeating production loopback bypass.
+func NewForTarget(target string) *Proxy {
+	u, err := url.Parse(target)
+	if err != nil {
+		panic(err)
+	}
+	return newProxy(u)
 }
 
 // URL is the proxy's address, the value a proxy setting takes.
@@ -65,6 +79,9 @@ func (p *Proxy) relay(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
+	}
+	if p.target != nil {
+		out.URL.Scheme, out.URL.Host = p.target.Scheme, p.target.Host
 	}
 	out.Header = r.Header.Clone()
 	// What a proxy consumes stays with it: its own credentials and the

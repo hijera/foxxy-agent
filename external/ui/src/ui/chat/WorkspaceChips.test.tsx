@@ -172,6 +172,44 @@ describe("WorkspaceChips", () => {
     expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", true);
   });
 
+  it("filters branches locally and explains an empty result", () => {
+    renderChips({
+      context: {
+        ...gitCtx,
+        branches: ["main", "feature/login", "fix/typo"],
+      },
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.change(screen.getByTestId("workspace-branch-filter"), {
+      target: { value: "login" },
+    });
+
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/login"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("workspace-branch-row-main")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("workspace-branch-filter"), {
+      target: { value: "missing" },
+    });
+    expect(screen.getByTestId("workspace-branch-empty")).toHaveTextContent(
+      "No branches match",
+    );
+  });
+
+  it("resets a branch filter when the menu closes", () => {
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.change(screen.getByTestId("workspace-branch-filter"), {
+      target: { value: "login" },
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+
+    expect(screen.getByTestId("workspace-branch-filter")).toHaveValue("");
+    expect(screen.getByTestId("workspace-branch-row-main")).toBeTruthy();
+  });
+
   it("locks every control once the conversation started", () => {
     renderChips({ locked: true });
     expect(
@@ -199,6 +237,25 @@ describe("WorkspaceChips", () => {
     const current = screen.getByTestId("workspace-recent-row-foxxycode-agent");
     expect(current.className).toContain("is-selected");
     expect(screen.getByTestId("workspace-recent-row-other")).toBeTruthy();
+  });
+
+  it("filters recent folders locally and explains an empty result", () => {
+    pushWorkspaceRecent({ path: "/repos/other", name: "other" });
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.change(screen.getByTestId("workspace-recent-filter"), {
+      target: { value: "other" },
+    });
+
+    expect(screen.getByTestId("workspace-recent-row-other")).toBeTruthy();
+    expect(screen.queryByTestId("workspace-recent-row-foxxycode-agent")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("workspace-recent-filter"), {
+      target: { value: "missing" },
+    });
+    expect(screen.getByTestId("workspace-recent-empty")).toHaveTextContent(
+      "No recent folders match",
+    );
   });
 
   it("picks a recent folder and remembers it", () => {

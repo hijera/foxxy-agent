@@ -42,6 +42,7 @@ import { parseDroppedPaths } from "../skills/parseDroppedPaths";
 import { subscribeFileMention } from "../skills/fileMentionBus";
 import {
   draftExtendsFailedSlashPrefix,
+  inMarkdownFenceBeforeCaret,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import {
@@ -99,6 +100,24 @@ import {
   onSendModeChange,
   DEFAULT_SEND_MODE,
 } from "../i18n/sendModeConfig";
+
+function expandCodeFenceAtCaret(
+  value: string,
+  start: number,
+  end: number,
+): { text: string; caret: number } | null {
+  if (start !== end) return null;
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  const lineEndAt = value.indexOf("\n", start);
+  const lineEnd = lineEndAt < 0 ? value.length : lineEndAt;
+  const line = value.slice(lineStart, lineEnd);
+  if (line.trim() !== "```") return null;
+  const indent = line.match(/^[ \t]*/)?.[0] ?? "";
+  return {
+    text: `${value.slice(0, lineEnd)}\n\n${indent}\`\`\`${value.slice(lineEnd)}`,
+    caret: lineEnd + 1,
+  };
+}
 
 /** Extension for a clipboard image, so a pasted file gets a usable name. */
 function imageExtFromMime(mime: string): string {
@@ -1636,6 +1655,7 @@ export function Composer(props: {
   }, [props.value, props.sessionId]);
 
   const maskComposerText = props.value.length > 0;
+  const codeFenceEditing = inMarkdownFenceBeforeCaret(props.value, caretPos);
   const composerSegments = useMemo(
     () =>
       segmentComposerMirrorSpans(
@@ -2949,7 +2969,7 @@ export function Composer(props: {
             }
             ref={composerFieldWrapRef}
           >
-            <div className="composer-stack">
+            <div className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}>
               {maskComposerText ? (
                 <div className="composer-mirror" aria-hidden="true">
                   <div
@@ -3247,7 +3267,9 @@ export function Composer(props: {
                     const el = ev.currentTarget;
                     const start = el.selectionStart ?? props.value.length;
                     const end = el.selectionEnd ?? start;
-                    const next = insertNewline(props.value, start, end);
+                    const next =
+                      expandCodeFenceAtCaret(props.value, start, end) ??
+                      insertNewline(props.value, start, end);
                     setCaretPos(next.caret);
                     preEnhanceRef.current = null;
                     setEnhanceErr(null);

@@ -595,6 +595,14 @@ tools:
 - The Context popover supports manual compaction and an independent automatic threshold switch. Remote environments support configured tokens and relay settings.
 - `make security` runs the same Trivy and Semgrep package locally and in CI. See [Application security](docs/contributing/security-scanning.md).
 
+## Upstream 1.2.46–1.2.54 capabilities
+
+- Immutable downloadable files and inline image previews through `share_file`.
+- History state dots, persistent collapsed groups, richer subagent cards and workspace controls.
+- Session-scoped MCP management, explicit background activation and recovery from removed worktrees.
+- Provider proxy authentication, repaired outbound tool-call pairing and Anthropic history fixes.
+- Vendored Crossreview 2.0 with independent reviewers and trusted project rosters.
+
 ## Архитектура
 
 ```text

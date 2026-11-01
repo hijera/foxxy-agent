@@ -55,3 +55,8 @@ can move its own session during a turn.
 Session list rows carry `repoRoot` for grouping. See the
 [Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn-chips)
 and [HTTP API](../reference/http-api.md) for those surfaces.
+
+If a managed worktree is later removed with `git worktree remove`, a saved
+session that pointed inside `<main>/.foxxycode/worktrees/` opens against the main
+checkout instead. History groups it there immediately; the original recorded
+worktree path is retained until you explicitly choose another workspace.

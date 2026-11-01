@@ -18,6 +18,10 @@ import {
   type SessionGroupMode,
 } from "./sessionGroups";
 import {
+  readCollapsedSessionGroups,
+  writeCollapsedSessionGroups,
+} from "./collapsedSessionGroups";
+import {
   SessionsFilterMenu,
   type SessionsEnvironmentOption,
 } from "./SessionsFilterMenu";
@@ -28,9 +32,10 @@ import { SessionTagEditor } from "./SessionTagEditor";
 import { Chevron } from "../components/Chevron";
 import { tagVocabulary } from "./tagEditing";
 import {
-  sessionRowShowsPermissionPending,
-  sessionRowShowsQuestionPending,
+  sessionRowAttentionMarker,
   sessionRowShowsActivity,
+  sessionRowShowsErrorSeen,
+  sessionRowShowsErrorUnseen,
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
@@ -261,8 +266,10 @@ export function SessionsSidebar(props: {
   const sortKey: SessionSortKey = props.sortKey ?? "updated";
 
   // Collapsed headings are keyed by group, so a group that comes and goes with
-  // a search keeps the state the operator gave it while it is on screen.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // a search, drawer close, or route change keeps the state the operator gave it.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    readCollapsedSessionGroups,
+  );
 
   const groups = useMemo(
     () => groupSessions(props.sessions, groupMode, props.now),
@@ -392,18 +399,16 @@ export function SessionsSidebar(props: {
     const activityLabel = t(
       s.turnActive ? "sessions.turnRunning" : "sessions.backgroundRunning",
     );
-    const showsPermission = sessionRowShowsPermissionPending(
+    const attention = sessionRowAttentionMarker(
       s,
       permissionPending,
+      questionPending,
     );
-    const showsQuestion = sessionRowShowsQuestionPending(s, questionPending);
+    const showsPermission = attention === "permission";
+    const showsQuestion = attention === "question";
     const showsUnread = sessionRowShowsUnreadDot(s, props.sessionId);
-    const hasMarks =
-      showsActivity ||
-      showsPermission ||
-      showsQuestion ||
-      !!s.archived ||
-      showsUnread;
+    const showsErrorUnseen = sessionRowShowsErrorUnseen(s, props.sessionId);
+    const showsErrorSeen = sessionRowShowsErrorSeen(s, props.sessionId);
     return (
       <div
         key={s.id}
@@ -488,21 +493,56 @@ export function SessionsSidebar(props: {
             }}
           >
             {/* The state marks take a column of their own, so the title and the
-            tags under it share one left edge: the tags label the words, not the
-            marks in front of them. A row with no mark renders no column. */}
-            {hasMarks ? (
-              <span className="session-row-marks">
-                {showsActivity ? (
+            tags under it share one left edge. A finished ring keeps grouped rows
+            from blending into their headings; pending prompts own the state slot. */}
+            <span className="session-row-marks">
+              {showsActivity ? (
+                <span
+                  className="session-activity-dot"
+                  role="img"
+                  aria-label={activityLabel}
+                  title={activityLabel}
+                  data-testid={`session-activity-${s.id}`}
+                />
+              ) : null}
+              {!showsActivity && !showsPermission && !showsQuestion ? (
+                showsErrorUnseen ? (
                   <span
-                    className="session-activity-dot"
-                    aria-label={activityLabel}
-                    title={activityLabel}
-                    data-testid={`session-activity-${s.id}`}
+                    className="session-error-dot"
+                    role="img"
+                    aria-label={t("sessions.stateError")}
+                    title={t("sessions.stateError")}
+                    data-testid={`session-error-${s.id}`}
                   />
-                ) : null}
+                ) : showsErrorSeen ? (
+                  <span
+                    className="session-error-dot is-seen"
+                    role="img"
+                    aria-label={t("sessions.stateError")}
+                    title={t("sessions.stateError")}
+                    data-testid={`session-error-${s.id}`}
+                  />
+                ) : showsUnread ? (
+                  <span
+                    className="session-unread-dot"
+                    role="img"
+                    aria-label={t("sessions.unreadCompletion")}
+                    data-testid={`session-unread-${s.id}`}
+                  />
+                ) : (
+                  <span
+                    className="session-idle-dot"
+                    role="img"
+                    aria-label={t("sessions.stateFinished")}
+                    title={t("sessions.stateFinished")}
+                    data-testid={`session-idle-${s.id}`}
+                  />
+                )
+              ) : null}
                 {showsPermission ? (
                   <span
                     className="session-permission-icon"
+                    role="img"
                     aria-label={t("sessions.permissionRequired")}
                     data-testid={`session-permission-${s.id}`}
                     title={t("sessions.permissionRequired")}
@@ -513,6 +553,7 @@ export function SessionsSidebar(props: {
                 {showsQuestion ? (
                   <span
                     className="session-question-icon"
+                    role="img"
                     aria-label={t("sessions.questionPending")}
                     data-testid={`session-question-${s.id}`}
                     title={t("sessions.questionPending")}
@@ -523,6 +564,7 @@ export function SessionsSidebar(props: {
                 {s.archived ? (
                   <span
                     className="session-archived-mark"
+                    role="img"
                     data-testid={`session-archived-${s.id}`}
                     aria-label={t("sessions.archivedBadge")}
                     title={t("sessions.archivedBadge")}
@@ -530,15 +572,7 @@ export function SessionsSidebar(props: {
                     <IconArchiveRow />
                   </span>
                 ) : null}
-                {showsUnread ? (
-                  <span
-                    className="session-unread-dot"
-                    aria-label={t("sessions.unreadCompletion")}
-                    data-testid={`session-unread-${s.id}`}
-                  />
-                ) : null}
-              </span>
-            ) : null}
+            </span>
             <div className="session-row-leading">
               <span
                 className="session-title"
@@ -848,6 +882,7 @@ export function SessionsSidebar(props: {
                           } else {
                             next.add(group.key);
                           }
+                          writeCollapsedSessionGroups(next);
                           return next;
                         })
                       }

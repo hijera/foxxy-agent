@@ -66,7 +66,7 @@ const listResponse = {
 };
 
 function stubFetch() {
-  const calls: Array<{ url: string; method: string }> = [];
+	const calls: Array<{ url: string; method: string }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -74,8 +74,27 @@ function stubFetch() {
       return Promise.resolve({ ok: true, json: async () => listResponse });
     }),
   );
-  return calls;
+	return calls;
 }
+
+test("lists MCP servers for the selected session workspace", async () => {
+  const calls: Array<{ url: string; headers: HeadersInit | undefined }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), headers: init?.headers });
+      return Promise.resolve({ ok: true, json: async () => listResponse });
+    }),
+  );
+
+  render(<MCPSection activeSessionId="sess_workspace" />);
+
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+  expect(calls[0]).toEqual({
+    url: "/foxxycode/mcp",
+    headers: { "X-FoxxyCode-Session-ID": "sess_workspace" },
+  });
+});
 
 test("renders merged servers with scope badges and per-origin locks", async () => {
   stubFetch();
@@ -122,10 +141,9 @@ test("renders merged servers with scope badges and per-origin locks", async () =
   );
 });
 
-// The row leads with its chevron and its status dot, then the name: a server
-// glyph between them said nothing the name did not, and on a phone it took
-// width the name needed.
-test("a server row leads with the chevron and the status dot, no glyph", async () => {
+// The row leads with its chevron and enable switch, then its status dot and
+// name: the whole-server control shares a column with the per-tool switches.
+test("a server row leads with the chevron and its enable switch", async () => {
   stubFetch();
   render(<MCPSection />);
   await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
@@ -134,10 +152,11 @@ test("a server row leads with the chevron and the status dot, no glyph", async (
   const head = dot.parentElement!;
   expect(head.className).toContain("mcp-list-item-head");
   expect(head.querySelectorAll(":scope > svg")).toHaveLength(0);
-  const [first, second, third] = Array.from(head.children);
+  const [first, second, third, fourth] = Array.from(head.children);
   expect(first).toBe(screen.getByTestId("mcp-expand-files"));
-  expect(second).toBe(dot);
-  expect(third!.className).toContain("mcp-list-item-text");
+  expect(second).toBe(screen.getByTestId("mcp-toggle-files"));
+  expect(third).toBe(dot);
+  expect(fourth!.className).toContain("mcp-list-item-text");
 });
 
 test("expanding a server shows per-tool switches reflecting disabled state", async () => {
@@ -158,6 +177,13 @@ test("expanding a server shows per-tool switches reflecting disabled state", asy
       .getByTestId("mcp-tool-toggle-files-write_file")
       .getAttribute("aria-checked"),
   ).toBe("false");
+  const toolRow = screen
+    .getByTestId("mcp-tool-toggle-files-read_file")
+    .closest("li")!;
+  expect(toolRow.firstElementChild).toBe(
+    screen.getByTestId("mcp-tool-toggle-files-read_file"),
+  );
+  expect(toolRow.children[1]?.className).toContain("mcp-tool-text");
 });
 
 test("tool switch posts the toggle endpoint", async () => {
@@ -390,6 +416,9 @@ test("the project trust policy is edited in this tab, not in a separate section"
 
   const picker = screen.getByTestId("mcp-project-trust") as HTMLSelectElement;
   expect(picker.value).toBe("ask");
+  expect(
+    screen.getByRole("button", { name: "About Project servers" }),
+  ).toBeInTheDocument();
 
   fireEvent.change(picker, { target: { value: "deny" } });
   await waitFor(() =>

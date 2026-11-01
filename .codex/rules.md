@@ -39,6 +39,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [core-modules.mdc](../.cursor/rules/core-modules.mdc) | Main `internal/*` package boundaries | `internal/**/*.go` |
 | [gateway.mdc](../.cursor/rules/gateway.mdc) | Messenger gateway: session store, Telegram adapter, Sender streaming, proxy | `external/gateway/**/*.go`, `internal/config/gateway.go` |
 | [implementation-order.mdc](../.cursor/rules/implementation-order.mdc) | Layered implementation order for new behavior | `cmd`, `internal`, `external`, `lib`, `tools` |
+| [provider-proxy.mdc](../.cursor/rules/provider-proxy.mdc) | Every provider request follows its row's proxy setting | provider transport, provider auth HTTP handlers, provider login commands |
 | [ui-spa.mdc](../.cursor/rules/ui-spa.mdc) | Embedded UI source and SPA behavior | `external/ui/**/*` |
 | [ui-verification.mdc](../.cursor/rules/ui-verification.mdc) | UI verification and screenshots | `external/ui/**/*` |
 | [release-changelog.mdc](../.cursor/rules/release-changelog.mdc) | Post-merge version and the user-facing changelogs (IntelliJ + VS Code) | `editors/**`, `**/CHANGELOG.md`, `**/CHANGELOG.en.md` |

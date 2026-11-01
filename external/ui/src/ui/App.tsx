@@ -11,6 +11,7 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
 import type { QueuedMessage, QueueMode } from "./chat/Composer";
+import { normalizeClipboardImageFile } from "./chat/clipboardImageFile";
 import { fileFromDataUrl } from "./chat/dataUrlFile";
 import {
   contextUsagePercent,
@@ -128,6 +129,7 @@ import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   loadQuestionPromptRecords,
+  hasUnresolvedQuestionPrompt,
   mergeStoredQuestionPromptsIntoTranscript,
   patchQuestionToolArgsFromPromptRecords,
   upsertQuestionPromptRecord,
@@ -136,6 +138,7 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
+import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import {
   connectLocal,
   connectSwarmNode,
@@ -211,6 +214,10 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
+import {
+  reconcilePermissionPendingSessionIds,
+  reconcileQuestionPendingSessionIds,
+} from "./sessions/sessionRowActivity";
 import { useConfirm } from "./components/useConfirm";
 import { composerAutoFocusAllowed } from "./chat/composerFocus";
 import type { SessionRow } from "./sessions/types";
@@ -443,6 +450,7 @@ type SessionsPage = {
   sessions: SessionRow[];
   nextCursor?: string | null;
   hasMore?: boolean;
+  active_count?: number;
 };
 
 function newId(prefix: string): string {
@@ -467,6 +475,13 @@ function filenameFromDisposition(header: string | null): string | null {
   } catch {
     return m[1];
   }
+}
+
+function isStackedShell(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(shellStackMaxWidthMediaQuery).matches
+  );
 }
 
 export function App() {
@@ -499,6 +514,7 @@ export function App() {
     Math.floor(Math.random() * HERO_ACCENT_VERBS.length),
   );
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [historyActiveCount, setHistoryActiveCount] = useState(0);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -733,6 +749,8 @@ export function App() {
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
   const streamGenerationBySidRef = useRef(new Map<string, number>());
+
+  const activatedMCPSelectionsRef = useRef(new Set<string>());
   const relayAttachPendingRef = useRef(new Set<string>());
   const stopPendingBySidRef = useRef(
     new Map<string, { superseded: boolean }>(),
@@ -791,6 +809,7 @@ export function App() {
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
+    questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
     ready: () => void;
   }>({
@@ -801,6 +820,7 @@ export function App() {
     messageQueue: () => {},
     sessionSettings: () => {},
     subagentPermission: () => {},
+    questionPending: () => {},
     sessionRewound: () => {},
     ready: () => {},
   });
@@ -1370,9 +1390,8 @@ export function App() {
   const [tasksOpen, setTasksOpen] = useState(
     () => initialRoute.branch === "session" && initialRoute.tasksOpen,
   );
-  // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
-  // row, a link that names a task). Which cards are open otherwise is the panel's own
-  // business and is not part of the address.
+  // A card the shell asks the Tasks panel to open from a task-targeted link. Which
+  // cards are open otherwise is the panel's own business and is not part of the address.
   //
   // The pointer names its chat and is good for one use. Every session numbers its
   // tasks from bg_1 and the panel unmounts with the drawer, so a pointer that outlived
@@ -2149,8 +2168,9 @@ export function App() {
     [isAppEnvironment],
   );
 
-  // Load the workspace context whenever the viewed session changes; a fresh
-  // home/draft view also drops stale pre-session workspace choices.
+  // Load the workspace context whenever the viewed session changes. A pending
+  // home workspace is already being previewed and must survive the route
+  // change so the next chat starts where the user left off.
   //
   // A folder picked from a History heading is applied here rather than where it
   // was picked: leaving a conversation is asynchronous, and a workspace change
@@ -2158,13 +2178,16 @@ export function App() {
   // It replaces the default probe rather than running beside it - two context
   // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
-    pendingWorkspaceRef.current = null;
     const wanted = newChatWorkspaceRef.current;
     if (newChatWorkspaceIsReady(wanted, sessionId)) {
       newChatWorkspaceRef.current = null;
       void switchWorkspace({ path: String(wanted?.path ?? "") });
       return;
     }
+    if (!sessionId && pendingWorkspaceRef.current?.path) {
+      return;
+    }
+    pendingWorkspaceRef.current = null;
     void refreshWorkspaceContext(sessionId);
   }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
 
@@ -2439,7 +2462,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2453,7 +2476,9 @@ export function App() {
       void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(p.tasksOpen);
+      setTasksOpen((wasOpen) =>
+        p.tasksOpen || (!isStackedShell() && wasOpen),
+      );
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2469,7 +2494,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -2489,7 +2514,7 @@ export function App() {
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       return;
     }
     if (p.branch === "swarm") {
@@ -2497,7 +2522,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2508,7 +2533,7 @@ export function App() {
       setSettingsItem(p.item);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2534,7 +2559,7 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -2549,18 +2574,23 @@ export function App() {
   }, [schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
-    (id: string, opts?: { historySidebar?: boolean }) => {
+    (id: string, opts?: { historySidebar?: boolean; tasksOpen?: boolean }) => {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      const keepTasksOpen = opts?.tasksOpen === true;
+      setTasksOpen(keepTasksOpen);
       viewedSessionIdRef.current = id.trim();
       // Opening a session restores its stored selection once. What was applied
       // or picked for the session being left belongs to that one and must not
       // decide this one's.
       appliedSelectionSidRef.current = "";
       userTouchedSelectionSidRef.current = "";
-      setSessionHashInLocation(id, opts);
+      if (keepTasksOpen) {
+        setSessionTasksHash(id, null, opts);
+      } else {
+        setSessionHashInLocation(id, opts);
+      }
       setSessionId(id);
       void markFoxxyCodeSessionActivityRead(id);
     },
@@ -3214,6 +3244,9 @@ export function App() {
         return null;
       }
       setSessionsError(null);
+      if (typeof res.data.active_count === "number") {
+        setHistoryActiveCount(res.data.active_count);
+      }
       // A listing issued before an archive this tab made had settled still
       // lists the row as it was, and counts it in the offset it hands back.
       const next = overlayArchiveMoves(
@@ -3300,20 +3333,33 @@ export function App() {
   }, [headers, configEpoch]);
 
   useEffect(() => {
-    const ids = new Set(permissionPendingSessionIdsFromStorage());
-    for (const row of sessions) {
-      if (row.permissionPending) {
-        ids.add(row.id);
-      }
-    }
     const sid = sessionId.trim();
-    if (
-      sid &&
-      items.some((x) => x.type === "permission_prompt" && !x.resolved)
-    ) {
-      ids.add(sid);
-    }
-    setPermissionPendingSids(ids);
+    const viewedPromptPending =
+      sid !== "" &&
+      items.some((x) => x.type === "permission_prompt" && !x.resolved);
+    setPermissionPendingSids((prev) =>
+      reconcilePermissionPendingSessionIds(
+        sessions,
+        prev,
+        sid,
+        viewedPromptPending,
+      ),
+    );
+  }, [sessions, items, sessionId]);
+
+  useEffect(() => {
+    const sid = sessionId.trim();
+    const viewedPromptPending =
+      sid !== "" &&
+      items.some((x) => x.type === "question_prompt" && !x.resolved);
+    setQuestionPendingSids((prev) =>
+      reconcileQuestionPendingSessionIds(
+        sessions,
+        prev,
+        sid,
+        viewedPromptPending,
+      ),
+    );
   }, [sessions, items, sessionId]);
 
   // /foxxycode/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
@@ -3484,6 +3530,15 @@ export function App() {
           : {}),
       });
     const issuedAt = Date.now();
+    const activateMCP =
+      request.kind === "tail" &&
+      sid === sessionId &&
+      !activatedMCPSelectionsRef.current.has(sid);
+    if (activateMCP) activatedMCPSelectionsRef.current.add(sid);
+    const pageQuery = transcriptPageQuery(request);
+    const activationQuery = activateMCP
+      ? `${pageQuery}${pageQuery ? "&" : "?"}activate_mcp=1`
+      : pageQuery;
     const res = await fetchJSON<{
       window?: unknown;
       messages: Array<any>;
@@ -3508,7 +3563,7 @@ export function App() {
         createdAt?: string;
       }>;
     }>(
-      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery(request)}`,
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${activationQuery}`,
       {
         headers: sid === sessionId ? headers : { [HDR]: sid },
       },
@@ -3653,11 +3708,11 @@ export function App() {
       next,
       localForMerge,
     );
-    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
       mergedTranscript,
       localForMerge,
     );
+    revokeSupersededUserMessagePreviews(mergedBase, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
     merged = mergePermissionPromptsIntoTranscript(
       merged,
@@ -3695,15 +3750,25 @@ export function App() {
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
     if (canApplySnapshot()) {
-      setPermissionPendingSids((prev) => {
-        const next = new Set(prev);
-        if (hasPendingPermission) {
-          next.add(sid);
-        } else {
-          next.delete(sid);
-        }
-        return next;
-      });
+    setPermissionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingPermission) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
+    const hasPendingQuestion = hasUnresolvedQuestionPrompt(applied);
+    setQuestionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingQuestion) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
     }
     const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
       if (serverOnly && typeof snapshotRev === "number") {
@@ -3959,7 +4024,14 @@ export function App() {
     }
     setSessionLoading(true);
     setActiveDraftId("");
-    openSessionFromRoute(id, { historySidebar: keepHistoryOpen });
+    const keepTasksOpen =
+      tasksOpen &&
+      sessionsOpen &&
+      !window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+    openSessionFromRoute(id, {
+      historySidebar: keepHistoryOpen,
+      tasksOpen: keepTasksOpen,
+    });
     if (itemsRef.current.length > 0) {
       setSessionFadingOut(true);
       fadeOutTimerRef.current = setTimeout(() => {
@@ -3984,6 +4056,9 @@ export function App() {
 
   function goHome() {
     persistComposerDraftBeforeLeave();
+    if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
+      pendingWorkspaceRef.current = { path: workspaceCtx.path };
+    }
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -4879,6 +4954,7 @@ export function App() {
         void refreshBackgroundTasks({ silent: true });
       }
     },
+    questionPending: () => { void loadSessionsList(true); },
     sessionRewound: (sid: string) => {
       const key = sid.trim();
       if (!key) return;
@@ -4898,6 +4974,7 @@ export function App() {
       void loadMessages(key, { freshLoad: true });
     },
     ready: () => {
+      void loadSessionsList(true);
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       noteSettingsConfigReloaded();
@@ -4926,6 +5003,7 @@ export function App() {
         serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
+      onQuestionPending: (sid) => serverEventHandlersRef.current.questionPending(sid),
       onSessionRewound: (sid) => serverEventHandlersRef.current.sessionRewound(sid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
@@ -5599,7 +5677,7 @@ export function App() {
                     };
                     resolve(null);
                   };
-                  reader.readAsDataURL(f);
+                  reader.readAsDataURL(normalizeClipboardImageFile(f));
                 },
               ),
           ),
@@ -6570,7 +6648,7 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
@@ -6586,13 +6664,18 @@ export function App() {
     setSchedulerEditor(null);
     setSettingsRoute(false);
     setTasksOpen(true);
-    setSessionTasksHash(sid);
+    if (isStackedShell()) {
+      setSessionTasksHash(sid);
+    }
   }, [sessionId]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
+    if (!isStackedShell()) {
+      return;
+    }
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -6608,20 +6691,6 @@ export function App() {
       );
     }
   }, [sessionId, sessionsOpen]);
-
-  // "Open in Tasks" on a transcript row: the panel opens with that task's card open.
-  const openBackgroundTask = useCallback(
-    (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      setTasksOpen(true);
-      focusBackgroundTask(sid, taskId);
-      setSessionTasksHash(sid);
-    },
-    [sessionId, focusBackgroundTask],
-  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -6841,7 +6910,7 @@ export function App() {
   const openSwarmFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsRoute(false);
     window.location.hash = appNavHrefSwarm();
@@ -6855,7 +6924,7 @@ export function App() {
       }
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       setSettingsRoute(false);
       window.location.hash = appNavHrefDocs(slug, anchor);
@@ -6951,7 +7020,7 @@ export function App() {
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -6994,7 +7063,7 @@ export function App() {
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSettingsRoute(false);
     setSwarmRoute(false);
     setSessionsOpen(true);
@@ -7203,10 +7272,6 @@ export function App() {
       setEditingFiles(parseSessionAssetFiles(content));
     },
   );
-  const handleStopBackgroundTask = useStableHandler((id: string) => {
-    void stopBackgroundTaskById(id);
-  });
-
   /**
    * Queue the draft for the turn that is running instead of refusing it.
    *
@@ -7258,7 +7323,7 @@ export function App() {
           const reader = new FileReader();
           reader.onload = () => resolve({ name: file.name, data_url: reader.result as string });
           reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(normalizeClipboardImageFile(file));
         })));
         const res = await fetch(
           `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
@@ -7471,10 +7536,12 @@ export function App() {
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
+        historyActiveCount={historyActiveCount}
         showHistory={!atSwarmRoot}
         showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        schedulerActiveCount={schedulerInfo?.runs_active ?? 0}
         showSwarm={isSwarmEnv}
         onOpenSwarm={openSwarmFromNav}
         // On a relay the map is the home screen, so its entry stays lit while
@@ -7713,8 +7780,6 @@ export function App() {
             }}
             backgroundTasksByToolCallId={backgroundTasksByToolCallId}
             backgroundNowMs={backgroundNowMs}
-            onOpenBackgroundTask={openBackgroundTask}
-            onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
             sessionArchived={viewedArchived}
             unarchiving={unarchiving}
@@ -7763,7 +7828,10 @@ export function App() {
             contextBreakdown={contextBreakdown}
             compactionSettings={{
               ...compactionSettings,
-              enabled: compactionSettings.enabled && !subagentTranscript && !viewedArchived,
+              enabled:
+                compactionSettings.enabled &&
+                !subagentTranscript &&
+                !viewedArchived,
             }}
             onContextCompacted={() => {
               const sid = sessionId.trim();
@@ -7797,6 +7865,11 @@ export function App() {
             }
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
+            onMentionArtifact={(path: string) =>
+              setDraft((current) =>
+                `${current}${current.trim() ? " " : ""}@${path}`,
+              )
+            }
             generating={generating}
             turnActive={turnActivity.get(sessionId)}
             onContextRingOpen={() => {

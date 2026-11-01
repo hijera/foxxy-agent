@@ -102,6 +102,26 @@ test("streaming interleaves text and tool calls in arrival order", async () => {
   expect(shape).toEqual(["text:Reading files. ", "tool:tc1", "text:All good."]);
 });
 
+test("completed share_file metadata attaches its artifacts to the live tool row", async () => {
+  const artifact = {
+    id: "file-1",
+    name: "report.pdf",
+    sha256: "a".repeat(64),
+    size: 1024,
+    url: "/foxxycode/sessions/s1/artifacts/file-1",
+  };
+  const items = await drive(
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "share-1", title: "share_file", status: "pending" })}\n\n` +
+      `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "share-1", status: "completed", content: [{ content: { text: "shared" } }], meta: { foxxycode: { artifacts: [artifact] } } })}\n\n`,
+  );
+
+  const tool = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call",
+  );
+  expect(tool?.artifacts).toEqual([artifact]);
+});
+
 test("completed todo calls keep the plan snapshot sent with their status update", async () => {
   const todoPlan = [
     { content: "Inspect existing cards", status: "completed" },

@@ -683,7 +683,7 @@ YAML split:
 
 ### Provider proxy
 
-`providers[].proxy` selects the route for every request made by a provider row: completions, model lists, account usage and sign-in.
+**`providers[].proxy`** picks the route of every request a provider row makes: its completions, model list, account usage, OAuth/device sign-in and token refresh, and sign-out revoke.
 
 - Empty or `inherit` follows `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, or the operating system proxy when no environment proxy is configured. Loopback stays direct.
 - `none` connects directly, ignoring environment and system proxy settings.

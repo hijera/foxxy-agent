@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { useEscapeCloses } from "../components/useEscapeCloses";
+import { Switch } from "../settings/Switch";
 import { createPortal } from "react-dom";
 import {
   cleanPathInput,
@@ -31,6 +32,7 @@ export function WorkspaceFolderModal(props: Props) {
   // The inline "new folder" row: shown on demand, holding the typed name.
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
   const browseRequest = useRef(0);
 
   // adopt shows a listing the server just answered with, closing the new-folder
@@ -43,11 +45,13 @@ export function WorkspaceFolderModal(props: Props) {
     setNewName("");
   };
 
-  const browse = async (path: string) => {
+  const browse = async (path: string, includeHidden = showHidden) => {
     const request = ++browseRequest.current;
     try {
       const res = await fetch(
-        "/foxxycode/workspace/folders?path=" + encodeURIComponent(path),
+        "/foxxycode/workspace/folders?path=" +
+          encodeURIComponent(path) +
+          (includeHidden ? "&show_hidden=true" : ""),
       );
       if (!res.ok) {
         if (request === browseRequest.current) {
@@ -111,7 +115,8 @@ export function WorkspaceFolderModal(props: Props) {
       setDraft(props.startPath);
       setCreating(false);
       setNewName("");
-      void browse(props.startPath);
+      setShowHidden(false);
+      void browse(props.startPath, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.open, props.startPath]);
@@ -162,8 +167,10 @@ export function WorkspaceFolderModal(props: Props) {
         aria-label={t("composer.folderModal.title")}
         data-testid="workspace-folder-modal"
       >
-        <div className="workspace-modal-head">
-          <span>{t("composer.folderModal.title")}</span>
+        <div className="sessions-head workspace-modal-head">
+          <span className="workspace-modal-title">
+            {t("composer.folderModal.title")}
+          </span>
           <button
             type="button"
             className="sessions-close"
@@ -262,7 +269,9 @@ export function WorkspaceFolderModal(props: Props) {
             <button
               key={f.path}
               type="button"
-              className="workspace-modal-row"
+              className={
+                "workspace-modal-row" + (f.hidden ? " workspace-modal-row--hidden" : "")
+              }
               data-testid={`workspace-modal-row-${f.name}`}
               title={f.path}
               onClick={() => void browse(f.path)}
@@ -288,7 +297,10 @@ export function WorkspaceFolderModal(props: Props) {
                   </svg>
                 )}
               </span>
-              {f.name}
+              <span className="workspace-modal-row-name">{f.name}</span>
+              {f.symlink && f.target ? (
+                <span className="workspace-modal-row-target">→ {f.target}</span>
+              ) : null}
             </button>
           ))}
           {listing && listing.folders.length === 0 && !error ? (
@@ -299,20 +311,36 @@ export function WorkspaceFolderModal(props: Props) {
             </div>
           ) : null}
         </div>
-        <div className="workspace-modal-actions">
+        <div className="workspace-modal-actions" data-testid="workspace-modal-actions">
           <button
             type="button"
             className="workspace-modal-btn workspace-modal-btn--lead"
             data-testid="workspace-modal-new-folder"
             disabled={!listing || Boolean(listing.drives) || creating}
+            title={t("composer.folderModal.newFolder")}
+            aria-label={t("composer.folderModal.newFolder")}
             onClick={() => {
               setCreating(true);
               setNewName("");
               setError("");
             }}
           >
-            {t("composer.folderModal.newFolder")}
+            +
           </button>
+          <label className="workspace-modal-show-hidden">
+            <Switch
+              dataTestId="workspace-modal-show-hidden"
+              checked={showHidden}
+              ariaLabel={t("composer.folderModal.showHidden")}
+              onChange={(next) => {
+                setShowHidden(next);
+                if (listing) {
+                  void browse(listing.path, next);
+                }
+              }}
+            />
+            <span>{t("composer.folderModal.showHidden")}</span>
+          </label>
           <button
             type="button"
             className="workspace-modal-btn"
