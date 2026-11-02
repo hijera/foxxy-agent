@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 const (
@@ -119,10 +121,18 @@ func CaptureArtifact(sessionDir, cwd, requested string) (Artifact, error) {
 			return Artifact{}, errors.New("session artifact quota exceeds 100 MiB")
 		}
 		dest := ArtifactPath(sd, d)
-		if err := os.Chmod(tmpName, 0400); err != nil {
+		// A blob left by an interrupted earlier capture (its manifest write
+		// failed) is not in the manifest, so dedupe never returns it. Clear
+		// the way: Windows neither replaces nor deletes a read-only file, and
+		// published digests are read-only.
+		removeArtifactFile(dest)
+		if err := os.Rename(tmpName, dest); err != nil {
 			return Artifact{}, err
 		}
-		if err := os.Rename(tmpName, dest); err != nil {
+		// Read-only only after the rename: a 0400 temp could not be cleaned
+		// up on failure under Windows (delete needs the write bit there).
+		if err := os.Chmod(dest, 0400); err != nil {
+			removeArtifactFile(dest)
 			return Artifact{}, err
 		}
 		rel, err := filepath.Rel(root, candidate)
@@ -132,7 +142,7 @@ func CaptureArtifact(sessionDir, cwd, requested string) (Artifact, error) {
 		a := Artifact{ID: d[:24], Name: filepath.Base(candidate), SHA256: d, Size: n, CreatedAt: time.Now().UTC().Format(time.RFC3339), SourcePath: candidate, SourceRelativePath: rel}
 		m.Artifacts = append(m.Artifacts, a)
 		if err := writeArtifactManifest(sd, m); err != nil {
-			_ = os.Remove(dest)
+			removeArtifactFile(dest)
 			return Artifact{}, err
 		}
 		return a, nil
@@ -192,35 +202,36 @@ func noSymlinkPath(root, path string) error {
 func sameFile(a, b os.FileInfo) bool {
 	return os.SameFile(a, b) && a.Mode().IsRegular() && b.Mode().IsRegular()
 }
+
+// withArtifactLock serialises manifest read-modify-write cycles across
+// processes through the same OS lock the session bundles use. The previous
+// create-and-steal protocol lost the lock to a waiter after one minute while
+// the holder was still copying a large file, which raced the manifest rename.
 func withArtifactLock(sd string, fn func() (Artifact, error)) (Artifact, error) {
 	d := ArtifactsPath(sd)
-	_ = os.MkdirAll(d, 0700)
-	lock := filepath.Join(d, ".lock")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		f, e := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if e == nil {
-			_ = f.Close()
-			defer func() { _ = os.Remove(lock) }()
-			return fn()
-		}
-		if os.IsExist(e) {
-			if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > time.Minute {
-				_ = os.Remove(lock)
-				continue
-			}
-		}
-		if !os.IsExist(e) || time.Now().After(deadline) {
-			return Artifact{}, fmt.Errorf("artifact store lock: %w", e)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := os.MkdirAll(d, 0700); err != nil {
+		return Artifact{}, err
 	}
+	unlock, err := platform.LockFile(filepath.Join(d, ".lock"))
+	if err != nil {
+		return Artifact{}, fmt.Errorf("artifact store lock: %w", err)
+	}
+	defer unlock()
+	return fn()
+}
+
+// removeArtifactFile deletes a path that may carry the read-only attribute a
+// published digest gets: Windows refuses to delete a read-only file, so the
+// attribute is cleared first. Best effort - a missing file is fine.
+func removeArtifactFile(path string) {
+	_ = os.Chmod(path, 0600)
+	_ = os.Remove(path)
 }
 func cleanupArtifactTemps(sd string) {
 	es, _ := os.ReadDir(ArtifactsPath(sd))
 	for _, e := range es {
 		if strings.HasPrefix(e.Name(), ".artifact-") || strings.HasPrefix(e.Name(), ".manifest-") {
-			_ = os.Remove(filepath.Join(ArtifactsPath(sd), e.Name()))
+			removeArtifactFile(filepath.Join(ArtifactsPath(sd), e.Name()))
 		}
 	}
 }

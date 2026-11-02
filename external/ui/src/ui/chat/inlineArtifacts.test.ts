@@ -86,3 +86,13 @@ test("groups adjacent verified markers while preserving surrounding Markdown", (
     { type: "markdown", text: "\n\nRead the report." },
   ]);
 });
+
+test("adjacent repeated markers yield one card, not a duplicate React key in the row", () => {
+  const tokens = tokenizeAssistantArtifacts(
+    '<foxxycode_file id="artifact-1"/>\n<foxxycode_file id="artifact-1"/>',
+    new Map([[artifact.id, artifact]]),
+  );
+  expect(groupAssistantArtifactTokens(tokens)).toEqual([
+    { type: "artifacts", artifacts: [artifact] },
+  ]);
+});

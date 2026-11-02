@@ -13,7 +13,6 @@ func TestRevealFileArgv(t *testing.T) {
 		want []string
 	}{
 		{name: "macOS selects file", goos: "darwin", path: "/workspace/report.txt", want: []string{"open", "-R", "/workspace/report.txt"}},
-		{name: "Windows selects file", goos: "windows", path: `C:\temp\artifact.txt`, want: []string{"explorer.exe", `/select,C:\temp\artifact.txt`}},
 		{name: "Linux opens containing folder", goos: "linux", path: "/workspace/report.txt", want: []string{"xdg-open", "/workspace"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -25,6 +24,30 @@ func TestRevealFileArgv(t *testing.T) {
 				t.Fatalf("argv = %#v, want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRevealFileArgvWindowsUsesShellExplorer(t *testing.T) {
+	t.Setenv("SystemRoot", `C:\Win`)
+	t.Setenv("WINDIR", `D:\Ignore`)
+	got, err := revealFileArgv("windows", `C:\temp\artifact.txt`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{`C:\Win\explorer.exe`, `/select,C:\temp\artifact.txt`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv = %#v, want %#v", got, want)
+	}
+	// No Windows directory variables at all: the conventional location.
+	t.Setenv("SystemRoot", "")
+	t.Setenv("WINDIR", "")
+	got, err = revealFileArgv("windows", `C:\temp\artifact.txt`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{`C:\Windows\explorer.exe`, `/select,C:\temp\artifact.txt`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv = %#v, want %#v", got, want)
 	}
 }
 

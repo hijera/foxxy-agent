@@ -265,8 +265,10 @@ func (s *Server) registerFoxxyCodeRoutes() {
 // foxxycodeSessionArtifactGet streams only a manifest-registered immutable artifact.
 func (s *Server) foxxycodeSessionArtifactGet(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Range") != "" || r.Method != http.MethodGet {
+		// http.Error would relabel the JSON body text/plain; write it directly.
 		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, `{"error":{"message":"artifact ranges are not supported"}}`, http.StatusMethodNotAllowed)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte(`{"error":{"message":"artifact ranges are not supported"}}`))
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -891,7 +893,9 @@ func (s *Server) foxxycodeToolCallGet(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, m := range st.GetMessages() {
 		if m.Role == llm.RoleTool && m.ToolCallID == toolCallID {
-			payload["artifacts"] = artifactDTOs(id, m.Artifacts)
+			if dtos := artifactDTOs(id, m.Artifacts); len(dtos) > 0 {
+				payload["artifacts"] = dtos
+			}
 			break
 		}
 	}
@@ -1127,15 +1131,14 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	// The rail badge is global to History, not to the page or any filter the
 	// reader currently has open. Active child sessions contribute even though
-	// History itself keeps their rows hidden.
-	historyRows := rows
-	if !isNormalHistoryList(listOpts) || !listOpts.IncludeSubagents {
-		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true})
-		if err != nil {
-			s.log.Error("foxxycode sessions active count", "error", err)
-			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
-			return
-		}
+	// History itself keeps their rows hidden, so the badge always recomputes
+	// from its own subagent-inclusive listing; the request's rows above stay
+	// whatever scope the caller asked for.
+	historyRows, err := fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true})
+	if err != nil {
+		s.log.Error("foxxycode sessions active count", "error", err)
+		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
+		return
 	}
 	activeCount := 0
 	for _, row := range historyRows {
@@ -1302,18 +1305,6 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
-}
-
-// isNormalHistoryList reports whether opts are the unfiltered working History
-// scope used by active_count. Keeping it here makes the single-scan path
-// explicit without changing the badge semantics for filtered requests.
-func isNormalHistoryList(opts session.ListOptions) bool {
-	return strings.TrimSpace(opts.CWD) == "" &&
-		!opts.IncludeSchedulerRuns &&
-		!opts.IncludeSubagents &&
-		opts.Archived == session.ArchiveExclude &&
-		len(opts.Tags) == 0 &&
-		opts.Origin == session.OriginAny
 }
 
 // foxxycodeSessionTokenUsage reads the provider token totals a session accumulated.

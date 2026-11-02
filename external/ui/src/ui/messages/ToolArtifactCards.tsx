@@ -38,14 +38,16 @@ export function ToolArtifactCards(props: {
 
 export function ArtifactCard(props: { artifact: ToolArtifact; inline?: boolean; onMention?: (path: string) => void }) {
   const { t } = useT();
-  const [failed, setFailed] = useState(false);
+  // Only a failed download makes the card report the artifact as unavailable;
+  // a failed reveal or clipboard copy leaves the download itself untouched.
+  const [downloadFailed, setDownloadFailed] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [menu, setMenu] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const artifact = props.artifact;
   const image = isImage(artifact);
-  const unavailable = !artifact.url || failed;
+  const unavailable = !artifact.url || downloadFailed;
   const extension = artifact.name.includes(".") ? artifact.name.split(".").pop()!.toUpperCase() : "FILE";
   const relative = artifact.relativePath || artifact.sourcePath || artifact.name;
   const typeLabel = fileTypeIcon("", artifact.name).label;
@@ -65,9 +67,9 @@ export function ArtifactCard(props: { artifact: ToolArtifact; inline?: boolean; 
     const response = await fetch(request?.url || artifact.revealUrl, request?.init);
     if (!response.ok) throw new Error(`reveal failed (${response.status})`);
   };
-  const action = (fn: () => void | Promise<void>) => {
+  const action = (fn: () => void | Promise<void>, onReject?: () => void) => {
     setMenu(false);
-    void Promise.resolve(fn()).catch(() => setFailed(true));
+    void Promise.resolve(fn()).catch(() => onReject?.());
   };
   return (
     <article
@@ -92,7 +94,7 @@ export function ArtifactCard(props: { artifact: ToolArtifact; inline?: boolean; 
         <button role="menuitem" type="button" onClick={() => action(() => copy(artifact.name))}>{t("messages.artifactCopyName")}</button>
         <button role="menuitem" type="button" onClick={() => action(() => copy(relative))}>{t("messages.artifactCopyRelative")}</button>
         <button role="menuitem" type="button" disabled={!artifact.sourcePath} onClick={() => action(() => copy(artifact.sourcePath!))}>{t("messages.artifactCopyAbsolute")}</button>
-        <button role="menuitem" type="button" disabled={unavailable || downloading} onClick={() => action(async () => { setDownloading(true); try { await downloadToolArtifact(artifact); } finally { setDownloading(false); } })}>{downloading ? t("messages.artifactDownloading") : t("messages.downloadArtifactButton")}</button>
+        <button role="menuitem" type="button" disabled={unavailable || downloading} onClick={() => action(async () => { setDownloading(true); try { await downloadToolArtifact(artifact); } finally { setDownloading(false); } }, () => setDownloadFailed(true))}>{downloading ? t("messages.artifactDownloading") : t("messages.downloadArtifactButton")}</button>
         <button role="menuitem" type="button" disabled={!artifact.revealUrl} title={!artifact.revealUrl ? t("messages.artifactRevealUnavailable") : undefined} onClick={() => action(reveal)}>{t("messages.artifactReveal")}</button>
       </div> : null}
       {lightbox && artifact.previewUrl ? <ApiImageLightbox src={artifact.previewUrl} alt={artifact.name} onClose={() => setLightbox(false)} /> : null}

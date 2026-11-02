@@ -1,4 +1,5 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
+import { normalizeClipboardImageFile } from "./clipboardImageFile";
 import {
   useCallback,
   useEffect,
@@ -152,7 +153,9 @@ function renamePastedImages(files: File[], seq: { n: number }): File[] {
   return files.map((f) => {
     seq.n += 1;
     const ext = imageExtFromMime(f.type);
-    return new File([f], `pasted-${seq.n}.${ext}`, { type: f.type });
+    // The same inference the send path applies: a clipboard that omitted the
+    // MIME type still gets a live chip preview from the deterministic name.
+    return normalizeClipboardImageFile(new File([f], `pasted-${seq.n}.${ext}`, { type: f.type }));
   });
 }
 
@@ -2936,7 +2939,7 @@ export function Composer(props: {
                   : t("composer.attachUnsupportedModel");
                 return (
                   <AttachedFileChip
-                    key={idx}
+                    key={`${f.name}:${f.size}:${f.lastModified}:${idx}`}
                     file={f}
                     disabled={!attachmentSendingEnabled}
                     tip={tip}

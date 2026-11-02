@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	pathpkg "path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -47,7 +48,16 @@ func revealFileArgv(goos, path string) ([]string, error) {
 	case "darwin":
 		return []string{"open", "-R", path}, nil
 	case "windows":
-		return []string{"explorer.exe", "/select," + path}, nil
+		// Absolute: a PATH entry must not substitute its own explorer.exe for
+		// the shell's, since the path comes from the server's environment.
+		root := os.Getenv("SystemRoot")
+		if strings.TrimSpace(root) == "" {
+			root = os.Getenv("WINDIR")
+		}
+		if strings.TrimSpace(root) == "" {
+			root = `C:\Windows`
+		}
+		return []string{filepath.Join(root, "explorer.exe"), "/select," + path}, nil
 	case "linux":
 		return []string{"xdg-open", pathpkg.Dir(path)}, nil
 	default:

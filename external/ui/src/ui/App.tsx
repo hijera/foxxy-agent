@@ -5472,12 +5472,18 @@ export function App() {
     // new chat's workspace, the file read) loses nothing either.
     let restoreKey = "";
     let userItemId = "";
+    // Blob URLs the optimistic bubble's thumbnails live on. When the send is
+    // never admitted the bubble goes away without the transcript merge that
+    // would have revoked them, so giveBack returns them here.
+    let optimisticBlobUrls: string[] = [];
     const giveBack = () => {
       const key = restoreKey || sessionId.trim();
       if (userItemId)
         applyStreamItemsForSession(key, (prev) =>
           prev.filter((it) => it.id !== userItemId),
         );
+      for (const url of optimisticBlobUrls) URL.revokeObjectURL(url);
+      optimisticBlobUrls = [];
       if (
         !opts?.restoreOnRefusal ||
         (key && viewedSessionIdRef.current.trim() !== key)
@@ -5571,16 +5577,19 @@ export function App() {
       }
 
       const hdrs = sid ? { [HDR]: sid } : {};
+      const optimisticFiles =
+        opts?.files && opts.files.length > 0
+          ? optimisticUserFiles(opts.files)
+          : [];
+      optimisticBlobUrls = optimisticFiles
+        .map((f) => f.previewUrl)
+        .filter((url): url is string => typeof url === "string" && url.startsWith("blob:"));
       const userItem: TranscriptItem = {
         id: newId("u"),
         type: "user_message",
         content: text,
         createdAtUtc: new Date().toISOString(),
-        ...(opts?.files && opts.files.length > 0
-          ? {
-              files: optimisticUserFiles(opts.files),
-            }
-          : {}),
+        ...(optimisticFiles.length > 0 ? { files: optimisticFiles } : {}),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
@@ -7866,9 +7875,12 @@ export function App() {
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
             onMentionArtifact={(path: string) =>
-              setDraft((current) =>
-                `${current}${current.trim() ? " " : ""}@${path}`,
-              )
+              setDraft((current) => {
+                // The mention grammar needs a quoted path when it carries
+                // whitespace, exactly like the composer's own picker.
+                const mention = /\s/.test(path) ? `@"${path}"` : `@${path}`;
+                return `${current}${current.trim() ? " " : ""}${mention}`;
+              })
             }
             generating={generating}
             turnActive={turnActivity.get(sessionId)}

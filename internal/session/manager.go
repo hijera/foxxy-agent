@@ -2319,14 +2319,21 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 // this process owns the per-session turn lock. A State can outlive a turn in
 // another process, so its in-memory counter may be behind the generation that
 // process persisted. Refreshing before the runner records its outcome makes
-// the next outcome allocation monotonic across processes.
+// the next outcome allocation monotonic across processes. The refresh is an
+// optimization: a bundle that cannot be read (deleted mid-session, a corrupt
+// or half-written session.json from an older build) must not refuse the turn
+// itself - the in-memory counter stays a safe floor because outcome
+// recording is monotonic, and the next successful persist re-syncs.
 func (m *Manager) synchronizeActivityAfterTurnLock(st *State) error {
 	if m.store == nil || st == nil || strings.TrimSpace(st.GetPersistedSessionDir()) == "" {
 		return nil
 	}
 	activitySeq, readActivitySeq, lastErrorSeq, err := m.store.ReadDiskActivity(st.GetID())
 	if err != nil {
-		return fmt.Errorf("refresh session activity: %w", err)
+		if m.log != nil {
+			m.log.Warn("refresh session activity", "session", st.GetID(), "error", err)
+		}
+		return nil
 	}
 	st.RestoreActivityFromSnapshot(activitySeq, readActivitySeq, lastErrorSeq)
 	return nil

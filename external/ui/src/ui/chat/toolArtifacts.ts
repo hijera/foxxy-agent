@@ -18,6 +18,15 @@ export type ToolArtifact = {
 const SHA256 = /^[a-f0-9]{64}$/i;
 
 /**
+ * The server issues root-relative artifact routes only. A URL of any other
+ * shape never reaches an anchor href or an image src from this module.
+ */
+function safeArtifactUrl(value: string): string | undefined {
+  if (!value.startsWith("/") || value.startsWith("//")) return undefined;
+  return value;
+}
+
+/**
  * Normalizes artifact metadata supplied by both tool SSE frames and persisted
  * history. A missing URL is retained: it is useful evidence that the tool
  * shared a file, and the card can explain that its download has expired.
@@ -42,24 +51,23 @@ export function parseToolArtifacts(raw: unknown): ToolArtifact[] {
     ) {
       continue;
     }
-    const url = typeof row.url === "string" ? row.url.trim() : "";
     const text = (value: unknown) =>
       typeof value === "string" && value.trim() ? value.trim() : undefined;
+    const artifact: ToolArtifact = { id, name, sha256, size };
+    const rawUrl = typeof row.url === "string" ? row.url.trim() : "";
+    const url = rawUrl ? safeArtifactUrl(rawUrl) : undefined;
+    if (url) artifact.url = url;
     const previewUrl = text(row.preview_url ?? row.previewUrl);
+    const preview = previewUrl ? safeArtifactUrl(previewUrl) : undefined;
+    if (preview) artifact.previewUrl = preview;
     const sourcePath = text(row.source_path ?? row.sourcePath);
+    if (sourcePath) artifact.sourcePath = sourcePath;
     const relativePath = text(row.relative_path ?? row.relativePath);
-    const revealUrl = text(row.reveal_url ?? row.revealUrl);
-    artifacts.push({
-      id,
-      name,
-      sha256,
-      size,
-      ...(url ? { url } : {}),
-      ...(previewUrl ? { previewUrl } : {}),
-      ...(sourcePath ? { sourcePath } : {}),
-      ...(relativePath ? { relativePath } : {}),
-      ...(revealUrl ? { revealUrl } : {}),
-    });
+    if (relativePath) artifact.relativePath = relativePath;
+    const revealRaw = text(row.reveal_url ?? row.revealUrl);
+    const reveal = revealRaw ? safeArtifactUrl(revealRaw) : undefined;
+    if (reveal) artifact.revealUrl = reveal;
+    artifacts.push(artifact);
   }
   return artifacts;
 }

@@ -67,7 +67,11 @@ export function groupAssistantArtifactTokens(
   };
   for (const token of tokens) {
     if (token.type === "artifact") {
-      artifacts.push(token.artifact);
+      // A model may repeat a marker; one card per artifact keeps React keys
+      // unique within the joined row.
+      if (!artifacts.some((a) => a.id === token.artifact.id)) {
+        artifacts.push(token.artifact);
+      }
       continue;
     }
     if (artifacts.length > 0 && token.text.trim() === "") {

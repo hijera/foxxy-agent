@@ -29,6 +29,18 @@ test("normalizes artifact metadata and retains a missing download URL as unavail
   ]);
   expect(parseToolArtifacts([{ ...artifact, sha256: "not-a-digest" }])).toEqual([]);
 });
+test("drops artifact URLs that are not root-relative server routes", () => {
+  const hostile = {
+    ...artifact,
+    url: "javascript:alert(1)",
+    previewUrl: "https://evil.example/pixel",
+    revealUrl: "//evil.example/reveal",
+  };
+  expect(parseToolArtifacts([hostile])).toEqual([{ ...unavailableArtifact, previewUrl: undefined, revealUrl: undefined }]);
+  expect(parseToolArtifacts([{ ...artifact, url: "/foxxycode/ok" }])).toEqual([
+    { ...artifact, url: "/foxxycode/ok" },
+  ]);
+});
 
 test("renders completed share_file artifacts below the closed disclosure", () => {
   render(
