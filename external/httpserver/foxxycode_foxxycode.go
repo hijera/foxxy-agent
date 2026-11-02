@@ -262,13 +262,18 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerMCPManagementRoutes()
 }
 
+// writeArtifactError answers with the JSON error envelope the artifact routes
+// share; http.Error would relabel the body text/plain.
+func writeArtifactError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = fmt.Fprintf(w, `{"error":{"message":%q}}`, msg)
+}
+
 // foxxycodeSessionArtifactGet streams only a manifest-registered immutable artifact.
 func (s *Server) foxxycodeSessionArtifactGet(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Range") != "" || r.Method != http.MethodGet {
-		// http.Error would relabel the JSON body text/plain; write it directly.
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_, _ = w.Write([]byte(`{"error":{"message":"artifact ranges are not supported"}}`))
+		writeArtifactError(w, http.StatusMethodNotAllowed, "artifact ranges are not supported")
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -391,7 +396,7 @@ func (s *Server) foxxycodeSessionArtifactRevealPost(w http.ResponseWriter, r *ht
 	path, err := session.ArtifactSourcePath(st.GetPersistedSessionDir(), st.GetCWD(), artifactID)
 	if err != nil {
 		if errors.Is(err, session.ErrArtifactSourceUnavailable) {
-			http.Error(w, `{"error":{"message":"artifact source is unavailable"}}`, http.StatusGone)
+			writeArtifactError(w, http.StatusGone, "artifact source is unavailable")
 			return
 		}
 		http.NotFound(w, r)
@@ -399,11 +404,11 @@ func (s *Server) foxxycodeSessionArtifactRevealPost(w http.ResponseWriter, r *ht
 	}
 	if err := platform.RevealFile(path); err != nil {
 		if errors.Is(err, platform.ErrRevealHeadless) || errors.Is(err, platform.ErrRevealUnsupported) {
-			http.Error(w, `{"error":{"message":"artifact reveal is unavailable on this server"}}`, http.StatusServiceUnavailable)
+			writeArtifactError(w, http.StatusServiceUnavailable, "artifact reveal is unavailable on this server")
 			return
 		}
 		s.log.Warn("reveal session artifact", "error", err)
-		http.Error(w, `{"error":{"message":"artifact reveal could not be started"}}`, http.StatusServiceUnavailable)
+		writeArtifactError(w, http.StatusServiceUnavailable, "artifact reveal could not be started")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

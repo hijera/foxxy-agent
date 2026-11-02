@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	pathpkg "path"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -57,7 +56,11 @@ func revealFileArgv(goos, path string) ([]string, error) {
 		if strings.TrimSpace(root) == "" {
 			root = `C:\Windows`
 		}
-		return []string{filepath.Join(root, "explorer.exe"), "/select," + path}, nil
+		// Windows separators are assembled literally: filepath.Join would use
+		// the host OS separator and break this on Linux and macOS, where the
+		// tests and the linux-arm64/macOS releases build the same argv.
+		root = strings.TrimRight(strings.ReplaceAll(root, "/", `\`), `\`)
+		return []string{root + `\explorer.exe`, "/select," + path}, nil
 	case "linux":
 		return []string{"xdg-open", pathpkg.Dir(path)}, nil
 	default:
