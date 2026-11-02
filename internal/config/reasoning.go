@@ -228,12 +228,11 @@ func isQwenThinking(id string) bool {
 	return strings.HasPrefix(id, "qwen3")
 }
 
-// isKimiThinking matches Moonshot Kimi K2 and later, which stream their thinking
-// on the reasoning_content channel. Detection covers the bare vendor ids
-// (kimi-k2, kimi-k2.6), the rolling kimi-latest alias, and the same ids under a
-// vendor namespace (moonshotai/kimi-k2-instruct), which prompts.Family also
-// classifies as kimi. The older moonshot-v1-* ids have no thinking mode and stay
-// unmatched.
+// isKimiThinking matches thinking-capable Moonshot Kimi models. Detection covers
+// the bare vendor ids (kimi-k2, kimi-k2.6), the rolling kimi-latest alias, and
+// vendor-namespace ids (moonshotai/kimi-k2-thinking). Kimi K2 Instruct is a
+// non-thinking model even though it shares the Kimi prompt family. It and the
+// older moonshot-v1-* ids stay unmatched.
 //
 // Detection only offers the levels; it does not by itself change the request.
 // The wire shape follows the level actually in effect (session pick, else
@@ -243,6 +242,9 @@ func isQwenThinking(id string) bool {
 func isKimiThinking(id string) bool {
 	if i := strings.LastIndex(id, "/"); i >= 0 {
 		id = id[i+1:]
+	}
+	if strings.HasPrefix(id, "kimi-k2-instruct") {
+		return false
 	}
 	return strings.HasPrefix(id, "kimi-")
 }
