@@ -14,6 +14,13 @@
 <h1 align="center">FoxxyCode Agent</h1>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/foxxy-agent-logo-dark.svg" />
+    <img src=".github/foxxy-agent-logo.svg" alt="FoxxyCode Agent" width="240" />
+  </picture>
+</p>
+
+<p align="center">
   <strong>Полноценный универсальный агент в одном статическом исполняемом файле на Go.</strong><br />
   ReAct, инструменты для файловой системы и командной строки, MCP, навыки, опциональный OpenAI-совместимый API со встроенным интерфейсом, планировщик и долговременная память.<br />
   Удобный для IDE форк, который легко адаптировать к выбранному редактору.

@@ -14,6 +14,13 @@
 <h1 align="center">FoxxyCode Agent</h1>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/foxxy-agent-logo-dark.svg" />
+    <img src=".github/foxxy-agent-logo.svg" alt="FoxxyCode Agent" width="240" />
+  </picture>
+</p>
+
+<p align="center">
   <strong>Run a full general purpose agent from one static Go binary.</strong><br />
   ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.<br />
   An IDE-friendly fork that is easy to adapt to your editor of choice.
