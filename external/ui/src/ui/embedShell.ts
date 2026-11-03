@@ -102,3 +102,23 @@ export function isEditorEmbed(): boolean {
     return false;
   }
 }
+
+/**
+ * The pre-send context hook. An editor host (the IntelliJ panel) installs
+ * `window.foxxycodeBeforeSend`, which resolves once the plugin has pushed a
+ * fresh editor-state snapshot - open buffers included - to the backend. A send
+ * awaits it so the turn's IDE context sees that snapshot; the wait is bounded
+ * so a slow or dead host never blocks the composer.
+ */
+export async function hostBeforeSend(): Promise<void> {
+  const fn = (window as unknown as { foxxycodeBeforeSend?: () => unknown }).foxxycodeBeforeSend;
+  if (typeof fn !== "function") return;
+  try {
+    await Promise.race([
+      Promise.resolve(fn()),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  } catch {
+    // A failed host hook must never block a send.
+  }
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/idehost"
@@ -15,6 +16,24 @@ import (
 type ideEvent = idehost.Event
 
 var ideEvents = idehost.NewHub()
+
+// ideHandlesFromQuery reads the comma-separated tool names a subscriber can
+// execute from ?handles=... on the SSE stream ("*" means all of them). A
+// subscriber that sends none only watches events.
+func ideHandlesFromQuery(r *http.Request) []string {
+	raw := r.URL.Query().Get("handles")
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 // foxxycodeIdeEvents serves the IDE edit-event SSE stream (GET /foxxycode/ide/events).
 func (s *Server) foxxycodeIdeEvents(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +48,7 @@ func (s *Server) foxxycodeIdeEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	writeSSEHeaders(w)
 
-	ch := ideEvents.Subscribe()
+	ch := ideEvents.SubscribeHandled(ideHandlesFromQuery(r))
 	defer ideEvents.Unsubscribe(ch)
 
 	// Prime the stream so clients see a response immediately.

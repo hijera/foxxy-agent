@@ -46,6 +46,7 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
 
     private var client: FoxxyCodeIdeEventClient? = null
     private var clientBase: String? = null
+    private val toolExecutor = FoxxyCodeToolExecutor(project)
 
     private class HighlightSet(val model: MarkupModel, val markers: List<RangeHighlighter>)
 
@@ -67,6 +68,13 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
     }
 
     private fun onEvent(ev: FoxxyCodeEditEvent) {
+        // Delegated tool execution (tool_execute): the agent is waiting for a
+        // tool-result answer, so it runs before everything else and is not
+        // gated on the native-diff setting.
+        if (ev.isToolExecute) {
+            toolExecutor.execute(ev)
+            return
+        }
         // User-initiated open ("Show in IDE"): the plan file lives in the session bundle
         // outside the project, and it is not a diff — so it runs before the nativeDiffs
         // and in-project guards below.

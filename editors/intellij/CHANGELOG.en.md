@@ -9,6 +9,29 @@
 
 ## Unreleased — 2026-10-30
 
+**Hooks for notifications.**
+New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
+
+**IDE context before a send.**
+Right before a message goes out the plugin pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message.
+
+**More tools run through the IDE.**
+`read` answers from the editor buffer (it sees unsaved changes), `plan_write` applies through the editor, and `mkdir`, `rm`, `mv` and `touch` run as IDE filesystem operations: the project tree updates at once and Local History is the undo. Each tool has its own checkbox in Settings | Tools | FoxxyCode.
+
+**Agent commands now run in the IDE terminal.**
+A `run_command` call executes in an IntelliJ terminal tab - the command is visible in the Terminal tool window, and its output (plus the exit code where the shell expands it) returns to the agent as the tool result. Background commands and commands with a large timeout still run in the agent itself. Controlled by the same "Apply file edits through the editor" setting.
+
+**File edits now go through the editor.**
+The agent no longer writes files behind the IDE: `write`/`edit`/`apply_patch`
+run through the editor's document model, so edits land in open (including
+unsaved) buffers, the undo stack and the native diff. A new setting, "Apply
+file edits through the editor", is on by default in Settings | Tools |
+FoxxyCode; turned off, everything works as before with the agent writing the
+file. When the editor holds unsaved changes or the buffer diverged from the
+file, the agent gets a conflict, re-reads the file and overwrites nothing.
+
+## 0.3.39 — 2026-10-30
+
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 
 - Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.

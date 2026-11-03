@@ -12,9 +12,14 @@ import java.nio.charset.StandardCharsets
  * Reads the foxxycode `GET /foxxycode/ide/events` Server-Sent-Events stream on a background daemon
  * thread and delivers parsed [FoxxyCodeEditEvent]s to [onEvent]. Reconnects with backoff until
  * [stop] is called. Pure `HttpURLConnection` (no extra deps), matching FoxxyCodeProcessManager.
+ *
+ * [handles] names the tools this client can execute through the IDE (the `?handles=` query
+ * parameter, `*` for all): the agent sends `tool_execute` only to subscribers that declared
+ * the tool, and each one answers on POST /foxxycode/ide/tool-result.
  */
 class FoxxyCodeIdeEventClient(
     private val baseUrl: String,
+    private val handles: String = "write,edit,apply_patch,run_command,read,plan_write,mkdir,rm,mv,touch",
     private val onEvent: (FoxxyCodeEditEvent) -> Unit,
 ) {
     private val log = logger<FoxxyCodeIdeEventClient>()
@@ -45,7 +50,8 @@ class FoxxyCodeIdeEventClient(
 
     private fun eventsUrl(): String {
         val base = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
-        return base + "foxxycode/ide/events"
+        val suffix = if (handles.isBlank()) "" else "?handles=" + handles.trim()
+        return base + "foxxycode/ide/events" + suffix
     }
 
     private fun loop() {
@@ -117,6 +123,9 @@ class FoxxyCodeIdeEventClient(
                 path = str("path"),
                 before = str("before"),
                 after = str("after"),
+                tool = str("tool"),
+                args = str("args"),
+                nonce = str("nonce"),
             )
         } catch (e: Exception) {
             log.warn("failed to parse ide event: ${e.message}")

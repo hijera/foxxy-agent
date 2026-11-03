@@ -53,6 +53,7 @@ What the agent can do and how each capability is configured.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
+- [IDE tool delegation](features/ide-tool-delegation.md) - A connected editor plugin executes tool calls through the IDE - tool_execute over the ide events stream, the tool-result answer, fallback rules, the nonce.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
 - [Browser tool](features/browser-tool.md) - The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
 - [Devin](features/devin.md) - Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.

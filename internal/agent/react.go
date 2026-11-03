@@ -255,7 +255,7 @@ func (a *Agent) wireWorkspaceTool(env *tools.Env) {
 }
 
 // Run executes the ReAct loop and returns the stop reason.
-func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
+func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop string, turnErr error) {
 	if a.log != nil {
 		ctx = llm.WithDiagnostics(ctx, a.log.With("session", a.state.GetID()))
 		a.log.DebugContext(ctx, "agent.run.start", "session", a.state.GetID())
@@ -265,6 +265,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}()
 	}
 	mode := a.state.EffectiveMode()
+	// TurnEnd: the turn is over and the agent waits for the user's next
+	// message - the notification source ("the agent is done"). Registered
+	// early so it fires on every way out of the turn.
+	defer func() {
+		a.runTurnEndHooks(ctx, mode, turnStop, lastAssistantText(a.state))
+	}()
 	// A new user turn starts its account of time spent on usage limits
 	// (limit_wait.go); the built-ins below never touch it.
 	a.limitLedger = &limitWaitLedger{}
@@ -2459,8 +2465,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	var execErr error
 	started := time.Now()
 
-	// Check if it's an MCP tool (name contains __).
-	if idx := strings.Index(tc.Name, "__"); idx >= 0 {
+	// The question tool is about to ask its questions: the Question hooks are
+	// the notification source carrying them (and their options) outward.
+	if tc.Name == "question" {
+		a.runQuestionHooks(ctx, mode, tc)
+	}
+
+	// A connected client that can execute this call - an IDE plugin running
+	// it through the editor - gets it before the local dispatch. MCP names are
+	// offered too: the client sees the name exactly as the model called it. A
+	// client that declines (or cannot be reached) leaves the call to the
+	// dispatch below.
+	if handled, dres, derr := a.tryDelegateToolCall(ctx, tc, env, sessionID); handled {
+		result, execErr = dres, derr
+		if execErr == nil {
+			result = tools.ApplyOutputLimit(result, tc.Name, env)
+		} else {
+			execErr = tools.ApplyOutputLimitError(execErr, tc.Name, env)
+		}
+	} else if idx := strings.Index(tc.Name, "__"); idx >= 0 {
 		serverName := tc.Name[:idx]
 		toolName := tc.Name[idx+2:]
 		result, execErr = a.callMCPTool(ctx, serverName, toolName, tc.InputJSON)
