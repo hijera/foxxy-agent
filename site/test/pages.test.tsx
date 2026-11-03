@@ -31,6 +31,7 @@ describe.each(["en", "ru"] as const)("pages in %s", (lang) => {
   it("renders the landing page with a download link per package", () => {
     renderPage(lang, "landing");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(m.hero.title);
+    expect(document.querySelectorAll(".hero img.hero-logo")).toHaveLength(2);
     for (const download of Object.values(release.downloads)) {
       if (download) expect(document.querySelector(`a[href="${download.url}"]`)).not.toBeNull();
     }
