@@ -1,6 +1,4 @@
 import { useState, type ReactNode } from "react";
-import agentLogoDark from "../../../.github/foxxy-agent-logo-dark.svg";
-import agentLogoLight from "../../../.github/foxxy-agent-logo.svg";
 import { usePrefs } from "../app/prefs";
 import { format, formatSize, links, pages, release, repoFile, type DownloadKind } from "../app/data";
 import { DEMO_SURFACES, pickShot, shots, shotUrl, type DemoSurface } from "../app/demos";
@@ -61,8 +59,6 @@ function Hero() {
           {m.hero.title}
           <span className="hero-accent">{m.hero.titleAccent}</span>
         </h1>
-        <img className="hero-logo hero-logo--dark" src={agentLogoDark} alt="" width="180" height="227" />
-        <img className="hero-logo hero-logo--light" src={agentLogoLight} alt="" width="180" height="227" />
         <p className="hero-lead">{m.hero.lead}</p>
         <ul className="chips">
           {m.hero.chips.map((chip) => (

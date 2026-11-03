@@ -426,16 +426,6 @@ p {
   color: var(--hero-accent);
 }
 
-.hero-logo {
-  display: block;
-  width: 180px;
-}
-
-:root[data-theme="dark"] .hero-logo--light,
-:root[data-theme="light"] .hero-logo--dark {
-  display: none;
-}
-
 .hero-lead {
   max-width: 760px;
   color: var(--text-2);
