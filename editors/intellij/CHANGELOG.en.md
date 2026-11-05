@@ -7,7 +7,13 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-30
+## Unreleased — 2026-11-05
+
+**Choose the compatible provider client identity.**
+OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
+
+
+## 0.3.40 — 2026-10-30
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 

@@ -10,6 +10,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { ModelField } from "./ModelField";
+import { Combobox } from "./Combobox";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
 import type { ProviderRow } from "./useProviderModels";
@@ -216,6 +217,37 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     !USAGE_PANEL_PROVIDER_TYPES.has(providerType)
   ) {
     return false;
+  }
+  if (ctx.path === "user_agent") {
+    if (providerType !== "openai" && providerType !== "anthropic") return false;
+    return (
+      <div className="settings-row">
+        <FieldLabel
+          label={tSchemaText(ctx.schema.title)}
+          description={tSchemaText(ctx.schema.description)}
+        />
+        <Combobox
+          value={ctx.value === "foxxycode" ? "foxxycode" : providerType}
+          ariaLabel={tSchemaText(ctx.schema.title)}
+          showOptionLabel
+          options={[
+            {
+              value: providerType,
+              label: translate(
+                providerType === "anthropic"
+                  ? "settings.userAgent.anthropic"
+                  : "settings.userAgent.openai",
+              ),
+            },
+            {
+              value: "foxxycode",
+              label: translate("settings.userAgent.foxxycode"),
+            },
+          ]}
+          onChange={ctx.onChange}
+        />
+      </div>
+    );
   }
   if (providerType === "codex") {
     if (ctx.path === "api_key" || ctx.path === "api_key_command") {

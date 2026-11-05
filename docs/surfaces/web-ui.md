@@ -1713,3 +1713,23 @@ The start screen shows GitHub and API documentation links plus the active server
 The Context popover offers **Compact now** and the automatic threshold. `compaction.auto_enable: false` disables the automatic trigger while leaving manual compaction available. Context estimates include tool schemas, tool-call arguments, reasoning and images; provider-reported input tokens anchor later estimates, including after a session reload. The Summary segment remains separate.
 
 Feature worktrees show the main project name in the folder chip and their own branch in the branch chip. History groups them by `repoRoot`; the actual session cwd stays inside the worktree. See [Git worktrees](../features/worktrees.md).
+
+### Compatible provider client identity
+
+For OpenAI-compatible and Anthropic-compatible providers, omit
+`providers[].user_agent` or leave it empty to keep the provider SDK identity
+(`OpenAI/Go` or `Anthropic/Go`). The explicit `openai` and `anthropic` values also
+keep the current protocol's SDK identity, including after switching provider type.
+Select `foxxycode` to send
+`Foxxycode/<running version>`, using `dev` in an unstamped build. It applies to
+completion requests and model listing, including the unsaved provider preview.
+Other provider types ignore this setting. In Settings, open an OpenAI-compatible
+or Anthropic-compatible provider and choose **User-Agent**; save the provider to apply it to new calls.
+
+![OpenAI-compatible provider User-Agent choices](../assets/web-ui/provider-user-agent-options-dark-1280.png)
+
+*Choose the default OpenAI/Go identity or Foxxycode with the running version (Dark, 1280 px).*
+
+![Anthropic-compatible provider User-Agent choices](../assets/web-ui/provider-user-agent-anthropic-options-dark-1280.png)
+
+*Anthropic-compatible providers offer Anthropic/Go by default and the same Foxxycode version option (Dark, 1280 px).*

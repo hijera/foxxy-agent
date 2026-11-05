@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
 // anthropicProvider implements Provider using the Anthropic API.
@@ -35,8 +36,11 @@ func (p *anthropicProvider) withTuning(in ProviderInput) *anthropicProvider {
 	return p
 }
 
-func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
+func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent ...string) *anthropicProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
+	if len(userAgent) > 0 && userAgent[0] == "foxxycode" {
+		opts = append(opts, option.WithHeader("User-Agent", "Foxxycode/"+version.Get()))
+	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
