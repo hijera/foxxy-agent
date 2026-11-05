@@ -300,6 +300,7 @@ func (s *runner) autocompleteProvider(cfg *config.Config, ac *config.Autocomplet
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,
 		BaseURL:       rm.BaseURL,
+		UserAgent:     rm.UserAgent,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
 		NoCLILogin:    rm.NoCLILogin,

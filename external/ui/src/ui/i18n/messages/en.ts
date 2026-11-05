@@ -1,5 +1,8 @@
 /** English UI strings for the FoxxyCode SPA. Keys use dot notation grouped by area. */
 export const messagesEn: Record<string, string> = {
+  "settings.userAgent.anthropic": "Anthropic/Go (default)",
+  "settings.userAgent.openai": "OpenAI/Go (default)",
+  "settings.userAgent.foxxycode": "Foxxycode/version",
   "messages.svn.card": "Subversion operation",
   "messages.svn.paths": "Paths",
   "messages.svn.target": "Target",

@@ -29,6 +29,9 @@ export const schemaTextRu: Record<string, string> = {
   "Queue mode": "Режим очереди",
   "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.": "Режим отправки во время работы: steer уточняет текущую задачу на следующем шаге, after_turn запускает новый ход после ответа.",
 
+
+  "User-Agent": "User-Agent",
+  "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.": "Идентификатор клиента для OpenAI-совместимых и Anthropic-совместимых запросов. По умолчанию используется SDK провайдера (OpenAI/Go или Anthropic/Go); Foxxycode передаёт версию запущенного приложения.",
   "ReAct loop": "Цикл ReAct",
   "Memory copilot": "Помощник памяти",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.":

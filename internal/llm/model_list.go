@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
 // ModelEntry is one model advertised by a provider's model-listing endpoint.
@@ -148,6 +150,15 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if in.Type == "openai" || in.Type == "anthropic" {
+		req.Header.Set("User-Agent", "OpenAI/Go")
+		if in.Type == "anthropic" {
+			req.Header.Set("User-Agent", "Anthropic/Go")
+		}
+		if in.UserAgent == "foxxycode" {
+			req.Header.Set("User-Agent", "Foxxycode/"+version.Get())
+		}
+	}
 	if in.Type == "anthropic" {
 		if in.APIKey != "" {
 			req.Header.Set("x-api-key", in.APIKey)

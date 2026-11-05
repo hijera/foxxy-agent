@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hijera/foxxycode-agent/internal/version"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/tidwall/gjson"
@@ -75,8 +76,11 @@ func (p *openAIProvider) CompleteRaw(ctx context.Context, prompt string) (*Respo
 	}, nil
 }
 
-func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
+func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent ...string) *openAIProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
+	if len(userAgent) > 0 && userAgent[0] == "foxxycode" {
+		opts = append(opts, option.WithHeader("User-Agent", "Foxxycode/"+version.Get()))
+	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}

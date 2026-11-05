@@ -14,6 +14,7 @@ type ResolvedLLM struct {
 	Model        string
 	APIKey       string
 	BaseURL      string
+	UserAgent    string
 	ProxyURL     string
 	AuthPath     string
 	// NoCLILogin prevents this provider profile from inheriting the shared CLI login.
@@ -211,6 +212,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		Model:            entry.APIModel(),
 		APIKey:           prov.EffectiveAPIKey(),
 		BaseURL:          prov.APIBase,
+		UserAgent:        prov.UserAgent,
 		ProxyURL:         prov.Proxy,
 		AuthPath:         ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		NoCLILogin:       !c.ProviderMayUseCLILogin(prov.Name, prov.Type),

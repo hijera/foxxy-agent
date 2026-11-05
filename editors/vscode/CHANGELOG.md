@@ -7,7 +7,15 @@
 
 # Изменения в расширении FoxxyCode для VS Code
 
-## Unreleased — 2026-10-30
+## Unreleased — YYYY-MM-DD` on
+  top, stamped by `make vscode-package`, which changelog gets which change) are in
+  .claude/rules/release-changelog.md and README.md § Changelog.
+-->
+
+# Изменения в расширении FoxxyCode для VS Code
+
+
+## 0.3.40 — 2026-10-30
 
 - Заголовок и поле ввода нового чата расположены по центру; ссылки проекта и версия сервера больше не перекрывают поле ввода, в том числе на низкой панели IDE.
 
