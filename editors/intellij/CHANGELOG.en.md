@@ -7,7 +7,11 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-30
+## Unreleased — 2026-11-05
+
+- Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
+
+## 0.3.40 — 2026-10-30
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 

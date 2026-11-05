@@ -24,6 +24,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.docking.DockableContent
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
@@ -64,12 +67,18 @@ import javax.swing.SwingConstants
  * Tool window content: hosts the FoxxyCode web UI in a JCEF browser (with graceful fallbacks)
  * and manages the backing `foxxycode http` process via [FoxxyCodeProcessManager].
  */
-class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
+class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow) : JPanel(BorderLayout()), Disposable {
     private var browser: JBCefBrowser? = null
     /** JS→Kotlin channel: the SPA calls this when its locale changes (single app-wide switcher). */
     private var localeQuery: JBCefJSQuery? = null
     private val center = JPanel(BorderLayout())
     private var toolbarComponent: JComponent? = null
+    private var disposed = false
+    private val backendLifecycle = PanelBackendLifecycle(
+        shouldStop = { FoxxyCodeSettings.getInstance().state.stopOnTabClose },
+        start = { start() },
+        stop = { stopBackend() },
+    )
 
     /**
      * True once the SPA page has loaded, so JS calls will land.
@@ -115,6 +124,14 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 },
             )
         start()
+        project.messageBus.connect(this).subscribe(
+            ToolWindowManagerListener.TOPIC,
+            object : ToolWindowManagerListener {
+                override fun stateChanged(toolWindowManager: ToolWindowManager) {
+                    backendLifecycle.visibilityChanged(toolWindow.isVisible)
+                }
+            },
+        )
     }
 
     private fun onLanguageChanged() {
@@ -161,6 +178,16 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             },
             onError = { msg -> showError(msg) }
         )
+    }
+
+    private fun stopBackend() {
+        FoxxyCodeProcessManager.getInstance(project).stop()
+        FoxxyCodeAutocompleteService.getInstance(project).stop()
+        FoxxyCodeIdeDiffService.getInstance(project).stop()
+        currentUrl = null
+        markPageNavigating()
+        // Release the page's HTTP streams and timers while retaining the reusable browser.
+        if (!disposed) browser?.loadURL("about:blank")
     }
 
     private fun loadUrl(url: String) {
@@ -700,7 +727,9 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         }
 
     override fun dispose() {
+        disposed = true
         panelsByProject.remove(project, this)
+        if (!project.isDisposed) backendLifecycle.dispose()
         // JBCefBrowser is released via its Disposer registration on this panel.
     }
 
