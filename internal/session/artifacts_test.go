@@ -11,7 +11,7 @@ import (
 )
 
 func TestCaptureArtifactDeduplicatesAndRejectsSymlink(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	sessionDir := filepath.Join(root, "session")
 	if err := os.Mkdir(workspace, 0o755); err != nil {
@@ -40,11 +40,30 @@ func TestCaptureArtifactDeduplicatesAndRejectsSymlink(t *testing.T) {
 		t.Fatalf("artifact = %q, %v", got, err)
 	}
 
-	if err := os.Symlink(file, filepath.Join(workspace, "linked.txt")); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, file, filepath.Join(workspace, "linked.txt"))
 	if _, err := CaptureArtifact(sessionDir, workspace, "linked.txt"); err == nil {
 		t.Fatal("symlink source was accepted")
+	}
+}
+
+// canonicalTempDir is t.TempDir resolved through filepath.EvalSymlinks, so
+// comparisons against paths CaptureArtifact canonicalized hold on Windows,
+// where TempDir can carry an 8.3 short name of a non-ASCII profile directory.
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		return resolved
+	}
+	return root
+}
+
+// symlinkOrSkip creates a symlink, skipping the test on a host that refuses
+// the privilege (Windows without Developer Mode or SeCreateSymbolicLinkPrivilege).
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable on this host: %v", err)
 	}
 }
 
@@ -155,9 +174,7 @@ func TestReadArtifactRejectsTamperedAndSymlinkedContent(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(workspace, "report.txt"), path); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, filepath.Join(workspace, "report.txt"), path)
 	if _, _, err := ReadArtifact(sessionDir, a.ID); err == nil {
 		t.Fatal("symlinked artifact was accepted")
 	}

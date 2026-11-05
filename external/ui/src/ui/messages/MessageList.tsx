@@ -42,6 +42,7 @@ import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 import { opensTurn } from "../chat/backgroundWake";
 import { artifactMarkerIds, artifactMarkersForAssistant } from "../chat/inlineArtifacts";
+import type { ToolArtifact } from "../chat/toolArtifacts";
 
 /**
  * The turn's clock and tokens for the live line: what the server reported, and until it
@@ -97,8 +98,6 @@ export function MessageList(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  onOpenBackgroundTask?: (taskId: string) => void;
-  onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace of this session; a refused spawn offers its approval for it. */
   workspacePath?: string | undefined;
   /** Opens the child transcript behind a spawn_agent row. */
@@ -232,20 +231,38 @@ export function MessageList(props: {
     renderStart === 0 && renderEnd === props.items.length
       ? props.items
       : props.items.slice(renderStart, renderEnd);
-  const inlineArtifactIds = useMemo(() => {
-    const ids = new Set<string>();
+  // Artifact markers are computed once per transcript revision, and only for
+  // the rows that carry a marker at all. A marker-free row keeps `undefined`
+  // (the prop is optional), so the memoized AssistantMessage rows hold their
+  // prop identity across streaming deltas; handing every row a fresh Map per
+  // render defeated React.memo and re-parsed every answer on each token.
+  const artifactsByRowId = useMemo(() => {
+    const byId = new Map<string, ReadonlyMap<string, ToolArtifact>>();
     props.items.forEach((item, index) => {
-      if (item.type === "assistant_message") {
-        for (const id of artifactMarkerIds(item.content, artifactMarkersForAssistant(props.items, index))) ids.add(id);
+      if (
+        item.type === "assistant_message" &&
+        item.content.includes("<foxxycode_file")
+      ) {
+        byId.set(item.id, artifactMarkersForAssistant(props.items, index));
       }
     });
-    return ids;
+    return byId;
   }, [props.items]);
+
+  const inlineArtifactIds = useMemo(() => {
+    const ids = new Set<string>();
+    props.items.forEach((item) => {
+      if (item.type !== "assistant_message") return;
+      const markers = artifactsByRowId.get(item.id);
+      if (!markers) return;
+      for (const id of artifactMarkerIds(item.content, markers)) ids.add(id);
+    });
+    return ids;
+  }, [props.items, artifactsByRowId]);
 
   return (
     <>
-      {rendered.map((it, sliceIdx) => {
-        const idx = renderStart + sliceIdx;
+      {rendered.map((it) => {
         if (it.type === "user_message") {
           const myIdx = userMsgIndexById.get(it.id);
           // A missing index must not fall back to 0: a rewind names the first
@@ -305,12 +322,13 @@ export function MessageList(props: {
           if (!it.content.trim()) {
             return null;
           }
+          const rowArtifacts = artifactsByRowId.get(it.id);
           return (
             <AssistantMessage
               key={it.id}
               rowId={it.id}
               content={it.content}
-              artifacts={artifactMarkersForAssistant(props.items, idx)}
+              {...(rowArtifacts ? { artifacts: rowArtifacts } : {})}
               {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
               showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"

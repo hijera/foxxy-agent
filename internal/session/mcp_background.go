@@ -118,6 +118,18 @@ func (m *Manager) ActivateDeferredMCP(ctx context.Context, sessionID string) err
 	if state.GetArchived() || state.Subagent() != nil || state.IsSchedulerJob() {
 		return nil
 	}
+	// An already-activated session must not touch the turn lock on a re-open:
+	// holding it here made every passive chat activation look like a running
+	// turn to the cross-process activity probe (TurnLockHeld) for as long as
+	// the reload under the lock took, and one activity poll inside that
+	// window flipped the composer to queue mode with no turn to queue for.
+	// The lock path below re-checks the marker, so exactly one activation
+	// still starts the servers. A reload a workspace switch parked is still
+	// drained: the drain takes the lock only when one is actually waiting.
+	if !state.configuredMCPDeferred() {
+		m.drainPendingMCPReload(sessionID, state)
+		return nil
+	}
 	unlock, err := m.acquireTurnLockWithReloadDrain(sessionID, state)
 	if err != nil {
 		return err

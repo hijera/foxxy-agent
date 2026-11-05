@@ -279,8 +279,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   questionInactive?: boolean | undefined;
   /** Shared clock from the shell so every ticker advances together. */
   backgroundNowMs?: number | undefined;
-  onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
-  onStopBackgroundTask?: ((taskId: string) => void) | undefined;
   /** Workspace of this session, for the approval offered on a refused spawn. */
   workspacePath?: string | undefined;
   /** Opens the child transcript of a subagent this call spawned. */
