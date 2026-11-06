@@ -8,6 +8,16 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.56 — 2026-11-06
+
+Checkpoint: `1e1cd320a1a0408d4a52155c8d76e31d4550e83e` (tag `1.2.56`), following `cc012f2b890a5a271b40dd15566a43b922669ce3` (`1.2.54`). Implementation: `970f493d88063526f9297081d02a4e3ab0ae473a`; Windows backup follow-up: `d80c6de963f641619bdc30dd78e5e8409014e03a`. All 16 commits are accounted for: 14 adapted changes and two redundant integration merges. No remaining work in this range.
+
+- Ported workspace-scoped skill/subagent catalogs and new-chat completions, project skill deletion, the responsive folder browser, desktop History/Tasks behavior, additive standard directories, JSON-only MCP/marketplace declarations with backed-up migration, digest-bound project marketplace trust, MCP secret redaction, mandatory instruction layers and loop defaults. Semgrep SARIF excludes inline-suppressed findings.
+- Owner decisions: take defaults 165/2/1, all migration and Settings changes, four always-read skill/subagent folders, marketplace trust and mandatory documents. `.claude/agents` is loaded only through explicit `subagents.dirs`.
+- Preserved every registered fork divergence, retry limit 10, continuation budgets, cycle/quarantine behavior, prompt variants and IDE context, asynchronous MCP trust, TLS overrides, shared encoding, cross-process session state, both compaction engines, Summary, SVN, exports and localization. Migration preserves original UTF-16 backup bytes and checks for an intervening config save. Scope and evidence: `docs/plans/upstream-1.2.56-port.md`.
+- History retains persisted filters/status, grouping, pinned rows, tags, project scope, counts, pagination, activity/error state and IDE session restoration. Desktop selection/backdrop leaves Tasks open; the stacked shell retains its closing behavior. The port does not replace the session persistence format.
+- Validation: shipped-tag `make test` with 3,314 SPA tests, full Linux non-UI `make test-race` on Go 1.26.10, the final migration guard's package race run, prompt-cache, fork guards, lint/type checking, documentation and schema checks. Real Chromium layout, overflow, chevrons, History/Tasks and Settings checks and Chromium/WebKit folder scrolling pass; current documentation embeds real captures. The initial Linux race attempt used incompatible Go 1.27.1 diagnostics and Windows npm; the corrected native-tool run passes. CI's tag matrix and publication are outside this local task.
+
 ## Sync through upstream 1.2.54 — 2026-11-01
 
 Checkpoint: `cc012f2b890a5a271b40dd15566a43b922669ce3` (tag `1.2.54`), following `bd28a329b9bbc53874556403bb2fd00f3f01c483` (`1.2.45`). Implementation: `bec3e5a72da91a0c6c6206edea27484f946c675a`. All 40 commits are accounted for: 31 adapted records (including three merge-specific resolutions), seven redundant integration merges and the reverted model-check document pair. No remaining work in this range.

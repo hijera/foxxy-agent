@@ -12486,3 +12486,130 @@ ports:
   reason: Integration merge; all constituent changes are included in the complete
     1.2.46-1.2.54 net port.
   remaining: []
+- upstream_sha: 1568dd5b1c70265705bb214aefab3536b15c2e96
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(web): project skills and agents follow the folder a new chat picked.
+    Ported with FoxxyCode branding, workspace/trust protections, prompt and session
+    invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 47e39351bbd1017e21192e33a0a1ad32a38f7602
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(web): folder browser fits its screen, uses the app font and marks links.
+    Ported with FoxxyCode branding, workspace/trust protections, prompt and session
+    invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 1c6d73054b4cfef54d47bfd091142421a05f0e93
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'docs(web-ui): recapture the folder browser, add its phone layout. Ported
+    with FoxxyCode branding, workspace/trust protections, prompt and session invariants;
+    see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 8866eb7e20707da8c8fc1c7268748834a97c0090
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(web): on desktop the backdrop that closes History keeps Tasks open.
+    Ported with FoxxyCode branding, workspace/trust protections, prompt and session
+    invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 6804b9536fe2512092d129e290430f0e9c3561d6
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(skills): delete a project skill in the workspace it was listed for.
+    Ported with FoxxyCode branding, workspace/trust protections, prompt and session
+    invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 6ca14787766375144a677b48817ef0ba5d130139
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'feat(skills): four default skill folders always read, skills.dirs adds
+    to them. Ported with FoxxyCode branding, workspace/trust protections, prompt and
+    session invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: ad3bb02f5c39abab4b4ae5e62e1b8b198588a1de
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'feat(subagents): four default definition folders always read, subagents.dirs
+    adds to them. Ported with FoxxyCode branding, workspace/trust protections, prompt
+    and session invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 1d509118f48faaab879b3ea6aabcf9325ecc1aa2
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  - d80c6de963f641619bdc30dd78e5e8409014e03a
+  reason: 'feat(mcp): servers come from the two mcp.json files only, config.yaml mcp_servers
+    moves on load. Ported with FoxxyCode branding, workspace/trust protections, prompt
+    and session invariants; see docs/plans/upstream-1.2.56-port.md. Concurrent configuration
+    backup replacement is serialized for Windows.'
+  remaining: []
+- upstream_sha: d6ed96bac4226806dc0e3d8762e4a92e3f70eeeb
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'feat(skills): marketplaces come from the two marketplaces.json files, project
+    entries need trust. Ported with FoxxyCode branding, workspace/trust protections,
+    prompt and session invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 4692042d5e7e7ab170fb866e2b07245cbca48fc6
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  - d80c6de963f641619bdc30dd78e5e8409014e03a
+  reason: 'fix: cross-review of the later commits - trust gate, config moves, Settings.
+    Ported with FoxxyCode branding, workspace/trust protections, prompt and session
+    invariants; see docs/plans/upstream-1.2.56-port.md. Concurrent configuration backup
+    replacement is serialized for Windows.'
+  remaining: []
+- upstream_sha: f973c571ba6508874eb0684d22d96ba580c51f4a
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(security): leave findings suppressed inline out of the semgrep SARIF.
+    Ported with FoxxyCode branding, workspace/trust protections, prompt and session
+    invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: c34a75ee860d6df8ddcb38d0adada976cab3c9d2
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(mcp): the server list names env and headers, never their values. Ported
+    with FoxxyCode branding, workspace/trust protections, prompt and session invariants;
+    see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 195313a657f483f8943b7e28d1714d1dcc129b8a
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'feat(rules): AGENTS.md and DESIGN.md in three layers, instructions.files
+    only appends. Ported with FoxxyCode branding, workspace/trust protections, prompt
+    and session invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 24a0300f37fa279cd54e2d195289bd54655593e3
+  status: skipped
+  fork_commits: []
+  reason: Integration merge without additional resolutions; all constituent changes
+    are included in the complete 1.2.55-1.2.56 net port.
+  remaining: []
+- upstream_sha: 478ad4df30b8119140a1a3a1d2a1739132f8f9f5
+  status: adapted
+  fork_commits:
+  - 970f493d88063526f9297081d02a4e3ab0ae473a
+  reason: 'fix(agent): harden ReAct loop defaults. Ported with FoxxyCode branding,
+    workspace/trust protections, prompt and session invariants; see docs/plans/upstream-1.2.56-port.md.'
+  remaining: []
+- upstream_sha: 1e1cd320a1a0408d4a52155c8d76e31d4550e83e
+  status: skipped
+  fork_commits: []
+  reason: Integration merge without additional resolutions; all constituent changes
+    are included in the complete 1.2.55-1.2.56 net port.
+  remaining: []
