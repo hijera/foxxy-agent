@@ -26,8 +26,6 @@ skills:
     # skill in that session's catalog (hijera/foxxy-agent#146).
     - "${CWD}/.foxxycode/skills"
 
-mcp_servers: []
-
 tools:
   permission_mode: bypass
 

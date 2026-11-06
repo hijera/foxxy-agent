@@ -266,9 +266,14 @@ What happens next depends on what moved:
 | models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /foxxycode/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](../surfaces/web-ui.md)) |
 | the Telegram token, the scheduler's directory or timeout, a relay's `swarm` settings other than its address | that subsystem alone is rebuilt in place |
 | a subsystem's `enable` | it is started, on the address the new configuration gives it, or stopped |
-| `mcp_servers` | a server added or switched on starts, one removed or switched off stops once no session holds it, and one whose declaration changed is started from the new one; the others keep their processes |
+| `mcp.project_trust` | every live session reconnects its configured MCP servers under the new policy; moved to `deny`, the project servers stop |
 | `mcp.idle_timeout_seconds` | a server that goes unheld from then on waits the new time before it stops |
 | a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart |
+
+The MCP servers are not in `config.yaml`: the process watches `~/.foxxycode/mcp.json` the same
+way, and an edit of it starts a server added or switched on, stops one removed or switched
+off once no session holds it, and starts one whose declaration changed from the new one,
+while the others keep their processes ([MCP](../features/mcp.md#edits-made-outside-foxxycode)).
 
 Everything else a surface reads once when it is constructed - such as the `swarm.join`
 registrations the HTTP server of a node makes - still needs a restart you ask for,
