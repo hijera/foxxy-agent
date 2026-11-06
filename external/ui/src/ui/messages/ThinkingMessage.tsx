@@ -59,7 +59,7 @@ function ThinkingMessageBase(props: {
     ) {
       return formatStepDuration(props.durationMs);
     }
-    return formatStepDuration(0);
+    return "";
   }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
   return (

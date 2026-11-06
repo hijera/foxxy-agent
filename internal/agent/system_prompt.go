@@ -68,7 +68,7 @@ func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
 		// A skill the model loads brings its model and reasoning level for
 		// the rest of the turn, as one the operator invokes does.
 		a.applySkillSettings(context.Background(), strings.TrimSpace(name), sk)
-		return strings.TrimSpace(sk.Content), available, true
+		return skillBodyForModel(sk, a.managedSkillsDir()), available, true
 	}
 	return "", available, false
 }

@@ -74,6 +74,47 @@ func TestRunPlanDoesNotSetTodo(t *testing.T) {
 	}
 }
 
+func TestRunPlanReadFailurePersistsActivityError(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	runs := 0
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mgr.SessionByID(res.SessionID)
+	if _, err := mgr.RunPlan(ctx, res.SessionID, "missing-plan", nil); err == nil {
+		t.Fatal("RunPlan unexpectedly succeeded for a missing plan")
+	}
+	if runs != 0 {
+		t.Fatalf("runner ran %d time(s) after plan read failed", runs)
+	}
+	if state.GetActivitySeq() != 1 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("pre-run failure counters = activity=%d lastError=%d, want 1 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+	snap, err := store.ReadSnapshot(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 1 || snap.Meta.LastErrorSeq != 1 {
+		t.Fatalf("persisted pre-run failure counters = activity=%d lastError=%d, want 1 and 1", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := mgr.RunPlan(canceled, res.SessionID, "missing-plan", nil); err == nil {
+		t.Fatal("canceled RunPlan unexpectedly succeeded for a missing plan")
+	}
+	if state.GetActivitySeq() != 2 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("canceled pre-run counters = activity=%d lastError=%d, want 2 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+}
+
 // Ask mode is read-only, so neither run-plan shortcut may start a plan run: the
 // metadata one is refused, and a plan mention stays reading material for the
 // ask turn instead of switching the session to agent mode.

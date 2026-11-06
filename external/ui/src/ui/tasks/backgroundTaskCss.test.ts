@@ -128,7 +128,7 @@ test("a window with room to spare keeps the transcript where it was", () => {
 });
 
 // Once the stripe would run under the panel it has to give way - but only by
-// the overlap, keeping a 28px gap from the panel rather than hiding behind it
+// the overlap, keeping a 12px gap from the panel rather than hiding behind it
 // or leaving a dead strip beside it.
 test("a tighter window gives up exactly what the panel covers", () => {
   for (const window of [
@@ -137,7 +137,7 @@ test("a tighter window gives up exactly what the panel covers", () => {
     { viewportPx: 1440, shellPx: 1356 },
     { viewportPx: 1200, shellPx: 1116 },
   ]) {
-    expect(stripeEndInsetPx(window)).toBeCloseTo(380 + 14 + 28, 1);
+    expect(stripeEndInsetPx(window)).toBeCloseTo(380 + 14 + 12, 1);
   }
 });
 
@@ -262,34 +262,23 @@ test("the whole summary of a card is its click surface, and Stop stands above it
   expect(stop).toContain("z-index: 1");
 });
 
-test("the way into a task rides the folded card, above the opener and on a row of its own", () => {
-  // Both ways in - a run's transcript, a preview server's address - are one
-  // pattern. The panel is narrow: a control competing for the meta line would be
-  // paid for by the model's name, which is the one thing on that line that cannot
-  // be cut down to something still readable. The row breaks whole instead.
-  expect(
-    ruleBody(".bgtask-card-transcript-row,\n.bgtask-card-address-row {"),
-  ).toContain("100%");
+test("the child transcript action is an expanded-card tab attached below output", () => {
+  const transcript = ruleBody(".bgtask-card-transcript {");
+  expect(transcript).toContain("margin-top: -8px");
+  expect(transcript).toContain("var(--accent)");
 
-  const control = ruleBody(".bgtask-card-transcript,\n.bgtask-card-link {");
-  expect(control).toContain("var(--accent)");
-  // Like Stop, they sit above the opener stretched over the summary, so they open
-  // the transcript or the page rather than the card under them.
-  expect(control).toContain("position: relative");
-  expect(control).toContain("z-index: 1");
+  // The folded summary has no transcript row; only a running preview server keeps
+  // its address there.
+  expect(css).not.toContain(".bgtask-card-transcript-row");
+  expect(ruleBody(".bgtask-card-address-row {")).toContain("100%");
 
   // An address is as long as it is: it wraps whole instead of trailing off in an
-  // ellipsis that names no port. (The rule of its own is the last one that opens
-  // with the selector; the one before it is the pair's shared rule.)
-  const at = css.lastIndexOf("\n.bgtask-card-link {");
-  expect(at).toBeGreaterThan(-1);
-  const address = css.slice(at, css.indexOf("}", at));
+  // ellipsis that names no port.
+  const addressAt = css.lastIndexOf("\n.bgtask-card-link {");
+  expect(addressAt).toBeGreaterThan(-1);
+  const address = css.slice(addressAt, css.indexOf("}", addressAt));
   expect(address).toContain("overflow-wrap: anywhere");
   expect(address).not.toContain("text-overflow: ellipsis");
-
-  // The buttons the open card used to carry are gone with the duplicates.
-  expect(css).not.toContain(".bgtask-card-actions");
-  expect(css).not.toContain(".bgtask-open-transcript");
 });
 
 test("a card answers the pointer with a tint from the theme", () => {
