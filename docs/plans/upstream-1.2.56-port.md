@@ -51,6 +51,10 @@ is loaded rather than overwritten by the older snapshot.
 Concurrent backup replacements are serialized: on Windows, a watcher reload
 and a Settings save must not race to rename over `config.yaml.bak`. The parallel
 backup regression and the live reload scenario each pass ten repetitions.
+The retry-accounting diagnostic uses a five-second first-token allowance rather
+than the fixture's 500 ms: it tests HTTP attempt counts, not deadline handling.
+The silent-provider tests keep their short deadlines; the diagnostic passes
+twenty repetitions under the full validation load.
 
 History is adapted through the existing App rather than replaced. Preserve
 filters and persisted status, project scope, collapsed groups, pinned rows, tags,
