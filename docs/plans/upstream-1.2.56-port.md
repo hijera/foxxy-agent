@@ -64,10 +64,12 @@ the backdrop behavior. No session storage format is replaced by this port.
 
 ## Validation and evidence
 
-- Full shipped-tag `make test`: all Go packages and 3,314 SPA tests pass, including
+- Linux full shipped-tag `GOFLAGS='-count=1 -p=2 -timeout=20m' make test`:
+  all Go packages and 3,314 SPA tests pass, including
   workspace races, marketplace trust, migration, mandatory documents, loop guards
   and existing History behavior.
 - `make lint`: every configured Go pass and UI type checking pass.
+- The VS Code changelog's 18 tests and the IntelliJ plugin checks pass.
 - `make test-cache`: mandatory documents, rule generations and provider-bound
   prompt projections pass.
 - Full non-UI shipped-tag `make test-race` passes on Linux with Go 1.26.10 and
@@ -85,7 +87,16 @@ the backdrop behavior. No session storage format is replaced by this port.
   `session-history/`. Additional local browser evidence remains under ignored
   `dist/visual-1.2.56/captures/`.
 
-The first Linux race attempt used Go 1.27.1 and Windows npm exposed through WSL;
-its JSON diagnostic assertions and packaged MCP startup failed. The repeated run
-with the project's Go 1.26.10 and native Linux Node/npx passes. CI's tag matrix
-is not run locally, and no pull request or release is published by this task.
+The Linux stand uses Go 1.26.10, native Node/npx and headless Chromium. Its
+snapshot preserves Git executable bits and all seven asset symlinks; a plain
+copy from a Windows checkout does not preserve the latter. Browser dependencies
+are extracted into an isolated test directory rather than installed system-wide.
+
+The native Windows Go UI/browser suite passes. A highly concurrent full Windows
+run exceeded the 50 ms header-list budget, the 1.5 s History-list budget and
+short MCP startup deadlines. Each affected test passes ten isolated repetitions
+with its original limits. These timing failures remain a limitation of the
+loaded Windows run; no session-list threshold or MCP deadline was relaxed.
+
+CI's tag matrix is not run locally, and no pull request or release is published
+by this task.
