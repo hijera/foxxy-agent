@@ -53,6 +53,7 @@ func (s *Service) runCommandInstall(ctx context.Context, id string, profile cmdp
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, manager.Argv[0], manager.Argv[1:]...)
+	platform.AdaptCommand(cmd)
 	platform.HideConsoleWindow(cmd)
 	var output bytes.Buffer
 	cmd.Stdout = &output

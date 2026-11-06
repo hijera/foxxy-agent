@@ -50,6 +50,7 @@ func Build(dir, name string) (Fake, error) {
 	cmd := exec.Command("go", "build", "-o", fake.Binary,
 		"github.com/hijera/foxxycode-agent/internal/cmdprofile/cmdtest/fakecmd")
 	cmd.Dir = moduleDir()
+	platform.AdaptCommand(cmd)
 	platform.HideConsoleWindow(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Fake{}, fmt.Errorf("build fake command: %w: %s", err, strings.TrimSpace(string(out)))

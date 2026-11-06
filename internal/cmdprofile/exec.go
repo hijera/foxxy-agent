@@ -143,6 +143,7 @@ func Run(ctx context.Context, spec ProfileSpec, params map[string]string, opts E
 
 	cmd := exec.CommandContext(ctx, resolved, argv...)
 	cmd.Dir = opts.CWD
+	platform.AdaptCommand(cmd)
 	platform.HideConsoleWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
