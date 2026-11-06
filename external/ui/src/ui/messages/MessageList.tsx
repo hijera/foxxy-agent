@@ -466,6 +466,7 @@ export function MessageList(props: {
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
             {...(it.artifacts !== undefined ? { artifacts: it.artifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)) } : {})}
+            {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

@@ -69,6 +69,26 @@ Feature: Workspace switching
     And the session list names "repo" as its main checkout
     And the persisted session cwd remains the removed worktree
 
+  Scenario: A removed worktree also recovers while its session remains loaded
+    Given a workspace git repository "repo" with branches "main, feature/login"
+    And a session rooted at folder "repo"
+    And the session switched to branch "feature/login" in a worktree
+    And the session already has a user message
+    When Git removes the loaded session worktree
+    And I activate the session transcript
+    Then the context path points to folder "repo"
+    And the persisted session cwd remains the removed worktree
+
+  Scenario: Reading the context recovers a previously visited loaded worktree session
+    Given a workspace git repository "repo" with branches "main, feature/login"
+    And a session rooted at folder "repo"
+    And the session switched to branch "feature/login" in a worktree
+    And the session already has a user message
+    When Git removes the loaded session worktree
+    And I request the workspace context
+    Then the context path points to folder "repo"
+    And the persisted session cwd remains the removed worktree
+
   Scenario: Workspace is locked once the conversation starts
     Given a workspace folder "alpha" without git
     And a workspace folder "beta" without git

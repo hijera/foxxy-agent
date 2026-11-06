@@ -58,5 +58,8 @@ and [HTTP API](../reference/http-api.md) for those surfaces.
 
 If a managed worktree is later removed with `git worktree remove`, a saved
 session that pointed inside `<main>/.foxxycode/worktrees/` opens against the main
-checkout instead. History groups it there immediately; the original recorded
+checkout instead, including a chat already loaded in the current IDE process.
+Reading that chat's workspace context also refreshes its workspace-scoped
+instructions and defers its MCP connections for the next activation or turn.
+History groups it there immediately; the original recorded
 worktree path is retained until you explicitly choose another workspace.

@@ -505,6 +505,25 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** and **`features/svn_workspace.feature`** (godog).
 ## Session list
 
+The selected archive status survives reloads and IDE restarts. A status other
+than **Active** is shown above the list with **Show active chats** to reset it.
+An empty archive says that no chats match the selected status, rather than
+claiming that there is no history.
+The search field, clear control and filter button stay on one row even in a
+narrow IntelliJ panel; the search field shrinks to leave room for both buttons.
+The **This project only** choice and recently collapsed groups are also cached
+in host cookies, so restarting an IDE on a new loopback port retains them.
+Project scope remains keyed by the IDE's project root and groups by environment.
+
+![An empty archive names its saved status and offers Show active chats](../assets/history-status-archive-dark-1280.png)
+
+*The saved archive filter is visible without reopening the filter menu.*
+
+If Windows keeps a session's metadata locked beyond the read retries, History
+reports a backend error and retains the last successful listing instead of
+replacing it with partial results. Reopen History after the file is released;
+a fresh panel must first obtain a successful listing.
+
 ![History grouped by folder, with a plus on the heading](../assets/sessions-history-grouping-dark-1280.png)
 
 *Grouped by folder: the heading is the folder name, and the plus on it opens a new chat already pointed at that workspace. Pinned conversations lead the list as their own group, each row carrying its folder and its tags*
@@ -952,6 +971,28 @@ A failed or cancelled call, and one whose arguments do not parse, keeps the raw 
 *Scheduler calls in the transcript: a job read as its fields, a resume and a run as their outcome*
 
 `share_file` gives the agent an explicit, permission-gated way to hand a report or other workspace file back to the operator. A successful call renders a downloadable file card under its tool row. The browser downloads an immutable copy kept in the session bundle, so the link does not follow later workspace changes; in a remote environment the same action fetches through the configured bearer-authenticated API route. A missing copy stays visible as unavailable rather than becoming a broken image or link.
+
+The file card's actions menu is mounted above the transcript, outside the card's
+thumbnail clipping. It stays within the viewport on narrow panels, closes on a
+second click, Escape, outside click, resize or transcript scroll, and keeps its
+own scrolling available when the window is short.
+
+**Reveal on server** sends a POST to the verified artifact's reveal route and
+opens its original source in the file manager of the machine running FoxxyCode
+(Windows Explorer for a local editor backend). A removed source or a headless
+remote server can make revealing unavailable even when the saved download works.
+On Windows the server resolves the original file to a Shell item and calls
+`SHOpenFolderAndSelectItems`, so paths with spaces, Unicode and commas do not
+depend on Explorer command-line quoting. The GUI is not hidden with the flags
+used for console tools; Shell errors are returned instead of a successful
+response based only on process creation.
+Copying the name or a path falls back to a selected text field when an embedded
+browser denies Clipboard API access. If both copy mechanisms fail, the card
+reports the failure without raising an unhandled Promise error.
+
+![Shared file actions remain reachable outside the card in the dark theme](../assets/shared-file-actions/menu-open-dark-1280.png)
+
+![Shared file actions in the light theme](../assets/shared-file-actions/menu-open-light-1280.png)
 
 When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph. Image artifacts show a thumbnail and open the shared image lightbox at their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu for download, mention, copying paths, and revealing the source on the server host.
 

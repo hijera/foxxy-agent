@@ -862,9 +862,15 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 			continue
 		}
 		dir := filepath.Join(f.Root, ent.Name())
-		out = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		out, err = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		if err != nil {
+			return nil, err
+		}
 		if opts.IncludeSubagents {
-			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
+			out, err = f.appendChildRows(out, dir, cwdFilter, opts, 0)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -939,36 +945,37 @@ func (f *FileStore) MessageCount(sessionID string) (int, error) {
 	return 0, nil
 }
 
-// appendBundleRow reads one bundle's session.json and adds its row when opts
-// admit it. Only session.json: a full snapshot would parse every stored
-// transcript, turning the panel's first paint into a scan of the whole
-// session history (TestListSnapshotsDoesNotReadTranscripts).
 // appendBundleRow reads one bundle's metadata and adds its row when opts admit
 // it. It deliberately does not open messages.json: default History needs no
 // transcript fields, and archive filters must exclude a row before a large or
 // damaged transcript can affect the scan.
-func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) ([]SessionListEntry, error) {
 	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
-		return out
+		// A busy file is not evidence that the session disappeared. Returning a
+		// successful partial list would erase its row from an open History.
+		if isRetryableFileLockError(err) {
+			return nil, fmt.Errorf("list session %s: %w", id, err)
+		}
+		return out, nil
 	}
 	if recovered, ok := RecoverManagedWorktreeCWD(meta.CWD); ok {
 		meta.CWD = recovered
 	}
 	if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
-		return out
+		return out, nil
 	}
 	if !opts.IncludeSubagents && meta.IsSubagentRun() {
-		return out
+		return out, nil
 	}
 	if cwdFilter != "" && !matchesWorkspace(cwdFilter, meta.CWD) {
-		return out
+		return out, nil
 	}
 	if !opts.Archived.Keeps(meta.Archived) {
-		return out
+		return out, nil
 	}
 	if !opts.Origin.Keeps(meta.Origin) {
-		return out
+		return out, nil
 	}
 	messageCount, known := meta.messageCountMatches(filepath.Join(dir, messagesFile))
 	row := SessionListEntry{
@@ -994,9 +1001,9 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		messageCountKnown: known,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
-		return out
+		return out, nil
 	}
-	return append(out, row)
+	return append(out, row), nil
 }
 
 // readListMetaAt reads the durable metadata necessary to list a bundle. A
@@ -1054,15 +1061,22 @@ func (f *FileStore) messageCountAt(dir string) int {
 
 // appendChildRows adds the sessions nested inside dir, and their own children,
 // depth first.
-func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter string, opts ListOptions, depth int) []SessionListEntry {
+func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter string, opts ListOptions, depth int) ([]SessionListEntry, error) {
 	if depth >= maxChildNesting {
-		return out
+		return out, nil
 	}
 	for _, child := range f.childBundleDirs(dir) {
-		out = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
-		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
+		var err error
+		out, err = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		if err != nil {
+			return nil, err
+		}
+		out, err = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return out
+	return out, nil
 }
 
 // FirstUserMessageContent returns trimmed content of the first message with role user

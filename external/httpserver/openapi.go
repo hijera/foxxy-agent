@@ -228,7 +228,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
-					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie.  With include_activity=true, backgroundRunning counts the session's running non-system background tasks even after its turn has ended." +
+					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. If Windows keeps session metadata locked beyond the read retries, the request returns **500** instead of a successful partial listing; clients should retain their last successful rows. With include_activity=true, backgroundRunning counts the session's running non-system background tasks even after its turn has ended." +
 						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters), so it excludes archived and scheduler sessions; active child subagent turns are counted even though History keeps their rows hidden. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Scheduler job sessions carry **schedulerRun** metadata, and historical top-level **sched_** run bundles remain readable; both are **hidden** from this list unless **include_scheduler=true**. Child run sessions stay under their job session. " +
@@ -318,6 +318,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
 				},
@@ -1095,6 +1096,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
 					"description": "Describes the workspace of the session in **`X-FoxxyCode-Session-ID`** (or the server default cwd without the header). " +
+						"A loaded ordinary session whose managed worktree was removed falls back to the main checkout under the turn lock, refreshing workspace catalogs while preserving its persisted path. This read does not start MCP connections. " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
 						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host. " +
 						"Subversion is detected independently of git, so a branch folder that also holds a git repository reports both: **`is_svn_repo`** plus an **`svn`** object with **`available`**, **`wc_root`**, **`url`**, **`relative_url`**, **`repository_root`**, **`revision`**, **`branch`** (`trunk`, `branches/<name>`), **`branches`** (when `vcs.svn.branch_lookup` is on), and **`nested`** (the working copy root sits above the folder). " +
@@ -2205,7 +2207,7 @@ func openAPISpec() map[string]interface{} {
 						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
-						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial selected-session read with a matching `X-FoxxyCode-Session-ID` header (the read may page with `limit`). It starts that restored ordinary session's deferred configured MCP connections in the background; windowed re-reads (`before`, `from`) and every later read remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
+						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial selected-session read with a matching `X-FoxxyCode-Session-ID` header (the read may page with `limit`). It starts that restored ordinary session's deferred configured MCP connections in the background. A missing managed worktree is also reconciled to the main checkout for an already-loaded session, refreshing its workspace catalogs without rewriting the original persisted path. Windowed re-reads (`before`, `from`) and every later read remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
 						map[string]interface{}{"name": "limit", "in": "query", "required": false, "description": "Read a page of about this many messages ending at **before** (1..1000).", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
 						map[string]interface{}{"name": "before", "in": "query", "required": false, "description": "Message index the page ends at, exclusive (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
 						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "Message index a window starts at, read to **before** or the end; not with **limit**, and earlier than **before** when both are given.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
@@ -2254,7 +2256,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/artifacts/{artifactID}/reveal": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Reveal a shared artifact source",
-					"description": "Reveals the original verified workspace source for an artifact in the local host file manager. The request carries only the session and artifact ids; the server re-validates the stored absolute and workspace-relative source paths, never accepts a client path, and refuses unavailable sources. Headless and unsupported server hosts return 503.",
+					"description": "Reveals the original verified workspace source for an artifact in the local host file manager. The request carries only the session and artifact ids; the server re-validates the stored absolute and workspace-relative source paths, never accepts a client path, and refuses unavailable sources. Windows resolves the file through the Shell API and waits for SHOpenFolderAndSelectItems to accept opening its parent with the source selected; it does not start a hidden explorer.exe process. Headless, unsupported hosts and file-manager failures return 503.",
 					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
 					"responses":   map[string]interface{}{"204": map[string]interface{}{"description": "Reveal request started"}, "404": errorResponseRef(), "410": errorResponseRef(), "503": errorResponseRef()},
 				},

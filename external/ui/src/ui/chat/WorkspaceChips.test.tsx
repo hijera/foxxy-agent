@@ -160,6 +160,12 @@ describe("WorkspaceChips", () => {
     expect(props.onWorktreeToggle).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the actual checkout for a locked session after worktree recovery", () => {
+    renderChips({ context: gitCtx, locked: true, worktreePref: true });
+    expect(screen.getByTestId("composer-worktree-checkbox")).not.toBeChecked();
+    expect(screen.getByTestId("composer-worktree-checkbox")).toBeDisabled();
+  });
+
   it("opens the branch menu and picks a branch with the worktree preference", () => {
     const { props } = renderChips({ worktreePref: true });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));

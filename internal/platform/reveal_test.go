@@ -27,27 +27,9 @@ func TestRevealFileArgv(t *testing.T) {
 	}
 }
 
-func TestRevealFileArgvWindowsUsesShellExplorer(t *testing.T) {
-	t.Setenv("SystemRoot", `C:\Win`)
-	t.Setenv("WINDIR", `D:\Ignore`)
-	got, err := revealFileArgv("windows", `C:\temp\artifact.txt`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{`C:\Win\explorer.exe`, `/select,C:\temp\artifact.txt`}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("argv = %#v, want %#v", got, want)
-	}
-	// No Windows directory variables at all: the conventional location.
-	t.Setenv("SystemRoot", "")
-	t.Setenv("WINDIR", "")
-	got, err = revealFileArgv("windows", `C:\temp\artifact.txt`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want = []string{`C:\Windows\explorer.exe`, `/select,C:\temp\artifact.txt`}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("argv = %#v, want %#v", got, want)
+func TestRevealFileArgvWindowsDoesNotLaunchAProcess(t *testing.T) {
+	if _, err := revealFileArgv("windows", `C:\QA folder\Отчёт, проверка.txt`); err == nil {
+		t.Fatal("Windows reveal must use the Shell API instead of an Explorer command line")
 	}
 }
 

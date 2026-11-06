@@ -781,6 +781,14 @@ func (s *wsFeatureState) sessionMCPClientsAre(list string) error {
 }
 
 func (s *wsFeatureState) removeSessionWorktree() error {
+	if err := s.removeLoadedSessionWorktree(); err != nil {
+		return err
+	}
+	s.mgr.ForgetLiveSession(s.sessionID)
+	return nil
+}
+
+func (s *wsFeatureState) removeLoadedSessionWorktree() error {
 	st := s.mgr.SessionByID(s.sessionID)
 	if st == nil {
 		return fmt.Errorf("session %q not registered", s.sessionID)
@@ -793,8 +801,17 @@ func (s *wsFeatureState) removeSessionWorktree() error {
 	if err := bddGit(repo, "worktree", "remove", "--force", path); err != nil {
 		return err
 	}
-	s.mgr.ForgetLiveSession(s.sessionID)
 	return nil
+}
+
+func (s *wsFeatureState) activateSessionTranscript() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/foxxycode/sessions/"+url.PathEscape(s.sessionID)+"/messages?activate_mcp=1", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", s.sessionID)
+	return s.do(req)
 }
 
 func (s *wsFeatureState) reopenSessionTranscript() error {
@@ -902,6 +919,8 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^repository "([^"]+)" branch "([^"]+)" declares the project MCP server "([^"]+)"$`, s.branchDeclaresMCPServer)
 	sc.Step(`^the session's configured MCP clients are "([^"]*)"$`, s.sessionMCPClientsAre)
 	sc.Step(`^Git removes the session worktree$`, s.removeSessionWorktree)
+	sc.Step(`^Git removes the loaded session worktree$`, s.removeLoadedSessionWorktree)
+	sc.Step(`^I activate the session transcript$`, s.activateSessionTranscript)
 	sc.Step(`^I reopen the session transcript$`, s.reopenSessionTranscript)
 	sc.Step(`^the persisted session cwd remains the removed worktree$`, s.persistedCwdRemainsRemovedWorktree)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)

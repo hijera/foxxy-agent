@@ -2,9 +2,7 @@ package platform
 
 import (
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	pathpkg "path"
 	"regexp"
 	"runtime"
@@ -24,18 +22,11 @@ func RevealFile(path string) error {
 	if runtime.GOOS == "linux" && strings.TrimSpace(os.Getenv("DISPLAY")) == "" && strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY")) == "" {
 		return ErrRevealHeadless
 	}
-	argv, err := revealFileArgv(runtime.GOOS, path)
-	if err != nil {
-		return err
+	path = strings.TrimSpace(path)
+	if path == "" || !isAbsolutePathForOS(runtime.GOOS, path) {
+		return errors.New("artifact source path is invalid")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is fixed by platform and verified artifact path
-	AdaptCommand(cmd)
-	HideConsoleWindow(cmd)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start file reveal: %w", err)
-	}
-	go func() { _ = cmd.Wait() }()
-	return nil
+	return revealFile(path)
 }
 
 func revealFileArgv(goos, path string) ([]string, error) {
@@ -46,21 +37,6 @@ func revealFileArgv(goos, path string) ([]string, error) {
 	switch goos {
 	case "darwin":
 		return []string{"open", "-R", path}, nil
-	case "windows":
-		// Absolute: a PATH entry must not substitute its own explorer.exe for
-		// the shell's, since the path comes from the server's environment.
-		root := os.Getenv("SystemRoot")
-		if strings.TrimSpace(root) == "" {
-			root = os.Getenv("WINDIR")
-		}
-		if strings.TrimSpace(root) == "" {
-			root = `C:\Windows`
-		}
-		// Windows separators are assembled literally: filepath.Join would use
-		// the host OS separator and break this on Linux and macOS, where the
-		// tests and the linux-arm64/macOS releases build the same argv.
-		root = strings.TrimRight(strings.ReplaceAll(root, "/", `\`), `\`)
-		return []string{root + `\explorer.exe`, "/select," + path}, nil
 	case "linux":
 		return []string{"xdg-open", pathpkg.Dir(path)}, nil
 	default:

@@ -118,6 +118,7 @@ func (m *Manager) ActivateDeferredMCP(ctx context.Context, sessionID string) err
 	if state.GetArchived() || state.Subagent() != nil || state.IsSchedulerJob() {
 		return nil
 	}
+	_, recoverWorkspace := RecoverManagedWorktreeCWD(state.GetCWD())
 	// An already-activated session must not touch the turn lock on a re-open:
 	// holding it here made every passive chat activation look like a running
 	// turn to the cross-process activity probe (TurnLockHeld) for as long as
@@ -126,7 +127,7 @@ func (m *Manager) ActivateDeferredMCP(ctx context.Context, sessionID string) err
 	// The lock path below re-checks the marker, so exactly one activation
 	// still starts the servers. A reload a workspace switch parked is still
 	// drained: the drain takes the lock only when one is actually waiting.
-	if !state.configuredMCPDeferred() {
+	if !state.configuredMCPDeferred() && !recoverWorkspace {
 		m.drainPendingMCPReload(sessionID, state)
 		return nil
 	}
@@ -135,12 +136,50 @@ func (m *Manager) ActivateDeferredMCP(ctx context.Context, sessionID string) err
 		return err
 	}
 	defer unlock()
+	m.recoverMissingWorktreeLocked(ctx, state)
 	if !state.takeDeferredConfiguredMCP() {
 		return nil
 	}
 	m.installMCPFilter(state)
 	m.startBackgroundMCPConnect(state)
 	return nil
+}
+
+// RecoverSessionWorkspace reconciles a warm session whose managed worktree
+// disappeared. A context read may recover it without starting MCP connections;
+// the next explicit activation or prompt consumes the deferred connection.
+func (m *Manager) RecoverSessionWorkspace(ctx context.Context, sessionID string) error {
+	state := m.SessionByID(sessionID)
+	if state == nil {
+		return errors.New("session not found")
+	}
+	if state.GetArchived() || state.Subagent() != nil || state.IsSchedulerJob() {
+		return nil
+	}
+	if _, ok := RecoverManagedWorktreeCWD(state.GetCWD()); !ok {
+		return nil
+	}
+	unlock, err := m.acquireTurnLockWithReloadDrain(sessionID, state)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	m.recoverMissingWorktreeLocked(ctx, state)
+	return nil
+}
+
+// The caller holds the turn lock. Keep the original persisted workspace so
+// restoring the worktree later can reopen the same session there.
+func (m *Manager) recoverMissingWorktreeLocked(ctx context.Context, state *State) {
+	cwd := state.GetCWD()
+	if recovered, ok := RecoverManagedWorktreeCWD(cwd); ok {
+		m.supersedeBackgroundMCP(state)
+		state.RestoreRecoveredCWD(recovered, cwd)
+		state.replaceConfiguredMCPClients(nil)
+		state.resetMCPNoAnswer()
+		m.reloadWorkspaceCatalogs(ctx, state)
+		state.deferConfiguredMCP()
+	}
 }
 
 // connectNewSessionMCPServers is the configured-server step of a new

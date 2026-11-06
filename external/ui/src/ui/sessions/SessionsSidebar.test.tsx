@@ -9,6 +9,9 @@ afterEach(() => {
   cleanup();
   setEnv({ mode: "local" });
   window.localStorage.clear();
+  for (const cookie of document.cookie.split(";")) {
+    document.cookie = `${cookie.split("=")[0]?.trim()}=; Path=/; Max-Age=0`;
+  }
 });
 
 test("the dot names background work when the row has no turn running", () => {
@@ -27,6 +30,22 @@ test("the dot names background work when the row has no turn running", () => {
 const row = (id: string, title: string): SessionRow => ({
   id,
   title,
+});
+
+test("an empty archived history exposes its saved status and returns to active chats", () => {
+  const onArchiveFilterChange = vi.fn();
+  renderDrawer({ sessions: [], archiveFilter: "only", onArchiveFilterChange });
+  expect(screen.getByTestId("sessions-active-status")).toHaveTextContent("Archived");
+  expect(screen.getByTestId("sessions-empty")).toHaveTextContent("No chats match the selected status");
+  expect(screen.queryByText("No history yet")).toBeNull();
+  fireEvent.click(screen.getByTestId("sessions-reset-status"));
+  expect(onArchiveFilterChange).toHaveBeenCalledWith("exclude");
+});
+
+test("the default empty history does not offer an archive reset", () => {
+  renderDrawer({ sessions: [] });
+  expect(screen.getByTestId("sessions-empty")).toHaveTextContent("No history yet");
+  expect(screen.queryByTestId("sessions-reset-status")).toBeNull();
 });
 
 test("delete lives in the row menu and does not bubble to row pick", async () => {

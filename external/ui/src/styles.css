@@ -1267,6 +1267,11 @@ a.rail-brand {
 }
 
 .sessions-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  flex-shrink: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   position: relative;
 }
@@ -1544,6 +1549,28 @@ a.rail-brand {
   padding: 12px 12px;
   color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
   font-size: 13px;
+}
+
+.sessions-status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.sessions-status-reset {
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .session-title-btn {
@@ -16088,9 +16115,10 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .inline-artifact-menu-trigger { position: absolute; z-index: 2; top: 5px; right: 5px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--bg) 74%, transparent); color: var(--text); cursor: pointer; opacity: 0; }
 
+.tool-artifact-card:hover .inline-artifact-menu-trigger,
 .inline-artifact-menu-trigger:focus-visible, .inline-artifact-menu-trigger[aria-expanded="true"] { opacity: 1; }
 
-.inline-artifact-menu { position: absolute; z-index: 1000; top: calc(100% + 4px); right: 0; display: grid; min-width: 180px; padding: 4px; border: 1px solid var(--foxxycode-glass-panel-border); border-radius: 10px; background: var(--foxxycode-tip-bg); box-shadow: var(--foxxycode-tip-shadow); }
+.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: min(180px, calc(100vw - 16px)); max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--foxxycode-glass-panel-border); border-radius: 10px; background: var(--foxxycode-tip-bg); box-shadow: var(--foxxycode-tip-shadow); }
 
 .inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; }
 

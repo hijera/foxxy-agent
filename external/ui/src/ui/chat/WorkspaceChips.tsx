@@ -140,7 +140,7 @@ export function WorkspaceChips(props: Props) {
         : { left: menuAnchorRect.left, top: menuAnchorRect.bottom + 8 };
 
   const showBranch = branchChipVisible(ctx);
-  const worktreeActive = isWorktreeBadgeActive(ctx, props.worktreePref);
+  const worktreeActive = isWorktreeBadgeActive(ctx, !locked && props.worktreePref);
   const showSvn = svnChipVisible(ctx);
   const svnFolderActive = isSvnFolderCheckoutActive(ctx, props.svnFolderPref);
   const svnLabel = svnBranchLabel(ctx, t("composer.workspace.svnWorkingCopy"));

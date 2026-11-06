@@ -31,6 +31,7 @@ test("assistant shows copy after stream and copies raw markdown", async () => {
 });
 
 test("renders only a verified file marker as an inline artifact card with actions", () => {
+  const onMentionArtifact = vi.fn();
   const artifact = {
     id: "artifact-1",
     name: "report.pdf",
@@ -43,6 +44,7 @@ test("renders only a verified file marker as an inline artifact card with action
     <AssistantMessage
       content={'Ready.\n\n<foxxycode_file id="artifact-1"/>\n\n<foxxycode_file id="invented"/>'}
       artifacts={new Map([[artifact.id, artifact]])}
+      onMentionArtifact={onMentionArtifact}
     />,
   );
   expect(screen.getByTestId("inline-artifact-card-artifact-1")).toBeVisible();
@@ -50,6 +52,8 @@ test("renders only a verified file marker as an inline artifact card with action
   fireEvent.click(screen.getByRole("button", { name: "Actions for report.pdf" }));
   expect(screen.getByRole("menu")).toBeVisible();
   expect(screen.getByRole("menuitem", { name: "Mention source" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Mention source" }));
+  expect(onMentionArtifact).toHaveBeenCalledWith("out/report.pdf");
 });
 
 test("groups adjacent shared files and opens every image in the shared lightbox", () => {

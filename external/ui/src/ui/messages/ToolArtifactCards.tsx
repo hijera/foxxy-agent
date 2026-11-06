@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { downloadToolArtifact, type ToolArtifact } from "../chat/toolArtifacts";
 import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
 import { fileTypeIcon } from "./fileTypeIcon";
 import { useT } from "../i18n/I18nProvider";
 import { remoteApiRequest } from "../env/remoteEnv";
+import { useEscapeCloses } from "../components/useEscapeCloses";
+import { copyText } from "../clipboard";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -16,8 +19,8 @@ function formatBytes(n: number): string {
 const isImage = (artifact: ToolArtifact) =>
   Boolean(artifact.previewUrl) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(artifact.name);
 
-function copy(text: string) {
-  void navigator.clipboard?.writeText(text);
+async function copy(text: string) {
+  if (!await copyText(text)) throw new Error("clipboard copy failed");
 }
 
 export function ToolArtifactCards(props: {
@@ -57,6 +60,8 @@ export function ArtifactCard(props: { artifact: ToolArtifact; inline?: boolean; 
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
   }, []);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0 });
   const artifact = props.artifact;
   const image = isImage(artifact);
   const unavailable = !artifact.url || downloadFailed;
@@ -64,19 +69,46 @@ export function ArtifactCard(props: { artifact: ToolArtifact; inline?: boolean; 
   const relative = artifact.relativePath || artifact.sourcePath || artifact.name;
   const typeLabel = fileTypeIcon("", artifact.name).label;
 
+  useEscapeCloses(menu, () => {
+    setMenu(false);
+    triggerRef.current?.focus();
+  });
+
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current || !triggerRef.current) return;
+    const anchor = triggerRef.current.getBoundingClientRect();
+    const bounds = menuRef.current.getBoundingClientRect();
+    const left = Math.max(8, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 8));
+    const below = anchor.bottom + 4;
+    const top = below + bounds.height <= window.innerHeight - 8 ? below : anchor.top - bounds.height - 4;
+    setMenuPosition({ left, top: Math.max(8, Math.min(top, window.innerHeight - bounds.height - 8)) });
+  }, [menu]);
+
   useEffect(() => {
     if (!menu) return;
     const close = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenu(false);
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) setMenu(false);
+    };
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      setMenu(false);
     };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("resize", dismiss);
+    document.addEventListener("scroll", dismiss, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", dismiss);
+      document.removeEventListener("scroll", dismiss, true);
+    };
   }, [menu]);
 
   const reveal = async () => {
     if (!artifact.revealUrl) return;
-    const request = remoteApiRequest(artifact.revealUrl);
-    const response = await fetch(request?.url || artifact.revealUrl, request?.init);
+    const init: RequestInit = { method: "POST" };
+    const request = remoteApiRequest(artifact.revealUrl, init);
+    const response = await fetch(request?.url || artifact.revealUrl, request?.init ?? init);
     if (!response.ok) throw new Error(`reveal failed (${response.status})`);
   };
   const action = (fn: () => void | Promise<void>, onReject?: () => void) => {
@@ -100,15 +132,15 @@ export function ArtifactCard(props: { artifact: ToolArtifact; inline?: boolean; 
         <span className="tool-artifact-name" title={artifact.name}>{artifact.name}</span>
         <span className={unavailable || notice ? "tool-artifact-meta tool-artifact-meta--error" : "tool-artifact-meta"} {...(notice ? { role: "status" } : {})}>{notice || (unavailable ? t("messages.artifactUnavailable") : props.inline ? formatBytes(artifact.size) : `${typeLabel} · ${formatBytes(artifact.size)}`)}</span>
       </span>
-      <button type="button" className="inline-artifact-menu-trigger" aria-label={t("messages.artifactActions", { fileName: artifact.name })} aria-expanded={menu} onClick={() => setMenu((open) => !open)}>⋮</button>
-      {menu ? <div ref={menuRef} className="inline-artifact-menu" role="menu" onKeyDown={(event) => { if (event.key === "Escape") setMenu(false); }}>
-        <button role="menuitem" type="button" disabled={!artifact.sourcePath && !artifact.relativePath} onClick={() => action(() => props.onMention?.(relative))}>{t("messages.artifactMention")}</button>
-        <button role="menuitem" type="button" onClick={() => action(() => copy(artifact.name))}>{t("messages.artifactCopyName")}</button>
-        <button role="menuitem" type="button" onClick={() => action(() => copy(relative))}>{t("messages.artifactCopyRelative")}</button>
-        <button role="menuitem" type="button" disabled={!artifact.sourcePath} onClick={() => action(() => copy(artifact.sourcePath!))}>{t("messages.artifactCopyAbsolute")}</button>
+      <button ref={triggerRef} type="button" className="inline-artifact-menu-trigger" aria-label={t("messages.artifactActions", { fileName: artifact.name })} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((open) => !open)}>⋮</button>
+      {menu ? createPortal(<div ref={menuRef} className="inline-artifact-menu" role="menu" style={menuPosition}>
+        <button role="menuitem" type="button" disabled={!props.onMention || (!artifact.sourcePath && !artifact.relativePath)} onClick={() => action(() => props.onMention?.(relative))}>{t("messages.artifactMention")}</button>
+        <button role="menuitem" type="button" onClick={() => action(() => copy(artifact.name), () => flashNotice(t("messages.artifactCopyFailed")))}>{t("messages.artifactCopyName")}</button>
+        <button role="menuitem" type="button" onClick={() => action(() => copy(relative), () => flashNotice(t("messages.artifactCopyFailed")))}>{t("messages.artifactCopyRelative")}</button>
+        <button role="menuitem" type="button" disabled={!artifact.sourcePath} onClick={() => action(() => copy(artifact.sourcePath!), () => flashNotice(t("messages.artifactCopyFailed")))}>{t("messages.artifactCopyAbsolute")}</button>
         <button role="menuitem" type="button" disabled={unavailable || downloading} onClick={() => action(async () => { setDownloading(true); try { await downloadToolArtifact(artifact); } finally { setDownloading(false); } }, () => setDownloadFailed(true))}>{downloading ? t("messages.artifactDownloading") : t("messages.downloadArtifactButton")}</button>
         <button role="menuitem" type="button" disabled={!artifact.revealUrl} title={!artifact.revealUrl ? t("messages.artifactRevealUnavailable") : undefined} onClick={() => action(reveal, () => flashNotice(t("messages.artifactRevealFailed")))}>{t("messages.artifactReveal")}</button>
-      </div> : null}
+      </div>, document.body) : null}
       {lightbox && artifact.previewUrl ? <ApiImageLightbox src={artifact.previewUrl} alt={artifact.name} onClose={() => setLightbox(false)} /> : null}
     </article>
   );

@@ -20,6 +20,7 @@ afterEach(() => {
   setEnv({ mode: "local" });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  delete (document as unknown as { execCommand?: unknown }).execCommand;
 });
 
 test("normalizes artifact metadata and retains a missing download URL as unavailable", () => {
@@ -138,6 +139,77 @@ test("downloads a local artifact through a direct anchor without fetching", () =
   fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
   expect(click).toHaveBeenCalledTimes(1);
   expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+test("artifact actions escape the clipped card and close on Escape", () => {
+  render(<ArtifactCard artifact={artifact} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for release-notes.pdf" }));
+  const menu = screen.getByRole("menu");
+  expect(screen.getByTestId("tool-artifact-card-artifact-1")).not.toContainElement(menu);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("a second pointer click on artifact actions closes the menu", () => {
+  render(<ArtifactCard artifact={artifact} />);
+  const trigger = screen.getByRole("button", { name: "Actions for release-notes.pdf" });
+  fireEvent.mouseDown(trigger);
+  fireEvent.click(trigger);
+  expect(screen.getByRole("menu")).toBeVisible();
+  fireEvent.mouseDown(trigger);
+  fireEvent.click(trigger);
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("resizing the window closes artifact actions without treating Window as a Node", () => {
+  render(<ArtifactCard artifact={artifact} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for release-notes.pdf" }));
+  fireEvent.resize(window);
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("a shared file below a tool call can mention its source in the composer", () => {
+  const onMentionArtifact = vi.fn();
+  render(<ToolCallMessage toolCallId="share-mention" title="share_file" status="completed"
+    artifacts={[{ ...artifact, relativePath: "reports/release-notes.pdf" }]} onMentionArtifact={onMentionArtifact} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for release-notes.pdf" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Mention source" }));
+  expect(onMentionArtifact).toHaveBeenCalledWith("reports/release-notes.pdf");
+});
+
+test.each([
+  ["Copy name", "release-notes.pdf"],
+  ["Copy relative path", "reports/release-notes.pdf"],
+  ["Copy absolute path", "C:\\QA folder\\reports\\release-notes.pdf"],
+])("%s falls back when the embedded browser denies Clipboard API writes", async (label, expected) => {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new DOMException("Write permission denied", "NotAllowedError")) } });
+  const execCommand = vi.fn(() => {
+    expect((document.activeElement as HTMLTextAreaElement).value).toBe(expected);
+    return true;
+  });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+  render(<ArtifactCard artifact={{ ...artifact, relativePath: "reports/release-notes.pdf", sourcePath: "C:\\QA folder\\reports\\release-notes.pdf" }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for release-notes.pdf" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: label }));
+  await waitFor(() => expect(execCommand).toHaveBeenCalledWith("copy"));
+  expect(document.querySelector("textarea")).toBeNull();
+});
+
+test.each(["local", "remote"] as const)("reveals an artifact with POST in the %s environment", async (mode) => {
+  if (mode === "remote") setEnv({ mode, baseUrl: "https://remote.example", token: "reveal-test-token" });
+  const revealUrl = `${artifact.url}/reveal`;
+  const fetchSpy = vi.spyOn(window, "fetch").mockImplementation(async (_url, init) =>
+    new Response(null, { status: init?.method === "POST" ? 204 : 405 }),
+  );
+  render(<ArtifactCard artifact={{ ...artifact, revealUrl }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for release-notes.pdf" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Reveal on server" }));
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+  const [url, init] = fetchSpy.mock.calls[0]!;
+  expect(url).toBe(mode === "remote" ? `https://remote.example${revealUrl}` : revealUrl);
+  expect(init?.method).toBe("POST");
+  if (mode === "remote") expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer reveal-test-token");
+  expect(screen.queryByText("Could not reveal the file on the server")).toBeNull();
 });
 
 test("downloads a remote artifact through the environment request and releases its blob URL", async () => {

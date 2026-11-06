@@ -115,6 +115,13 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 			return
 		}
 		cwd = resolved
+		if id := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); id != "" {
+			if err := s.mgr.RecoverSessionWorkspace(r.Context(), id); err != nil {
+				s.log.Warn("workspace context recovery deferred", "session", id, "error", err)
+			} else if st := s.mgr.SessionByID(id); st != nil {
+				cwd = st.GetCWD()
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s.workspaceContextPayload(r.Context(), cwd))

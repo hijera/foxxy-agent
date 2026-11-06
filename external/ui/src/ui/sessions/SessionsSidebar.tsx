@@ -25,7 +25,7 @@ import {
   SessionsFilterMenu,
   type SessionsEnvironmentOption,
 } from "./SessionsFilterMenu";
-import type { SessionArchiveFilter, SessionSortKey } from "./sessionQuery";
+import { DEFAULT_ARCHIVE_FILTER, type SessionArchiveFilter, type SessionSortKey } from "./sessionQuery";
 import { pinDropIndex, reorderPins } from "./reorderPins";
 import { SessionRowMenu, type SessionRowMenuItem } from "./SessionRowMenu";
 import { SessionTagEditor } from "./SessionTagEditor";
@@ -840,6 +840,24 @@ export function SessionsSidebar(props: {
         </label>
       ) : null}
 
+      {archiveFilter !== DEFAULT_ARCHIVE_FILTER ? (
+        <div className="sessions-status-filter">
+          <span data-testid="sessions-active-status">
+            {t("sessions.statusSummary", {
+              status: t(`sessions.filter.status.${archiveFilter}`),
+            })}
+          </span>
+          <button
+            type="button"
+            className="sessions-status-reset"
+            data-testid="sessions-reset-status"
+            onClick={() => props.onArchiveFilterChange?.(DEFAULT_ARCHIVE_FILTER)}
+          >
+            {t("sessions.showActive")}
+          </button>
+        </div>
+      ) : null}
+
       <div className="session-list" id="session-list" ref={listRef}>
         {props.error ? (
           <div className="sessions-empty" data-testid="sessions-error">
@@ -848,7 +866,7 @@ export function SessionsSidebar(props: {
         ) : null}
         {!props.error && props.sessions.length === 0 ? (
           <div className="sessions-empty" data-testid="sessions-empty">
-            {t("sessions.empty")}
+            {t(archiveFilter === DEFAULT_ARCHIVE_FILTER ? "sessions.empty" : "sessions.emptyFilteredStatus")}
           </div>
         ) : null}
         {groupMode === "none" && !props.sessions.some((s) => s.pinned)

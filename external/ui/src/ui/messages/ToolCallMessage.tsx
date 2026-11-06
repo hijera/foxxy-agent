@@ -266,6 +266,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   images?: readonly TranscriptFile[] | undefined;
   /** Files deliberately shared by a completed share_file tool call. */
   artifacts?: readonly ToolArtifact[] | undefined;
+  onMentionArtifact?: ((path: string) => void) | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -1074,7 +1075,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       isShareFileTool &&
       props.artifacts &&
       props.artifacts.length > 0 ? (
-        <ToolArtifactCards artifacts={props.artifacts} />
+        <ToolArtifactCards artifacts={props.artifacts} {...(props.onMentionArtifact ? { onMention: props.onMentionArtifact } : {})} />
       ) : null}
     </div>
   );
