@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-01
+## 0.3.41 — 2026-11-01
 
 **File actions and filters.** Reveal on server uses the Windows Shell API instead of launching a hidden Explorer process, including paths with spaces and Unicode. Copying names and paths also works when the embedded browser denies Clipboard API access. File-card actions are no longer clipped by the card and close with Escape or a second click. The project-only choice and collapsed groups survive IDE restarts that change the panel's port. Reopening a loaded chat also recovers a removed worktree without restarting the IDE.
 
