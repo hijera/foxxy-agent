@@ -9,7 +9,7 @@
 
 ## Unreleased — 2026-11-06
 
-**Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval.
+**Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
 
 **History and Tasks.** Selecting another chat in History keeps the desktop Tasks panel open. The folder browser fits a phone better, with New folder and Show hidden in its footer.
 

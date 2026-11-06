@@ -48,6 +48,9 @@ UTF-16 legacy migration uses the existing decoder and backs up the original byte
 the new JSON declaration preserves `insecureSkipVerify`.
 Migration rechecks the YAML under the write lock so an intervening Settings save
 is loaded rather than overwritten by the older snapshot.
+Concurrent backup replacements are serialized: on Windows, a watcher reload
+and a Settings save must not race to rename over `config.yaml.bak`. The parallel
+backup regression and the live reload scenario each pass ten repetitions.
 
 History is adapted through the existing App rather than replaced. Preserve
 filters and persisted status, project scope, collapsed groups, pinned rows, tags,
