@@ -588,6 +588,23 @@ func (s *skCWDFeatureState) sessionAnchoredOnProject(project string) error {
 	return nil
 }
 
+func (s *skCWDFeatureState) switchSessionWorkspaceToProject(project string) error {
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	if s.sessionID == "" {
+		return fmt.Errorf("no session anchored")
+	}
+	if err := s.do(http.MethodPost, "/foxxycode/sessions/"+s.sessionID+"/workspace", map[string]interface{}{"path": dir}, false); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("switch workspace status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
 func (s *skCWDFeatureState) listSlashCommands(withSession bool) error {
 	if err := s.do(http.MethodGet, "/foxxycode/slash-commands?page=1&page_size=200", nil, withSession); err != nil {
 		return err
@@ -732,6 +749,7 @@ func initializeSkillsSessionWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a project folder "([^"]*)" with a local skill "([^"]*)"$`, s.projectWithLocalSkill)
 	sc.Step(`^a running foxxycode HTTP server started outside the project$`, s.startServerOutsideProject)
 	sc.Step(`^a session anchored on the project folder "([^"]*)"$`, s.sessionAnchoredOnProject)
+	sc.Step(`^I switch that session workspace to the project folder "([^"]*)"$`, s.switchSessionWorkspaceToProject)
 	sc.Step(`^I list slash commands for that session$`, s.listSlashCommandsForSession)
 	sc.Step(`^I list slash commands without a session$`, s.listSlashCommandsWithoutSession)
 	sc.Step(`^I list skills for that session$`, s.listSkillsForSession)

@@ -473,14 +473,30 @@ one went away.
 
 ## MCP Server Lifecycle
 
-1. On `session/new` (and on a workspace switch), the agent starts
+### Selected web session
+
+The MCP Settings tab resolves project-local declarations from the workspace of
+the selected session, rather than from the directory that started `foxxycode
+serve`. A request with a selected session uses that session's workspace; a
+request with no session keeps the server-default workspace for a new chat.
+Project-local switches, trust decisions, and edits refresh only sessions in
+that workspace, while global declarations still refresh every affected
+session.
+
+Opening a chat in the bundled web UI explicitly starts its deferred configured
+MCP servers in the background. This does not delay rendering the transcript,
+and the next prompt waits for the bounded connection attempt before receiving
+its tool list. Passive reads, including slash completion, MCP Settings lists,
+and paged transcript reads, never start a deferred server.
+
+1. On `session/new`, the agent starts
    connecting every enabled server from the merged config.yaml + `~/.foxxycode/mcp.json` +
    `./.foxxycode/mcp.json` list, then any ACP client-supplied servers. Configured servers
    connect **in the background and in parallel**, so creating or loading a session never waits
    on them — over HTTP that call sits on a request an editor panel is blocked on, and a cold
    `npx` server that downloads its package on first run used to hold it for minutes. Each
    handshake (transport setup + `initialize` + `tools/list`) is bounded at **20 s**. A server that times out during initialization is tried once more at the next prompt; other failures are not retried automatically.
-   The console starts a restored session's configured servers in the background immediately. Other surfaces leave them cold until the first
+   The console starts a restored session's configured servers in the background immediately. The web UI also warms a selected session on explicit activation. Other passive surfaces leave them cold until the first
    turn: reading stored history starts no configured MCP process, ACP
    client-supplied servers still connect on load, and the first turn starts the
    configured servers through the same trust gate.
@@ -552,3 +568,5 @@ confirm-then-commit workflow, and discovery safety checks.
 - The LLM can decide to retry, use alternative tools, or inform the user
 
 A live change of `mcp.project_trust` to `deny` removes project servers from every session and stops them. Configured startup stays asynchronous on all surfaces; leases are shared through the manager pool, and a turn waits for its current workspace before building its tool list. A workspace change never offers servers from the previous workspace.
+
+A folder selection or in-place branch change reloads the workspace catalogs immediately and parks configured MCP reconciliation until explicit chat activation or the next turn. A tool-driven workspace change during a turn starts its trusted connections asynchronously and waits before the next model step.

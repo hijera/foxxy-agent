@@ -93,10 +93,10 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
-	// mcpProbeCache holds probed MCP tool inventories for /foxxycode/mcp (keyed
-	// by server name, invalidated on config fingerprint change or edit).
+	// mcpProbeCache holds /foxxycode/mcp inventories by origin, resolved pool key,
+	// and canonical workspace, so same-named project declarations do not leak.
 	mcpProbeMu    sync.Mutex
-	mcpProbeCache map[string]mcpProbeEntry
+	mcpProbeCache map[mcpProbeKey]mcpProbeEntry
 
 	composerRelayMu  sync.Mutex
 	composerRelays   map[string]*composerStreamRelay
@@ -709,7 +709,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// The caller reads the strict OpenAI contract; the relay keeps the
 			// whole foxxycode stream for whoever watches this turn.
 			client := newOpenAIStreamFilter(w, model, req.includeUsage())
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model)
+			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
@@ -791,7 +791,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model)
+		bridge = s.configureSender(NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model))
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
@@ -1322,7 +1322,7 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 		defer s.endComposerRelay(sid, rel)
 		if body.Stream {
 			writeSSEHeaders(w)
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
+			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
@@ -1413,7 +1413,7 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 
 	if body.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), w, true, model)
+		bridge = s.configureSender(NewSender(s.activeCfg(), w, true, model))
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}

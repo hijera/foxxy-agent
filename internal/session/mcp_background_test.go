@@ -355,6 +355,83 @@ func TestAllSurfacesRecordBackgroundConnect(t *testing.T) {
 	}
 }
 
+// TestActivateDeferredMCPStartsAStoredSessionsServersInTheBackground proves
+// the explicit activation path warms a restored session without making its
+// passive load eager. Repeating activation must keep the one worker and its
+// leases rather than starting the configured declaration again.
+func TestActivateDeferredMCPStartsAStoredSessionsServersInTheBackground(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	if !st.configuredMCPDeferred() {
+		t.Fatal("stored session was not deferred")
+	}
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("activate deferred MCP: %v", err)
+	}
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("repeat activation: %v", err)
+	}
+	if !waitUntil(t, 10*time.Second, func() bool {
+		snap, recorded := st.MCPConnectSnapshot()
+		return recorded && snap.Done
+	}) {
+		t.Fatal("background activation did not settle")
+	}
+	if got := clientNames(st); len(got) != 1 || got[0] != "alpha" {
+		t.Fatalf("clients after activation = %v, want [alpha]", got)
+	}
+	if st.configuredMCPDeferred() {
+		t.Fatal("activation left the deferred marker set")
+	}
+}
+
+func TestActivateDeferredMCPSkipsArchivedSessions(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	st.SetArchived(true)
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("activate archived session: %v", err)
+	}
+	if !st.configuredMCPDeferred() {
+		t.Fatal("activation consumed an archived session's deferred marker")
+	}
+	if _, recorded := st.MCPConnectSnapshot(); recorded {
+		t.Fatal("activation started an archived session's MCP servers")
+	}
+}
+
+// TestActivateDeferredMCPDoesNotContendTheTurnLockOnceConsumed: re-opening an
+// already-activated session must not touch the turn lock. Holding the lock
+// across a passive activation made the cross-process activity probe
+// (TurnLockHeld) report a running turn while a chat was merely being opened -
+// for as long as the bundle reload under the lock took - and one activity
+// poll inside that window flipped the composer to queue mode with no turn to
+// queue for.
+func TestActivateDeferredMCPDoesNotContendTheTurnLockOnceConsumed(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("first activation: %v", err)
+	}
+	unlock, err := mgr.acquirePromptTurnLock(st.GetID(), st)
+	if err != nil {
+		t.Fatalf("hold the turn lock: %v", err)
+	}
+	defer unlock()
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("reactivation of an activated session contended the held turn lock: %v", err)
+	}
+
+	// Control: a session whose deferred servers were never consumed still
+	// goes through the lock and reports the contention.
+	mgr2, st2 := newStoredMCPSession(t, reloadTestMCPServer("beta"))
+	unlock2, err := mgr2.acquirePromptTurnLock(st2.GetID(), st2)
+	if err != nil {
+		t.Fatalf("hold the second turn lock: %v", err)
+	}
+	defer unlock2()
+	if err := mgr2.ActivateDeferredMCP(context.Background(), st2.GetID()); !errors.Is(err, ErrSessionTurnBusy) {
+		t.Fatalf("first activation while the lock is held = %v, want ErrSessionTurnBusy", err)
+	}
+}
+
 // TestHeldServerIsReportedNotDialed: a project declaration the gate holds
 // shows as held in the snapshot and is not counted as connectable.
 func TestHeldServerIsReportedNotDialed(t *testing.T) {

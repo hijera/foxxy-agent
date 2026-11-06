@@ -487,6 +487,9 @@ function scrollAndMeasure(page, steps, dy) {
 const messagesReads = (requests, sid) =>
   requests.filter((u) => u.includes(`/foxxycode/sessions/${sid}/messages`)).map((u) => new URL(u).search);
 
+const isInitialTailRead = (query) =>
+  query === "?limit=60" || query === "?limit=60&activate_mcp=1";
+
 // --------------------------------------------------------------- scenarios
 
 async function scenarioOpen(label, viewport) {
@@ -498,7 +501,7 @@ async function scenarioOpen(label, viewport) {
   const heap = await heapMB(cdp);
   const reads = messagesReads(requests, LONG);
   metric(label, { newestVisibleMs: ms, longestTaskMs: longest, rows: t.rows, dom: t.dom, heapMB: heap });
-  check(`${label}: the session opens on its newest page, not the whole history`, reads[0] === "?limit=60", `first read ${reads[0]}`);
+  check(`${label}: the session opens on its newest page, not the whole history`, isInitialTailRead(reads[0]), `first read ${reads[0]}`);
   check(`${label}: the newest message is on screen within ${BUDGET.newestVisibleMs} ms`, ms <= BUDGET.newestVisibleMs, `${ms} ms`);
   check(`${label}: the transcript opens at the newest message`, t.fromBottom <= 2, `${t.fromBottom} px above the end`);
   if (CHROMIUM) check(`${label}: no task blocks the page longer than ${BUDGET.longestTaskMs} ms`, longest <= BUDGET.longestTaskMs, `longest ${longest} ms`);
@@ -758,7 +761,7 @@ async function scenarioSwarm() {
   });
   const ms = await openAndTime(p, `${RELAY}/#/s/${LONG}`);
   const viaMount = reqs.filter((u) => u.startsWith(`${mount}/foxxycode/sessions/${LONG}/messages`)).map((u) => new URL(u).search);
-  check(`${label}: the page is read through the relay's mount`, viaMount[0] === "?limit=60", viaMount.join(" "));
+  check(`${label}: the page is read through the relay's mount`, isInitialTailRead(viaMount[0]), viaMount.join(" "));
   const up = await scrollAndMeasure(p, 100, -300);
   const older = reqs.filter((u) => u.startsWith(`${mount}/foxxycode/sessions/${LONG}/messages?limit=80&before=`));
   const tools = reqs.filter((u) => u.startsWith(`${mount}/foxxycode/sessions/${LONG}/tool-calls?from=`));

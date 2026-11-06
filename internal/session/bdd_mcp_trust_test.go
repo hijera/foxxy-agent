@@ -275,6 +275,9 @@ func (s *mcpTrustState) switchWorkspace() error {
 	if err := s.mgr.SetSessionWorkspace(context.Background(), st, s.secondCWD); err != nil {
 		return err
 	}
+	if err := s.mgr.ActivateDeferredMCP(context.Background(), s.sessionID); err != nil {
+		return err
+	}
 	return s.awaitMCP()
 }
 

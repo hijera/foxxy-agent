@@ -228,7 +228,8 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
-					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie.  With include_activity=true, backgroundRunning counts the session's running non-system background tasks even after its turn has ended." +
+					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. If Windows keeps session metadata locked beyond the read retries, the request returns **500** instead of a successful partial listing; clients should retain their last successful rows. With include_activity=true, backgroundRunning counts the session's running non-system background tasks even after its turn has ended." +
+						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters), so it excludes archived and scheduler sessions; active child subagent turns are counted even though History keeps their rows hidden. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Scheduler job sessions carry **schedulerRun** metadata, and historical top-level **sched_** run bundles remain readable; both are **hidden** from this list unless **include_scheduler=true**. Child run sessions stay under their job session. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
@@ -275,10 +276,12 @@ func openAPISpec() map[string]interface{} {
 						"schema":      map[string]interface{}{"type": "string", "enum": []string{"desc", "asc"}},
 						"description": "Direction of **sort**; **`desc`** by default. An unknown value is a **400**.",
 					}, map[string]interface{}{
-						"name":        "include_activity",
-						"in":          "query",
-						"schema":      map[string]string{"type": "boolean"},
-						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, and **unreadComplete** for composer UI.",
+						"name":   "include_activity",
+						"in":     "query",
+						"schema": map[string]string{"type": "boolean"},
+						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, **lastErrorSeq**, **unreadComplete**, **permissionPending**, **questionPending** and **backgroundRunning** for composer UI. **questionPending** is process-local: it is reported only by the FoxxyCode server process that owns the interactive wait. " +
+							"**backgroundRunning** is how many of the session's background tasks are still in flight - detached work outlives the turn that started it, so it can be above zero while **turnActive** is false. " +
+							"System tasks (the per-turn memory run) and finished tasks are not counted.",
 					}, map[string]interface{}{
 						"name":   "cwd",
 						"in":     "query",
@@ -298,7 +301,24 @@ func openAPISpec() map[string]interface{} {
 							"**messageCount** and **tokenUsage** are read for the rows of the returned page alone, one transcript and one **stats.json** per row.",
 					}),
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Paged session identifiers"},
+						"200": map[string]interface{}{
+							"description": "Paged session identifiers with a global active turn count",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":       map[string]string{"type": "string"},
+											"sessions":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+											"nextCursor":   map[string]interface{}{"type": "string", "nullable": true},
+											"hasMore":      map[string]string{"type": "boolean"},
+											"active_count": map[string]string{"type": "integer", "minimum": "0", "description": "Currently active turns in the normal History scope, independent of pagination and filters."},
+										},
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
 				},
@@ -1076,6 +1096,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
 					"description": "Describes the workspace of the session in **`X-FoxxyCode-Session-ID`** (or the server default cwd without the header). " +
+						"A loaded ordinary session whose managed worktree was removed falls back to the main checkout under the turn lock, refreshing workspace catalogs while preserving its persisted path. This read does not start MCP connections. " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
 						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host. " +
 						"Subversion is detected independently of git, so a branch folder that also holds a git repository reports both: **`is_svn_repo`** plus an **`svn`** object with **`available`**, **`wc_root`**, **`url`**, **`relative_url`**, **`repository_root`**, **`revision`**, **`branch`** (`trunk`, `branches/<name>`), **`branches`** (when `vcs.svn.branch_lookup` is on), and **`nested`** (the working copy root sits above the folder). " +
@@ -1114,7 +1135,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-FoxxyCode-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"Hidden folders are included only with **`show_hidden=true`** and **`node_modules`** is always skipped; rows are sorted by name. Directory symlinks carry their resolved target and non-directory symlinks are skipped. A missing folder yields **400**. " +
 						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
 						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "foxxycodeWorkspaceFoldersGet",
@@ -1128,6 +1149,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
+						},
+						map[string]interface{}{
+							"name": "show_hidden", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "boolean", "default": false},
+							"description": "Include hidden direct subfolders. **`node_modules`** remains excluded.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -1152,6 +1178,18 @@ func openAPISpec() map[string]interface{} {
 													"properties": map[string]interface{}{
 														"name": map[string]interface{}{"type": "string"},
 														"path": map[string]interface{}{"type": "string"},
+														"hidden": map[string]interface{}{
+															"type":        "boolean",
+															"description": "Present and true for a hidden folder when requested.",
+														},
+														"symlink": map[string]interface{}{
+															"type":        "boolean",
+															"description": "Present and true when the folder row is a directory symlink.",
+														},
+														"target": map[string]interface{}{
+															"type":        "string",
+															"description": "Resolved target of a directory symlink.",
+														},
 													},
 												},
 											},
@@ -1392,7 +1430,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI. A session live in this process also reports **messageSeq**, the number of messages in its transcript: unlike **activitySeq**, which advances once per *completed* turn, it moves **within** a turn, so a client polling a long one can tell whether a transcript reload would return anything new. It is absent for a session only on disk, because this route stays a cheap disk probe and does not load a bundle. For a turn running in this process the payload also carries **turnStartedAt**, **turnElapsedMs**, **turnOutputTokens** and **turnTokensEstimated**, so a client joining late restores its clock and generated-token count.",
+					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **lastErrorSeq**, **questionPending**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI. A session live in this process also reports **messageSeq**, the number of messages in its transcript: unlike **activitySeq**, which advances once per *completed* turn, it moves **within** a turn, so a client polling a long one can tell whether a transcript reload would return anything new. It is absent for a session only on disk, because this route stays a cheap disk probe and does not load a bundle. For a turn running in this process the payload also carries **turnStartedAt**, **turnElapsedMs**, **turnOutputTokens** and **turnTokensEstimated**, so a client joining late restores its clock and generated-token count.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1411,6 +1449,8 @@ func openAPISpec() map[string]interface{} {
 									"turnActive":        map[string]string{"type": "boolean"},
 									"activitySeq":       map[string]string{"type": "integer"},
 									"readActivitySeq":   map[string]string{"type": "integer"},
+									"lastErrorSeq":      map[string]string{"type": "integer"},
+									"questionPending":   map[string]string{"type": "boolean"},
 									"unreadComplete":    map[string]string{"type": "boolean"},
 									"permissionPending": map[string]string{"type": "boolean"},
 									// Live-session fields: messageSeq only for a session
@@ -2156,6 +2196,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Read conversation transcript",
 					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** is the stored session profile (**`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**), so a client restores the composer's Mode on load instead of dropping every reopened session back to **agent**. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
+						"A **tool** row whose call published files through **share_file** carries **artifacts** descriptors (`id`, `name`, `sha256`, `size`, `sourcePath`, `relativePath`, `url`, `revealUrl`, optional `previewUrl` for image names) - metadata only, never file bytes. " +
 						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /foxxycode/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
@@ -2166,6 +2207,7 @@ func openAPISpec() map[string]interface{} {
 						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial selected-session read with a matching `X-FoxxyCode-Session-ID` header (the read may page with `limit`). It starts that restored ordinary session's deferred configured MCP connections in the background. A missing managed worktree is also reconciled to the main checkout for an already-loaded session, refreshing its workspace catalogs without rewriting the original persisted path. Windowed re-reads (`before`, `from`) and every later read remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
 						map[string]interface{}{"name": "limit", "in": "query", "required": false, "description": "Read a page of about this many messages ending at **before** (1..1000).", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
 						map[string]interface{}{"name": "before", "in": "query", "required": false, "description": "Message index the page ends at, exclusive (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
 						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "Message index a window starts at, read to **before** or the end; not with **limit**, and earlier than **before** when both are given.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
@@ -2181,7 +2223,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/tool-calls": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List the tool calls of a transcript",
-					"description": "One row per tool call of the session in the order the history issued them: **toolCallId**, **name**, **kind**, **status**, **argsPreview** (200 characters), **resultPreview** (19 content lines plus a final **...** row when truncated, see **resultPreviewTruncated** and **resultTotalLines**), **startedAt** / **finishedAt**, and for todo mutations the **planSnapshot** they produced. **`?from=K&to=E`** lists only the calls issued by messages **K** to **E** (exclusive; **to** defaults to the end), so a client holding one page of **GET /foxxycode/sessions/{id}/messages** reads the files of that page's calls only. A value that is not a non-negative integer, or a **from** past its **to**, is **400**.",
+					"description": "One row per tool call of the session in the order the history issued them: **toolCallId**, **name**, **kind**, **status**, **argsPreview** (200 characters), **resultPreview** (19 content lines plus a final **...** row when truncated, see **resultPreviewTruncated** and **resultTotalLines**), **startedAt** / **finishedAt**, and for todo mutations the **planSnapshot** they produced. A call that published files through **share_file** carries **artifacts** descriptors (`id`, `name`, `sha256`, `size`, `sourcePath`, `relativePath`, `url`, `revealUrl`, optional `previewUrl` for image names) - metadata only, never file bytes. **`?from=K&to=E`** lists only the calls issued by messages **K** to **E** (exclusive; **to** defaults to the end), so a client holding one page of **GET /foxxycode/sessions/{id}/messages** reads the files of that page's calls only. A value that is not a non-negative integer, or a **from** past its **to**, is **400**.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "First message index whose calls are listed.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
@@ -2195,10 +2237,34 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/artifacts/{artifactID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Download a session artifact",
+					"description": "Downloads one immutable artifact published by the agent through **share_file**. The id is resolved only through this session's manifest; unregistered ids, traversal, symlinks and digest mismatches are not served. HEAD and Range requests are refused. The response is an attachment with a sandbox CSP and nosniff.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Artifact bytes", "content": map[string]interface{}{"application/octet-stream": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}}}}, "404": errorResponseRef(), "405": errorResponseRef()},
+				},
+			},
+			"/foxxycode/sessions/{id}/artifacts/{artifactID}/preview": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read a shared image artifact inline",
+					"description": "Returns a manifest-registered artifact only when its first 512 bytes sniff as an **`image/*`** media type. The filename is not trusted, so a text file called `preview.png` is still **404**. This route is for an inline preview; download uses the artifact route. Answers with the sniffed content type, `X-Content-Type-Options: nosniff`, and private immutable cache headers.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Original image bytes", "content": map[string]interface{}{"image/*": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}}}}, "404": errorResponseRef()},
+				},
+			},
+			"/foxxycode/sessions/{id}/artifacts/{artifactID}/reveal": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Reveal a shared artifact source",
+					"description": "Reveals the original verified workspace source for an artifact in the local host file manager. The request carries only the session and artifact ids; the server re-validates the stored absolute and workspace-relative source paths, never accepts a client path, and refuses unavailable sources. Windows resolves the file through the Shell API and waits for SHOpenFolderAndSelectItems to accept opening its parent with the source selected; it does not start a hidden explorer.exe process. Headless, unsupported hosts and file-manager failures return 503.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses":   map[string]interface{}{"204": map[string]interface{}{"description": "Reveal request started"}, "404": errorResponseRef(), "410": errorResponseRef(), "503": errorResponseRef()},
+				},
+			},
 			"/foxxycode/sessions/{id}/tool-calls/{toolCallId}": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Read one tool call in full",
-					"description": "The full persisted **result** of one tool call, with its **meta** (name, kind, status, timings) and raw **args** - the same call the list route caps into **resultPreview**. A call that has not persisted yet falls back to the live history (status **pending**, the result of a finished turn read from its message), and an id no message of the session ever issued answers the same 200 shape with empty fields. The bundled UI requests this when the user activates **More...** after a streamed or listed preview was truncated.",
+					"description": "The full persisted **result** of one tool call, with its **meta** (name, kind, status, timings) and raw **args** - the same call the list route caps into **resultPreview**. A call that published files through **share_file** also carries **artifacts** descriptors (`id`, `name`, `sha256`, `size`, `sourcePath`, `relativePath`, `url`, `revealUrl`, optional `previewUrl`), metadata only. A call that has not persisted yet falls back to the live history (status **pending**, the result of a finished turn read from its message), and an id no message of the session ever issued answers the same 200 shape with empty fields. The bundled UI requests this when the user activates **More...** after a streamed or listed preview was truncated.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "toolCallId", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
@@ -2213,7 +2279,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/export": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Export the session transcript as a downloadable document",
-					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool arguments, tool output text and system rows are omitted, while uploaded images and pictures returned by tools remain as dialogue attachments — into the requested **format** and returns it as a `Content-Disposition: attachment` download. GitHub-flavoured markdown in message content is preserved across formats: headings, emphasis, strikethrough, links (with their targets), nested and task lists, blockquotes, thematic breaks, syntax-highlighted code blocks, and **tables**, which render as real tables rather than rows of pipe characters. Images that resolve to a file in the session's own assets directory are embedded in the document (as a `data:` URI in **html**); remote URLs are never fetched at export time and render as a caption plus a link. The **html**, **pdf** and **docx** documents drop the ambient editor state the agent appends to each user turn (the `<foxxycode_ide_context>` active-file / open-tabs block and the `<foxxycode_terminal_context>` summary), and render the `<foxxycode_session_assets>` uploads wrapper as an **Attachments** section rather than as raw XML; **json** keeps transcript text verbatim and lists picture paths in `entries[].attachments`; it does not embed image bytes. With `tools=true`, tool pictures remain under `entries[].tool_calls[].pictures` instead of being repeated as attachments. The disposition carries an ASCII `filename` plus an RFC 8187 `filename*=UTF-8''…` so non-Latin titles survive. The bundled UI only exposes this action once at least one assistant answer exists; the server applies the same guard and returns **404** for a session that has none.",
+					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool arguments, tool output text and system rows are omitted, while uploaded images and pictures returned by tools remain as dialogue attachments — into the requested **format** and returns it as a `Content-Disposition: attachment` download. GitHub-flavoured markdown in message content is preserved across formats: headings, emphasis, strikethrough, links (with their targets), nested and task lists, blockquotes, thematic breaks, syntax-highlighted code blocks, and **tables**, which render as real tables rather than rows of pipe characters. Images that resolve to a file in the session's own assets directory are embedded in the document (as a `data:` URI in **html**); remote URLs are never fetched at export time and render as a caption plus a link. The **html**, **pdf** and **docx** documents drop the ambient editor state the agent appends to each user turn (the `<foxxycode_ide_context>` active-file / open-tabs block and the `<foxxycode_terminal_context>` summary), and render the `<foxxycode_session_assets>` uploads wrapper as an **Attachments** section rather than as raw XML; **json** keeps ambient transcript context and lists picture paths in `entries[].attachments`; it does not embed image bytes. UI-only shared-file placement tags are omitted from assistant text in every format. With `tools=true`, tool pictures remain under `entries[].tool_calls[].pictures` instead of being repeated as attachments. The disposition carries an ASCII `filename` plus an RFC 8187 `filename*=UTF-8''…` so non-Latin titles survive. The bundled UI only exposes this action once at least one assistant answer exists; the server applies the same guard and returns **404** for a session that has none.",
 					"operationId": "exportSession",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
@@ -2364,7 +2430,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"foxxycode.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /foxxycode/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /foxxycode/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"foxxycode.session_rewound\", sessionId, messagesRev}`**) after a **POST /foxxycode/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"foxxycode.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /foxxycode/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"foxxycode.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /foxxycode/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /foxxycode/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"foxxycode.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /foxxycode/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"foxxycode.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the FoxxyCode server process that owns the wait; clients re-read **GET /foxxycode/sessions** or **GET /foxxycode/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"foxxycode.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /foxxycode/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /foxxycode/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"foxxycode.session_rewound\", sessionId, messagesRev}`**) after a **POST /foxxycode/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"foxxycode.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /foxxycode/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"foxxycode.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /foxxycode/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /foxxycode/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"foxxycode.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /foxxycode/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -2914,9 +2980,10 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/codex-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start Codex ChatGPT device authorization",
-					"description": "Starts the official ChatGPT device flow. The request must be `Content-Type: application/json` (the body is ignored, send `{}`); any other type is refused with 415 before the issuer is contacted, because a page on another site can send the other types without a preflight. A new start supersedes the provider's previous pending attempt, including one still waiting for the issuer to answer (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"description": "Starts the official ChatGPT device flow. The request must be `Content-Type: application/json`; an optional `proxy` is the current unsaved Settings value and overrides the resolved row for this login. A new start supersedes the provider's previous pending attempt, including one still waiting for the issuer to answer (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
 					"operationId": "startProviderCodexDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
+					"requestBody": map[string]interface{}{"required": false, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/ProviderSignInProxyRequest"}}}},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
 						"400": errorResponseRef(),
@@ -2947,9 +3014,9 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Sign out of NeuralDeep",
-					"description": "Best-effort revokes the key on the hub, then deletes the credential stored under `FOXXYCODE_HOME/providers/{name}/neuraldeep-auth.json`.",
+					"description": "Best-effort revokes the key on the hub through the row's route (or optional `proxy` query override), then deletes the credential stored under `FOXXYCODE_HOME/providers/{name}/neuraldeep-auth.json`.",
 					"operationId": "deleteProviderNeuralDeepAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
+					"parameters":  []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "proxy", "in": "query", "required": false, "schema": map[string]string{"type": "string"}, "description": "Current unsaved provider proxy. Empty or `inherit` follows the system proxy; `none` connects directly."}},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
@@ -2960,7 +3027,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for the hub client `coddy` (the hub allowlists this identifier). The response echoes it as `hub_client` for the sign-in UI. The request must be `Content-Type: application/json`, the body optional; any other type is refused with 415 before the hub is contacted, because a page on another site can send the other types without a preflight. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base` (none for a row still saved as another type, so the default deployment); a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions, labelled `foxxycode @ <hostname>` (plus the provider row's name in parentheses unless the row is the conventional `neuraldeep`) so the hub's dashboard tells two rows signed in from one machine apart - the label is the only machine metadata the sign-in sends.",
+					"description": "Starts the hub's RFC 8628 device flow for the hub client `coddy` (the hub allowlists this identifier). The response echoes it as `hub_client` for the sign-in UI. The optional JSON body also accepts the unsaved `proxy` setting for this login. The request must be `Content-Type: application/json`, the body optional; any other type is refused with 415 before the hub is contacted, because a page on another site can send the other types without a preflight. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base` (none for a row still saved as another type, so the default deployment); a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions, labelled `foxxycode @ <hostname>` (plus the provider row's name in parentheses unless the row is the conventional `neuraldeep`) so the hub's dashboard tells two rows signed in from one machine apart - the label is the only machine metadata the sign-in sends.",
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"requestBody": map[string]interface{}{
@@ -3063,6 +3130,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.foxxycode/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/foxxycode/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`env`/`url`/`fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.",
 					"operationId": "listMCPServers",
 					"parameters": []interface{}{
+						mcpWorkspaceSessionParam(),
 						map[string]interface{}{
 							"name": "refresh", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
@@ -3080,6 +3148,8 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -3089,10 +3159,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Enable an MCP server",
 					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions connect this server if the trust gate admits it; their other servers keep running. A session with a turn in flight connects it when its next turn starts.",
 					"operationId": "enableMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server enabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -3101,10 +3172,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Disable an MCP server",
 					"description": "Sets the disabled flag under the same scope rule as enable. Live sessions close this server, leaving their other servers running (a turn in flight keeps it until the turn ends); new sessions skip connecting it.",
 					"operationId": "disableMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server disabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -3113,7 +3185,7 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Approve a project MCP server for this workspace",
 					"description": "Records the operator's approval of a project-local (`.foxxycode/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
 					"operationId": "trustMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"requestBody": map[string]interface{}{
 						"required": false,
 						"content": map[string]interface{}{
@@ -3143,6 +3215,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -3153,7 +3226,7 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Withdraw a project MCP server approval",
 					"description": "Removes the workspace approval of a project-local server. Live sessions close it (a turn in flight keeps it until the turn ends) and new sessions no longer start it. `removed` reports whether an approval was actually on file.",
 					"operationId": "untrustMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Approval withdrawn (or none was on file).",
@@ -3169,6 +3242,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -3216,10 +3290,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Enable a single MCP tool",
 					"description": "Enables **{tool}** in the effective tool list. Global switches persist in their defining file; project switches persist in `<home>/mcp-overrides.json`. Nothing reconnects: live sessions offer the tool again on their next turn.",
 					"operationId": "enableMCPTool",
-					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Tool enabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -3228,10 +3303,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Disable a single MCP tool",
 					"description": "Disables **{tool}** under the same scope rule as enable. The tool is hidden from the agent and rejected at dispatch from the next turn on; nothing reconnects.",
 					"operationId": "disableMCPTool",
-					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Tool disabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -3242,6 +3318,7 @@ func openAPISpec() map[string]interface{} {
 					"operationId": "putMCPServer",
 					"parameters": []interface{}{
 						mcpServerNameParam(),
+						mcpWorkspaceSessionParam(),
 						map[string]interface{}{
 							"name": "scope", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
@@ -3259,6 +3336,7 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server saved."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -3266,10 +3344,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Delete an mcp.json MCP server",
 					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server. Servers defined in config.yaml are refused with 400.",
 					"operationId": "deleteMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server deleted."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -4087,9 +4166,11 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]string{"type": "string"},
 					},
 				},
+				"ProviderSignInProxyRequest": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"proxy": map[string]string{"type": "string"}}},
 				"NeuralDeepAuthDeviceStartRequest": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
+						"proxy": map[string]interface{}{"type": "string", "description": "Unsaved provider proxy; absent keeps the saved setting."},
 						"api_base": map[string]interface{}{
 							"type":        "string",
 							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
@@ -4876,6 +4957,14 @@ func mcpServerNameParam() map[string]interface{} {
 		"name": "name", "in": "path", "required": true,
 		"schema":      map[string]string{"type": "string"},
 		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpWorkspaceSessionParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Optional session whose workspace selects project-local MCP declarations and switches. Without it, the server default workspace is used. A malformed ID is 400; an unknown session is 404.",
 	}
 }
 

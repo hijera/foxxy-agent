@@ -14,7 +14,6 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
-	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
@@ -540,10 +539,14 @@ func (m *Manager) resumableChildSnapshot(id, parentID, name string) (*LoadedSnap
 // the definition as they are now, so nothing an earlier run was allowed
 // carries over.
 func restoreChildTranscript(st *State, snap *LoadedSnapshot) {
-	st.ReplaceMessagesWithoutPersist(closeInterruptedToolCalls(snap.Messages))
+	// The stored transcript is seeded as written, holes included: unanswered
+	// calls of the earlier run are closed only on the outbound projection
+	// (RepairMissingToolResults in the resumed run's request building), so the
+	// file keeps saying no result was recorded instead of gaining one.
+	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
 	st.RestoreUILogWithoutPersist(snap.UILog)
-	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
+	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq, snap.Meta.LastErrorSeq)
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.SetTagsWithoutPersist(snap.Meta.Tags)
 	st.SetOriginWithoutPersist(snap.Meta.Origin)
@@ -727,64 +730,6 @@ func subagentParentOf(st *State) string {
 		return meta.ParentSessionID
 	}
 	return "an unknown parent session"
-}
-
-// interruptedToolCallResult answers a call an earlier run of a child made
-// without a result on record. The run may have been stopped before it got to
-// the call, or the process may have died while the call ran: the transcript
-// cannot tell which, so the answer says so rather than that the call never
-// ran, and a call with a side effect is not repeated on a guess.
-const interruptedToolCallResult = "no result was recorded: the earlier run of this subagent ended before this call finished, so it may or may not have run; check the current state before running it again"
-
-// closeInterruptedToolCalls answers every call of the transcript that has no
-// result, right after the results its batch does have. A run stopped or timed
-// out in the middle of a batch of calls leaves the rest of the batch
-// unanswered, and so does a process that died during a call; an
-// OpenAI-compatible provider refuses a request that carries a call without its
-// result anywhere in the history, so the resumed run would fail on its first
-// step. The answer says the outcome is unknown; the model checks before it
-// makes the call again. A transcript with nothing to answer comes back as it
-// was.
-func closeInterruptedToolCalls(msgs []llm.Message) []llm.Message {
-	var out []llm.Message
-	for i := 0; i < len(msgs); i++ {
-		if msgs[i].Role != llm.RoleAssistant || len(msgs[i].ToolCalls) == 0 {
-			if out != nil {
-				out = append(out, msgs[i])
-			}
-			continue
-		}
-		// The batch's results follow it directly.
-		end := i + 1
-		answered := map[string]bool{}
-		for ; end < len(msgs) && msgs[end].Role == llm.RoleTool; end++ {
-			answered[msgs[end].ToolCallID] = true
-		}
-		var missing []llm.Message
-		for _, tc := range msgs[i].ToolCalls {
-			if strings.TrimSpace(tc.ID) == "" || answered[tc.ID] {
-				continue
-			}
-			missing = append(missing, llm.Message{
-				Role:       llm.RoleTool,
-				ToolCallID: tc.ID,
-				Content:    interruptedToolCallResult,
-				CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-			})
-		}
-		if len(missing) > 0 && out == nil {
-			out = append(make([]llm.Message, 0, len(msgs)+len(missing)), msgs[:i]...)
-		}
-		if out != nil {
-			out = append(out, msgs[i:end]...)
-			out = append(out, missing...)
-		}
-		i = end - 1
-	}
-	if out == nil {
-		return msgs
-	}
-	return out
 }
 
 // liveSubagentTaskID is the task of the run working on a child right now, or
