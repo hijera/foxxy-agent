@@ -30,6 +30,48 @@ class TabCloseUiTest {
     }
 
     @Test
+    fun addingAFileWhileReopeningKeepsTheMention() {
+        withSetting(true) {
+            IdeControl.activateToolWindow(robot, "FoxxyCode")
+            val pid = awaitBackend()
+            CefChat.connectWithRetry().use { chat ->
+                waitFor(Duration.ofSeconds(60), Duration.ofMillis(200), "the initial composer to mount") {
+                    chat.eval("!!document.getElementById('composer')") == "true"
+                }
+            }
+            val process = ProcessHandle.of(pid).get()
+            IdeControl.hideToolWindow(robot, "FoxxyCode")
+            waitFor(Duration.ofSeconds(10), Duration.ofMillis(100), "the backend process to exit") {
+                !process.isAlive
+            }
+            // Let about:blank finish loading before the action reopens the panel.
+            Thread.sleep(500)
+
+            val mention = "src/StopOnClose${System.nanoTime()}.kt"
+            IdeControl.activateToolWindow(robot, "FoxxyCode")
+            robot.runJs(
+                """
+                $services
+                var panelClass = loader.loadClass('dev.foxxycode.intellij.ui.FoxxyCodeBrowserPanel');
+                var panelsField = panelClass.getDeclaredField('panelsByProject');
+                panelsField.setAccessible(true);
+                var panel = panelsField.get(null).get(project);
+                panel.requestInsertFileMentions(java.util.Collections.singletonList('$mention'));
+                """.trimIndent(),
+                true,
+            )
+            awaitBackend()
+            CefChat.connectWithRetry().use { chat ->
+                waitFor(Duration.ofSeconds(60), Duration.ofMillis(200), "the added file mention in the composer") {
+                    chat.eval(
+                        "(function(){var c=document.getElementById('composer');return !!c&&c.value.indexOf('@$mention')>=0;})()",
+                    ) == "true"
+                }
+            }
+        }
+    }
+
+    @Test
     fun closingWithTheOptionDisabledKeepsTheSameProcess() {
         withSetting(false) {
             IdeControl.activateToolWindow(robot, "FoxxyCode")

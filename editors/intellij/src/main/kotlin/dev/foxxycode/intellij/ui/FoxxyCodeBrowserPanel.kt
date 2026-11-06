@@ -252,7 +252,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.
             it.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
-                    if (frame?.isMain == true) {
+                    if (frame?.isMain == true && frame.url == currentUrl) {
                         injectBootstrap()
                         injectLocaleBridge()
                         injectDropBridge()
@@ -489,8 +489,21 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
         LOG.info("FoxxyCode mention: pushing to composer: $relPath")
         val b = browser ?: return
         val json = JsonPrimitive(relPath).toString()
-        val js =
-            "(function(){ try { if (window.foxxycodeUi && window.foxxycodeUi.insertFileMention) window.foxxycodeUi.insertFileMention($json); } catch (e) {} })();"
+        val js = """
+            (function () {
+              var remaining = 100;
+              function insert() {
+                try {
+                  if (window.foxxycodeUi && window.foxxycodeUi.insertFileMention && document.getElementById('composer')) {
+                    window.foxxycodeUi.insertFileMention($json);
+                  } else if (remaining-- > 0) {
+                    window.setTimeout(insert, 50);
+                  }
+                } catch (e) {}
+              }
+              insert();
+            })();
+        """.trimIndent()
         b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
