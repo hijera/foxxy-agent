@@ -68,6 +68,9 @@ the backdrop behavior. No session storage format is replaced by this port.
   all Go packages and 3,314 SPA tests pass, including
   workspace races, marketplace trust, migration, mandatory documents, loop guards
   and existing History behavior.
+- The subsequent MCP trust-label localization is covered by an English/Russian
+  regression, UI type checking and all 3,315 SPA tests. The embedded bundle and
+  actual before/after screenshots are rebuilt for that follow-up.
 - `make lint`: every configured Go pass and UI type checking pass.
 - The VS Code changelog's 18 tests and the IntelliJ plugin checks pass.
 - `make test-cache`: mandatory documents, rule generations and provider-bound
@@ -98,5 +101,4 @@ short MCP startup deadlines. Each affected test passes ten isolated repetitions
 with its original limits. These timing failures remain a limitation of the
 loaded Windows run; no session-list threshold or MCP deadline was relaxed.
 
-CI's tag matrix is not run locally, and no pull request or release is published
-by this task.
+CI's tag matrix is evaluated by the pull-request workflows.

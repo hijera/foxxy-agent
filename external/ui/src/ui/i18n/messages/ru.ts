@@ -861,6 +861,7 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "обращается к",
   "settings.mcp.trust.fact.env": "окружение",
   "settings.mcp.trust.fact.headers": "заголовки",
+  "settings.mcp.trust.fact.reads": "читает",
   "settings.mcp.trust.fact.tls": "tls",
   "settings.mcp.trust.factValue.insecure": "проверка сертификата отключена",
   "settings.mcp.insecureTls.label": "Игнорировать проверку SSL",

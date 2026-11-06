@@ -826,6 +826,7 @@ export const messagesEn: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "contacts",
   "settings.mcp.trust.fact.env": "env",
   "settings.mcp.trust.fact.headers": "headers",
+  "settings.mcp.trust.fact.reads": "reads",
   "settings.mcp.trust.fact.tls": "tls",
   "settings.mcp.trust.factValue.insecure": "certificate verification disabled",
   "settings.mcp.insecureTls.label": "Ignore SSL certificate errors",

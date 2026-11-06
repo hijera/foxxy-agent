@@ -145,7 +145,7 @@ export function declarationFacts(row: MCPServerRow): MCPDeclarationFact[] {
   }
   if (row.reads && row.reads.length > 0) {
     out.push({
-      labelKey: "mcp.fact.reads",
+      labelKey: "settings.mcp.trust.fact.reads",
       value: row.reads.map((name) => "${" + name + "}").join(", "),
     });
   }

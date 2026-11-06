@@ -356,7 +356,11 @@ test("an unapproved project server shows what it would run and offers approval",
 
 // A header value is never shown, so the variables of the FoxxyCode process the
 // declaration would read and send are named in the note instead.
-test("the approval note names the variables a declaration reads", async () => {
+test.each([
+  ["en", "reads"],
+  ["ru", "читает"],
+] as const)("the approval note names the variables a declaration reads in %s", async (locale, label) => {
+  initLocale(locale);
   const { command: _command, args: _args, ...pending } =
     pendingListResponse.items[0]!;
   const response = {
@@ -382,7 +386,7 @@ test("the approval note names the variables a declaration reads", async () => {
   const note =
     screen.getByTestId("mcp-trust-note-audit-marker").textContent ?? "";
   expect(note).toContain("X-Data");
-  expect(note).toContain("reads");
+  expect(screen.getByText(label, { selector: ".mcp-trust-facts dt" })).toBeTruthy();
   expect(note).toContain("${AWS_SECRET_ACCESS_KEY}");
 });
 
