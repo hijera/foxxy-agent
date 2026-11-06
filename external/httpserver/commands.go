@@ -243,6 +243,9 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		s.AttachProjectStore(ps)
 	}
 	s.SetFolderPicker(params.FolderPicker)
+	// Standalone HTTP has the same process-wide MCP lifetime as serve, ACP and
+	// the console: globals start before the listener and stay until Shutdown.
+	mgr.StartGlobalMCPServers()
 	httpSrv := &http.Server{Addr: listenAddr, Handler: s.Handler()}
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), scheduler.Options{
@@ -372,6 +375,9 @@ func (st *StartedHTTP) Shutdown(ctx context.Context) error {
 	}
 	if st.Server != nil {
 		st.Server.Drain()
+	}
+	if st.Manager != nil {
+		st.Manager.CloseMCP()
 	}
 	if st.LogCloser != nil {
 		return st.LogCloser()

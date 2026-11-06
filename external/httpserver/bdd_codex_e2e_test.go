@@ -208,12 +208,15 @@ func (s *codexE2EState) close() {
 		s.issuerTS.Close()
 		s.issuerTS = nil
 	}
-	// Only a home this scenario saved is put back: TestMain always sets one,
-	// so an empty value means the scenario never changed it.
+	// Only what this scenario saved is put back: TestMain always sets a home
+	// and a Codex backend, so an empty value means the scenario never changed
+	// it, and putting it back would clear what TestMain set.
 	if s.prevHome != "" {
 		restoreEnv("FOXXYCODE_HOME", s.prevHome)
 	}
-	restoreEnv("FOXXYCODE_CODEX_BASE_URL", s.prevBase)
+	if s.prevBase != "" {
+		restoreEnv("FOXXYCODE_CODEX_BASE_URL", s.prevBase)
+	}
 	s.prevHome, s.prevBase = "", ""
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)

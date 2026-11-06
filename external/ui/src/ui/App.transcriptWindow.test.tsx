@@ -173,7 +173,7 @@ async function openLongSession() {
 
 test("a long session opens on its newest page, numbered as the whole history", async () => {
   await openLongSession();
-  expect(reads[0]).toBe("?limit=60");
+  expect(reads[0]).toBe("?limit=60&activate_mcp=1");
   expect(prompts()[0]).toBe("prompt 46");
   expect(prompts().at(-1)).toBe(`prompt ${TURNS}`);
   expect(chat?.transcriptHasOlder).toBe(true);
@@ -263,7 +263,7 @@ test("a page above that a rewind made moot leaves the control ready, not loading
   await act(async () => chat!.onSend!(`prompt ${TURNS}, edited`));
   // The kept prefix is read from its newest page, then the edit is sent.
   await waitFor(() =>
-    expect(reads.filter((q) => q === "?limit=60").length).toBeGreaterThanOrEqual(2),
+    expect(reads.filter((q) => q === "?limit=60").length).toBeGreaterThanOrEqual(1),
   );
   await waitFor(() => expect(prompts()).toContain(`prompt ${TURNS - 1}`));
   held.get("?limit=80&before=180")!();

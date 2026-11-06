@@ -26,6 +26,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
 // promptBlocksText joins the text of prompt content blocks (mirrors the real agent's view).
@@ -338,6 +339,44 @@ func (s *remoteFeatureState) configReportsAuthConfigured() error {
 	return nil
 }
 
+func (s *remoteFeatureState) requestInfo() error { return s.get("/foxxycode/info") }
+
+func (s *remoteFeatureState) infoNamesVersionAndHost() error {
+	if got, _ := s.body["version"].(string); got != version.Get() {
+		return errStatus("version = "+got+", want "+version.Get(), s.status, s.rawBody)
+	}
+	want, _ := os.Hostname()
+	if got, _ := s.body["hostname"].(string); got != want {
+		return errStatus("hostname = "+got+", want "+want, s.status, s.rawBody)
+	}
+	return nil
+}
+
+// listsRemote puts an entry into httpserver.remotes the way a reload would: a
+// settings save, the agent's config_commit or an edit of the file.
+func (s *remoteFeatureState) listsRemote(name, url, token string) error {
+	next := *s.srv.activeCfg()
+	next.HTTPServer.Remotes = append([]config.HTTPRemote(nil), next.HTTPServer.Remotes...)
+	next.HTTPServer.Remotes = append(next.HTTPServer.Remotes, config.HTTPRemote{Name: name, URL: url, Token: token})
+	s.mgr.ReplaceConfig(&next)
+	return nil
+}
+
+func (s *remoteFeatureState) configListsRemote(name, url, token string) error {
+	hs, _ := s.body["httpserver"].(map[string]interface{})
+	list, _ := hs["remotes"].([]interface{})
+	for _, raw := range list {
+		r, _ := raw.(map[string]interface{})
+		if r["name"] == name && r["url"] == url {
+			if r["token"] != token {
+				return errStatus(fmt.Sprintf("remote %q carries token %v, want %q", name, r["token"], token), s.status, s.rawBody)
+			}
+			return nil
+		}
+	}
+	return errStatus("config does not list the remote "+name, s.status, s.rawBody)
+}
+
 func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	s := &remoteFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -361,6 +400,8 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I send the prompt "([^"]+)" to the session$`, s.sendPrompt)
 	sc.Step(`^I list sessions$`, s.listSessions)
 	sc.Step(`^I request the server config$`, s.requestConfig)
+	sc.Step(`^I request the server info$`, s.requestInfo)
+	sc.Step(`^the server lists the remote "([^"]+)" at "([^"]+)" with the token "([^"]+)"$`, s.listsRemote)
 
 	sc.Step(`^the request is rejected as unauthorized$`, s.unauthorized)
 	sc.Step(`^the request succeeds$`, s.succeeds)
@@ -370,6 +411,8 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the streamed response terminates cleanly$`, s.streamedResponseTerminates)
 	sc.Step(`^the session transcript includes the prompt "([^"]+)"$`, s.transcriptIncludesPrompt)
 	sc.Step(`^the session list includes the session$`, s.sessionListIncludesSession)
+	sc.Step(`^the info names the version the binary was built as and the machine's host name$`, s.infoNamesVersionAndHost)
+	sc.Step(`^the config lists the remote "([^"]+)" at "([^"]+)" with the token "([^"]+)"$`, s.configListsRemote)
 	sc.Step(`^the config response hides the auth token$`, s.configHidesToken)
 	sc.Step(`^the config response reports authentication is configured$`, s.configReportsAuthConfigured)
 }

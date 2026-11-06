@@ -73,6 +73,25 @@ describe("groupSessions", () => {
     expect(groups[2]!.key).toBe("no-workspace");
   });
 
+  it("groups the main checkout and its linked worktrees under the project root", () => {
+    const root = "/srv/foxxycode-agent";
+    const groups = groupSessions(
+      [
+        row("main", { cwd: root, repoRoot: root }),
+        row("feature", {
+          cwd: `${root}/.foxxycode/worktrees/feature-login`,
+          repoRoot: root,
+        }),
+      ],
+      "workspace",
+      NOW,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.label).toBe("foxxycode-agent");
+    expect(groups[0]?.workspacePath).toBe(root);
+    expect(groups[0]?.rows.map((r) => r.id)).toEqual(["main", "feature"]);
+  });
+
   it("keeps two workspaces of the same name apart", () => {
     const rows = [row("a", { cwd: "/srv/one" }), row("b", { cwd: "/opt/one" })];
     const groups = groupSessions(rows, "workspace", NOW);

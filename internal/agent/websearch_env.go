@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"maps"
+
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
@@ -25,4 +27,16 @@ func previewServerSettings(cfg *config.Config) *tooling.PreviewServerSettings {
 	}
 	out := tooling.PreviewServerSettings(cfg.Tools.PreviewServer.ToolSettings())
 	return &out
+}
+
+// httpRequestEnv puts tools.http_request on the tool environment: the
+// destinations a request reaches without asking and the headers every request
+// sends. It runs wherever the environment is built or refreshed after a config
+// reload, and it copies, so a reload never edits what a call is reading.
+func httpRequestEnv(env *tooling.Env, cfg *config.Config) {
+	if env == nil || cfg == nil {
+		return
+	}
+	env.HTTPAllowlist = append([]string(nil), cfg.Tools.HTTPRequest.Allowlist...)
+	env.HTTPDefaultHeaders = maps.Clone(cfg.Tools.HTTPRequest.DefaultHeaders)
 }

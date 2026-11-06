@@ -55,7 +55,7 @@ func providerGaveUpError(err error, continued int) error {
 // The text is cut back to its last line end (trimToResumeBoundary), the rule
 // the stall path applies: a model carrying on a cut line writes that line
 // again from its start, so an unfinished one would reach the answer twice.
-func (a *Agent) keepInterruptedAnswer(text, reasoning string, clockStart, clockEnd time.Time) bool {
+func (a *Agent) keepInterruptedAnswer(model, text, reasoning string, clockStart, clockEnd time.Time) bool {
 	text = trimToResumeBoundary(text)
 	reasonTrim := strings.TrimSpace(reasoning)
 	if strings.TrimSpace(text) == "" && reasonTrim == "" {
@@ -74,7 +74,7 @@ func (a *Agent) keepInterruptedAnswer(text, reasoning string, clockStart, clockE
 		Content:             text,
 		Reasoning:           reasonTrim,
 		ReasoningDurationMs: reasoningMs,
-		Model:               a.state.EffectiveModelID(a.cfg),
+		Model:               model,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 	})
 	a.refreshConversationContextUsage(true)

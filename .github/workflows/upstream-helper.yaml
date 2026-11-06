@@ -1,0 +1,41 @@
+# Exercise the Python porting helper independently of the Go build matrix.
+name: Upstream helper
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "scripts/upstream*.py"
+      - "scripts/test_upstream*.py"
+      - "scripts/requirements-upstream.txt"
+      - ".github/workflows/upstream-helper.yaml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Upstream helper (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: scripts/requirements-upstream.txt
+
+      - name: Install helper dependencies
+        run: python -m pip install -r scripts/requirements-upstream.txt
+
+      - name: Run offline integration tests
+        run: python -m unittest discover -s scripts -p "test_upstream*.py" -v

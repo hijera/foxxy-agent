@@ -17,8 +17,10 @@ import (
 // gateway comes back on the new one.
 //
 // fn runs on the goroutine that replaced the configuration and MUST NOT block:
-// hand the value to a buffered channel and return. Observers are removed
-// individually because several surfaces may watch one manager.
+// hand the value to a buffered channel and return. Replacements are published
+// one at a time, in the order they were stored, so fn must not replace the
+// configuration itself either. Observers are removed individually because
+// several surfaces may watch one manager.
 func (m *Manager) AddConfigObserver(fn func(*config.Config)) (remove func()) {
 	if fn == nil {
 		return func() {}

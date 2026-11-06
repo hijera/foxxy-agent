@@ -85,6 +85,7 @@ func run(ctx context.Context, o Options, dir string, args ...string) (string, er
 	cmd := exec.CommandContext(ctx, o.binary(), full...)
 	cmd.Dir = dir
 	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

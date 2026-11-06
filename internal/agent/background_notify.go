@@ -191,10 +191,21 @@ func (w *BackgroundWaker) OnSnapshot(snap bgtask.Snapshot) {
 // startTurn, never by the loop: a task that finished has an outcome the model
 // was promised.
 func (w *BackgroundWaker) drain(sessionID string) {
-	defer func() {
-		w.mu.Lock()
+	// ended is set, under w.mu, in the same critical section that clears the
+	// draining flag. Clearing it apart from the check that found the queue
+	// empty opens a window where OnSnapshot appends a completion and sees the
+	// session still draining: nobody then wakes for it.
+	ended := false
+	end := func() {
+		ended = true
 		delete(w.draining, sessionID)
-		w.mu.Unlock()
+	}
+	defer func() {
+		if !ended {
+			w.mu.Lock()
+			end()
+			w.mu.Unlock()
+		}
 	}()
 
 	for {
@@ -204,10 +215,12 @@ func (w *BackgroundWaker) drain(sessionID string) {
 		batch := w.pending[sessionID]
 		delete(w.pending, sessionID)
 		if len(batch) == 0 {
+			end()
 			w.mu.Unlock()
 			return
 		}
 		if w.wakes[sessionID] >= maxWakesPerSession {
+			end()
 			w.mu.Unlock()
 			w.log.Warn("background_wake_capped",
 				"session_id", sessionID,
@@ -219,6 +232,9 @@ func (w *BackgroundWaker) drain(sessionID string) {
 		w.mu.Unlock()
 
 		if !w.startTurn(sessionID, batch) {
+			w.mu.Lock()
+			end()
+			w.mu.Unlock()
 			return
 		}
 	}
@@ -358,6 +374,37 @@ func WakeInstruction(batch []bgtask.Snapshot) string {
 	b.WriteString("\nRead the output with background_output when you need it. ")
 	b.WriteString("Continue the work this task was part of, and report the outcome honestly: ")
 	b.WriteString("a task that failed, timed out, or was stopped did not succeed.")
+
+	// A subagent run that ended without its report kept its transcript, and
+	// the way on is that same child, not a second one on the same task
+	// (issue #389). Each child is judged by its latest run in the batch, which
+	// holds the tasks in the order they finished (Wake): a child whose latest
+	// run succeeded needs nothing, and a run whose child session was never
+	// created has nothing to continue.
+	latest := map[string]int{}
+	var children []string
+	for i, t := range batch {
+		if t.Kind != bgtask.KindAgent || t.Agent == nil || t.Agent.System || t.Agent.SessionID == "" {
+			continue
+		}
+		if _, seen := latest[t.Agent.SessionID]; !seen {
+			children = append(children, t.Agent.SessionID)
+		}
+		latest[t.Agent.SessionID] = i
+	}
+	var resumable []string
+	for _, child := range children {
+		t := batch[latest[child]]
+		if !t.Status.Finished() || t.Status == bgtask.StatusSucceeded || strings.HasPrefix(t.Error, errCreateChildSession) {
+			continue
+		}
+		resumable = append(resumable, fmt.Sprintf("spawn_agent with resume=%q and agent %q", t.ID, t.Agent.Name))
+	}
+	if len(resumable) > 0 {
+		b.WriteString(" A subagent that did not finish keeps its transcript: to go on with its task, call ")
+		b.WriteString(strings.Join(resumable, ", or "))
+		b.WriteString(" instead of starting a new subagent.")
+	}
 	return b.String()
 }
 

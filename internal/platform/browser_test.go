@@ -93,6 +93,29 @@ func TestLocalBrowserAvailable(t *testing.T) {
 			want:    true,
 		},
 		{
+			// termux-open-url hands the URL to Android, which opens it in the
+			// phone's browser: there is no display to look for.
+			name:    "Termux on a phone",
+			goos:    "android",
+			env:     map[string]string{},
+			openers: []string{"termux-open-url"},
+			want:    true,
+		},
+		{
+			name:    "Android without the Termux tools",
+			goos:    "android",
+			env:     map[string]string{},
+			openers: []string{"xdg-open"},
+			want:    false,
+		},
+		{
+			name:    "Termux reached over ssh",
+			goos:    "android",
+			env:     map[string]string{"SSH_CONNECTION": "1.2.3.4 22 5.6.7.8 8022"},
+			openers: []string{"termux-open-url"},
+			want:    false,
+		},
+		{
 			name:    "NO_BROWSER wins over a working desktop",
 			goos:    "linux",
 			env:     map[string]string{"DISPLAY": ":0", "NO_BROWSER": "1"},
@@ -170,6 +193,25 @@ func TestBrowserOpenArgv(t *testing.T) {
 			env:     map[string]string{"BROWSER": "firefox %s"},
 			openers: []string{"xdg-open"},
 			want:    []string{"xdg-open", "https://hub/device"},
+		},
+		{
+			name:    "Termux passes the URL to Android",
+			goos:    "android",
+			openers: []string{"termux-open-url", "xdg-open"},
+			want:    []string{"termux-open-url", "https://hub/device"},
+		},
+		{
+			name:    "BROWSER still names the command on Android",
+			goos:    "android",
+			env:     map[string]string{"BROWSER": "termux-open"},
+			openers: []string{"termux-open-url"},
+			want:    []string{"termux-open", "https://hub/device"},
+		},
+		{
+			name:    "Android without termux-open-url",
+			goos:    "android",
+			openers: []string{"xdg-open"},
+			want:    nil,
 		},
 		{
 			name:    "nothing to open with",

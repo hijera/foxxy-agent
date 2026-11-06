@@ -92,7 +92,7 @@ func (s *sessionExportFeatureState) reset() error {
 
 func (s *sessionExportFeatureState) close() {
 	if s.ideCh != nil {
-		ideEvents.unsubscribe(s.ideCh)
+		ideEvents.Unsubscribe(s.ideCh)
 		s.ideCh = nil
 	}
 	// The file route writes into the real OS temp dir, outside the scenario root.
@@ -166,6 +166,50 @@ func (s *sessionExportFeatureState) seedChat() error {
 		Content:   exportAssistantAnswer,
 		Reasoning: exportReasoning,
 	})
+	return nil
+}
+
+func (s *sessionExportFeatureState) seedSharedFileCard() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(s.root, "report.md"), []byte("A report."), 0o600); err != nil {
+		return err
+	}
+	a, err := session.CaptureArtifact(st.GetPersistedSessionDir(), st.GetCWD(), "report.md")
+	if err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "share-export", Name: "share_file", InputJSON: `{"path":"report.md"}`}}})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "share-export", Content: "Shared report.md", Artifacts: []llm.Artifact{{ID: a.ID, Name: a.Name, SHA256: a.SHA256, Size: a.Size}}})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: exportAssistantAnswer})
+	messages := st.GetMessages()
+	if !strings.Contains(messages[len(messages)-1].Content, "<foxxycode_file") {
+		return fmt.Errorf("fixture has no inline file placement")
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) hidesFilePlacementMarkers() error {
+	if s.respStatus != http.StatusOK {
+		return fmt.Errorf("export status = %d", s.respStatus)
+	}
+	if !bytes.Contains(s.respBody, []byte(exportAssistantAnswer)) {
+		return fmt.Errorf("export lost the answer text")
+	}
+	if bytes.Contains(s.respBody, []byte("foxxycode_file")) {
+		return fmt.Errorf("export leaked a UI-only file placement marker")
+	}
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	messages := st.GetMessages()
+	if !strings.Contains(messages[len(messages)-1].Content, "<foxxycode_file") {
+		return fmt.Errorf("export changed the persisted chat")
+	}
 	return nil
 }
 
@@ -799,7 +843,7 @@ func (s *sessionExportFeatureState) docxOrderedNumbering() error {
 // listenAsPlugin stands in for a connected IntelliJ / VS Code plugin by
 // subscribing to the same process-global hub the SSE route serves from.
 func (s *sessionExportFeatureState) listenAsPlugin() error {
-	s.ideCh = ideEvents.subscribe()
+	s.ideCh = ideEvents.Subscribe()
 	return nil
 }
 
@@ -985,7 +1029,14 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running foxxycode HTTP server$`, s.startServer)
 	sc.Step(`^a chat with a user question and an assistant answer$`, s.seedChat)
+	sc.Step(`^a chat whose answer includes a shared file card$`, s.seedSharedFileCard)
+	sc.Step(`^the export keeps the answer without file placement markers$`, s.hidesFilePlacementMarkers)
 	sc.Step(`^a chat with only a user question$`, s.seedUserOnly)
+	sc.Step(`^a chat with an uploaded picture and a picture returned by a tool$`, s.seedPictures)
+	sc.Step(`^the illustrated chat is exported as (\w+) through (download|file)$`, s.exportIllustrated)
+	sc.Step(`^the export embeds both pictures$`, s.embedsBothPictures)
+	sc.Step(`^the JSON export references both pictures$`, s.referencesBothPictures)
+	sc.Step(`^the illustrated export contains no tool arguments or text output$`, s.hidesPictureToolDetails)
 	sc.Step(`^a chat whose answer mixes bold and inline code inside one sentence$`, s.seedInlineFormatting)
 	sc.Step(`^a chat whose question carries terminal escape codes$`, s.seedEscapeCodes)
 	sc.Step(`^a chat whose answer uses headings from level one to level six$`, s.seedDeepHeadings)

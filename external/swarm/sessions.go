@@ -446,9 +446,15 @@ func (s *Server) hopPath(r *http.Request) ([]string, error) {
 	return append(path, s.uuid), nil
 }
 
+// relayName is what this relay goes by: its configured name, else the host
+// name it runs on (as a node that joins without a name does), else the start
+// of its instance id.
 func (s *Server) relayName() string {
 	if name := strings.TrimSpace(s.cfg.Swarm.Name); name != "" {
 		return name
+	}
+	if s.hostName != "" {
+		return s.hostName
 	}
 	return s.uuid[:8]
 }

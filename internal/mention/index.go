@@ -125,6 +125,7 @@ func runGitZ(ctx context.Context, gitPath, root string, limit int, args ...strin
 	cmd := exec.CommandContext(ctx, gitPath, append([]string{"-C", root, "-c", "core.quotepath=off"}, args...)...)
 	platform.HideConsoleWindow(cmd)
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	platform.AdaptCommand(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()

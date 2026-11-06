@@ -94,6 +94,39 @@ func TestExportMediaResolverEnforcesCaps(t *testing.T) {
 	}
 }
 
+// A device name is not a file in the assets directory. Opening CON or NUL reads
+// a device, and a console read blocks the export, so these are refused before
+// anything is opened, with or without an extension.
+func TestExportMediaResolverRefusesWindowsDeviceNames(t *testing.T) {
+	dir := t.TempDir()
+	r := newExportMediaResolver(dir)
+	for _, name := range []string{"CON", "con.png", "NUL", "aux.gif", "COM1.png", "LPT9"} {
+		if got := r.resolve(name); got != "" {
+			t.Errorf("%q resolved to %q; a device name must not", name, got)
+		}
+	}
+	for _, name := range []string{"conductor.png", "com10.png", "lpt.png", "console.png"} {
+		if got := r.resolve(name); got == "" {
+			t.Errorf("%q was refused, but it is an ordinary file name", name)
+		}
+	}
+}
+
+// A link named like an image is not a regular file and is not read.
+func TestExportMediaResolverReadsOnlyRegularFiles(t *testing.T) {
+	dir := t.TempDir()
+	target := writePNGFixture(t, filepath.Dir(dir), "target.png", 8, 8)
+	link := filepath.Join(dir, "linked.png")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+	img := &exportImage{src: "linked.png"}
+	newExportMediaResolver(dir).fill(img)
+	if img.embeddable() {
+		t.Error("a symbolic link was read as an image")
+	}
+}
+
 // A nil resolver is the "session was never persisted" case and must be inert
 // rather than a crash.
 func TestExportMediaResolverNilIsInert(t *testing.T) {

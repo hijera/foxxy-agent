@@ -1,5 +1,6 @@
 import {
   render,
+  act,
   screen,
   fireEvent,
   waitFor,
@@ -89,10 +90,28 @@ describe("shouldShowOnboarding", () => {
 
 describe("ProviderPickerDialog", () => {
   const fetchMock = vi.fn();
+  // Flipped by the neuraldeep device-poll handler, read by the status GET:
+  // the widget re-reads the stored status once a login completes, and that
+  // re-read is what tells the picker the hub login is now the credential.
+  let ndConnected = false;
+  // Tests that race a switch against that re-read arm a hold on it: the poll
+  // handler opens the gate, the status GET blocks on it until the test
+  // releases, which is exactly the window a domain or preset change lands in.
+  let ndArmStatusHold = false;
+  let ndHoldStatusRead = false;
+  let ndReleaseStatus: (() => void) | null = null;
+  // Replaces the whole status body, for the hub-mismatch case (a login minted
+  // by the other deployment reports connected with a different hub).
+  let ndStatusOverride: Record<string, unknown> | null = null;
 
   beforeEach(() => {
     initLocale("en");
     fetchMock.mockClear();
+    ndConnected = false;
+    ndArmStatusHold = false;
+    ndHoldStatusRead = false;
+    ndReleaseStatus = null;
+    ndStatusOverride = null;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === "/foxxycode/config" && (!init || init.method === undefined)) {
         return new Response(JSON.stringify({ agent: { max_turns: 30 } }), {
@@ -164,6 +183,63 @@ describe("ProviderPickerDialog", () => {
       if (
         url === "/foxxycode/providers/codex/codex-auth/device/login-onboarding"
       ) {
+        return new Response(
+          JSON.stringify({ status: "completed", connected: true }),
+          { status: 200 },
+        );
+      }
+      if (
+        url.startsWith("/foxxycode/providers/neuraldeep/neuraldeep-auth?") &&
+        (!init || init.method === "GET" || init.method === undefined)
+      ) {
+        if (ndHoldStatusRead) {
+          // Only the first read after a completed login is held: the poll
+          // handler armed this, so the mount-time read has already passed.
+          ndHoldStatusRead = false;
+          await new Promise<void>((resolve) => {
+            ndReleaseStatus = resolve;
+          });
+        }
+        return new Response(
+          JSON.stringify(
+            ndStatusOverride ?? {
+              connected: ndConnected,
+              masked: ndConnected ? "sk-7Hv…_ClA" : undefined,
+              source: ndConnected ? "oauth" : "none",
+            },
+          ),
+          { status: 200 },
+        );
+      }
+      if (
+        url === "/foxxycode/providers/neuraldeep/neuraldeep-auth/device" &&
+        init?.method === "POST"
+      ) {
+        return new Response(
+          JSON.stringify({
+            login_id: "login-nd-onboarding",
+            verification_url: JSON.parse(
+              String(init.body || "{}"),
+            ).api_base?.includes(".tech")
+              ? "https://hub.neuraldeep.tech/device"
+              : "https://hub.neuraldeep.ru/device",
+            user_code: "ND-CODE",
+            status: "pending",
+          }),
+          { status: 200 },
+        );
+      }
+      if (
+        url ===
+        "/foxxycode/providers/neuraldeep/neuraldeep-auth/device/login-nd-onboarding"
+      ) {
+        ndConnected = true;
+        // Arm the hold so the status re-read this completion triggers is the
+        // one the test lets through after a switch.
+        if (ndArmStatusHold) {
+          ndArmStatusHold = false;
+          ndHoldStatusRead = true;
+        }
         return new Response(
           JSON.stringify({ status: "completed", connected: true }),
           { status: 200 },
@@ -243,8 +319,10 @@ describe("ProviderPickerDialog", () => {
       screen.getByTestId("provider-model-id"),
     )) as HTMLInputElement;
     // The neuraldeep preset seeds its recommended default so it is visible, not
-    // just placeholder text; other presets start empty.
-    expect(modelInput.value).toBe("neuraldeep/gpt-oss-120b");
+    // just placeholder text; other presets start empty. qwen3.6-35b-a3b is the
+    // free tier's chat model, so a fresh sign-in can chat without touching the
+    // field.
+    expect(modelInput.value).toBe("neuraldeep/qwen3.6-35b-a3b");
   });
 
   it("renders translated strings for the ru locale", () => {
@@ -260,21 +338,97 @@ describe("ProviderPickerDialog", () => {
     expect(screen.getByText("GPT-4o и совместимые модели")).toBeTruthy();
   });
 
-  it("selects NeuralDeep preset with readonly api base (no /v1) and hub link", async () => {
-    renderPicker({});
-    expect(screen.getByTestId("provider-card-neuraldeep")).toBeTruthy();
+  it("offers the NeuralDeep domain before credentials and uses it for models and save", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
     fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
-    await waitFor(() => {
-      const base = screen.getByTestId("provider-api-base") as HTMLInputElement;
-      expect(base.value).toBe("https://api.neuraldeep.ru");
-      expect(base.readOnly).toBe(true);
+    const domain = screen.getByTestId(
+      "provider-neuraldeep-domain",
+    ) as HTMLSelectElement;
+    expect(domain.value).toBe("https://api.neuraldeep.ru/v1");
+    expect(Array.from(domain.options, (o) => o.value)).toEqual([
+      "https://api.neuraldeep.ru/v1",
+      "https://api.neuraldeep.tech/v1",
+    ]);
+    expect(
+      domain.compareDocumentPosition(screen.getByTestId("provider-api-key")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.change(domain, {
+      target: { value: "https://api.neuraldeep.tech/v1" },
     });
-    const hub = screen.getByTestId("provider-hub-link") as HTMLAnchorElement;
-    expect(hub.href).toContain("hub.neuraldeep.ru");
-    expect(hub.target).toBe("_blank");
+    expect(
+      (screen.getByTestId("provider-hub-link") as HTMLAnchorElement).href,
+    ).toBe("https://hub.neuraldeep.tech/");
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (c) => c[0] === "/foxxycode/providers/models-probe",
+        ),
+      ).toBe(true),
+    );
+    const probe = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/providers/models-probe",
+    );
+    expect(JSON.parse(String(probe![1]?.body)).api_base).toBe(
+      "https://api.neuraldeep.tech/v1",
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const put = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    expect(JSON.parse(String(put![1]?.body)).providers[0].api_base).toBe(
+      "https://api.neuraldeep.tech/v1",
+    );
   });
 
-  it("fetches models into the combobox and saves neuraldeep/<id> without api_base", async () => {
+  it("uses the selected NeuralDeep domain for hub sign in", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-neuraldeep-domain"), {
+      target: { value: "https://api.neuraldeep.tech/v1" },
+    });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) =>
+          String(c[0]).includes(
+            "api_base=https%3A%2F%2Fapi.neuraldeep.tech%2Fv1",
+          ),
+        ),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByTestId("neuraldeep-auth-sign-in"));
+    await screen.findByText("ND-CODE");
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://hub.neuraldeep.tech/device",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("neuraldeep-auth-field").textContent).toMatch(
+        /sk-7Hv/,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (c) =>
+            c[0] === "/foxxycode/providers/models-probe" &&
+            JSON.parse(String(c[1]?.body)).provider_name === "neuraldeep" &&
+            JSON.parse(String(c[1]?.body)).api_base ===
+              "https://api.neuraldeep.tech/v1",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("fetches models into the combobox and saves the NeuralDeep endpoint", async () => {
     const onSaved = vi.fn();
     renderPicker({ onSaved });
     fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
@@ -290,11 +444,10 @@ describe("ProviderPickerDialog", () => {
     );
     expect(probeCall).toBeTruthy();
     const probeBody = JSON.parse(String(probeCall![1]?.body));
-    // The neuraldeep provider type pins its own endpoint server-side, so the
-    // probe carries no api_base at all.
+    // Model discovery follows the same deployment as the saved provider.
     expect(probeBody).toEqual({
       type: "neuraldeep",
-      api_base: "",
+      api_base: "https://api.neuraldeep.ru/v1",
       api_key: "sk-nd",
       proxy: "",
     });
@@ -313,8 +466,11 @@ describe("ProviderPickerDialog", () => {
     );
     const body = JSON.parse(String(putCall![1]?.body));
     expect(body.providers[0].type).toBe("neuraldeep");
-    expect(body.providers[0].api_base).toBeUndefined();
+    expect(body.providers[0].api_base).toBe("https://api.neuraldeep.ru/v1");
     expect(body.models[0].model).toBe("neuraldeep/qwen-3");
+    // The neuraldeep preset pins the free tier's request cap, so the context
+    // ring and the compaction trigger measure against the tier's ceiling.
+    expect(body.models[0].max_context_tokens).toBe(46112);
     // From the catalog entry for qwen-3, not from the neuraldeep preset.
     expect(body.models[0].multimodal).toBe(true);
     expect(body.agent.model).toBe("neuraldeep/qwen-3");
@@ -361,20 +517,26 @@ describe("ProviderPickerDialog", () => {
     fireEvent.change(screen.getByTestId("proxy-editor-host"), {
       target: { value: "vm-squid3.corp" },
     });
-    fireEvent.change(screen.getByTestId("proxy-editor-port"), { target: { value: "3128" } });
-    fireEvent.change(screen.getByTestId("proxy-editor-user"), { target: { value: "vlasov" } });
+    fireEvent.change(screen.getByTestId("proxy-editor-port"), {
+      target: { value: "3128" },
+    });
+    fireEvent.change(screen.getByTestId("proxy-editor-user"), {
+      target: { value: "vlasov" },
+    });
     fireEvent.change(screen.getByTestId("proxy-editor-password"), {
       target: { value: "p@ss" },
     });
     fireEvent.submit(screen.getByTestId("proxy-editor"));
 
-    expect((screen.getByTestId("provider-proxy") as HTMLInputElement).value).toBe(
-      "http://vlasov:••••••@vm-squid3.corp:3128",
-    );
+    expect(
+      (screen.getByTestId("provider-proxy") as HTMLInputElement).value,
+    ).toBe("http://vlasov:••••••@vm-squid3.corp:3128");
     fireEvent.click(screen.getByTestId("provider-fetch-models"));
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.find((c) => c[0] === "/foxxycode/providers/models-probe"),
+        fetchMock.mock.calls.find(
+          (c) => c[0] === "/foxxycode/providers/models-probe",
+        ),
       ).toBeTruthy(),
     );
     fireEvent.click(screen.getByTestId("provider-save"));
@@ -383,7 +545,9 @@ describe("ProviderPickerDialog", () => {
       (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
     );
     const body = JSON.parse(String(putCall![1]?.body));
-    expect(body.providers[0].proxy).toBe("http://vlasov:p%40ss@vm-squid3.corp:3128");
+    expect(body.providers[0].proxy).toBe(
+      "http://vlasov:p%40ss@vm-squid3.corp:3128",
+    );
   });
 
   it("omits proxy from the saved provider when left empty", async () => {
@@ -597,5 +761,237 @@ describe("ProviderPickerDialog", () => {
     // The combobox input is always present; on probe failure it acts as a
     // free-text field for manual model entry.
     expect(screen.getByTestId("provider-model-id")).toBeTruthy();
+  });
+
+  it("offers the hub sign-in beside the API key for neuraldeep", async () => {
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    // The key field stays (a typed key is still fine); the device-flow widget
+    // is the alternative that needs no key at all.
+    expect(screen.getByTestId("provider-api-key")).toBeTruthy();
+    expect(screen.getByTestId("neuraldeep-auth-sign-in")).toBeTruthy();
+    // Other presets carry no neuraldeep widget.
+    fireEvent.click(screen.getByTestId("provider-card-openai"));
+    expect(screen.queryByTestId("neuraldeep-auth-sign-in")).toBeNull();
+  });
+
+  it("onboards neuraldeep through the hub sign-in with no key in config", async () => {
+    const onSaved = vi.fn();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+
+    fireEvent.click(screen.getByTestId("neuraldeep-auth-sign-in"));
+    expect(await screen.findByText("ND-CODE")).toBeTruthy();
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://hub.neuraldeep.ru/device",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    // The completed login flips the status the widget reports, so the picker
+    // knows the stored credential replaces the key.
+    await waitFor(() =>
+      expect(screen.getByTestId("neuraldeep-auth-field").textContent).toMatch(
+        /sk-7Hv/,
+      ),
+    );
+
+    // The auto-probe reads the stored login server-side: provider_name in the
+    // body, no key.
+    await waitFor(() => {
+      const probeCall = fetchMock.mock.calls
+        .filter((c) => c[0] === "/foxxycode/providers/models-probe")
+        .pop();
+      expect(probeCall).toBeTruthy();
+      expect(JSON.parse(String(probeCall![1]?.body))).toEqual({
+        type: "neuraldeep",
+        provider_name: "neuraldeep",
+        api_base: "https://api.neuraldeep.ru/v1",
+        api_key: "",
+        proxy: "",
+      });
+    });
+
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    // Keyless row: the stored hub login is the credential, and writing the
+    // env reference would shadow it.
+    expect(body.providers[0]).toEqual({
+      name: "neuraldeep",
+      type: "neuraldeep",
+      api_base: "https://api.neuraldeep.ru/v1",
+    });
+    expect(body.models[0].model).toBe("neuraldeep/qwen3.6-35b-a3b");
+    expect(body.models[0].max_context_tokens).toBe(46112);
+    expect(body.agent.model).toBe("neuraldeep/qwen3.6-35b-a3b");
+  });
+
+  it("keeps a typed key over the hub login when saving neuraldeep", async () => {
+    const onSaved = vi.fn();
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+
+    fireEvent.click(screen.getByTestId("neuraldeep-auth-sign-in"));
+    await waitFor(() =>
+      expect(screen.getByTestId("neuraldeep-auth-field").textContent).toMatch(
+        /sk-7Hv/,
+      ),
+    );
+
+    // Typing a key after the login shadows it (the settings widget says so
+    // too); the saved row then carries the key, not a keyless login.
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-typed" },
+    });
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].api_key).toBe("sk-typed");
+  });
+
+  it("discards a late model catalog after switching NeuralDeep domains", async () => {
+    const baseFetch = fetchMock.getMockImplementation()!;
+    let release: (response: Response) => void = () => {};
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/foxxycode/providers/models-probe") {
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      }
+      return baseFetch(url, init);
+    });
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    fireEvent.change(screen.getByTestId("provider-neuraldeep-domain"), {
+      target: { value: "https://api.neuraldeep.tech/v1" },
+    });
+    await act(async () => {
+      release(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            models: [{ id: "old-deployment-model" }],
+          }),
+        ),
+      );
+    });
+    fireEvent.focus(screen.getByTestId("provider-model-id"));
+    expect(
+      screen.queryByRole("option", { name: "old-deployment-model" }),
+    ).toBeNull();
+    expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+      "Fetch models",
+    );
+  });
+
+  it("does not let a sign-in that completes after a preset switch save a keyless row", async () => {
+    const onSaved = vi.fn();
+    ndArmStatusHold = true;
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.click(screen.getByTestId("neuraldeep-auth-sign-in"));
+    // The poll answers completed and the widget starts re-reading the stored
+    // status; that read is held so the switch away lands inside it.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) =>
+          String(c[0]).includes("/device/login-nd-onboarding"),
+        ),
+      ).toBe(true),
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("provider-card-openai"));
+    await act(async () => {
+      ndReleaseStatus?.();
+    });
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    // The login belongs to the NeuralDeep form the user already left: the
+    // OpenAI row must carry its own env reference, not be saved keyless on
+    // the strength of a status that settled after the switch.
+    expect(body.providers[0].type).toBe("openai");
+    expect(body.providers[0].api_key).toBe("${OPENAI_API_KEY}");
+  });
+
+  it("does not save a keyless row when the stored login belongs to the other hub", async () => {
+    const onSaved = vi.fn();
+    // The shape the server reports for a login minted by the .ru hub while
+    // the form points at .tech: connected, but not a credential for it.
+    ndStatusOverride = {
+      connected: true,
+      masked: "sk-7Hv…_ClA",
+      source: "oauth",
+      hub: "https://hub.neuraldeep.ru",
+      endpoint_hub: "https://hub.neuraldeep.tech",
+    };
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-neuraldeep-domain"), {
+      target: { value: "https://api.neuraldeep.tech/v1" },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("neuraldeep-auth-hub-mismatch")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].api_base).toBe("https://api.neuraldeep.tech/v1");
+    // A key minted by hub.neuraldeep.ru is refused by api.neuraldeep.tech, so
+    // the row cannot be saved as though that login were its credential.
+    expect(body.providers[0].api_key).toBe("${NEURALDEEP_API_KEY}");
+  });
+
+  it("saves a keyless row when the stored login is from the selected hub", async () => {
+    const onSaved = vi.fn();
+    ndStatusOverride = {
+      connected: true,
+      masked: "sk-7Hv…_ClA",
+      source: "oauth",
+      hub: "https://hub.neuraldeep.tech",
+      endpoint_hub: "https://hub.neuraldeep.tech",
+    };
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-neuraldeep-domain"), {
+      target: { value: "https://api.neuraldeep.tech/v1" },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("neuraldeep-auth-field").textContent).toMatch(
+        /sk-7Hv/,
+      ),
+    );
+    expect(screen.queryByTestId("neuraldeep-auth-hub-mismatch")).toBeNull();
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    // Same hub: the login is the credential and the row stays keyless.
+    expect(body.providers[0]).toEqual({
+      name: "neuraldeep",
+      type: "neuraldeep",
+      api_base: "https://api.neuraldeep.tech/v1",
+    });
   });
 });

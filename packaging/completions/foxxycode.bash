@@ -32,9 +32,9 @@ _foxxycode() {
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list enable disable add sync remove" -- "${cur}"))
             ;;
         plugin)
-            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "marketplace install remove enable disable" -- "${cur}"))
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "marketplace install remove enable disable list" -- "${cur}"))
             [ "${COMP_CWORD}" -eq 3 ] && [ "${prev}" = marketplace ] &&
-                COMPREPLY=($(compgen -W "list add remove sync" -- "${cur}"))
+                COMPREPLY=($(compgen -W "add list update remove sync" -- "${cur}"))
             ;;
         mcp)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))

@@ -441,18 +441,6 @@ func changeValues(ch SettingsChange) map[string]string {
 	return values
 }
 
-// SettingsChangeNotice describes a change the way the manager's notice does,
-// without validating it: for a client that has to say what it asked for
-// before a server confirms it (a remote session the server has not created).
-func SettingsChangeNotice(ch SettingsChange) string {
-	values := changeValues(ch)
-	scope := "for this session"
-	if ch.Turns > 0 {
-		scope = turnsScope(ch.Turns)
-	}
-	return settingsNotice(values, sortedSettings(values), scope)
-}
-
 // FormatSettingsCommands writes changes back as the command lines that ask
 // for them, one per setting: what a client that holds a change for a session
 // the server has not created yet puts at the start of that session's first

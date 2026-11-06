@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { useT } from "../i18n/I18nProvider";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 
 /** Space between the (i) and its tip, and the least the tip keeps from the
  * viewport edges. */
@@ -81,16 +82,14 @@ export function FieldHint(props: {
     });
   }, [open]);
 
+  // Escape takes the tip down before the drawer under it hears the key.
+  useEscapeCloses(open, () => setOpen(false));
+
   useEffect(() => {
     if (!open) {
       return;
     }
     const close = () => setOpen(false);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        close();
-      }
-    };
     const onPointerDown = (e: Event) => {
       if (!buttonRef.current?.contains(e.target as Node)) {
         close();
@@ -99,13 +98,11 @@ export function FieldHint(props: {
     // A fixed tip would stay behind while the field scrolls away under it.
     document.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
-    document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("touchstart", onPointerDown);
     return () => {
       document.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
-      document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("touchstart", onPointerDown);
     };

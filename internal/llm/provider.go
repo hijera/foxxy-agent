@@ -30,6 +30,12 @@ type ImagePart struct {
 	// ThumbnailPath is the absolute path of the persisted, bounded PNG preview
 	// used by transcript clients. Providers never receive this file directly.
 	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+	// MIMEType and Size describe the picture a part carries. A picture a tool
+	// call showed the model is kept as its file (FilePath) with no DataURL,
+	// and the agent builds the data URL from that file when a request goes
+	// out, so the history holds no second, base64 copy of it.
+	MIMEType string `json:"mime_type,omitempty"`
+	Size     int    `json:"size,omitempty"`
 }
 
 // Message is a single turn in a conversation.
@@ -40,7 +46,10 @@ type Message struct {
 	// supported for RoleUser; ignored on other roles and by providers that do
 	// not support vision.
 	ImageParts []ImagePart `json:"image_parts,omitempty"`
-	Reasoning  string      `json:"reasoning,omitempty"`
+	// Artifacts are downloadable session-owned files published by a completed
+	// share_file call. They are metadata only and never provider prompt content.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+	Reasoning string     `json:"reasoning,omitempty"`
 	// ReasoningSignature is the provider signature for the reasoning block (Anthropic extended
 	// thinking). It is replayed unmodified with the exact Reasoning text on later requests when
 	// thinking is enabled and the turn has tool calls; otherwise the Anthropic API rejects it.
@@ -50,6 +59,13 @@ type Message struct {
 	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
 	ToolCalls           []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID          string     `json:"tool_call_id,omitempty"` // for RoleTool messages
+	// Rules, on a RoleTool message, are the project rules the call brought
+	// into play for the first time, rendered as the model reads them after
+	// Content. They are kept apart from the output, which every surface shows
+	// and the result eviction replaces, and are joined to it only in what the
+	// provider is sent; written once with the result, they replay byte for
+	// byte on every later request.
+	Rules string `json:"rules,omitempty"`
 	// Model is the YAML models[].model selector used to generate this assistant message (HTTP/FoxxyCode), if set.
 	Model string `json:"model,omitempty"`
 	// CreatedAt is RFC3339 timestamp in UTC when the message was appended to history (UI and FoxxyCode REST).
@@ -71,6 +87,15 @@ type Message struct {
 	// finished notify_on_finish task started a turn with (excluded from what
 	// the provider is sent; the Content still is).
 	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
+}
+
+type Artifact struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	SHA256             string `json:"sha256"`
+	Size               int64  `json:"size"`
+	SourcePath         string `json:"source_path,omitempty"`
+	SourceRelativePath string `json:"source_relative_path,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -134,9 +159,13 @@ type StreamChunk struct {
 	// ToolCallDelta carries only an argument fragment, never an executable call.
 	ToolCallDelta *ToolCall
 	ToolCallNamed *ToolCall
-	StopReason    string
-	InputTokens   int
-	OutputTokens  int
+	// Attempt is the 1-based request attempt that produced this chunk, assigned
+	// by the resilience wrapper. Consumers accumulating argument previews reset
+	// them when it changes; zero means the provider was not wrapped.
+	Attempt      int
+	StopReason   string
+	InputTokens  int
+	OutputTokens int
 	// Progress marks a frame that advanced generation without delivering anything
 	// to the caller: a tool call's argument fragment, a thinking-block signature,
 	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the

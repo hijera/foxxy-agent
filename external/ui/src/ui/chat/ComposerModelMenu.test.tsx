@@ -187,3 +187,86 @@ test("empty filter result shows a no-models notice", () => {
   });
   expect(screen.getByTestId("model-menu-empty")).toBeTruthy();
 });
+
+// A menu of the composer answers Escape itself: a short list has no filter to
+// take the key, and a long one closes the same way. The key is claimed, so a
+// screen of the rail under the chat would stay.
+test("Escape closes the model menu, with a filter or without one", () => {
+  renderModelMenu({
+    models: ["opencode-go/glm-5", "cliproxyapi/gpt-5.5"],
+    model: "opencode-go/glm-5",
+  });
+  openModelMenu();
+  expect(screen.getByRole("menu")).toBeTruthy();
+  expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
+  expect(screen.queryByRole("menu")).toBeNull();
+  cleanup();
+
+  renderModelMenu({});
+  openModelMenu();
+  fireEvent.keyDown(screen.getByTestId("model-menu-filter"), { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+// Models added to a provider later are appended to models[] and used to land at
+// the bottom of their group, below names that sort after them. Within a vendor
+// the menu reads alphabetically, versions compared as numbers; the vendors keep
+// the order of the configuration.
+test("model menu lists the models of each vendor alphabetically, versions as numbers", () => {
+  renderModelMenu({
+    models: [
+      "codex/gpt-6-astra",
+      "codex/gpt-5.6-sol",
+      "codex/gpt-5.6-terra",
+      "codex/gpt-5.6-luna",
+      "codex/gpt-6-luna",
+      "codex/gpt-6-sol",
+      "codex/gpt-5.10-mini",
+      "neuraldeep/qwen3.8-27b",
+      "neuraldeep/gpt-oss-120b",
+    ],
+    model: "codex/gpt-6-astra",
+  });
+  openModelMenu();
+  const menu = screen.getByRole("menu");
+  const rows = within(menu)
+    .getAllByRole("menuitem")
+    .map((el) => el.textContent);
+  expect(rows).toEqual([
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.10-mini",
+    "gpt-6-astra",
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-oss-120b",
+    "qwen3.8-27b",
+  ]);
+  const labels = within(menu)
+    .getAllByText(/^(codex|neuraldeep)$/)
+    .map((el) => el.textContent);
+  expect(labels).toEqual(["codex", "neuraldeep"]);
+});
+
+// Enter takes the first row the reader sees, so the order is the menu's order.
+test("Enter in the filter picks the first model as the menu orders it", () => {
+  const onChange = vi.fn();
+  renderModelMenu({
+    models: [
+      "codex/gpt-6-sol",
+      "codex/gpt-6-astra",
+      "codex/gpt-5.6-luna",
+      "stub/a",
+      "stub/b",
+      "stub/c",
+    ],
+    model: "stub/a",
+    onChange,
+  });
+  openModelMenu();
+  const filter = screen.getByTestId("model-menu-filter");
+  fireEvent.change(filter, { target: { value: "gpt-6" } });
+  fireEvent.keyDown(filter, { key: "Enter" });
+  expect(onChange).toHaveBeenCalledWith("codex/gpt-6-astra");
+});

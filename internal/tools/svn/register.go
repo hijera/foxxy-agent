@@ -2,23 +2,13 @@ package svn
 
 import (
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/svn"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
-// ReadOnlyToolNames are the svn tools that never change state; they are the ones
-// offered in plan and ask mode.
-func ReadOnlyToolNames() []string {
-	return []string{"svn_info", "svn_status", "svn_diff", "svn_log", "svn_list"}
-}
-
-// ToolNames returns every svn tool name, read-only ones first.
-func ToolNames() []string {
-	return append(ReadOnlyToolNames(),
-		"svn_add", "svn_revert", "svn_resolve",
-		"svn_update", "svn_commit", "svn_switch", "svn_merge", "svn_checkout",
-	)
-}
+func ReadOnlyToolNames() []string { return svn.ReadOnlyToolNames() }
+func ToolNames() []string         { return svn.ToolNames() }
 
 // Enabled reports whether the svn tools should be registered: Subversion support
 // has to be on in the config and an svn client has to be installed. Both are

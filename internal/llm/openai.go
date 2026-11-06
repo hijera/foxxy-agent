@@ -120,12 +120,20 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 					parts = append(parts, openai.TextContentPart(m.Content))
 				}
 				for _, ip := range m.ImageParts {
-					mime := dataURLMIME(ip.DataURL)
-					if strings.HasPrefix(mime, "image/") || (!strings.HasPrefix(ip.DataURL, "data:") && strings.HasPrefix(ip.DataURL, "https://")) {
+					// Every picture type goes as one: a local server behind this
+					// API may take more types than OpenAI does. An SVG is text,
+					// and a data URL whose payload is not base64 is not a
+					// picture any API takes - it is named instead, the way the
+					// other providers name a picture they cannot send.
+					if IsPicture(ip) && pictureHasSendableSource(ip.DataURL) {
 						parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
 							URL:    ip.DataURL,
 							Detail: "auto",
 						}))
+					} else if IsPicture(ip) {
+						kind, mime, _ := sortAttachment(ip)
+						parts = append(parts, openai.TextContentPart(
+							strings.TrimPrefix(attachmentText(ip, kind, mime), "\n")))
 					} else {
 						// Non-image data URL: decode and inject as labelled text block.
 						decoded := decodeDataURL(ip.DataURL)
@@ -360,55 +368,11 @@ func mapOpenAIStopReason(reason string) string {
 	}
 }
 
-// dataURLMIME extracts the MIME type from a data URI (e.g. "data:text/plain;base64,...").
-// Returns empty string for non-data URIs.
-func dataURLMIME(dataURL string) string {
-	if !strings.HasPrefix(dataURL, "data:") {
-		return ""
-	}
-	rest := dataURL[5:]
-	semi := strings.IndexByte(rest, ';')
-	comma := strings.IndexByte(rest, ',')
-	if semi > 0 && (comma < 0 || semi < comma) {
-		return rest[:semi]
-	}
-	if comma > 0 {
-		return rest[:comma]
-	}
-	return ""
-}
-
-// splitImageDataURL splits an image data URI ("data:image/png;base64,<data>") into
-// its media type and base64 payload. Returns ok=false for non-image or non-base64
-// data URIs.
-func splitImageDataURL(dataURL string) (mediaType, b64 string, ok bool) {
-	if !strings.HasPrefix(dataURL, "data:") {
-		return "", "", false
-	}
-	comma := strings.IndexByte(dataURL, ',')
-	if comma < 0 {
-		return "", "", false
-	}
-	header := dataURL[5:comma]
-	if !strings.Contains(header, ";base64") {
-		return "", "", false
-	}
-	mediaType = strings.TrimSuffix(header, ";base64")
-	if !strings.HasPrefix(mediaType, "image/") {
-		return "", "", false
-	}
-	return mediaType, dataURL[comma+1:], true
-}
-
 // decodeDataURL extracts and base64-decodes the payload from a data URI.
 // Returns the raw string on failure (best-effort).
 func decodeDataURL(dataURL string) string {
-	comma := strings.IndexByte(dataURL, ',')
-	if comma < 0 {
-		return dataURL
-	}
-	payload := dataURL[comma+1:]
-	if strings.Contains(dataURL[:comma], ";base64") {
+	_, isBase64, payload := parseDataURL(dataURL)
+	if isBase64 {
 		decoded, err := base64.StdEncoding.DecodeString(payload)
 		if err == nil {
 			return string(decoded)

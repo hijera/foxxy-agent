@@ -287,6 +287,86 @@ func TestConfiguredRemotesDownAreWarnings(t *testing.T) {
 	}
 }
 
+// fakeRelay answers the way a swarm relay does: no /v1 at all, a public
+// /swarm/info, and the node list behind its client token.
+func fakeRelay(t *testing.T, clientToken string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/swarm/info":
+			_, _ = fmt.Fprint(w, `{"swarm":true,"name":"office","node_count":2}`)
+		case "/swarm/nodes":
+			if r.Header.Get("Authorization") != "Bearer "+clientToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"nodes":[{"name":"worker-a","kind":"agent","online":true},{"name":"worker-b","kind":"agent","online":false},{"name":"inner","kind":"relay","online":true}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A relay serves no /v1, so --remote at a relay's root cannot drive anything:
+// the dry run says it is a relay and names the node mounts to use instead
+// (issue #401), rather than "answered HTTP 404".
+func TestRemoteTargetThatIsARelayNamesItsNodes(t *testing.T) {
+	relay := fakeRelay(t, "client")
+	rep := run(t, "agent:\n  max_turns: 3\n", func(r *Request) { r.Remote = &remote.Options{BaseURL: relay.URL, Token: "client"} })
+	c := find(t, rep, "--remote")
+	if c.Status != StatusError || !strings.Contains(c.Message, "swarm relay") {
+		t.Fatalf("relay target %+v", c)
+	}
+	if !strings.Contains(c.Fix, relay.URL+"/swarm/nodes/worker-a") || !strings.Contains(c.Fix, "worker-b") || strings.Contains(c.Fix, "inner") {
+		t.Errorf("the fix should name the agents' mounts: %+v", c)
+	}
+	refused := run(t, "agent:\n  max_turns: 3\n", func(r *Request) { r.Remote = &remote.Options{BaseURL: relay.URL, Token: "wrong"} })
+	if c := find(t, refused, "--remote"); c.Status != StatusError || !strings.Contains(c.Message, "rejected the token") || !strings.Contains(c.Fix, "swarm.auth_token") {
+		t.Errorf("relay refusing the token %+v", c)
+	}
+}
+
+// A configured remote is probed with the token its entry carries, and a relay
+// among them is recognised as one.
+func TestConfiguredRemotesUseTheirTokenAndKnowARelay(t *testing.T) {
+	relay := fakeRelay(t, "client")
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer box-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"data":[]}`)
+	}))
+	t.Cleanup(agent.Close)
+	cfg := fmt.Sprintf("httpserver:\n  remotes:\n"+
+		"    - name: office\n      url: %s\n      token: client\n"+
+		"    - name: office-wrong\n      url: %s\n      token: nope\n"+
+		"    - name: office-bare\n      url: %s\n"+
+		"    - name: box\n      url: %s\n      token: box-token\n"+
+		"    - name: box-wrong\n      url: %s\n      token: nope\n",
+		relay.URL, relay.URL, relay.URL, agent.URL, agent.URL)
+	rep := run(t, cfg, nil)
+	if c := find(t, rep, "httpserver.remotes[office]"); c.Status != StatusOK || !strings.Contains(c.Message, "swarm relay") || !strings.Contains(c.Message, "accepts the token") {
+		t.Errorf("relay with its token %+v", c)
+	}
+	if c := find(t, rep, "httpserver.remotes[office-wrong]"); c.Status != StatusWarning || !strings.Contains(c.Message, "rejected the token") {
+		t.Errorf("relay refusing the entry's token %+v", c)
+	}
+	// Without a token in the entry the token is the browser's or the flag's
+	// business, so the relay is simply there.
+	if c := find(t, rep, "httpserver.remotes[office-bare]"); c.Status != StatusOK || !strings.Contains(c.Message, "swarm relay") {
+		t.Errorf("relay without a token %+v", c)
+	}
+	if c := find(t, rep, "httpserver.remotes[box]"); c.Status != StatusOK || !strings.Contains(c.Message, "accepts the token") {
+		t.Errorf("agent with its token %+v", c)
+	}
+	if c := find(t, rep, "httpserver.remotes[box-wrong]"); c.Status != StatusWarning || !strings.Contains(c.Message, "rejected the token") {
+		t.Errorf("agent refusing the entry's token %+v", c)
+	}
+}
+
 func TestSessionsDirAndLogFile(t *testing.T) {
 	state := t.TempDir()
 	// The store and the logger create missing directories themselves, so a

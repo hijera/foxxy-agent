@@ -1,6 +1,6 @@
 // Management operations shared by the HTTP API and CLI: merged server list
-// with scope/origin labels, enable/disable persistence into the owning file
-// (config.yaml, <home>/mcp.json, or <cwd>/.foxxycode/mcp.json), and mcp.json
+// with scope/origin labels, enable/disable persistence into config.yaml,
+// <home>/mcp.json, or operator-owned project overrides, and mcp.json
 // server CRUD.
 package mcp
 
@@ -27,6 +27,9 @@ const (
 	OriginConfig  = "config"  // config.yaml (edited via the config API, not here)
 	OriginHome    = "home"    // <home>/mcp.json (global, Cursor-style)
 	OriginProject = "project" // <cwd>/.foxxycode/mcp.json (project-local)
+	// OriginClient marks a declaration an ACP client sent with session/new or
+	// session/load: no file owns it and no trust gate decides on it.
+	OriginClient = "client"
 )
 
 // ManagedServer is one merged server definition with its scope and origin.
@@ -48,7 +51,7 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 	if err != nil {
 		return nil, err
 	}
-	return mergeManaged(cfg.MCPServers, global, project), nil
+	return applyProjectSwitches(cfg.Paths.Home, cwd, mergeManaged(cfg.MCPServers, global, project))
 }
 
 // mcpJSONLoadErrors remembers the last load failure reported per mcp.json path,
@@ -58,27 +61,55 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 // call, hence the deduplication: a single malformed file would fill the log.
 var mcpJSONLoadErrors sync.Map // path -> last error string
 
+// loadMCPJSONTolerant reads one mcp.json, logging and skipping a broken file.
+func loadMCPJSONTolerant(path string, log *slog.Logger) []config.MCPServerConfig {
+	servers, err := config.LoadMCPJSONServers(path)
+	if err != nil {
+		if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
+			mcpJSONLoadErrors.Store(path, err.Error())
+			if log != nil {
+				log.Warn("failed to load mcp.json", "path", path, "error", err)
+			}
+		}
+		return nil
+	}
+	mcpJSONLoadErrors.Delete(path)
+	return servers
+}
+
+// GlobalServers lists the servers of the global configuration - config.yaml
+// merged with <home>/mcp.json - with no workspace's project file over them.
+// A broken <home>/mcp.json is logged and skipped, as at session start.
+func GlobalServers(cfg *config.Config, log *slog.Logger) []ManagedServer {
+	return mergeManaged(cfg.MCPServers, loadMCPJSONTolerant(config.GlobalMCPJSONPath(cfg.Paths.Home), log), nil)
+}
+
 // ListManagedServersTolerant is ListManagedServers with a broken mcp.json
 // logged and skipped instead of failing the whole list. Session bootstrap
 // uses it so one unreadable file cannot stop a session from starting.
 func ListManagedServersTolerant(cfg *config.Config, cwd string, log *slog.Logger) []ManagedServer {
-	load := func(path string) []config.MCPServerConfig {
-		servers, err := config.LoadMCPJSONServers(path)
-		if err != nil {
-			if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
-				mcpJSONLoadErrors.Store(path, err.Error())
-				if log != nil {
-					log.Warn("failed to load mcp.json", "path", path, "error", err)
-				}
-			}
-			return nil
+	merged := mergeManaged(cfg.MCPServers,
+		loadMCPJSONTolerant(config.GlobalMCPJSONPath(cfg.Paths.Home), log),
+		loadMCPJSONTolerant(config.MCPJSONPath(cwd), log))
+	servers, err := applyProjectSwitches(cfg.Paths.Home, cwd, merged)
+	if err != nil {
+		// The operator's switches for the project servers cannot be read, so
+		// none of them is known to be on: they stay off until the file is
+		// repaired. Global servers keep their own declarations and switches;
+		// an empty list here would also have emptied the per-turn tool filter,
+		// turning back on every tool the operator switched off.
+		if log != nil {
+			log.Warn("failed to load MCP overrides; project MCP servers stay off until it is repaired",
+				"path", overridesPath(cfg.Paths.Home), "error", err)
 		}
-		mcpJSONLoadErrors.Delete(path)
-		return servers
+		for i := range merged {
+			if merged[i].Origin == OriginProject {
+				merged[i].Config.Disabled = true
+			}
+		}
+		return merged
 	}
-	return mergeManaged(cfg.MCPServers,
-		load(config.GlobalMCPJSONPath(cfg.Paths.Home)),
-		load(config.MCPJSONPath(cwd)))
+	return servers
 }
 
 // mergeManaged overlays the two mcp.json levels onto config.yaml and labels
@@ -134,11 +165,15 @@ func owningJSONPath(cfg *config.Config, cwd string, srv *ManagedServer) string {
 	}
 }
 
-// SetServerDisabled persists the server-level switch into the owning file.
+// SetServerDisabled persists the server-level switch outside the checkout for
+// project entries, or into the owning file for global entries.
 func SetServerDisabled(cfg *config.Config, cwd, name string, disabled bool) error {
 	srv, err := findManaged(cfg, cwd, name)
 	if err != nil {
 		return err
+	}
+	if srv.Origin == OriginProject {
+		return updateProjectSwitch(cfg, cwd, name, func(s *projectSwitches) { s.Disabled = &disabled })
 	}
 	if path := owningJSONPath(cfg, cwd, srv); path != "" {
 		return config.SetMCPJSONServerDisabled(path, name, disabled)
@@ -148,11 +183,19 @@ func SetServerDisabled(cfg *config.Config, cwd, name string, disabled bool) erro
 	})
 }
 
-// SetToolDisabled persists a per-tool switch into the owning file.
+// SetToolDisabled persists a per-tool switch using the same scope rule.
 func SetToolDisabled(cfg *config.Config, cwd, name, tool string, disabled bool) error {
 	srv, err := findManaged(cfg, cwd, name)
 	if err != nil {
 		return err
+	}
+	if srv.Origin == OriginProject {
+		return updateProjectSwitch(cfg, cwd, name, func(s *projectSwitches) {
+			if s.DisabledTools == nil {
+				s.DisabledTools = make(map[string]bool)
+			}
+			s.DisabledTools[tool] = disabled
+		})
 	}
 	if path := owningJSONPath(cfg, cwd, srv); path != "" {
 		return config.SetMCPJSONToolDisabled(path, name, tool, disabled)
@@ -221,6 +264,19 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 	if !removed {
 		return fmt.Errorf("mcp server %q not found in %s", name, path)
 	}
+	if srv.Origin == OriginProject {
+		// The switches belong to the declaration that went, so a later server
+		// of the same name starts from its own declaration. They are dropped
+		// after it, never before: a delete that fails must leave a server the
+		// operator switched off switched off. Switches the home cannot drop
+		// name a server no longer declared and start nothing, so the delete
+		// stands and the leftover is logged.
+		if err := dropProjectSwitches(cfg, cwd, name); err != nil {
+			slog.Warn("mcp server deleted; its switches stay in the overrides file",
+				"name", name, "workspace", CanonicalWorkspace(cwd),
+				"file", overridesPath(cfg.Paths.Home), "error", err)
+		}
+	}
 	return nil
 }
 
@@ -228,22 +284,23 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 // lives next to the other MCP switches so the management surface owns every
 // MCP decision, instead of splitting one server list across two settings tabs.
 func SetProjectTrust(cfg *config.Config, policy string) error {
-	next := config.MCP{ProjectTrust: policy}
-	if err := next.Validate(); err != nil {
+	check := config.MCP{ProjectTrust: policy}
+	if err := check.Validate(); err != nil {
 		return err
 	}
 	// Same read-modify-write discipline as mutateGlobalServer: apply the trust
 	// change to a fresh on-disk config under the lock, then mirror it back.
+	// Only the policy moves; the other mcp settings stay as the file has them.
 	return config.WithConfigFileLock(func() error {
 		fresh, err := freshGlobalConfig(cfg)
 		if err != nil {
 			return err
 		}
-		fresh.MCP = next
+		fresh.MCP.ProjectTrust = check.ProjectTrust
 		if err := persistConfigYAML(fresh); err != nil {
 			return err
 		}
-		cfg.MCP = next
+		cfg.MCP.ProjectTrust = check.ProjectTrust
 		return nil
 	})
 }

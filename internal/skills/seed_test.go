@@ -7,6 +7,7 @@ package skills_test
 // copy that declares no version.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -312,8 +313,11 @@ func TestRemovingARedundantConfigEntryClearsTheFile(t *testing.T) {
 	}
 	cfg.Skills.Sources = append(cfg.Skills.Sources, config.SystemSkillsSource)
 
+	// The answer is a notice, not a failure: the entry is gone, and the
+	// marketplace stays in effect.
 	_, err := skills.RemoveSource(cfg, config.SystemSkillsSource)
-	if err == nil || !strings.Contains(err.Error(), "stays in effect") {
+	var notice skills.RemovalNotice
+	if !errors.As(err, &notice) || !strings.Contains(notice.Msg, "stays in effect") {
 		t.Fatalf("expected the answer to say the marketplace stays, got %v", err)
 	}
 	for _, s := range cfg.Skills.Sources {

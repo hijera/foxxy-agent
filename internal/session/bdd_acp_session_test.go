@@ -88,10 +88,10 @@ func (s *acpSessionFeatureState) close() {
 		done := make(chan error, 1)
 		go func() { done <- s.cmd.Wait() }()
 		select {
-		case <-done:
+		case <-done: //nolint:errcheck // Only completion is needed here.
 		case <-time.After(2 * time.Second):
 			_ = s.cmd.Process.Kill()
-			<-done
+			<-done //nolint:errcheck // Only completion is needed here.
 		}
 	}
 	s.cmd = nil

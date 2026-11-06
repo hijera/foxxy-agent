@@ -36,34 +36,11 @@ import { ProviderImportMenu } from "./ProviderImportMenu";
 import { uniqueProviderName } from "./providerTransfer";
 import { SESSIONS_CONFIG_KEY, type SectionDescriptor } from "./settingsSections";
 import { translate } from "../i18n/i18n";
-
-// The deployments a neuraldeep provider may point at, mirroring
-// neuralDeepEndpoints in internal/llm/neuraldeep_auth.go. The backend ignores
-// anything else in api_base and falls back to the first entry.
-const NEURALDEEP_API_BASE_OPTIONS = [
-  {
-    value: "https://api.neuraldeep.ru/v1",
-    labelKey: "settings.neuralDeepApiBase.optionRu",
-  },
-  {
-    value: "https://api.neuraldeep.tech/v1",
-    labelKey: "settings.neuralDeepApiBase.optionTech",
-  },
-] as const;
-const NEURALDEEP_DEFAULT_API_BASE = NEURALDEEP_API_BASE_OPTIONS[0].value;
-
-/** Canonical spelling of a stored api_base, or "" when it names no NeuralDeep endpoint. */
-function matchNeuralDeepAPIBase(value: unknown): string {
-  let want = String(value ?? "").trim();
-  while (want.endsWith("/")) {
-    want = want.slice(0, -1);
-  }
-  want = want.toLowerCase();
-  return (
-    NEURALDEEP_API_BASE_OPTIONS.find((o) => o.value.toLowerCase() === want)
-      ?.value ?? ""
-  );
-}
+import {
+  NEURALDEEP_API_BASE_OPTIONS,
+  NEURALDEEP_DEFAULT_API_BASE,
+  matchNeuralDeepAPIBase,
+} from "./neuralDeepEndpoints";
 
 type FieldOverrideContext = Parameters<FieldOverride>[0];
 
@@ -197,6 +174,9 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
         providerName={providerName}
         hasExplicitKey={hasExplicitKey}
         apiBase={apiBase}
+        {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+          ? { proxy: String(ctx.parentObj?.proxy ?? "") }
+          : {})}
       />
     </>
   );
@@ -249,7 +229,14 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         ctx.parentObj?.name === undefined || ctx.parentObj.name === null
           ? ""
           : String(ctx.parentObj.name);
-      return <CodexAuthField providerName={providerName} />;
+      return (
+        <CodexAuthField
+          providerName={providerName}
+          {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+            ? { proxy: String(ctx.parentObj?.proxy ?? "") }
+            : {})}
+        />
+      );
     }
   }
   return neuralDeepAPIBaseOverride(ctx);
@@ -282,6 +269,7 @@ export function SettingsSection(props: {
   onEditingChange?: ((editing: boolean) => void) | undefined;
   /** Each change closes an open row form (the head's back arrow). */
   closeSignal?: number | undefined;
+  replacedSignal?: number | undefined;
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
   /** The conversation on screen, so the session table can spare it. */
@@ -402,7 +390,7 @@ export function SettingsSection(props: {
   // persist into config.yaml / .foxxycode/mcp.json immediately, so it does not
   // edit the settings document at all.
   if (section.kind === "mcp") {
-    return <MCPSection />;
+    return <MCPSection {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})} />;
   }
 
   // Subagents edits the config section like any object tab, and additionally
@@ -560,7 +548,7 @@ export function SettingsSection(props: {
         hideBackLink={props.hideBackLink}
         onEditingChange={props.onEditingChange}
         closeSignal={props.closeSignal}
-
+        replacedSignal={props.replacedSignal}
         groups={
           key === "providers"
             ? [
@@ -710,7 +698,7 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       {
         id: "turn",
         legend: translate("settings.group.agent.turn"),
-        paths: ["model", "max_turns"],
+        paths: ["model", "max_turns", "queue_mode"],
       },
       {
         id: "retries",

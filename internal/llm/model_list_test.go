@@ -2,10 +2,14 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -196,7 +200,7 @@ func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
 			t.Fatalf("path = %q, want /models", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("client_version"); got != codexModelsClientVersion {
-			t.Fatalf("client_version = %q, want numeric 0.0.0 fallback", got)
+			t.Fatalf("client_version = %q, want %q", got, codexModelsClientVersion)
 		}
 		if r.Header.Get("Authorization") == "" || r.Header.Get("chatgpt-account-id") != "acct-models" {
 			t.Fatalf("missing Codex OAuth headers: %v", r.Header)
@@ -259,4 +263,93 @@ func TestListModelsVisionCapability(t *testing.T) {
 			t.Errorf("model %q Vision = %v, want %v", m.ID, m.Vision, w)
 		}
 	}
+}
+
+// testCodexVersion reads a Codex client_version the way the backend checks
+// it: x.y.z of non-negative integers, anything else refused.
+func testCodexVersion(s string) (v [3]int, ok bool) {
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return v, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
+}
+
+// The Codex backend drops every catalog row whose minimal_client_version is
+// above the client_version the request names, so a request naming an old
+// release loses the newest models: 0.0.0, a Codex source build, hid gpt-6-sol
+// and gpt-6-luna (issue #394). FoxxyCode runs every model through its own loop and
+// tools, so the request has to clear the gates of the Codex 0.x releases, far
+// past the current one, in the x.y.z form the backend accepts - and stay a 0.x
+// release, since the backend answers 1.0.0 and above with a catalog variant no
+// release gets.
+func TestCodexCatalogRequestClearsTheReleaseGates(t *testing.T) {
+	authPath := writeCodexAuth(t, t.TempDir(), codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens:   codexTokens{AccessToken: makeJWT(time.Now().Add(time.Hour))},
+	})
+	rows := []struct{ slug, minimal string }{
+		{"codex-auto-review", "0.98.0"},
+		{"gpt-6-astra", "0.153.0"},
+		{"gpt-6-sol", "0.155.0"},
+		{"gpt-6-luna", "0.155.0"},
+		{"gpt-next", "0.998.0"},
+	}
+	var asked []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw := r.URL.Query().Get("client_version")
+		asked = append(asked, raw)
+		client, ok := testCodexVersion(raw)
+		if !ok {
+			http.Error(w, `{"detail":"Invalid client_version format"}`, http.StatusBadRequest)
+			return
+		}
+		models := []map[string]any{}
+		for _, row := range rows {
+			minimal, _ := testCodexVersion(row.minimal)
+			if slicesLess(client[:], minimal[:]) {
+				continue
+			}
+			models = append(models, map[string]any{"slug": row.slug, "minimal_client_version": row.minimal})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": models})
+	}))
+	defer upstream.Close()
+
+	entries, err := fetchCodexCatalogOnline(context.Background(), ProviderInput{Type: "codex", AuthPath: authPath}, upstream.URL)
+	if err != nil {
+		t.Fatalf("fetch catalog (client_version %q): %v", asked, err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Slug)
+	}
+	sort.Strings(got)
+	want := []string{"codex-auto-review", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-next"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("catalog = %v, want %v (asked with client_version %q)", got, want, asked)
+	}
+	if len(asked) != 1 {
+		t.Fatalf("catalog asked %d times (%q), want once", len(asked), asked)
+	}
+	if v, _ := testCodexVersion(asked[0]); v[0] != 0 {
+		t.Fatalf("client_version = %q, want a 0.x release: the backend answers 1.0.0 and above with a different catalog", asked[0])
+	}
+}
+
+// slicesLess compares two versions part by part.
+func slicesLess(a, b []int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
 }

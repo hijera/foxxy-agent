@@ -19,6 +19,7 @@ in IDE embeds.
 5. Review the checks and release an immutable semantic version.
 
 The catalog is at `#/miniapps`; `#/miniapps/{id}` restores a selected workflow.
+Press Escape to close the workspace and return to the viewed chat.
 Draft saves use revision checks. A changed or stale draft cannot release an older
 stored revision. Released runs load the exact version independently of the draft.
 

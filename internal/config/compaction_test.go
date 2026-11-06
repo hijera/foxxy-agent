@@ -89,6 +89,16 @@ func TestCompactionExplicitDisablePreserved(t *testing.T) {
 	}
 }
 
+func TestCompactionCanDisableOnlyAutomation(t *testing.T) {
+	for _, engine := range []string{"coddy", "opencode"} {
+		off := false
+		c := config.CompactionConfig{Engine: engine, AutoEnabled: &off}
+		if !c.IsEnabled() || c.IsAutoEnabled() {
+			t.Fatalf("%s manual and automatic switches are not independent: %+v", engine, c)
+		}
+	}
+}
+
 func TestCompactionOpenCodeThresholdClamped(t *testing.T) {
 	low := config.CompactionConfig{Engine: "opencode", ThresholdPercent: 10}
 	low.ApplyDefaults()
@@ -118,6 +128,23 @@ func TestCompactionKeepRecentExplicitZero(t *testing.T) {
 	c.ApplyDefaults()
 	if got := c.EffectiveKeepRecentTurns(); got != 0 {
 		t.Errorf("EffectiveKeepRecentTurns = %d, want explicit 0", got)
+	}
+}
+
+// The name the schema and the example config give the default engine is read
+// as the coddy engine, so a file written with either spelling validates and
+// runs the same engine.
+func TestCompactionFoxxyCodeEngineIsAliasOfCoddy(t *testing.T) {
+	c := config.CompactionConfig{Engine: "foxxycode"}
+	c.Normalize()
+	c.ApplyDefaults()
+	if c.Engine != config.CompactionEngineCoddy || c.EngineIsOpenCode() {
+		t.Fatalf("engine foxxycode resolved to %q, want %q", c.Engine, config.CompactionEngineCoddy)
+	}
+	cfg := &config.Config{Compaction: config.CompactionConfig{Engine: "foxxycode"}}
+	cfg.Compaction.ApplyDefaults()
+	if err := cfg.Compaction.Validate(cfg); err != nil {
+		t.Fatalf("engine foxxycode must validate, got %v", err)
 	}
 }
 

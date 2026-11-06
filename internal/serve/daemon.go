@@ -126,7 +126,7 @@ func StartDetached(opts DaemonOptions) (Record, error) {
 	if existing, err := ReadRecord(opts.Home); err == nil && existing.Running() {
 		return Record{}, &ErrAlreadyRunning{Record: existing}
 	}
-	exe, err := os.Executable()
+	exe, err := platform.Executable()
 	if err != nil {
 		return Record{}, fmt.Errorf("locate the foxxycode binary: %w", err)
 	}
@@ -146,6 +146,7 @@ func StartDetached(opts DaemonOptions) (Record, error) {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	platform.DetachFromTerminal(cmd)
+	platform.AdaptCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return Record{}, fmt.Errorf("start the dispatcher: %w", err)
 	}
@@ -279,7 +280,7 @@ func reapAbandonedWorker(home string, log *slog.Logger) {
 // disk, so a panic that escaped a surface, an OOM kill, or a `foxxycode update` that
 // replaced the executable are all recovered by the same mechanism.
 func runWorkerProcess(ctx context.Context, opts DaemonOptions, onStart func(pid int)) (int, error) {
-	exe, err := os.Executable()
+	exe, err := platform.Executable()
 	if err != nil {
 		return 1, fmt.Errorf("locate the foxxycode binary: %w", err)
 	}
@@ -297,6 +298,7 @@ func runWorkerProcess(ctx context.Context, opts DaemonOptions, onStart func(pid 
 	// button, again on every restart. A no-op when a terminal is watching,
 	// which is what keeps a foreground `serve` writing where it was typed.
 	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return 1, fmt.Errorf("start the worker: %w", err)
 	}
@@ -313,7 +315,7 @@ func runWorkerProcess(ctx context.Context, opts DaemonOptions, onStart func(pid 
 		if err := platform.TerminateProcessGroup(cmd, workerDrain); err != nil {
 			opts.logger().Warn("stopping the worker", "error", err)
 		}
-		<-done
+		<-done //nolint:errcheck // Only completion is needed here.
 		return 0, nil
 	}
 }

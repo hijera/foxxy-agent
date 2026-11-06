@@ -12,10 +12,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -661,5 +663,265 @@ func TestHTTPRequestDescribeNamesTheProxyAndAnUncheckedCertificate(t *testing.T)
 	}
 	if req.ProxyOrigin() != "socks5h://10.0.0.2:1080" {
 		t.Errorf("proxy origin = %q", req.ProxyOrigin())
+	}
+}
+
+// browserUA is the User-Agent the default-header tests configure.
+const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+func runHTTPRequestWithDefaults(t *testing.T, cwd, args string, defaults map[string]string) (string, error) {
+	t.Helper()
+	return HTTPRequestTool().Execute(context.Background(), args, &tooling.Env{CWD: cwd, HTTPDefaultHeaders: defaults})
+}
+
+func TestHTTPRequestWithoutDefaultHeadersSendsWhatItAlwaysSent(t *testing.T) {
+	cwd := t.TempDir()
+	for _, args := range []string{
+		`{"url":"https://example.com"}`,
+		`{"url":"https://example.com","json":{"a":1}}`,
+		`{"url":"https://example.com","headers":{"User-Agent":"","X-Trace":"t"}}`,
+	} {
+		plain, err := ParseHTTPRequest(args, cwd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, defaults := range []map[string]string{nil, {}} {
+			got, err := ParseHTTPRequestInEnv(args, &tooling.Env{CWD: cwd, HTTPDefaultHeaders: defaults})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Header, plain.Header) || got.Describe() != plain.Describe() {
+				t.Errorf("%s with defaults %v: headers %v, want %v", args, defaults, got.Header, plain.Header)
+			}
+		}
+	}
+	srv, seen := recordingServer(t, nil)
+	if _, err := runHTTPRequestWithDefaults(t, cwd, `{"url":"`+srv.URL+`"}`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ua := lastCapture(t, seen).header.Get("User-Agent"); ua != userAgent {
+		t.Fatalf("User-Agent = %q, want the tool's own %q", ua, userAgent)
+	}
+}
+
+func TestHTTPRequestDefaultHeadersGoOutWithEveryCall(t *testing.T) {
+	srv, seen := recordingServer(t, nil)
+	defaults := map[string]string{"User-Agent": browserUA, "accept": "application/manifest+json"}
+	for _, args := range []string{
+		`{"url":"` + srv.URL + `/app.webmanifest"}`,
+		`{"url":"` + srv.URL + `/items","method":"PATCH","json":{"name":"lamp"}}`,
+	} {
+		if _, err := runHTTPRequestWithDefaults(t, t.TempDir(), args, defaults); err != nil {
+			t.Fatal(err)
+		}
+		got := lastCapture(t, seen)
+		if ua := got.header.Get("User-Agent"); ua != browserUA {
+			t.Errorf("%s: User-Agent = %q, want the configured one", args, ua)
+		}
+		if accept := got.header.Get("Accept"); accept != "application/manifest+json" {
+			t.Errorf("%s: Accept = %q, want the configured one", args, accept)
+		}
+	}
+	// A default header does not touch what the payload says about itself.
+	if ct := lastCapture(t, seen).header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type of a JSON body = %q", ct)
+	}
+}
+
+func TestHTTPRequestCallHeadersWinOverTheDefaults(t *testing.T) {
+	srv, seen := recordingServer(t, nil)
+	defaults := map[string]string{"User-Agent": browserUA, "X-Client": "foxxycode-lab", "Accept": "application/json"}
+	args := `{"url":"` + srv.URL + `","headers":{"user-agent":"probe/2","X-CLIENT":"other"}}`
+	if _, err := runHTTPRequestWithDefaults(t, t.TempDir(), args, defaults); err != nil {
+		t.Fatal(err)
+	}
+	got := lastCapture(t, seen)
+	if ua := got.header.Get("User-Agent"); ua != "probe/2" {
+		t.Errorf("User-Agent = %q, want the call's", ua)
+	}
+	if client := got.header.Values("X-Client"); len(client) != 1 || client[0] != "other" {
+		t.Errorf("X-Client = %q, want only the call's", client)
+	}
+	if accept := got.header.Get("Accept"); accept != "application/json" {
+		t.Errorf("Accept = %q, want the configured one the call left alone", accept)
+	}
+}
+
+func TestHTTPRequestEmptyCallValueRemovesADefault(t *testing.T) {
+	srv, seen := recordingServer(t, nil)
+	defaults := map[string]string{"User-Agent": browserUA, "X-Client": "foxxycode-lab"}
+	args := `{"url":"` + srv.URL + `","headers":{"User-Agent":"","X-Client":""}}`
+	if _, err := runHTTPRequestWithDefaults(t, t.TempDir(), args, defaults); err != nil {
+		t.Fatal(err)
+	}
+	got := lastCapture(t, seen)
+	// Not the configured one, not the tool's own and not Go's own either.
+	if ua, ok := got.header["User-Agent"]; ok {
+		t.Errorf("User-Agent was sent as %q", ua)
+	}
+	if client, ok := got.header["X-Client"]; ok {
+		t.Errorf("X-Client was sent as %q", client)
+	}
+}
+
+func TestHTTPRequestEmptyDefaultLeavesTheHeaderOut(t *testing.T) {
+	srv, seen := recordingServer(t, nil)
+	defaults := map[string]string{"User-Agent": ""}
+	if _, err := runHTTPRequestWithDefaults(t, t.TempDir(), `{"url":"`+srv.URL+`"}`, defaults); err != nil {
+		t.Fatal(err)
+	}
+	if ua, ok := lastCapture(t, seen).header["User-Agent"]; ok {
+		t.Errorf("User-Agent was sent as %q", ua)
+	}
+	if _, err := runHTTPRequestWithDefaults(t, t.TempDir(), `{"url":"`+srv.URL+`","headers":{"User-Agent":"probe/2"}}`, defaults); err != nil {
+		t.Fatal(err)
+	}
+	if ua := lastCapture(t, seen).header.Get("User-Agent"); ua != "probe/2" {
+		t.Errorf("User-Agent = %q, want the call's", ua)
+	}
+}
+
+func TestHTTPRequestRefusesADefaultHeaderNotMeantForEveryRequest(t *testing.T) {
+	for name, value := range map[string]string{
+		"Host":                "api.internal",
+		"content-length":      "3",
+		"Transfer-Encoding":   "chunked",
+		"Content-Type":        "application/json",
+		"Proxy-Authorization": "Basic dTpw",
+		"Upgrade":             "h2c",
+		"Connection":          "close",
+		"Bad Name":            "x",
+		"X-Split":             "a\r\nInjected: b",
+	} {
+		_, err := ParseHTTPRequestInEnv(`{"url":"https://example.com"}`, &tooling.Env{HTTPDefaultHeaders: map[string]string{name: value}})
+		if err == nil {
+			t.Errorf("default header %q = %q was accepted", name, value)
+			continue
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(strings.Fields(name)[0])) {
+			t.Errorf("default header %q: error %q does not name it", name, err)
+		}
+	}
+}
+
+func TestHTTPRequestDescribeNamesTheConfiguredHeaders(t *testing.T) {
+	defaults := map[string]string{"User-Agent": browserUA, "X-Client": "foxxycode-lab", "Accept": "application/json", "X-Off": ""}
+	req, err := ParseHTTPRequestInEnv(`{"url":"https://api.example.com/items","headers":{"Accept":"text/html"}}`, &tooling.Env{CWD: t.TempDir(), HTTPDefaultHeaders: defaults})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := req.Describe()
+	for _, want := range []string{
+		"User-Agent: " + browserUA,
+		"X-Client: <redacted>",
+		"Accept: text/html",
+		// X-Off is left out by the configuration: named, never sent.
+		"Headers from tools.http_request.default_headers: User-Agent, X-Client, X-Off (not sent)\n",
+	} {
+		if !strings.Contains(text+"\n", want) {
+			t.Errorf("description does not show %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "X-Off:") {
+		t.Errorf("a header the configuration leaves out is shown as sent:\n%s", text)
+	}
+	plain, err := ParseHTTPRequest(`{"url":"https://api.example.com/items"}`, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plain.Describe(), "default_headers") {
+		t.Errorf("a request without default headers names them:\n%s", plain.Describe())
+	}
+}
+
+func TestWebFetchAndMentionsDoNotSendTheDefaultHeaders(t *testing.T) {
+	srv, seen := recordingServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `<html><head><title>Lamp</title></head><body><article><h1>Lamp</h1><p>A lamp gives light to the reading room every evening, and this paragraph is long enough to count as the article body.</p></article></body></html>`)
+	})
+	restore := fetchGuard
+	fetchGuard = func(context.Context, *url.URL) error { return nil }
+	t.Cleanup(func() { fetchGuard = restore })
+	env := &tooling.Env{HTTPDefaultHeaders: map[string]string{"User-Agent": browserUA, "X-Client": "foxxycode-lab"}}
+	if _, err := WebFetchTool().Execute(context.Background(), `{"url":"`+srv.URL+`/page"}`, env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FetchForMention(context.Background(), srv.URL+"/page"); err != nil {
+		t.Fatal(err)
+	}
+	for i, got := range *seen {
+		if ua := got.header.Get("User-Agent"); ua != userAgent {
+			t.Errorf("request %d: User-Agent = %q, want the tool's own", i+1, ua)
+		}
+		if client, ok := got.header["X-Client"]; ok {
+			t.Errorf("request %d: X-Client was sent as %q", i+1, client)
+		}
+	}
+}
+
+func TestHTTPRequestDescribeKeepsAConfiguredCredentialOutOfThePrompt(t *testing.T) {
+	// A credential hides under any name: the prompt shows the configured value
+	// of a header that describes the client and of no other.
+	defaults := map[string]string{
+		"Authorization": "Bearer t0p-secret", "X-Api-Key": "k3y", "X-Auth": "s3ss", "Authentication": "Bearer 0ther",
+		"Sec-Token": "s3c", "Referer": "https://example.com/?sig=r3f", "User-Agent": browserUA,
+		"Accept-Language": "en-US", "Sec-Ch-Ua-Platform": `"Linux"`,
+	}
+	req, err := ParseHTTPRequestInEnv(`{"url":"https://api.example.com/items"}`, &tooling.Env{CWD: t.TempDir(), HTTPDefaultHeaders: defaults})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := req.Describe()
+	for _, want := range []string{
+		"Authorization: <redacted>",
+		"Authentication: <redacted>",
+		"X-Api-Key: <redacted>",
+		"X-Auth: <redacted>",
+		"Sec-Token: <redacted>",
+		"Referer: <redacted>",
+		"User-Agent: " + browserUA,
+		"Accept-Language: en-US",
+		`Sec-Ch-Ua-Platform: "Linux"`,
+		"Headers from tools.http_request.default_headers: Accept-Language, Authentication, Authorization, Referer, Sec-Ch-Ua-Platform, Sec-Token, User-Agent, X-Api-Key, X-Auth",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("description does not show %q:\n%s", want, text)
+		}
+	}
+	for _, secret := range []string{"t0p-secret", "k3y", "s3ss", "0ther", "s3c", "r3f"} {
+		if strings.Contains(text, secret) {
+			t.Errorf("the prompt shows the configured credential %q:\n%s", secret, text)
+		}
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer t0p-secret" {
+		t.Errorf("the request sends Authorization %q, want the configured value", got)
+	}
+	// A credential the call wrote itself is shown as written: the model knows it,
+	// and the transcript carries it already.
+	own, err := ParseHTTPRequestInEnv(`{"url":"https://api.example.com/items","headers":{"Authorization":"Bearer abc"}}`, &tooling.Env{CWD: t.TempDir(), HTTPDefaultHeaders: defaults})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := own.Describe(); !strings.Contains(text, "Authorization: Bearer abc") {
+		t.Errorf("the call's own credential is hidden:\n%s", text)
+	}
+}
+
+// The loader and the request builder keep one rule on which default headers no
+// request can carry, each in its own package: whatever the loader accepts the
+// tool sends, and whatever it refuses the tool refuses too.
+func TestDefaultHeaderRulesMatchTheLoader(t *testing.T) {
+	for _, headers := range []map[string]string{
+		{"User-Agent": "v"}, {"Accept": "v"}, {"Accept-Language": "v"}, {"Authorization": "v"}, {"Cookie": "v"},
+		{"X-Client": "v"}, {"Cache-Control": "v"}, {"Host": "v"}, {"content-type": "v"}, {"Content-Length": "v"},
+		{"Transfer-Encoding": "v"}, {"Proxy-Authorization": "v"}, {"Connection": "v"}, {"Te": "v"},
+		{"Keep-Alive": "v"}, {"Proxy-Connection": "v"}, {"Trailer": "v"}, {"Upgrade": "v"},
+		{"123": "v"}, {"X.Trace": "v"}, {"_X": "v"}, {"User-Agent": "a", "user-agent": "b"},
+	} {
+		loaderErr := (&config.Tools{HTTPRequest: config.ToolHTTPRequest{DefaultHeaders: headers}}).Validate()
+		_, toolErr := ParseHTTPRequestInEnv(`{"url":"https://example.com"}`, &tooling.Env{HTTPDefaultHeaders: headers})
+		if (loaderErr == nil) != (toolErr == nil) {
+			t.Errorf("%v: the loader says %v, the tool says %v", headers, loaderErr, toolErr)
+		}
 	}
 }

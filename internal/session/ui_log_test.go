@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -214,6 +215,67 @@ func TestPageMessagesJoinWithoutGapOrOverlap(t *testing.T) {
 			}
 			page = older
 		}
+	}
+}
+
+// A session saved before only the agent's own settings changes were noted
+// holds a notice of every change, with no source on it. A transcript shows the
+// ones the agent could have made and nothing else of the kind; every other
+// row, and a notice that carries its source, is shown as it is.
+func TestVisibleUILogHidesTheOperatorsSettingsNotices(t *testing.T) {
+	// Turn 1 ran without a switch; in turn 2 the model called switch_model.
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "review this"},
+		{Role: llm.RoleAssistant, Content: "done"},
+		{Role: llm.RoleUser, Content: "switch to fake/b"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "sw", Name: "switch_model", InputJSON: `{"model":"fake/b"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "sw", Content: "Switched for the rest of the session: model fake/b, reasoning none offered."},
+		{Role: llm.RoleAssistant, Content: "now on b"},
+	}
+	notice := func(turn int, message string) UILogEntry {
+		return UILogEntry{Level: UILogLevelNotice, UserTurnIndex: turn, Message: message}
+	}
+	cases := []struct {
+		name  string
+		entry UILogEntry
+		shown bool
+	}{
+		{"the model a session was started with", notice(1, "Model: codex/gpt-5.6-sol for this session"), false},
+		{"the mode a session was started with", notice(1, "Mode: agent for this session"), false},
+		{"a permission mode", notice(2, "Permission mode: bypass for this session"), false},
+		{"a model for a number of turns", notice(2, "Model: stub/qwen3.8-27b for the next 2 turns"), false},
+		{"a reasoning level for the next turn", notice(1, "Reasoning: high for the next turn"), false},
+		{"a model and a mode together", notice(2, "Model: fake/b for this session; Mode: plan for this session"), false},
+		{"a model for the session in a turn without a switch", notice(1, "Model: fake/b for this session"), false},
+		{"the model the agent switched to for the session", notice(2, "Model: fake/b for this session"), true},
+		{"a model and a level the agent switched to", notice(2, "Model: fake/b for this session; Reasoning: off for this session"), true},
+		{"a change for the rest of a turn", notice(1, "Model: fake/b for the rest of this turn"), true},
+		{"a notice with its source", UILogEntry{Level: UILogLevelNotice, UserTurnIndex: 1, Message: "Model: fake/b for this session", Source: SettingsSourceModel}, true},
+		{"an error", UILogEntry{Level: UILogLevelError, UserTurnIndex: 1, Message: "Model: fake/b for this session"}, true},
+		{"a hook's message", notice(1, "Hook (Stop): Mode: agent for this session"), true},
+		{"a stop notice", notice(1, "Stopped after 40 steps, the step limit set by agent.max_turns."), true},
+		{"another notice that names a model", notice(1, "Model: fake/b did not answer"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := VisibleUILog(msgs, []UILogEntry{tc.entry})
+			if shown := len(got) == 1; shown != tc.shown {
+				t.Fatalf("%q shown = %v, want %v", tc.entry.Message, shown, tc.shown)
+			}
+		})
+	}
+	// Order and the rows between are kept.
+	log := []UILogEntry{
+		{ID: "flag", Level: UILogLevelNotice, UserTurnIndex: 1, Message: "Mode: agent for this session"},
+		{ID: "err", Level: UILogLevelError, UserTurnIndex: 1, Message: "Request failed"},
+		{ID: "switch", Level: UILogLevelNotice, UserTurnIndex: 2, Message: "Model: fake/b for this session", Source: SettingsSourceModel},
+	}
+	var ids []string
+	for _, e := range VisibleUILog(msgs, log) {
+		ids = append(ids, e.ID)
+	}
+	if strings.Join(ids, ",") != "err,switch" {
+		t.Fatalf("visible rows %v, want err,switch", ids)
 	}
 }
 

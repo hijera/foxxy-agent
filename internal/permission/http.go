@@ -77,7 +77,7 @@ func HTTPRequestAllowedWithSession(env *tooling.Env, grants []string, argsJSON s
 	if env.PermissionMode == config.PermModeBypass {
 		return true
 	}
-	req, err := web.ParseHTTPRequest(argsJSON, env.CWD)
+	req, err := web.ParseHTTPRequestInEnv(argsJSON, env)
 	if err != nil {
 		return false
 	}
@@ -108,10 +108,11 @@ func HTTPRequestAllowedWithSession(env *tooling.Env, grants []string, argsJSON s
 }
 
 // HTTPRequestPromptBody is the permission prompt text for an http_request call:
-// the request as it would be sent, and what an "always" answer would cover
-// beyond its destination.
-func HTTPRequestPromptBody(argsJSON, cwd string) string {
-	req, err := web.ParseHTTPRequest(argsJSON, cwd)
+// the request as it would be sent in env - the operator's default headers
+// included, and named as such - and what an "always" answer would cover beyond
+// its destination.
+func HTTPRequestPromptBody(env *tooling.Env, argsJSON string) string {
+	req, err := web.ParseHTTPRequestInEnv(argsJSON, env)
 	if err != nil {
 		return PromptBody(web.ToolHTTPRequest, argsJSON) + "\n\nThe tool will refuse these arguments: " + err.Error()
 	}

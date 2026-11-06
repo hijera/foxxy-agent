@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -100,9 +102,120 @@ def interrupt_during_startup() -> None:
         tui.close()
 
 
+def first_frame_with_hung_mcp() -> None:
+    """A configured stdio server that never answers does not hold the first frame.
+
+    The console connects its MCP servers after it has drawn (foxxycode-project/foxxycode-agent#319):
+    the footer counts them while they come up, and the console still leaves
+    through double ctrl+c while one is stuck in its handshake.
+    """
+    hung = {"name": "hung", "type": "stdio", "command": "sleep", "args": ["600"]}
+    tui = FoxxyCodeTUI("startup-hung-mcp", model=STARTUP_MODEL, mcp_servers=[hung])
+    try:
+        started = time.time()
+        tui.wait_for("foxxycode v", timeout=5)
+        took = time.time() - started
+        if took > 5:
+            raise AssertionError(f"first frame took {took:.1f}s with a hung MCP server")
+        tui.wait_for("escape interrupt", timeout=5)
+        tui.wait_for("MCP 0/1", timeout=5)
+        tui.send(CTRL_C)
+        tui.wait_for("Press ctrl+c again to exit", timeout=5)
+        tui.send(CTRL_C)
+        tui.child.expect(pexpect.EOF, timeout=10)
+        tui.child.close()
+        if tui.child.exitstatus != 0:
+            raise AssertionError(f"console exited with {tui.child.exitstatus} (signal {tui.child.signalstatus})")
+    finally:
+        tui.close()
+
+
+class SilentSource:
+    """A skill source that accepts connections and never answers them."""
+
+    def __init__(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(16)
+        self.url = f"http://127.0.0.1:{self.sock.getsockname()[1]}/marketplace.json"
+        self.accepted = 0
+        self.held: list[socket.socket] = []
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.accepted += 1
+            self.held.append(conn)
+
+    def close(self) -> None:
+        self.sock.close()
+        for conn in self.held:
+            conn.close()
+
+
+def first_frame_with_many_skills_and_a_silent_source() -> None:
+    """Issue #319: 300 installed skills and a skill source that never answers
+    do not keep the console from drawing and taking keys, and the start does
+    not contact the source at all.
+
+    A stdio MCP server that never answers is configured as well, the thing
+    that did hang the start: the console draws before it, counts it in the
+    footer, and takes keys while it is stuck.
+    """
+    home = Path(tempfile.mkdtemp(prefix="foxxycode-cli-startup-skills-home-"))
+    fixture = home / "skills_fixture"
+    for i in range(300):
+        skill = fixture / f"synthetic-{i:03d}"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            f"---\nname: synthetic-{i:03d}\ndescription: Synthetic skill number {i}.\n---\n\nDo step {i}.\n"
+        )
+    source = SilentSource()
+    hung = {"name": "hung", "type": "stdio", "command": "sleep", "args": ["600"]}
+    tui = FoxxyCodeTUI(
+        "startup-skills",
+        model=STARTUP_MODEL,
+        home=str(home),
+        mcp_servers=[hung],
+        skill_sources=[source.url],
+    )
+    try:
+        started = time.time()
+        # The header names 300 skills, so it scrolls off the screen: what
+        # the console wrote is searched, not the screen alone.
+        tui.wait_written("foxxycode v", timeout=5)
+        took = time.time() - started
+        if took > 2:
+            raise AssertionError(f"first frame took {took:.1f}s with 300 skills and a silent skill source")
+        tui.wait_written("escape interrupt", timeout=5)
+        tui.wait_for("MCP 0/1", timeout=5)
+        tui.type_text("skills probe")
+        tui.wait_for("skills probe", timeout=5)
+        tui.pump(0.5)
+        if source.accepted:
+            raise AssertionError(f"the console start contacted the skill source {source.accepted} time(s)")
+        tui.send(CTRL_C)
+        tui.wait_gone("skills probe", timeout=5)
+        tui.send(CTRL_C)
+        tui.wait_for("Press ctrl+c again to exit", timeout=5)
+        tui.send(CTRL_C)
+        tui.child.expect(pexpect.EOF, timeout=10)
+        tui.child.close()
+        print(f"first frame with 300 skills, a silent skill source and a hung MCP server: {took * 1000:.0f} ms")
+    finally:
+        tui.close()
+        source.close()
+
+
 def main() -> int:
     first_frame_keys_and_exit()
     interrupt_during_startup()
+    first_frame_with_hung_mcp()
+    first_frame_with_many_skills_and_a_silent_source()
     return ok("cli_e2e_startup")
 
 

@@ -547,7 +547,9 @@ func TestProviderRecoveryPauseCutByADeadline(t *testing.T) {
 	_ = s.agentWithoutLimit()
 	s.cfg.Agent.LLMContinueErrorDelaysMS = []int{120000}
 	st := &session.State{ID: "sess_turn_end_deadline", CWD: s.cwd, Mode: session.ModeAgent, SessionDir: filepath.Join(s.root, "bundle")}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	// The deadline must cut the recovery pause, after session setup and the
+	// provider's failure, including when filesystem work is race-instrumented.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	stop, err := agent.NewAgent(s.cfg, st, noopSender{}, slog.Default()).Run(ctx, []acp.ContentBlock{{Type: "text", Text: "go"}})
 	if stop == string(acp.StopReasonCancelled) || err == nil || !strings.Contains(err.Error(), "server error 500") {

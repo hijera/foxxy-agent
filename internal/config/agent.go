@@ -37,7 +37,8 @@ const (
 	// answer the provider cut short (agent.llm_continue_max). A measured hub
 	// stalls roughly half of long generations, so one answer can plausibly
 	// stall twice.
-	AgentDefaultLLMContinueMax = 3
+	AgentDefaultLLMContinueMax           = 3
+	AgentDefaultLLMContinueBackgroundMax = 5
 	// AgentDefaultLLMContinueRetryAfterMaxMS caps the pause a provider may ask
 	// for (Retry-After) before a cut answer is carried on: upstream 1.2.9 caps
 	// its provider recovery at two minutes.
@@ -76,6 +77,8 @@ var agentDefaultLLMContinueStallDelaysMS = []int{0}
 // wrapper's own quick retries have already given up by then.
 var agentDefaultLLMContinueErrorDelaysMS = []int{5000, 20000}
 
+var agentDefaultLLMContinueBackgroundDelaysMS = []int{5000, 20000, 80000, 120000, 120000}
+
 // Loop-guard terminal actions (agent.loop_stuck_action): what the guard does once
 // a tool loop has survived every nudge.
 const (
@@ -98,6 +101,9 @@ const (
 type Agent struct {
 	// Model is the models[].id used for LLM calls until the session overrides the model in the client.
 	Model string `yaml:"model"`
+	// QueueMode is the preferred action of Enter while a turn runs. Empty asks
+	// the operator on first use; steer and after_turn are explicit choices.
+	QueueMode string `yaml:"queue_mode"`
 	// MaxTurns caps the ReAct steps of one prompt turn; 0 (the default) sets
 	// no cap.
 	MaxTurns int `yaml:"max_turns"`
@@ -139,6 +145,10 @@ type Agent struct {
 	// A nil pointer means the default (3); an explicit 0 ends the turn at the
 	// first cut, as llm_continue: false does.
 	LLMContinueMax *int `yaml:"llm_continue_max"`
+	// Background continuations have a separate per-turn budget and delay ladder.
+	// Memory children retain the interactive policy. Explicit zero disables them.
+	LLMContinueBackgroundMax      *int  `yaml:"llm_continue_background_max"`
+	LLMContinueBackgroundDelaysMS []int `yaml:"llm_continue_background_delays_ms"`
 	// LLMContinueStallDelaysMS is the pause before each continuation after a
 	// stall; the last entry repeats. Empty means the default ([0]).
 	LLMContinueStallDelaysMS []int `yaml:"llm_continue_stall_delays_ms"`
@@ -228,6 +238,17 @@ func (c *Agent) EffectiveLLMContinueMax() int {
 		return AgentDefaultLLMContinueMax
 	}
 	return *c.LLMContinueMax
+}
+
+func (c *Agent) EffectiveLLMContinueBackgroundMax() int {
+	if c.LLMContinueBackgroundMax == nil {
+		return AgentDefaultLLMContinueBackgroundMax
+	}
+	return *c.LLMContinueBackgroundMax
+}
+
+func (c *Agent) EffectiveLLMContinueBackgroundDelays() []time.Duration {
+	return msDurations(c.LLMContinueBackgroundDelaysMS, agentDefaultLLMContinueBackgroundDelaysMS)
 }
 
 // EffectiveLLMContinueStallDelays returns llm_continue_stall_delays_ms as
@@ -358,6 +379,9 @@ func (c *Agent) ApplyDefaults() {
 
 // Validate checks bounds after defaults.
 func (c *Agent) Validate() error {
+	if c.QueueMode != "" && c.QueueMode != "steer" && c.QueueMode != "after_turn" {
+		return fmt.Errorf("agent.queue_mode: must be steer or after_turn")
+	}
 	if c.MaxTurns < 0 {
 		return fmt.Errorf("agent.max_turns: must be >= 0")
 	}
@@ -381,6 +405,14 @@ func (c *Agent) Validate() error {
 	}
 	if c.LLMContinueMax != nil && *c.LLMContinueMax < 0 {
 		return fmt.Errorf("agent.llm_continue_max: must be >= 0")
+	}
+	if c.LLMContinueBackgroundMax != nil && *c.LLMContinueBackgroundMax < 0 {
+		return fmt.Errorf("agent.llm_continue_background_max: must be >= 0")
+	}
+	for i, ms := range c.LLMContinueBackgroundDelaysMS {
+		if ms < 0 {
+			return fmt.Errorf("agent.llm_continue_background_delays_ms[%d]: must be >= 0", i)
+		}
 	}
 	for i, ms := range c.LLMContinueStallDelaysMS {
 		if ms < 0 {

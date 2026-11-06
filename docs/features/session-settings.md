@@ -29,15 +29,17 @@ Commands are read only at the start of what you type, and several may follow one
 
 A change without a flag is the session's and lasts until the next change. A change with `--once` or `--count=N` is counted in turns you start: each prompt you send takes one turn from every override, and that turn keeps the values for its whole length, including the steps after a queued follow-up and after a permission prompt. A background wake and a subagent's turn take nothing. A change for the session clears that setting's turn override, the running turn's included, so the last command you typed is the one that holds.
 
-Turn overrides live in the process's memory: a restart of the console or of `foxxycode serve` forgets them. The model, the reasoning level and the mode of a session are kept in its `session.json`. The permission mode is not: after a restart every session asks again as `tools.permission_mode` says, so a bypass switched on for one task does not outlive the process.
+The model, the reasoning level (thinking switched off included) and the mode of a session are kept in its `session.json`. Its permission mode and its turn overrides live in the process's memory: a restart of the console or of `foxxycode serve` forgets them, so after a restart every session asks again as `tools.permission_mode` says and a bypass switched on for one task does not outlive the process. Until then they stay with the session, also while no surface holds it: the console lets go of a session on `/new` and `/resume`, and coming back to it brings its permission mode and its overrides back.
 
 ## What happens when you send one
 
-A message that is nothing but commands runs no turn. The settings are applied, the model sees nothing, and the surface shows a short notice of each change, such as `Model: rpa/qwen3.8-27b for the next 3 turns`.
+A message that is nothing but commands runs no turn. The settings are applied and the model sees nothing. The web UI and the console show the change on their selectors and footer; an editor, the Telegram bot and an HTTP client get a short notice of each change as the answer to the message, such as `Model: rpa/qwen3.8-27b for the next 3 turns`. The transcript keeps nothing of the exchange ([What the transcript shows](#what-the-transcript-shows)).
 
 A message with text after the commands applies the session-wide changes and runs the text as a turn with the turn-scoped ones. The override travels with that prompt and is installed only once the turn is admitted, so a second tab or a background wake cannot take it first.
 
-While a turn is running, a session-wide command applies at once and any text after it goes to the [message queue](message-queue.md) as an ordinary follow-up. A turn-scoped command with text is refused there (`409 turn_scoped_follow_up` over HTTP), since a queued message has no turn of its own to scope it to. A new model or reasoning level is used from the next model request of the running turn, never in the middle of a stream; the permission mode is read on every tool call; a new operating mode starts with the next turn. A subagent already running keeps what it was spawned with.
+While a turn is running, a session-wide command applies at once and any text after it goes to the [message queue](message-queue.md) as an ordinary follow-up. A turn-scoped command with text is refused there (`409 turn_scoped_follow_up` over HTTP), because the queued message can change mode or be cancelled before delivery, so the command has no stable target turn. A new model or reasoning level is used from the next model request of the running turn, never in the middle of a stream: the answer that was streaming when it changed is finished by the model that started it and stored under that model's name, and the transcript names the new model from the next answer on. The permission mode is read on every tool call; a new operating mode starts with the next turn. A subagent already running keeps what it was spawned with.
+
+A model switched to has its context window read at once, the window its provider's model listing reports included, so the next request - the running turn's next step, or the first request of the next prompt - is measured against it. When the context crosses `compaction.threshold_percent` of the new window, it is compacted before that request ([Compaction](compaction.md#the-context-window)).
 
 ## Thinking off
 
@@ -68,15 +70,27 @@ The agent changes its model or reasoning level with `switch_model` only when the
 
 A model id or a level the configuration does not offer is an error in a `switch_model` or a `spawn_agent` call, for the model to correct. In a skill or a definition file it is a warning in the agent log, and the session's own value stays.
 
+## What the transcript shows
+
+A change you make shows where the surface keeps its settings: the composer's selectors and its line of overrides in the web UI, the footer of the console, the options of an editor. The transcript gets no line for it, whether it came from a selector, a command, the permission dialog, or `--model` and `--mode` at launch, `foxxycode -p` included: you made it, and it is on screen already.
+
+A change the agent made itself is the one the transcript notes: its `switch_model` call, or a skill whose frontmatter names a model or a reasoning level. The web UI shows a **SYSTEM** row at the end of that turn and the console prints one line, both with the text of the change, such as `Model: rpa/qwen3.8-27b for this session` or `Reasoning: off for the rest of this turn`.
+
+![A turn where the user asked for another model: the switch_model row, the answer written by the new model, and a SYSTEM row "Model: stub/reviewer for this session"](../assets/session-settings/session-settings-agent-switch-dark-1280.png)
+
+*The agent switched the model on request; the SYSTEM row closing the turn is the only line a settings change leaves.*
+
+A session saved by an earlier version keeps a notice of every change in its `ui_log.json`. The web UI does not show the ones the agent could not have made: a mode, a permission mode, a change for a number of turns, and a model or a level set for the session in a turn without a `switch_model` call.
+
 ## On each surface
 
 ### Web UI
 
-The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, a user-requested `switch_model` call, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
+The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. Entering a session shows its own model, its level (a session running with thinking off shows **Off**) and its permission mode, from the snapshot `GET /foxxycode/sessions/{id}/messages` answers with. What the start page picked, and the cookies `foxxycode_llm_model` and `foxxycode_llm_reasoning` that remember it, are the default of a new chat only: they never replace a session's value on screen, so they never ride into it with the next message. A session with no level of its own, on a model that names no `reasoning_default`, shows the level it runs at, `medium` or else the model's first level, and sends none with the next message, so it is not pinned to a level nobody picked. Where the provider can turn thinking off, the **Reasoning** menu of the session offers **Off** as well. A setting the running turn holds (`--once`, `--count=N`) stays on the line of overrides, and the selectors keep the session's own value. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, a user-requested `switch_model` call, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
 
 ![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 
-*The composer after the session was switched to bypass and the model changed for two turns; each change left a SYSTEM line in the transcript.*
+*The composer after the session was switched to bypass and the model changed for two turns: the selectors and the line of overrides show both changes, and the transcript has no line for them.*
 
 Typing `/` lists the commands with their arguments. Picking `/model`, `/reasoning` or `/permissions` opens that selector, and picking `/agent`, `/plan`, `/ask` or `/debug` switches the mode. `/docs` opens the built-in reader; the Mode selector chooses the `docs` editing mode. Typed out with a value and sent, a settings command goes to the server like any other prompt.
 
@@ -86,9 +100,9 @@ Typing `/` lists the commands with their arguments. Picking `/model`, `/reasonin
 
 ### Console
 
-The console runs the same commands through the same parser. A bare `/model`, `/reasoning` or `/permissions` opens its picker. The footer shows the permission mode next to the folder, in the warning colour for `bypass`, and a line of the turn overrides under the model.
+The console runs the same commands through the same parser. A bare `/model`, `/reasoning` or `/permissions` opens its picker. The footer shows the permission mode next to the folder, in the warning colour for `bypass`, and a line of the turn overrides under the model. Both belong to the session on screen: after `/new` or `/resume` the footer names the permission mode and the overrides of the session entered.
 
-![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: three notices, bypass in the footer, and "next turn: model stub/foxxycode-mini • next 3 turns: reasoning high"](../assets/session-settings/session-settings-console-footer-dark.png)
+![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: no line in the transcript, bypass in the footer, and "next turn: model stub/foxxycode-mini • next 3 turns: reasoning high"](../assets/session-settings/session-settings-console-footer-dark.png)
 
 *The console footer: the permission mode, and what is changed for the next turn and the next three.*
 
@@ -100,7 +114,7 @@ An editor sends the commands as prompt text, and `available_commands_update` lis
 
 ### Telegram
 
-The bot passes `/model <id>`, `/reasoning`, `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/debug` to the session; a command alone is answered with its notice, and a bare `/model` still opens its keyboard. `/mode` keeps its mode picker. `/permissions` is not a bot command: the bot approves its chat agent's tools itself ([Telegram gateway](../surfaces/gateway.md#commands)).
+The bot passes `/model <id>`, `/reasoning`, `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/debug` to the session; a command alone is answered with its notice, and a bare `/model` still opens its keyboard. `/mode` keeps its mode picker. `/permissions` is not a bot command: the bot approves its chat agent's tools itself ([Telegram gateway](../surfaces/gateway.md#commands)). `/resume` also names the model and reasoning level of the resumed session.
 
 ### HTTP
 

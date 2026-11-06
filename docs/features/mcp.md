@@ -7,10 +7,12 @@ additional tools and resources. MCP servers can be configured at these levels:
 
 1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
    `~/.foxxycode/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`; in the agent home,
-   so elsewhere if `FOXXYCODE_HOME` or `--home` moved it), connected for every
-   session; entries in that file override same-named `config.yaml` entries
+   so elsewhere if `FOXXYCODE_HOME` or `--home` moved it), one running server shared by every
+   session of the process ([Shared servers](#shared-servers)); entries in that file
+   override same-named `config.yaml` entries
 2. **Local** (scope `local`) - `<workspace>/.foxxycode/mcp.json`, merged over the global list for
-   sessions in that workspace; a local entry with the same name overrides the global definition
+   sessions in that workspace, one running server per workspace; a local entry with the
+   same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters
 
 Tools from all connected MCP servers are merged into the tool list passed to the LLM during
@@ -117,12 +119,37 @@ removing their definitions:
 
 - `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
 - `~/.foxxycode/mcp.json` and `./.foxxycode/mcp.json`: `"disabled": true` and
-  `"disabledTools": ["tool_a"]` per entry
+  `"disabledTools": ["tool_a"]` per entry when editing the declarations directly
+- For project entries, switches made through `/mcp` or Settings are stored in
+  `<home>/mcp-overrides.json`, keyed by workspace and server. The checkout's
+  `.foxxycode/mcp.json` stays unchanged; these switches override its defaults. Deleting a
+  project server through the API or the UI drops its switches once the declaration is gone,
+  so a later server of the same name starts from its own declaration, and a delete that
+  fails leaves the server switched as it was. While the file cannot be read, every project
+  server stays off and the global servers keep their own switches; `/mcp` and Settings
+  name the file and the parse error instead of listing the servers until it is repaired.
+  This file and `mcp-trust.json` are written under a lock that every process of the home
+  takes, so a console and `foxxycode serve` switching or approving at the same moment do not
+  write over each other.
 
 Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
 disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches
 are re-read on every agent turn, so toggling them (by editing the files or through the
 HTTP API / web UI below) also applies to **already running** sessions on their next turn.
+
+A switch made through `/mcp`, Settings or the HTTP API also reaches live sessions at once,
+one server at a time: switching a server on connects it in every live session the trust
+gate admits it for, switching it off closes it there, and the other servers keep their
+processes, so a browser-automation server keeps its pages open. A global server switched
+off stops for the whole process, and switched back on it starts again before any session
+asks for it. A tool switch reconnects
+nothing. A session in the middle of a turn keeps its tools for that turn: a server switched
+off or no longer trusted is closed when the turn ends, and one switched on starts when the
+session's next turn starts. Saving or deleting a server through the API or Settings reaches
+live sessions the same way, and a server whose declaration was edited is started again from
+the new one. A configured server that does not answer its handshake within 20 seconds is
+left out; an initialization timeout gets one retry on the next prompt
+([Server lifecycle](#mcp-server-lifecycle)).
 
 ## Management API and UI
 
@@ -131,8 +158,51 @@ inventories and toggle endpoints under **`/foxxycode/mcp*`** (see `docs/referenc
 bundled web UI shows them under **Settings -> MCP servers**: status dot per server, a
 `global` / `local` scope badge, expandable tool list with per-tool switches, and a
 Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
-`~/.foxxycode/mcp.json`, local writes `./.foxxycode/mcp.json`). Toggles persist into the file that
-defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
+`~/.foxxycode/mcp.json`, local writes `./.foxxycode/mcp.json`). Global switches persist
+into their defining file; project switches persist in the operator's home.
+`config.yaml` entries are toggle-only here and edited in Settings.
+
+If loading or refreshing the list fails, Settings shows the error and leaves any
+previously loaded servers visible. Refresh remains available for another attempt.
+A failed switch, trust decision, deletion or save reports the error and releases
+its control so the operator can retry without reopening Settings. Overlapping
+loads are applied in order: a slower in-flight request never overwrites or
+reports over the rows a newer one already brought.
+
+![A failed MCP list load with a retryable refresh button](../assets/mcp/mcp-load-error-dark-1280.png)
+
+*A malformed list response now ends loading and shows the reason.*
+
+![A failed MCP switch with its control available again](../assets/mcp/mcp-mutation-error-dark-1280.png)
+
+*A rejected change leaves the server switch available for another attempt.*
+
+Type `/mcp` in the web composer to open this Settings section; words after the
+command are ignored, as in the console. In the console, `/mcp` opens a list of
+global and project servers with connection status and tool counts, and `off`
+beside a switched-off server whose status is a trust verdict. Enter opens a
+server's controls: toggle the server, expand its tools and toggle one, or
+grant or revoke trust for a project declaration. The trust control follows the
+rule of the web shield and is offered only under `mcp.project_trust: ask`, since
+under `allow` and `deny` there is no per-server decision to take. Before it
+records trust the console prints the whole declaration above the choice: the
+transport, the command line or the URL, the names of its variables and headers,
+the workspace and the file. These controls also work in `--remote` mode through
+the server's MCP management routes. Telegram `/mcp` lists servers and offers
+enable/disable buttons only for already-trusted entries; in a group it is
+answered without a mention, and a failed tap is reported in the menu message.
+Approve project declarations in the console, CLI or web UI; a chat cannot grant
+workspace trust.
+
+An approval from the console, the web shield or the remote console names the
+declaration it was shown by the `fingerprint` the list reported. When the
+checkout rewrote the entry between the listing and the approval, the approval is
+refused (`409` over HTTP) and nothing is recorded: list the servers again and
+review the new declaration.
+
+![The MCP settings section opened from the web composer's /mcp command](../assets/mcp/mcp-settings-dark-1280.png)
+
+*The web `/mcp` command opens the server controls, including project trust and per-server switches.*
 
 Above the list sits an **MCP discovery** fieldset carrying `mcp.project_trust`
 (`POST /foxxycode/mcp/project-trust`). It lives in this tab rather than in a settings section
@@ -157,7 +227,17 @@ parts of an answer reach the transcript: FoxxyCode passes the `text` content of 
 ### stdio (supported)
 
 The MCP server runs as a subprocess. Communication via stdin/stdout (newline-delimited
-JSON-RPC 2.0).
+JSON-RPC 2.0). The subprocess gets a process group of its own, so stopping the server
+stops what it started as well ([Shared servers](#shared-servers)).
+
+FoxxyCode runs `command` with `args` exactly as they are written: a program by its path or
+by its name on `PATH`, a package runner such as `npx -y <package>` or `uvx <package>`,
+a container started with `docker run -i`. What the command needs is the operator's to
+provide - Node.js for `npx`, the network for a package that is not in its cache yet -
+and FoxxyCode neither rewrites the arguments nor installs anything. A program, an `npx`
+package, a streamable HTTP server and an SSE server are each run through a real turn by
+`features/mcp_tool_calls.feature` and, in the console, by
+`examples/cli/cli_e2e_mcp_servers.py`.
 
 Configuration in `session/new`:
 ```json
@@ -320,15 +400,106 @@ mcp_servers:
         value: "${BRAVE_API_KEY}"
 ```
 
+## Shared servers
+
+A configured server runs once for the sessions that use it, not once per session. Each
+session, and each subagent a session spawns, holds a lease on a connection the process
+shares:
+
+- A server of the global configuration (`mcp_servers` in `config.yaml`,
+  `~/.foxxycode/mcp.json`) is one process for the whole FoxxyCode process. `foxxycode serve`,
+  `foxxycode http`, the console and `foxxycode acp` start these servers as they start, before any session asks for
+  them, and keep them up until they exit: a session that opens finds them connected, and
+  one that closes does not stop them. The set follows the configuration: a server added
+  or switched on starts at once, one removed or switched off stops as soon as no session
+  holds it, and one that crashed is started again by the next session or turn that needs
+  it. A one-shot `foxxycode -p` starts them for its session and stops them on exit.
+- A server of a project's `.foxxycode/mcp.json` is one process per workspace. The first
+  session of the workspace that needs it starts it once the trust gate admits it, and
+  the other sessions of that workspace share it. When no session of the workspace holds
+  it any more it runs on for `mcp.idle_timeout_seconds` (300, five minutes, by default;
+  `0` stops it at once), so a session that opens in the project in the meantime (`/new`
+  in the console, a new conversation in a chat, the next run of a scheduled job, the
+  same project reopened in the browser) finds it running, and then it is stopped. Two
+  workspaces that declare the same command get a process each.
+- A global server whose `command`, `args`, `env`, `url` or `headers` contain `${CWD}`
+  resolves differently in every workspace, so it runs once per workspace too, like a
+  project server, and is not started ahead of the sessions.
+
+The idle timeout is for a server the configuration still wants and no session happens to
+hold. A server switched off, one whose approval was withdrawn, one removed from its file
+and one declared differently now stop as soon as no session holds them, one already
+waiting out the timeout included. The timeout is set in `config.yaml` (the web settings
+have no field for it and keep it when they save):
+
+```yaml
+mcp:
+  project_trust: ask
+  # seconds an MCP server no session holds keeps running; 0 stops it at once
+  idle_timeout_seconds: 300
+```
+
+Sessions share a connection when the declaration resolves to the same thing for them:
+the name, the transport, the command line and the environment of a stdio server (or the
+URL and the headers of a remote one) and, for a server tied to a workspace, the
+workspace. A switched-off tool splits nothing, since every session filters its own tool
+list. A settings save or a switch reconciles the live sessions as described below, and a
+server whose declaration did not change keeps its process through it; a server whose
+command line was edited is started once from the new declaration, and the old process
+stops when the last session has let it go.
+
+Stopping a stdio server means closing its stdin, the shutdown MCP asks a client for,
+giving it two seconds to exit, and then terminating its process group: a package runner
+(`npx -y <package>`, `uvx <package>`) starts the actual server as a child of its own,
+and that child goes too. On Windows the server runs in a job object that ends every
+process of the tree when it is closed, so a child whose parent has already exited goes
+as well. A remote server is disconnected: its SSE stream is closed, and a streamable
+HTTP session is ended with a `DELETE` that carries its `Mcp-Session-Id`. A call still
+waiting for an answer fails at once when its server is stopped.
+
+A shared server that exits on its own, a remote one that drops the connection and a
+streamable HTTP server that answers `404` for its session (it restarted, or expired the
+session) are started again when the next turn of a session that used them begins, once
+for all of those sessions. Listing the servers (`/mcp`, Settings → MCP servers, the chat's `/mcp`)
+reads the tools of a running server from its connection and starts no second copy.
+The servers an ACP client sends with `session/new` are shared the same way: the
+sessions that send the same declaration, a subagent that inherits its parent's servers
+included, hold one process, which stops `mcp.idle_timeout_seconds` after the last of them
+closes. No trust gate decides on them and nothing keeps them up ahead of a session.
+
+`foxxycode serve` logs `MCP server started` and `MCP server stopped` with the reason for
+every server process it starts and stops, so its log shows how many run and why each
+one went away.
+
 ## MCP Server Lifecycle
 
-1. On `session/new` (and on `session/load`, and on a workspace switch), the agent starts
+### Selected web session
+
+The MCP Settings tab resolves project-local declarations from the workspace of
+the selected session, rather than from the directory that started `foxxycode
+serve`. A request with a selected session uses that session's workspace; a
+request with no session keeps the server-default workspace for a new chat.
+Project-local switches, trust decisions, and edits refresh only sessions in
+that workspace, while global declarations still refresh every affected
+session.
+
+Opening a chat in the bundled web UI explicitly starts its deferred configured
+MCP servers in the background. This does not delay rendering the transcript,
+and the next prompt waits for the bounded connection attempt before receiving
+its tool list. Passive reads, including slash completion, MCP Settings lists,
+and paged transcript reads, never start a deferred server.
+
+1. On `session/new`, the agent starts
    connecting every enabled server from the merged config.yaml + `~/.foxxycode/mcp.json` +
    `./.foxxycode/mcp.json` list, then any ACP client-supplied servers. Configured servers
    connect **in the background and in parallel**, so creating or loading a session never waits
    on them — over HTTP that call sits on a request an editor panel is blocked on, and a cold
    `npx` server that downloads its package on first run used to hold it for minutes. Each
-   handshake (transport setup + `initialize` + `tools/list`) is bounded at **30 s**.
+   handshake (transport setup + `initialize` + `tools/list`) is bounded at **20 s**. A server that times out during initialization is tried once more at the next prompt; other failures are not retried automatically.
+   The console starts a restored session's configured servers in the background immediately. The web UI also warms a selected session on explicit activation. Other passive surfaces leave them cold until the first
+   turn: reading stored history starts no configured MCP process, ACP
+   client-supplied servers still connect on load, and the first turn starts the
+   configured servers through the same trust gate.
 2. A prompt turn — the only thing that needs the tools — waits for that connect to settle
    before it builds its tool set. While it waits, HTTP clients get `event: mcp_phase`
    (`connecting`, then `ready`) so the panel can say what is holding the turn up; a session
@@ -365,7 +536,9 @@ mcp_servers:
 7. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)
 7. Results are returned to the LLM as tool observations
-8. On session end or `session/cancel`, MCP server connections are cleaned up
+8. When a session closes it gives its servers back: a project server, and an ACP
+   client-supplied one, stops `mcp.idle_timeout_seconds` after the last session that
+   held it let it go, and a global server stays up with the process
 
 For example, `config_set` can stage
 `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}`;
@@ -375,6 +548,25 @@ confirm-then-commit workflow, and discovery safety checks.
 
 ## Error Handling
 
-- If an MCP server fails to start, the session still proceeds with a warning
+- If an MCP server fails to start, the session still proceeds with a warning,
+  and the server is not dialed again at every turn: a settings reload, its
+  switch (`/mcp`, Settings → MCP servers) or a new session tries it again
+- A server that starts and never answers `initialize` is given up after 20
+  seconds, and the warning names the bound. It is tried once more when the
+  session's next turn starts, because a first start can outlast the bound for
+  a good reason: `npx -y <package>` installs the package before it runs it
+  (16 s for `@modelcontextprotocol/server-everything` on a laptop with an
+  empty npm cache), and the next try starts it from the cache. A server that
+  does not answer the second time either stays down until one of the above.
+  A dial cut short from outside - a save that reconnects many sessions under
+  one deadline, a request that ended - is retried at the next turn as well
+- What the server's own command does before it answers is up to the
+  operator: a package runner such as `npx -y <package>` asks its registry for
+  the latest release on every start and waits on the network, and a version
+  in `args` (`<package>@<version>`) is what keeps it off the network
 - Failed MCP tool calls return an error observation to the LLM
 - The LLM can decide to retry, use alternative tools, or inform the user
+
+A live change of `mcp.project_trust` to `deny` removes project servers from every session and stops them. Configured startup stays asynchronous on all surfaces; leases are shared through the manager pool, and a turn waits for its current workspace before building its tool list. A workspace change never offers servers from the previous workspace.
+
+A folder selection or in-place branch change reloads the workspace catalogs immediately and parks configured MCP reconciliation until explicit chat activation or the next turn. A tool-driven workspace change during a turn starts its trusted connections asynchronously and waits before the next model step.

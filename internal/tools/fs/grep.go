@@ -192,6 +192,7 @@ func runSystemRipgrep(ctx context.Context, executable string, args []string) (st
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	platform.AdaptCommand(cmd)
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

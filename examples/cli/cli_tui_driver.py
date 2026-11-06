@@ -14,6 +14,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -51,6 +52,9 @@ CTRL_D = "\x04"
 CTRL_L = "\x0c"
 CTRL_O = "\x0f"
 CTRL_T = "\x14"
+
+# CSI and OSC escape sequences, stripped from the raw output (written).
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]")
 
 # Braille frames of the console spinner (external/cli/tui/loader.go). The
 # status phrase next to it changes with the step ("Waiting for the model",
@@ -113,9 +117,22 @@ def prepare_home(name: str, model: str = DEFAULT_MODEL) -> tuple[Path, Path]:
     return home, work
 
 
-def _render_config_into(home: Path, model: str) -> None:
+def _render_config_into(
+    home: Path,
+    model: str,
+    mcp_servers: list[dict] | None = None,
+    skill_sources: list[str] | None = None,
+) -> None:
     template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
     resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
+    if mcp_servers:
+        # YAML reads JSON, so the list lands as a flow sequence in place of
+        # the template's empty one.
+        assert "mcp_servers: []" in resolved, "config.demo.yaml lost its mcp_servers line"
+        resolved = resolved.replace("mcp_servers: []", "mcp_servers: " + json.dumps(mcp_servers))
+    if skill_sources:
+        assert "skills:\n  dirs:" in resolved, "config.demo.yaml lost its skills.dirs line"
+        resolved = resolved.replace("skills:\n  dirs:", "skills:\n  sources: " + json.dumps(skill_sources) + "\n  dirs:")
     resolved = resolved.replace(
         'model: "rpa/qwen3.6-35b-a3b"\n  max_turns', f'model: "{model}"\n  max_turns'
     )
@@ -152,9 +169,13 @@ class FoxxyCodeTUI:
         workdir: str | None = None,
         permission_mode: str | None = None,
         env_extra: dict[str, str] | None = None,
+        mcp_servers: list[dict] | None = None,
+        skill_sources: list[str] | None = None,
     ) -> None:
         self.name = name
         self.model = model
+        self.mcp_servers = mcp_servers
+        self.skill_sources = skill_sources
         self.home = Path(home) if home else Path(tempfile.mkdtemp(prefix=f"foxxycode-cli-{name}-home-"))
         self.workdir = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix=f"foxxycode-cli-{name}-work-"))
         self.home.mkdir(parents=True, exist_ok=True)
@@ -164,6 +185,9 @@ class FoxxyCodeTUI:
 
         self.screen = pyte.Screen(COLS, ROWS)
         self.stream = pyte.ByteStream(self.screen)
+        # Everything the console wrote, for text a long header scrolls off
+        # the emulated screen before it is read (wait_written).
+        self.raw = bytearray()
 
         env = dict(os.environ)
         env.update(
@@ -195,7 +219,7 @@ class FoxxyCodeTUI:
         )
 
     def _render_config(self) -> None:
-        _render_config_into(self.home, self.model)
+        _render_config_into(self.home, self.model, self.mcp_servers, self.skill_sources)
 
     def _seed_env_file(self) -> None:
         """Copy exactly the NEURALDEEP_API_KEY line into the temp home .env."""
@@ -209,6 +233,7 @@ class FoxxyCodeTUI:
             try:
                 data = self.child.read_nonblocking(size=65536, timeout=0.1)
                 if data:
+                    self.raw.extend(data)
                     self.stream.feed(data)
             except pexpect.TIMEOUT:
                 continue
@@ -229,6 +254,23 @@ class FoxxyCodeTUI:
                 raise AssertionError(f"foxxycode exited before showing {needle!r}")
         self.dump(f"wait_for({needle!r}) timed out")
         raise AssertionError(f"screen never showed {needle!r}")
+
+    def written(self) -> str:
+        """Everything the console wrote, escape sequences removed."""
+        return ANSI_ESCAPE.sub("", self.raw.decode("utf-8", errors="replace"))
+
+    def wait_written(self, needle: str, timeout: float = 120.0) -> None:
+        """Wait until the console has written needle, on screen or not."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.pump(0.1)
+            if needle in self.written():
+                return
+            if not self.child.isalive():
+                self.dump(f"child exited while waiting for {needle!r} to be written")
+                raise AssertionError(f"foxxycode exited before writing {needle!r}")
+        self.dump(f"wait_written({needle!r}) timed out")
+        raise AssertionError(f"the console never wrote {needle!r}")
 
     def wait_gone(self, needle: str, timeout: float = 180.0) -> None:
         deadline = time.time() + timeout

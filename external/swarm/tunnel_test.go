@@ -390,7 +390,7 @@ func TestTunnelReconnectReplacesTheRouteAndEndsOldWork(t *testing.T) {
 
 	// The work that was in flight ends rather than hanging forever.
 	select {
-	case <-inFlight:
+	case <-inFlight: //nolint:errcheck // Only completion is needed here.
 	case <-time.After(5 * time.Second):
 		t.Fatal("a request on the replaced connection hung instead of failing")
 	}

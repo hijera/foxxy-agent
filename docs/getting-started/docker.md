@@ -57,7 +57,7 @@ Bind mounts (override host paths with env vars before **`up`**):
 
 | Host (default) | Container | Variable |
 |----------------|-------------|----------|
-| **`./config.yaml`** | **`/home/user/.foxxycode.yaml`** (read-only) | **`FOXXYCODE_CONFIG`** |
+| **`./config.yaml`** | **`/home/user/.foxxycode/config.yaml`** (read-only) | **`FOXXYCODE_CONFIG`** |
 | **`./workspace`** | **`/workspace`** | **`FOXXYCODE_CWD`** |
 | **`./foxxycode_home`** | **`/home/user/.foxxycode`** | **`FOXXYCODE_HOME`** |
 
@@ -65,7 +65,7 @@ Fixed inside the container (set by compose **`environment`**):
 
 | Variable | Value | Role |
 |----------|-------|------|
-| **`FOXXYCODE_CONFIG`** | **`/home/user/.foxxycode.yaml`** | Points the loader at the mounted file (not **`$FOXXYCODE_HOME/config.yaml`**) |
+| **`FOXXYCODE_CONFIG`** | **`/home/user/.foxxycode/config.yaml`** | Points the loader at the mounted file; the image alone sets **`/home/user/.foxxycode.yaml`**, outside the home volume |
 | **`FOXXYCODE_HOME`** | **`/home/user/.foxxycode`** | Sessions, skills, scheduler store |
 | **`FOXXYCODE_CWD`** | **`/workspace`** | Default cwd for new sessions and tool paths |
 

@@ -295,7 +295,9 @@ test("todo update renders the saved plan row and omits a successful boilerplate 
   expect(screen.getByText("2 of 3")).toBeInTheDocument();
   expect(screen.getByText("Render structured preview")).toBeInTheDocument();
   expect(screen.queryByText("Inspect existing cards")).toBeNull();
-  expect(container.querySelector(".todo-tool-preview-row--completed")).not.toBeNull();
+  expect(
+    container.querySelector(".todo-tool-preview-row--completed"),
+  ).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
 });
 
@@ -315,7 +317,9 @@ test("plan exit shows the completed mode transition without its boilerplate resu
   expect(screen.getByText("Plan mode")).toBeInTheDocument();
   expect(screen.getAllByText("Agent mode")).toHaveLength(2);
   expect(screen.getByText("Switched to Agent mode")).toBeInTheDocument();
-  expect(container.querySelector(".plan-exit-preview--completed")).not.toBeNull();
+  expect(
+    container.querySelector(".plan-exit-preview--completed"),
+  ).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
 });
 
@@ -404,12 +408,9 @@ test("the question row records the whole offer, with the taken letters marked", 
 
   const rows = [...container.querySelectorAll(".question-tool-offer-row")];
   // Three options plus the free-answer slot, each behind its own letter.
-  expect(rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent)).toEqual([
-    "A",
-    "B",
-    "C",
-    "D",
-  ]);
+  expect(
+    rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent),
+  ).toEqual(["A", "B", "C", "D"]);
   expect(rows[0]?.textContent).toContain("A checklist of tasks");
   expect(rows[3]?.textContent).toContain("an answer of their own");
 
@@ -431,7 +432,11 @@ test("the free slot carries what the reader typed into it", () => {
       status="completed"
       argsText={JSON.stringify({
         questions: [
-          { question: "Which one?", options: [{ label: "A one" }], custom: true },
+          {
+            question: "Which one?",
+            options: [{ label: "A one" }],
+            custom: true,
+          },
         ],
       })}
       resultText={JSON.stringify({ answers: [["something else entirely"]] })}
@@ -441,8 +446,12 @@ test("the free slot carries what the reader typed into it", () => {
 
   const rows = [...container.querySelectorAll(".question-tool-offer-row")];
   expect(rows).toHaveLength(2);
-  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
-  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(
+    false,
+  );
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(
+    true,
+  );
   expect(rows[1]?.textContent).toContain("something else entirely");
   expect(rows[1]?.textContent).not.toContain("an answer of their own");
   // The words are in the row, so nothing repeats them below it.
@@ -456,18 +465,26 @@ test("an unanswered question still says so under the offer", () => {
       title="question"
       status="in_progress"
       argsText={JSON.stringify({
-        questions: [{ question: "Which one?", options: [{ label: "A one" }], custom: true }],
+        questions: [
+          {
+            question: "Which one?",
+            options: [{ label: "A one" }],
+            custom: true,
+          },
+        ],
       })}
       resultText=""
     />,
   );
   openToolDetails();
 
-  const slot = [...container.querySelectorAll(".question-tool-offer-row")].pop();
+  const slot = [
+    ...container.querySelectorAll(".question-tool-offer-row"),
+  ].pop();
   expect(slot?.textContent).toContain("an answer of their own");
-  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
-    "Awaiting answer",
-  );
+  expect(
+    container.querySelector(".question-prompt-resolved-a")?.textContent,
+  ).toBe("Awaiting answer");
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {
@@ -741,7 +758,9 @@ test("a backgrounded run_command reads like any command row, in the background",
     />,
   );
 
-  expect(screen.getByText("running a command in the background")).toBeInTheDocument();
+  expect(
+    screen.getByText("running a command in the background"),
+  ).toBeInTheDocument();
 
   // The call returned the instant the task started, so its own 0ms is replaced
   // by the task's clock - in the duration slot every other row uses.
@@ -779,44 +798,24 @@ test("a finished background task shows its total time and nothing about how it e
   expect(summary.textContent).not.toMatch(/Timed out|exit 2/);
 });
 
-test("expanded background row offers Open in Tasks, and Stop only while running", () => {
-  const onOpen = vi.fn();
-  const onStop = vi.fn();
-  const { rerender } = render(
+test("expanded background rows retain their elapsed clock but no longer duplicate Tasks actions", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bg"
       title="run_command"
       status="completed"
       backgroundTask={backgroundTask()}
       backgroundNowMs={BG_START_MS + 1_000}
-      onOpenBackgroundTask={onOpen}
-      onStopBackgroundTask={onStop}
     />,
   );
   openToolDetails();
 
-  fireEvent.click(screen.getByTestId("tool-bgtask-open-bg_1"));
-  expect(onOpen).toHaveBeenCalledWith("bg_1");
-  fireEvent.click(screen.getByTestId("tool-bgtask-stop-bg_1"));
-  expect(onStop).toHaveBeenCalledWith("bg_1");
-
-  rerender(
-    <ToolCallMessage
-      toolCallId="tc-bg"
-      title="run_command"
-      status="completed"
-      backgroundTask={backgroundTask({
-        running: false,
-        status: "succeeded",
-        exit_code: 0,
-      })}
-      backgroundNowMs={BG_START_MS + 1_000}
-      onOpenBackgroundTask={onOpen}
-      onStopBackgroundTask={onStop}
-    />,
+  expect(screen.getByTestId("tool-bgtask-elapsed-bg_1")).toHaveTextContent(
+    "1s",
   );
+  expect(container.querySelector(".tool-bgtask-actions")).toBeNull();
+  expect(screen.queryByTestId("tool-bgtask-open-bg_1")).toBeNull();
   expect(screen.queryByTestId("tool-bgtask-stop-bg_1")).toBeNull();
-  expect(screen.getByTestId("tool-bgtask-open-bg_1")).toBeInTheDocument();
 });
 
 test("an ordinary tool row keeps its own duration", () => {
@@ -1042,6 +1041,28 @@ test("restored edit recovers the diff from truncated list arguments", async () =
     ).toHaveTextContent("src/edited.ts"),
   );
   expect(screen.getByText(/const after30/)).toBeInTheDocument();
+});
+
+test("a tool row without a measured duration leaves the timer out", () => {
+  const { container, rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-no-duration"
+      title="background_wait"
+      status="completed"
+      resultText="still running"
+    />,
+  );
+  expect(container.querySelector(".thinking-dur")).toBeNull();
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-no-duration"
+      title="background_wait"
+      status="in_progress"
+      argsText='{"task_id":"bg_1"}'
+    />,
+  );
+  expect(container.querySelector(".thinking-dur")).toBeNull();
 });
 
 test("restored in_progress write still fetches full arguments", async () => {
@@ -1274,7 +1295,7 @@ test("a spawn_agent row names the agent and opens its transcript", () => {
   // The chip names the agent, so the row does not repeat it as its target.
   expect(screen.queryByTestId("tool-summary-target")).toBeNull();
   openToolDetails();
-  fireEvent.click(screen.getByTestId("tool-bgtask-transcript-bg_9"));
+  fireEvent.click(screen.getByRole("button", { name: "Show transcript" }));
   expect(onOpenSubagentTranscript).toHaveBeenCalledWith("sess_0a1b");
 });
 
@@ -1349,7 +1370,9 @@ test("an MCP call names the server and the tool, never the registry id", () => {
   expect(screen.queryByText("mcp__github__create_issue")).toBeNull();
   // The argument preview the row already had survives the new label (the
   // card under the row names the same argument again, as a field).
-  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("Crash on start");
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "Crash on start",
+  );
 });
 
 test("the target, the failure marker and the duration trail the label as one group", () => {
@@ -1560,9 +1583,9 @@ test("load_skill without parseable arguments still renders the body", () => {
   );
   expect(screen.queryByTestId("tool-summary-target")).toBeNull();
   openToolDetails();
-  expect(container.querySelector(".tool-call-result-content h1")).toHaveTextContent(
-    "Code review",
-  );
+  expect(
+    container.querySelector(".tool-call-result-content h1"),
+  ).toHaveTextContent("Code review");
 });
 
 test("the row names what the call acts on, clipped rather than wrapped", () => {
@@ -1572,7 +1595,9 @@ test("the row names what the call acts on, clipped rather than wrapped", () => {
       title="read"
       kind="read"
       status="completed"
-      argsText={JSON.stringify({ path: "external/ui/src/ui/messages/Tool.tsx" })}
+      argsText={JSON.stringify({
+        path: "external/ui/src/ui/messages/Tool.tsx",
+      })}
       resultText="ok"
       durationMs={3}
     />,
@@ -1642,12 +1667,12 @@ test("a read of part of a file shows the lines next to the path, like a mention"
     "/storage/Repository/foxxycode/foxxycode-agent/internal/tools/fs/read.go:120-180",
   );
   // The path is what gives way to the ellipsis; the range never does.
-  expect(container.querySelector(".tool-summary-target-path")?.textContent).toBe(
-    "internal/tools/fs/read.go",
-  );
-  expect(container.querySelector(".tool-summary-target-range")?.textContent).toBe(
-    ":120-180",
-  );
+  expect(
+    container.querySelector(".tool-summary-target-path")?.textContent,
+  ).toBe("internal/tools/fs/read.go");
+  expect(
+    container.querySelector(".tool-summary-target-range")?.textContent,
+  ).toBe(":120-180");
 });
 
 test("a read of the whole file shows the path alone, as before", () => {
@@ -1702,9 +1727,9 @@ test("background output names the task instead of opening with an empty strip", 
   );
   openToolDetails();
 
-  expect(container.querySelector(".permission-preview-location")?.textContent).toBe(
-    "bg_3",
-  );
+  expect(
+    container.querySelector(".permission-preview-location")?.textContent,
+  ).toBe("bg_3");
   // The status reads through the Tasks drawer's own labels.
   expect(container.querySelector(".scheduler-tool-row")?.textContent).toContain(
     "Running",
@@ -1847,7 +1872,9 @@ test("the failure marker is localized and absent when the call succeeded", () =>
       durationMs={5}
     />,
   );
-  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent("(ошибка)");
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent(
+    "(ошибка)",
+  );
   setLocale("en");
 });
 
@@ -1979,7 +2006,9 @@ test("the documentation tools say what they do and name the query or the page", 
     />,
   );
   expect(screen.getByText("searching the documentation")).toBeInTheDocument();
-  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("telegram proxy");
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "telegram proxy",
+  );
   expect(screen.queryByText("foxxycode_docs_search")).toBeNull();
   unmount();
 
@@ -2143,7 +2172,9 @@ test("a scheduler action reads as its outcome, not as JSON", () => {
       durationMs={3}
     />,
   );
-  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("ai-news-digest");
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "ai-news-digest",
+  );
   openToolDetails();
   const card = screen.getByTestId("scheduler-tool-card");
   expect(card).toHaveTextContent("ai-news-digest");
@@ -2255,7 +2286,11 @@ test("an answer matches a label whose spacing differs", () => {
       status="completed"
       argsText={JSON.stringify({
         questions: [
-          { question: "Which?", options: [{ label: "Todo  plan" }], custom: true },
+          {
+            question: "Which?",
+            options: [{ label: "Todo  plan" }],
+            custom: true,
+          },
         ],
       })}
       resultText={JSON.stringify({ answers: [["Todo   plan"]] })}
@@ -2264,9 +2299,13 @@ test("an answer matches a label whose spacing differs", () => {
   openToolDetails();
 
   const rows = [...container.querySelectorAll(".question-tool-offer-row")];
-  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(
+    true,
+  );
   // The free slot stays unmarked: the answer was one of the options.
-  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(
+    false,
+  );
 });
 
 test("an offer of nothing but a free slot still shows that slot", () => {
@@ -2285,7 +2324,96 @@ test("an offer of nothing but a free slot still shows that slot", () => {
 
   const rows = [...container.querySelectorAll(".question-tool-offer-row")];
   expect(rows).toHaveLength(1);
-  expect(rows[0]?.querySelector(".question-prompt-bubble")?.textContent).toBe("A");
-  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.querySelector(".question-prompt-bubble")?.textContent).toBe(
+    "A",
+  );
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(
+    true,
+  );
   expect(rows[0]?.textContent).toContain("hello");
+});
+
+// A read that showed the model a picture previews it under the row, without
+// opening the row: the preview is what the reader wants to see.
+test("a read that showed the model a picture previews it under the row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="r1"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText='{"path":"screenshots/after.png"}'
+      resultText="screenshots/after.png: PNG image, 4x3, 83 bytes. The picture is attached for you to look at."
+      images={[
+        {
+          name: "after.png",
+          mimeType: "image/png",
+          previewUrl: "/foxxycode/sessions/s1/assets/after-1a2b.png/thumbnail",
+          url: "/foxxycode/sessions/s1/assets/after-1a2b.png",
+        },
+      ]}
+    />,
+  );
+  const details = screen.getByTestId("tool-details-r1") as HTMLDetailsElement;
+  expect(details.open).toBe(false);
+  const thumb = screen.getByTestId("tool-image-thumb");
+  expect(thumb).toHaveAttribute(
+    "src",
+    "/foxxycode/sessions/s1/assets/after-1a2b.png/thumbnail",
+  );
+  expect(details.contains(thumb)).toBe(false);
+
+  fireEvent.click(screen.getByLabelText("Open after.png enlarged"));
+  const shown = document.querySelector(
+    ".docs-lightbox-stage img",
+  ) as HTMLImageElement | null;
+  expect(shown?.getAttribute("src")).toBe(
+    "/foxxycode/sessions/s1/assets/after-1a2b.png",
+  );
+
+  fireEvent.click(screen.getByTestId("docs-lightbox-close"));
+  expect(document.querySelector(".docs-lightbox")).toBeNull();
+});
+
+test("a picture without a thumbnail previews its original, and a failed read none", () => {
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="r2"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText='{"path":"pic.webp"}'
+      resultText="pic.webp: WebP image"
+      images={[
+        {
+          name: "pic.webp",
+          mimeType: "image/webp",
+          url: "/foxxycode/sessions/s1/assets/pic-9f.webp",
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByTestId("tool-image-thumb")).toHaveAttribute(
+    "src",
+    "/foxxycode/sessions/s1/assets/pic-9f.webp",
+  );
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="r2"
+      title="read"
+      kind="read"
+      status="failed"
+      argsText='{"path":"pic.webp"}'
+      resultText="error: read: pic.webp: the session's model does not read images"
+      images={[
+        {
+          name: "pic.webp",
+          mimeType: "image/webp",
+          url: "/foxxycode/sessions/s1/assets/pic-9f.webp",
+        },
+      ]}
+    />,
+  );
+  expect(screen.queryByTestId("tool-image-thumb")).toBeNull();
 });

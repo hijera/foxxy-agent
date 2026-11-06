@@ -58,6 +58,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "tasks":
 		a.openTasksOverlay()
 		return true
+	case "mcp":
+		a.openMCP()
+		return true
 	case "docs", "help":
 		a.openDocsOverlay(strings.Join(fields[1:], " "))
 		return true
@@ -155,6 +158,15 @@ func (a *App) applySettings(changes ...session.SettingsChange) {
 // answered with, so the footer follows it even when no event arrives (a
 // remote server's events stream that is not connected).
 type settingsApplied struct{ settings acp.SessionSettings }
+
+// adoptSettingsSnapshot shows the settings of a session just entered, its
+// permission mode and its turn overrides included (#362). Entering a session
+// starts the version order over: the snapshots of the session left behind are
+// dropped by their session id, not by their version.
+func (a *App) adoptSettingsSnapshot(snap acp.SessionSettings) {
+	a.settingsVersion = 0
+	a.applySettingsSnapshot(snap)
+}
 
 // applySettingsSnapshot adopts a settings snapshot: the model and the
 // reasoning the footer shows, the mode, the permission mode and the turn
@@ -359,6 +371,7 @@ func (a *App) showHotkeys() {
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",
+		"/mcp MCP servers: enter details · toggle server or tool · approve project trust",
 		"F1 or /docs [words] built-in documentation: type to search · enter read · n/p turn pages",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
@@ -435,8 +448,14 @@ func (a *App) startResumeWorker(old, id string) {
 			modes = res.Modes
 			opts = res.ConfigOptions
 		}
+		resumed := sessionResumed{id: id, modes: modes, opts: opts}
+		// The whole snapshot, so the footer shows what the session has
+		// changed for its next turns as well as its permission mode.
+		if snap, err := a.mgr.SessionSettings(id); err == nil {
+			resumed.settings = &snap
+		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: id, update: sessionResumed{id: id, modes: modes, opts: opts}}:
+		case a.updatesCh <- updateMsg{sessionID: id, update: resumed}:
 		case <-a.closed:
 		}
 		if old != "" && old != id {
@@ -448,9 +467,10 @@ func (a *App) startResumeWorker(old, id string) {
 
 // sessionResumed is an internal update completing /resume.
 type sessionResumed struct {
-	id    string
-	modes *acp.ModeState
-	opts  []acp.ConfigOption
+	id       string
+	modes    *acp.ModeState
+	opts     []acp.ConfigOption
+	settings *acp.SessionSettings
 }
 
 // shortSessionID trims a session id to a readable prefix.

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { connectSwarmNode, getEnv, returnToSwarm, setEnv } from "./remoteEnv";
+import {
+  connectSwarmNode,
+  connectSwarmRelay,
+  getEnv,
+  setEnv,
+  swarmMountPath,
+  swarmMountRoot,
+  swarmRootRelay,
+} from "./remoteEnv";
 
 // The env module caches and reloads the page, so both are stubbed.
 beforeEach(() => {
@@ -60,12 +68,23 @@ describe("connectSwarmNode", () => {
     expect(window.location.hash).toBe("#/s/sess_a");
   });
 
-  // Staying on the swarm route would leave the screen asking a node whether it
-  // is a relay, and being told no.
-  it("leaves the swarm route when no session is named", () => {
+  // The route of the environment being left is not carried to a node: a node
+  // the app has not been on opens at its home. (The map over a node is a route
+  // of that node's own, kept for it like any other.)
+  it("opens a node it has not been on at its home, whatever route it left", () => {
+    setEnv({ mode: "remote", baseUrl: "http://relay.example", token: "tok" });
     window.location.hash = "#/swarm";
     connectSwarmNode("http://relay.example", ["nas02"], "tok");
     expect(window.location.hash).toBe("#/");
+  });
+
+  // Choosing the node the app is on again keeps it where it is, the map over
+  // it included, rather than dropping it back to its home.
+  it("keeps the route of the node chosen again", () => {
+    connectSwarmNode("http://relay.example", ["nas02"], "tok");
+    window.location.hash = "#/swarm";
+    connectSwarmNode("http://relay.example", ["nas02"], "tok");
+    expect(window.location.hash).toBe("#/swarm");
   });
 
   it("refuses a call with no node to open", () => {
@@ -75,22 +94,81 @@ describe("connectSwarmNode", () => {
   });
 });
 
-describe("returnToSwarm", () => {
-  it("goes back out to the relay and opens the swarm screen", () => {
-    connectSwarmNode("http://relay.example", ["inner", "agent7"], "tok");
-    returnToSwarm();
+describe("connectSwarmRelay", () => {
+  // From the map over a node, a click on the relay connects to the relay
+  // itself: the node is left, and the app opens on the relay's own map
+  // (issue #401).
+  it("connects from a node to the relay itself", () => {
+    connectSwarmNode("http://relay.example", ["nas02"], "tok");
+    connectSwarmRelay("http://relay.example", [], "tok");
     const env = getEnv();
     if (env.mode !== "remote") throw new Error("expected a remote env");
     expect(env.baseUrl).toBe("http://relay.example");
     expect(env.swarmRelay).toBeUndefined();
+    expect(env.swarmNode).toBeUndefined();
     expect(window.location.hash).toBe("#/swarm");
+    expect(window.location.reload).toHaveBeenCalled();
   });
 
-  it("does nothing from an environment that came through no relay", () => {
-    setEnv({ mode: "remote", baseUrl: "http://plain.example", token: "t" });
-    returnToSwarm();
+  // A relay chained under this one is a relay, not a node: its mount is
+  // entered as an environment of its own, which answers /swarm/info and so
+  // opens on its own map - and whose nodes are entered through it in turn.
+  it("opens a relay chained under this one as a relay, through its mount", () => {
+    connectSwarmRelay("http://relay.example", ["middle"], "tok");
     const env = getEnv();
     if (env.mode !== "remote") throw new Error("expected a remote env");
-    expect(env.baseUrl).toBe("http://plain.example");
+    expect(env.baseUrl).toBe("http://relay.example/swarm/nodes/middle");
+    expect(env.name).toBe("middle");
+    expect(env.token).toBe("tok");
+    // Not a node: the app asks it whether it is a relay rather than drawing
+    // a chat for it.
+    expect(env.swarmRelay).toBeUndefined();
+    expect(window.location.hash).toBe("#/swarm");
+  });
+});
+
+describe("swarm mount helpers", () => {
+  // A mount URL spells the whole chain from the outermost relay down, so the
+  // map can always be drawn by the root relay no matter how deep the env is.
+  it("swarmMountRoot returns the relay a mount hangs off", () => {
+    expect(
+      swarmMountRoot("http://r:1/swarm/nodes/east/swarm/nodes/deep"),
+    ).toBe("http://r:1");
+    expect(swarmMountRoot("http://r:1/swarm/nodes/east")).toBe("http://r:1");
+    expect(swarmMountRoot("http://r:1")).toBe("");
+    expect(swarmMountRoot("http://node.example")).toBe("");
+  });
+
+  it("swarmMountPath lists the chained names, outermost first", () => {
+    expect(
+      swarmMountPath("http://r:1/swarm/nodes/east/swarm/nodes/deep"),
+    ).toEqual(["east", "deep"]);
+    expect(swarmMountPath("http://r:1/swarm/nodes/east")).toEqual(["east"]);
+    expect(swarmMountPath("http://r:1")).toEqual([]);
+  });
+
+  it("swarmRootRelay resolves to the outermost relay of the chain", () => {
+    // A node reached through a chained relay: its swarmRelay is itself a
+    // mount, and the root is still the outermost relay.
+    expect(
+      swarmRootRelay({
+        baseUrl: "http://r:1/swarm/nodes/east/swarm/nodes/laptop",
+        swarmRelay: "http://r:1/swarm/nodes/east",
+      }),
+    ).toBe("http://r:1");
+    // A chained relay env: the mount is in its own baseUrl.
+    expect(
+      swarmRootRelay({ baseUrl: "http://r:1/swarm/nodes/east" }),
+    ).toBe("http://r:1");
+    // A plain node mount and a direct remote stand as they are.
+    expect(
+      swarmRootRelay({
+        baseUrl: "http://r:1/swarm/nodes/box",
+        swarmRelay: "http://r:1",
+      }),
+    ).toBe("http://r:1");
+    expect(swarmRootRelay({ baseUrl: "http://other.example" })).toBe(
+      "http://other.example",
+    );
   });
 });

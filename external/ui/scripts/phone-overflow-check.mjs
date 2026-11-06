@@ -157,7 +157,13 @@ try {
       // turn is wider than itself.
       await page.evaluate(async () => {
         await document.fonts.ready;
-        await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {})));
+        // Live status dots keep bouncing for the whole turn; only finite entry
+        // and disclosure animations need to settle before measuring the rows.
+        await Promise.all(
+          document.getAnimations()
+            .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map((a) => a.finished.catch(() => {})),
+        );
       });
 
       const got = await probe(page);

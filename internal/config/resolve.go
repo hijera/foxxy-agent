@@ -98,6 +98,20 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 	return nil
 }
 
+// ModelMultimodal reports whether the model explicitly opts in to image/file
+// inputs (ModelEntry.Multimodal). Missing and unknown entries fail closed: a
+// model nobody declared takes no images. This is the one gate every delivery
+// path applies - the enqueue gate of a queued message, and the read that hands
+// its images to the model - so a switch to a text-only model between the two
+// drops the attachments instead of failing the request.
+func (c *Config) ModelMultimodal(ref string) bool {
+	if c == nil {
+		return false
+	}
+	entry := c.FindModelEntry(ref)
+	return entry != nil && entry.Multimodal
+}
+
 // FirstModelID returns the alphabetically first configured model id, or ""
 // when no models are configured. Surfaces use it as the initial pick for a
 // session before any surface-level preference exists.

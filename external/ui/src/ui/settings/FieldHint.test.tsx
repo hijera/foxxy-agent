@@ -8,8 +8,9 @@ import {
   render,
   screen,
 } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { FieldHint, FieldLabel, LegendWithHint } from "./FieldHint";
+import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 afterEach(cleanup);
 
@@ -77,6 +78,25 @@ test("Escape, a scroll and a tap elsewhere close the tip", () => {
   fireEvent.click(hint());
   fireEvent.mouseDown(document.body);
   expect(screen.queryByRole("tooltip")).toBeNull();
+});
+
+// The drawer has listened for Escape since it opened, long before the tip:
+// the tip hears the key first all the same, and the drawer stays.
+test("Escape takes the tip down and leaves the drawer under it for the next one", () => {
+  const closeDrawer = vi.fn();
+  render(
+    <>
+      <OpenRailScreen id="settings" onClose={closeDrawer} />
+      <FieldLabel label="Timeout" description="Per request." />
+    </>,
+  );
+  fireEvent.mouseEnter(hint());
+  expect(screen.getByRole("tooltip")).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  expect(closeDrawer).not.toHaveBeenCalled();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(closeDrawer).toHaveBeenCalledTimes(1);
 });
 
 // Inside a <label for> or a <legend> the click must stay with the (i).

@@ -43,7 +43,7 @@ back (**`DESIGN.md`**, *Chevron*). jsdom has no layout, so vitest cannot see whe
 change touches the chevron, the rows it sits on or the type around them, run
 **`external/ui/scripts/chevron-align-check.mjs`** against a **`vite`** dev server (setup in
 **`docs/surfaces/web-ui.md`**, *Checking the fold chevron against its label*): it measures the
-chevron's ink centre against the label's on a transcript row and on the Tasks drawer toggle, and
+chevron's ink centre against the label's on a transcript row and on the Tasks panel toggle, and
 fails past **1px**.
 
 ## A long transcript

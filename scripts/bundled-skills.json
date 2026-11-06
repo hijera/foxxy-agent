@@ -12,6 +12,11 @@
       "origin": "local"
     },
     {
+      "name": "crossreview",
+      "repo": "https://github.com/EvilFreelancer/crossreview.git",
+      "ref": "main"
+    },
+    {
       "name": "rpa-init",
       "repo": "https://github.com/EvilFreelancer/rpa-init.git",
       "ref": "main"

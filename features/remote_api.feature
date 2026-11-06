@@ -58,6 +58,20 @@ Feature: Remote API parity
     And the config response hides the auth token
     And the config response reports authentication is configured
 
+  Scenario: A remote client reads which build the server runs, and on which machine
+    Given the client presents the token
+    When I request the server info
+    Then the request succeeds
+    And the info names the version the binary was built as and the machine's host name
+
+  Scenario: A remote the configuration lists hands its token to the page
+    Given the client presents the token
+    And the server lists the remote "office-relay" at "http://relay.lan:12346" with the token "relay-client"
+    When I request the server config
+    Then the request succeeds
+    And the config lists the remote "office-relay" at "http://relay.lan:12346" with the token "relay-client"
+    And the config response hides the auth token
+
   Scenario: Switching back to a local server keeps the client working without a token
     Given a local foxxycode HTTP server without authentication
     And the client presents no token

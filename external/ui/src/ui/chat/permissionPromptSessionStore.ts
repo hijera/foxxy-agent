@@ -1,4 +1,7 @@
-import type { FoxxyCodePermissionPayload, PermissionResolvedState } from "./permissionTypes";
+import type {
+  FoxxyCodePermissionPayload,
+  PermissionResolvedState,
+} from "./permissionTypes";
 import { restorePermissionPromptsForPendingTools } from "./restorePermissionPrompts";
 import { stablePermissionPromptItemId } from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
@@ -185,6 +188,46 @@ export function mergePermissionPromptsIntoTranscript(
   sessionId: string,
   policy: ToolsPermissionPolicy | null,
 ): TranscriptItem[] {
-  const withStored = mergeStoredPermissionPromptsIntoTranscript(merged, sessionId);
+  // A terminal tool outcome is authoritative even when Stop released the
+  // stream before its final update arrived. Retire both the visible card and
+  // its stored copy so a reload cannot revive an obsolete approval request.
+  const finished = new Set(
+    merged.flatMap((item) =>
+      item.type === "tool_call" &&
+      ["completed", "failed", "cancelled"].includes(item.status)
+        ? [item.toolCallId.trim()]
+        : [],
+    ),
+  );
+  const records = loadPermissionPromptRecords(sessionId);
+  for (const item of merged) {
+    if (
+      item.type === "permission_prompt" &&
+      !item.resolved &&
+      finished.has(item.payload.toolCall.toolCallId.trim())
+    ) {
+      records.push({
+        toolCallId: item.payload.toolCall.toolCallId,
+        payload: item.payload,
+      });
+    }
+  }
+  for (const record of records) {
+    if (!record.resolved && finished.has(record.toolCallId.trim())) {
+      upsertPermissionPromptRecord(sessionId, {
+        ...record,
+        resolved: { optionId: "cancelled", summaryLine: "" },
+      });
+    }
+  }
+  const current = merged.filter(
+    (item) =>
+      item.type !== "permission_prompt" ||
+      !finished.has(item.payload.toolCall.toolCallId.trim()),
+  );
+  const withStored = mergeStoredPermissionPromptsIntoTranscript(
+    current,
+    sessionId,
+  );
   return restorePermissionPromptsForPendingTools(withStored, sessionId, policy);
 }

@@ -11,6 +11,8 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // ── /resume ──────────────────────────────────────────────────────────────────
@@ -99,7 +101,7 @@ func (b *Bot) handleResumeCallback(ctx context.Context, bot *tgbotapi.BotAPI, cb
 	rows, err := b.listSessions(ctx)
 	if err != nil {
 		b.log.Warn("telegram: resume list", "err", err, "user", userID, "chat", chatID)
-		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ Cannot list sessions: "+err.Error()))
+		b.replyToTap(bot, cbq, "❌ Cannot list sessions: "+err.Error())
 		return
 	}
 	current := b.store.Peek(key)
@@ -127,7 +129,7 @@ func (b *Bot) handleResumeCallback(ctx context.Context, bot *tgbotapi.BotAPI, cb
 		row, ok := resolveResumeCallback(rows, value)
 		if !ok {
 			b.log.Warn("telegram: callback session unknown", "payload", value, "user", userID, "chat", chatID)
-			_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ That session no longer exists."))
+			b.replyToTap(bot, cbq, "❌ That session no longer exists.")
 			return
 		}
 		b.log.Debug("telegram: callback",
@@ -139,7 +141,7 @@ func (b *Bot) handleResumeCallback(ctx context.Context, bot *tgbotapi.BotAPI, cb
 		)
 		text, err := b.resumeSession(ctx, key, row, userID, chatID)
 		if err != nil {
-			_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ Cannot resume that session: "+err.Error()))
+			b.replyToTap(bot, cbq, "❌ Cannot resume that session: "+err.Error())
 			return
 		}
 		// The confirmation replaces the menu, keyboard included.
@@ -161,13 +163,43 @@ func (b *Bot) resumeSession(ctx context.Context, key string, row acp.SessionList
 	if old == id {
 		return "▶️ This chat is already on " + resumeTitle(row) + "\n" + id, nil
 	}
-	if _, err := b.runner.EnsureHTTPSession(ctx, id, b.cwd); err != nil {
+	st, err := b.runner.EnsureHTTPSession(ctx, id, b.cwd)
+	if err != nil {
 		b.log.Warn("telegram: resume session", "err", err, "session", id, "user", userID, "chat", chatID)
 		return "", err
 	}
 	b.store.Bind(key, id)
 	b.log.Info("telegram: session resumed", "old", old, "new", id, "user", userID, "chat", chatID)
-	return "▶️ Resumed: " + resumeTitle(row) + "\n" + id + "\n\nSend a message to continue it.", nil
+	text := "▶️ Resumed: " + resumeTitle(row) + "\n" + id
+	if line := sessionSettingsLine(b.runner.Cfg(), st); line != "" {
+		text += "\n" + line
+	}
+	return text + "\n\nSend a message to continue it.", nil
+}
+
+// sessionSettingsLine names what a resumed session runs on, as it keeps it:
+// its model, its reasoning level where the model offers any ("default" when
+// neither the session nor the model names one, so the provider's own level
+// applies), and its mode when it is not agent. It is the session's own, never
+// the model last picked on this bot, which only a fresh chat starts on (#362).
+func sessionSettingsLine(cfg *config.Config, st *session.State) string {
+	if cfg == nil || st == nil {
+		return ""
+	}
+	model := st.SessionModelID(cfg)
+	if model == "" {
+		return ""
+	}
+	line := "Model: " + model
+	if level := st.SessionReasoning(cfg); level != "" {
+		line += ", reasoning " + level
+	} else if len(cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))) > 0 {
+		line += ", reasoning default"
+	}
+	if mode := st.GetMode(); mode != "" && mode != string(session.ModeAgent) {
+		line += ", " + mode + " mode"
+	}
+	return line
 }
 
 // listSessions asks the server for the sessions it keeps, newest first. No

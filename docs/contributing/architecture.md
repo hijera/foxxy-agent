@@ -59,6 +59,36 @@ That coding-agent surface is **a productized profile on top of the harness**, no
                                     └───────────────────────┘
 ```
 
+### Fork feature boundaries
+
+Three untagged packages own the domain logic used by the agent, CLI and optional
+HTTP surface. Their behavior can be exercised without starting an HTTP server:
+
+| Package | Responsibility | Integration boundary |
+| --- | --- | --- |
+| `internal/svn` | Configured SVN discovery, branch operations, tool classification, explicit mode contributions and read-result invalidation | `internal/tools/svn` constructs callable tools; the agent retains approval and eviction; HTTP retains session locks, relocation and catalog reloads |
+| `internal/idehost` | Editor/terminal prompt annotations, `.idea`/`.vscode` project context and host event fan-out | Snapshot stores remain in `ideenv`/`ideterm`; the agent requests context annotations; `ide_routes.go` registers HTTP adapters and SSE encodes events |
+| `internal/autocomplete` | Completion text rules, provider construction, FIM/chat fallback, cancellation/timeouts, statistics and bounded related-file excerpts | A zero-value `Service` receives per-request provider, related-file and display-path dependencies; HTTP handles JSON and status/Retry-After mapping |
+
+SVN replay policies are independent of whether the client is installed or the
+tools are currently enabled. Mutation approval is distinct from invalidating
+old file reads: `svn_add` and `svn_commit` do not rewrite those files. Workspace
+operations return a destination or reload effect rather than operating on a
+session manager. IDE event hubs and autocomplete services own their state;
+creating another instance does not share subscriptions or model fallback memory.
+
+These boundaries preserve routes, configuration keys and tool names. They do
+not introduce build tags or change restricted-mode or child-tool permissions.
+Domain rules belong in these packages; protocol and session lifecycle decisions
+remain in their adapters. Run the independent package tests with:
+
+```bash
+go test ./internal/svn ./internal/idehost ./internal/autocomplete
+```
+
+Then run the existing agent and HTTP feature suites for their integration.
+
+
 ## Component Descriptions
 
 ### ACP Server Layer (`internal/acp`)
@@ -136,6 +166,7 @@ Each fragment may use Go **`text/template`** with the **`TemplateData`** fields 
 ### LLM Provider (`internal/llm`)
 
 Abstracted interface for LLM backends. Configured via `config.yaml`.
+The Anthropic serializer omits an assistant history row when it has no replayable non-whitespace text, tool use, or signed thinking block and a later message follows it. A signature without thinking text cannot be replayed and must not become an empty text block. A trailing unreplayable assistant row, or a tool result immediately after one, is refused before contacting Anthropic: omitting it could turn an earlier assistant answer into a continuation prefix, and the tool result has no replayable tool use to answer. The row remains in the session transcript; this wire projection does not change the agent's recovery or retry allowance.
 
 The resilient wrapper (**`resilient.go`**) repeats a call up to **`agent.llm_retry_max`** times when **`isRetryableLLMError`** says the failure belongs to the attempt, not to the request: HTTP **`429`**, **`408`**, **`500`**, **`502`**, **`503`** and **`504`**; a transport failure with no status while nothing reached the caller (an unexpected EOF, a connection reset, an HTTP/2 stream the peer reset - `stream error: stream ID N; INTERNAL_ERROR; received from peer`, as net/http prints it, with no `http2:` prefix - a **`GOAWAY`**, or an HTTP/2 connection the health check closed: **`http2: client connection lost`**); and a request that never left the client - a TLS handshake that timed out or a dial that did not complete (**`isDialFailure`**: a timeout, no route, a temporary DNS failure). The dial check runs ahead of the **`context.DeadlineExceeded`** gate, because a dial timeout matches that sentinel just like the caller's own timer; the caller's timer is ruled out earlier by the **`ctx.Err()`** check in **`callWithRetry`**. A cancellation, an unknown host and any failure after deltas were emitted stay final.
 
@@ -291,7 +322,7 @@ Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). 
 
 ### Subagents (`internal/subagents`)
 
-Loads subagent definitions - markdown files with YAML frontmatter whose body is a child agent's role - from **`subagents.dirs`** (defaults **`${FOXXYCODE_HOME}/agents`**, **`${CWD}/.claude/agents`**, **`${CWD}/.foxxycode/agents`**; later dirs override earlier ones by name, and the two built-ins **`general`** and **`explore`** sit below all of them), decides each file's **scope** on canonical paths (**`project`** inside the workspace, **`user`** elsewhere), holds the **trust receipts** for project-scope files (**`TrustStore`**, **`<home>/subagents-trust.json`**, keyed by canonical workspace, name and file digest; policy **`subagents.project_trust`**), bounds concurrent runs with a process-wide **`Limiter`**, and renders the **catalog** (the prompt block for the parent model, the table for **`foxxycode agents list`**, the rows for **`GET /foxxycode/subagents`**). It also owns the pure narrowing rules: permission mode never widens, the child's tool set is an intersection with the parent's, timeouts resolve like the pool's. The package knows nothing about sessions or the loop; **`internal/agent/subagent.go`** applies its decisions, runs the child through the session manager and registers the run in **`internal/bgtask`** with **`Pool.Launch`**. Guide: **`docs/features/subagents.md`**.
+Loads subagent definitions - markdown files with YAML frontmatter whose body is a child agent's role - from **`subagents.dirs`** (defaults **`${FOXXYCODE_HOME}/agents`**, **`${CWD}/.claude/agents`**, **`${CWD}/.foxxycode/agents`**; later dirs override earlier ones by name, and the three built-ins **`general`**, **`explore`** and the hidden **`crossreview`** sit below all of them), decides each file's **scope** on canonical paths (**`project`** inside the workspace, **`user`** elsewhere), holds the **trust receipts** for project-scope files (**`TrustStore`**, **`<home>/subagents-trust.json`**, keyed by canonical workspace, name and file digest; policy **`subagents.project_trust`**), bounds concurrent runs with a process-wide **`Limiter`**, and renders the **catalog** (the prompt block for the parent model, the table for **`foxxycode agents list`**, the rows for **`GET /foxxycode/subagents`**). It also owns the pure narrowing rules: permission mode never widens, the child's tool set is an intersection with the parent's, timeouts resolve like the pool's. The package knows nothing about sessions or the loop; **`internal/agent/subagent.go`** applies its decisions, runs the child through the session manager and registers the run in **`internal/bgtask`** with **`Pool.Launch`**. Guide: **`docs/features/subagents.md`**.
 
 ### Hooks (`internal/hooks`)
 
@@ -299,11 +330,11 @@ Loads operator **lifecycle hooks** - commands that read one JSON document on std
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` and `**/DESIGN.md` files ([agents.md](https://agents.md/) convention), under session CWD, and from the operator's own **`${FOXXYCODE_HOME}/rules`** (system id `user`), which applies in every workspace; duplicates by file name resolve as foxxycode > agents-dir > cursor > claude > codex > agents > user. Injected into **`{{.Rules}}`** separately from skills, together with the preamble documents: the agent home's **`AGENTS.md`** and **`DESIGN.md`** when they exist, first, then the workspace's pair, and a nested folder's pair when a tool enters it. The files of `instructions.files` go into **`{{.Instructions}}`**, minus whatever the preamble already carries. See **`docs/features/rules.md`**.
+Discovers `.mdc` / `.md` rules from one project folder under session CWD - the first of `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules` and `.codex/rules` that holds a rule file, so another agent's mirror of the same rules is never loaded next to it - plus the operator's own **`${FOXXYCODE_HOME}/rules`** (system id `user`), which applies in every workspace and loses a file name clash to the project, and nested `**/AGENTS.md` and `**/DESIGN.md` files ([agents.md](https://agents.md/) convention) read for the folders a tool enters. The rules that always apply go into **`{{.Rules}}`** separately from skills, together with the preamble documents: the agent home's **`AGENTS.md`** and **`DESIGN.md`** when they exist, first, then the workspace's pair; that block is rendered once per rules generation of the session (a compaction, a config reload or a workspace switch starts the next one), so it does not move the cached system message. The files of `instructions.files` go into **`{{.Instructions}}`**, minus whatever the preamble already carries. See **`docs/features/rules.md`**.
 
 The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
 
-Activation uses globs, **`alwaysApply`**, **`@mention`**, sticky auto rules, and filesystem tool paths (`MatchScoped`: a `read`/`edit`/... targeting a matching path or a nested `AGENTS.md` subtree activates the rule); see **`docs/features/rules.md`**. A rule a mention brings - one the user names, one a mentioned path activates - rides in that user message rather than in **`{{.Rules}}`** (**`internal/agent/mentions.go`**).
+Activation uses globs, **`alwaysApply`**, **`@mention`** and filesystem tool paths (`MatchScoped`: a `read`/`edit`/... targeting a matching file, or a path in a nested `AGENTS.md` subtree, activates the rule); see **`docs/features/rules.md`**. A rule a tool call activates rides in that call's result (**`llm.Message.Rules`**, **`internal/agent/rules_activation.go`**), and a rule a mention brings - one the user names, one a mentioned path activates - in that user message (**`internal/agent/mentions.go`**); neither enters **`{{.Rules}}`**, and each comes once until a compaction folds it away.
 
 ### Mentions (`internal/mention`)
 
@@ -402,3 +433,7 @@ Optional layers **`external/httpserver`**, **`external/ui`**, **`external/schedu
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
 
 The built-in prompt sections also receive `ModelSwitch` and `BackgroundWake` capability flags. They explain user-requested model changes and completion wakes only when the corresponding capability is available.
+
+### Stream frames cut inside JSON
+
+The OpenAI-compatible, Codex and Anthropic readers classify an event that ends inside its JSON as a typed stream truncation. The decoder cause remains available for diagnostics. Before any output it may be retried; after output the existing continuation policy preserves the partial answer and excludes unfinished tool calls. A malformed frame that is not truncated is final, even when its bytes contain an HTTP status or transport-error phrase. Progress-only chunks still do not count as emitted output.

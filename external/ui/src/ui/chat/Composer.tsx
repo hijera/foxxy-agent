@@ -1,4 +1,5 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
+import { normalizeClipboardImageFile } from "./clipboardImageFile";
 import {
   useCallback,
   useEffect,
@@ -12,6 +13,8 @@ import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
 import { ImageLightbox } from "../components/ImageLightbox";
+import { PaperclipIcon } from "../components/PaperclipIcon";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 import type { WorkspaceContext } from "./workspaceContext";
 import {
   ContextBreakdownPopover,
@@ -40,6 +43,7 @@ import { parseDroppedPaths } from "../skills/parseDroppedPaths";
 import { subscribeFileMention } from "../skills/fileMentionBus";
 import {
   draftExtendsFailedSlashPrefix,
+  inMarkdownFenceBeforeCaret,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import {
@@ -85,6 +89,7 @@ import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
+  orderLlmModels,
   shouldGroupLlmModels,
   shouldShowLlmFilter,
 } from "./llmModelMenu";
@@ -96,6 +101,24 @@ import {
   onSendModeChange,
   DEFAULT_SEND_MODE,
 } from "../i18n/sendModeConfig";
+
+function expandCodeFenceAtCaret(
+  value: string,
+  start: number,
+  end: number,
+): { text: string; caret: number } | null {
+  if (start !== end) return null;
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  const lineEndAt = value.indexOf("\n", start);
+  const lineEnd = lineEndAt < 0 ? value.length : lineEndAt;
+  const line = value.slice(lineStart, lineEnd);
+  if (line.trim() !== "```") return null;
+  const indent = line.match(/^[ \t]*/)?.[0] ?? "";
+  return {
+    text: `${value.slice(0, lineEnd)}\n\n${indent}\`\`\`${value.slice(lineEnd)}`,
+    caret: lineEnd + 1,
+  };
+}
 
 /** Extension for a clipboard image, so a pasted file gets a usable name. */
 function imageExtFromMime(mime: string): string {
@@ -130,7 +153,9 @@ function renamePastedImages(files: File[], seq: { n: number }): File[] {
   return files.map((f) => {
     seq.n += 1;
     const ext = imageExtFromMime(f.type);
-    return new File([f], `pasted-${seq.n}.${ext}`, { type: f.type });
+    // The same inference the send path applies: a clipboard that omitted the
+    // MIME type still gets a live chip preview from the deterministic name.
+    return normalizeClipboardImageFile(new File([f], `pasted-${seq.n}.${ext}`, { type: f.type }));
   });
 }
 
@@ -276,7 +301,19 @@ function displayLlmId(id: string, modelFallback: string): string {
 }
 
 /** One follow-up waiting for the running turn to read it. */
-export type QueuedMessage = { id: string; text: string };
+export type QueueMode = "steer" | "after_turn";
+/**
+ * An image waiting with a queued message, described and never carried: the
+ * list is published to every client on every change of the queue. The bytes
+ * come back only to the client that takes the message back.
+ */
+export type QueuedImage = { name?: string; mimeType?: string; sizeBytes?: number };
+export type QueuedMessage = { id: string; text: string; mode?: QueueMode; imageParts?: QueuedImage[] };
+
+/** The mode a queued message goes in when Tab sends it instead of Enter. */
+export function oppositeQueueMode(mode: QueueMode): QueueMode {
+  return mode === "after_turn" ? "steer" : "after_turn";
+}
 
 type SlashRow = {
   name: string;
@@ -329,21 +366,6 @@ function pickMenuDir(
   return "opens-down";
 }
 
-
-/**
- * The command group of the / menu: the server's rows, plus /docs where the
- * composer can open the reader (docsLabel is its description, null where it
- * cannot), in name order once /docs joins.
- */
-function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
-  if (docsLabel === null || rows.some((r) => r.name === "docs")) {
-    return rows;
-  }
-  return [...rows, { name: "docs", description: docsLabel }].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
-}
-
 /**
  * How long after compositionend a keyCode 229 keydown still counts as the key
  * that ended the composition (Safari's order). The keydown follows within a
@@ -386,6 +408,8 @@ export function Composer(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
+  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  onContextCompacted?: (() => void) | undefined;
   /** Fired when the user opens the context breakdown popover (refresh stats). */
   onContextRingOpen?: () => void;
   /** Known skill names from the catalog — chips confirmed `/name` tokens in the mirror overlay. */
@@ -414,10 +438,14 @@ export function Composer(props: {
    * is what follows the command, "" for the command alone.
    */
   onDocsCommand?: (arg: string) => void;
+  onMCPCommand?: () => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. Only while generating. */
-  onQueue?: (text: string) => void;
+  onQueue?: (text: string, mode: QueueMode, files?: File[]) => void;
+  queueMode?: QueueMode;
+  onQueueModeChange?: (mode: QueueMode) => void;
+  onSetQueuedMode?: (id: string, mode: QueueMode) => void;
   /** Take one queued follow-up back before the agent reads it. */
   onCancelQueued?: (id: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
@@ -495,31 +523,105 @@ export function Composer(props: {
   const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
   const queuedMessages = props.queuedMessages ?? [];
   /**
+   * The first message written during a turn asks what Enter should do. The
+   * key it was sent with is remembered: a message sent with Tab still goes in
+   * the other mode once the answer is in, as it does in the console.
+   */
+  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(null);
+  /**
+   * Whether the first-use question is already answered. A double click on one
+   * of its two buttons would otherwise queue the draft twice: the draft is
+   * cleared only on the next render, so both clicks still see the text of the
+   * one they belong to.
+   */
+  const queueChoiceAnsweredRef = useRef(false);
+  /**
+   * The text a queue just took, or null while no draft of that text is on its
+   * way. A second activation of a queue action in the window before App's
+   * setDraft("") re-renders would otherwise queue the same draft twice: both
+   * still read the text of the one they belong to. The check sits at the top
+   * of queueDraft, so every path that could take the draft is covered; the
+   * text is recorded where the draft is taken, not by the first-use question,
+   * whose answer re-enters queueDraft to take it. An empty text is recorded
+   * too: an attachment-only queue empties its own chips only on the next
+   * render, and a second activation before that would take them again.
+   * Cleared when the draft text or the chips change, so the next follow-up is
+   * a message of its own.
+   */
+  const queuedDraftTextRef = useRef<string | null>(null);
+  useEffect(() => {
+    queuedDraftTextRef.current = null;
+  }, [props.value, sendableAttachedFiles.length]);
+  /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
    * draft leaves the button as Stop, which is how the turn is still cancelled.
-   * Attachments are not queued - they stay in the composer for the next prompt.
+   * Attachments follow the text into the same queued message.
    */
   const queueArmed =
     props.generating === true &&
     typeof props.onQueue === "function" &&
-    props.value.trim().length > 0;
-  const openDocsFromDraft = useCallback((): boolean => {
-    if (!props.onDocsCommand || sendableAttachedFiles.length > 0) return false;
+    (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
+  /**
+   * Runs a draft that is a command of this composer - `/docs [words]` opens
+   * the reader, `/mcp` opens Settings -> MCP servers - in the browser; false
+   * when the draft is anything else. Like the console, `/mcp` ignores what
+   * follows it rather than send it to the model. A draft with files attached
+   * is always a message, so a command never swallows the attachments.
+   */
+  const runLocalCommandFromDraft = useCallback((): boolean => {
+    if (
+      props.onMCPCommand &&
+      sendableAttachedFiles.length === 0 &&
+      /^\/mcp(?:\s|$)/.test(props.value.trim())
+    ) {
+      props.onMCPCommand();
+      return true;
+    }
+    if (!props.onDocsCommand || sendableAttachedFiles.length > 0) {
+      return false;
+    }
     const arg = parseDocsCommand(props.value);
     if (arg === null) return false;
     props.onDocsCommand(arg);
     return true;
-  }, [props.onDocsCommand, props.value, sendableAttachedFiles.length]);
-  const queueDraft = useCallback(() => {
-    if (openDocsFromDraft()) return;
-    const txt = props.value.trim();
-    if (!txt || !props.onQueue) {
+  }, [props.onMCPCommand, props.onDocsCommand, props.value, sendableAttachedFiles.length]);
+  const queueDraft = useCallback((mode?: QueueMode, alternate = false) => {
+    if (runLocalCommandFromDraft()) {
       return;
     }
-    props.onQueue(txt);
-  }, [props.value, props.onQueue, openDocsFromDraft]);
-  /** An attachment on its own is a valid message; text is not required. */
+    const txt = props.value.trim();
+    if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
+      return;
+    }
+    // This very draft is already on its way to the queue (queuedDraftTextRef).
+    if (queuedDraftTextRef.current !== null && queuedDraftTextRef.current === txt) {
+      return;
+    }
+    const chosen = mode ?? props.queueMode;
+    if (!chosen) {
+      queueChoiceAnsweredRef.current = false;
+      setQueueChoice({ alternate });
+      return;
+    }
+    setQueueChoice(null);
+    const files = [...sendableAttachedFiles];
+    if (files.length > 0) setAttachedFiles([]);
+    queuedDraftTextRef.current = txt;
+    props.onQueue(txt, chosen, files);
+  }, [props.value, props.onQueue, props.queueMode, runLocalCommandFromDraft, sendableAttachedFiles, setAttachedFiles]);
+  /** The answer to the first-use question: it is Enter's mode from now on. */
+  const chooseQueueMode = (mode: QueueMode) => {
+    if (queueChoiceAnsweredRef.current) {
+      return;
+    }
+    queueChoiceAnsweredRef.current = true;
+    const alternate = queueChoice?.alternate === true;
+    setQueueChoice(null);
+    props.onQueueModeChange?.(mode);
+    queueDraft(alternate ? oppositeQueueMode(mode) : mode);
+  };
+  /** Attachment-only send is valid only while the selected model accepts it. */
   const idleSendDisabled =
     props.value.trim() === "" && sendableAttachedFiles.length === 0;
   const showAttachHint = useCallback(() => {
@@ -694,7 +796,7 @@ export function Composer(props: {
     if (argDraft.kind === "flag") {
       return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
     }
-    return filterLlmModels(props.llmModels ?? [], argDraft.prefix);
+    return filterLlmModels(orderLlmModels(props.llmModels ?? []), argDraft.prefix);
   }, [argDraft, props.llmModels]);
   const argOpen =
     argDraft.open &&
@@ -929,6 +1031,12 @@ export function Composer(props: {
     closeAtRangePicker();
   }
 
+  /**
+   * One page of the / menu: the server's rows, plus the commands this composer
+   * runs itself - /docs where it can open the reader, /mcp where it can open
+   * Settings - added to the first page when it can run them, each labelled by
+   * the description the other rows use.
+   */
   const fetchSlashPage = useCallback(
     async (prefix: string, page: number) => {
       const sp = new URLSearchParams({
@@ -958,9 +1066,13 @@ export function Composer(props: {
           !body.items?.some((row) => row.name === "docs")) {
         body.items = [...(body.items || []), { name: "docs", description: t("composer.docsCommand") }];
       }
+      if (page === 1 && props.onMCPCommand && "mcp".startsWith(prefix.toLowerCase()) &&
+          !body.items?.some((row) => row.name === "mcp")) {
+        body.items = [...(body.items || []), { name: "mcp", description: t("composer.mcpCommand") }];
+      }
       return body;
     },
-    [props.sessionId, props.onDocsCommand, t],
+    [props.sessionId, props.onDocsCommand, props.onMCPCommand, t],
   );
 
   const fetchMentions = useCallback(
@@ -1546,6 +1658,7 @@ export function Composer(props: {
   }, [props.value, props.sessionId]);
 
   const maskComposerText = props.value.length > 0;
+  const codeFenceEditing = inMarkdownFenceBeforeCaret(props.value, caretPos);
   const composerSegments = useMemo(
     () =>
       segmentComposerMirrorSpans(
@@ -1991,11 +2104,11 @@ export function Composer(props: {
 
   /** Trims and sends. Dropped files already carry their full path in the draft. */
   const handleSend = useCallback(() => {
-    if (openDocsFromDraft()) return;
+    if (runLocalCommandFromDraft()) return;
     if (props.generating) {
       // A turn is running: what the operator wrote joins the queue the turn reads
       // at its next step instead of being refused, sent with the same key ui.send_mode
-      // names for an ordinary send. Attachments stay for the next prompt.
+      // names for an ordinary send. Attachments travel with the queued message.
       queueDraft();
       return;
     }
@@ -2019,7 +2132,7 @@ export function Composer(props: {
     queueDraft,
     attachedFiles,
     attachmentSendingEnabled,
-    openDocsFromDraft,
+    runLocalCommandFromDraft,
   ]);
 
   /**
@@ -2112,7 +2225,12 @@ export function Composer(props: {
     })();
   };
 
-  const llmList = props.llmModels ?? [];
+  // One order for everything the menu does with the list - the rows, the
+  // groups and the row Enter picks - so what is picked is what is seen first.
+  const llmList = useMemo(
+    () => orderLlmModels(props.llmModels ?? []),
+    [props.llmModels],
+  );
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || "").trim();
   // Filter input appears once the backend list is long; vendor grouping kicks
@@ -2236,6 +2354,8 @@ export function Composer(props: {
     setMenuAnchorRect(null);
     setLlmQuery("");
   }
+  // Escape closes the selector menu that is open, with or without its filter.
+  useEscapeCloses(menuOpen !== null, closeMenu);
 
   function toggleMenu(
     type: "mode" | "llm" | "reasoning" | "permission",
@@ -2274,6 +2394,18 @@ export function Composer(props: {
     ? Math.min(Math.max(slashActive, 0), slashRows.length - 1)
     : 0;
   useEffect(() => setSlashActive(0), [slashPrefix, slashOpen]);
+  // A draft emptied from outside - sent, queued, or run as a browser command -
+  // fires no change event on the textarea, so the pickers would keep the menu
+  // opened on the old draft over the empty composer. Nothing is left to
+  // complete, so they close.
+  useEffect(() => {
+    if (props.value === "" && pickerOpen) {
+      dismissSlashAtPickers();
+    }
+    // Only the draft moving matters: the pickers opening on a non-empty draft
+    // must not re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value]);
 
   const slashMenuChrome = (
     <>
@@ -2705,6 +2837,26 @@ export function Composer(props: {
                 data-testid="composer-queue-item"
               >
                 <span className="composer-queue-text">{q.text}</span>
+                {q.imageParts?.length ? (
+                  <span
+                    className="composer-queue-files"
+                    title={tp("composer.queueImages", q.imageParts.length)}
+                    aria-label={tp("composer.queueImages", q.imageParts.length)}
+                    data-testid={`composer-queue-files-${q.id}`}
+                  >
+                    <PaperclipIcon size={12} />
+                    {q.imageParts.length}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="composer-queue-mode"
+                  data-testid={`composer-queue-mode-${q.id}`}
+                  title={q.mode === "after_turn" ? t("composer.queueModeAfterTurnTitle") : t("composer.queueModeSteerTitle")}
+                  onClick={() => props.onSetQueuedMode?.(q.id, oppositeQueueMode(q.mode ?? "steer"))}
+                >
+                  {q.mode === "after_turn" ? t("composer.queueModeAfterTurn") : t("composer.queueModeSteer")}
+                </button>
                 <button
                   type="button"
                   className="sessions-close composer-queue-remove"
@@ -2718,6 +2870,13 @@ export function Composer(props: {
               </li>
             ))}
           </ul>
+        ) : null}
+        {queueChoice ? (
+          <div className="composer-queue-choice" role="group" aria-label={t("composer.queueChoiceLabel")} data-testid="composer-queue-choice">
+            <span>{t("composer.queueChoiceQuestion", { key: sendMode === "ctrl_enter" ? "Ctrl+Enter" : sendMode === "off" ? t("composer.queueThisMessage") : "Enter" })}</span>
+            <button type="button" onClick={() => chooseQueueMode("steer")}>{t("composer.queueChoiceSteer")}</button>
+            <button type="button" onClick={() => chooseQueueMode("after_turn")}>{t("composer.queueChoiceAfterTurn")}</button>
+          </div>
         ) : null}
         <div className="composer-card" ref={composerCardRef}>
           <div className="composer-context-row">
@@ -2780,7 +2939,7 @@ export function Composer(props: {
                   : t("composer.attachUnsupportedModel");
                 return (
                   <AttachedFileChip
-                    key={idx}
+                    key={`${f.name}:${f.size}:${f.lastModified}:${idx}`}
                     file={f}
                     disabled={!attachmentSendingEnabled}
                     tip={tip}
@@ -2813,7 +2972,7 @@ export function Composer(props: {
             }
             ref={composerFieldWrapRef}
           >
-            <div className="composer-stack">
+            <div className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}>
               {maskComposerText ? (
                 <div className="composer-mirror" aria-hidden="true">
                   <div
@@ -3073,6 +3232,25 @@ export function Composer(props: {
                     }
                     return;
                   }
+                  // Tab belongs to an open picker even when it lists nothing:
+                  // the draft there is a mention or a command being written.
+                  // A held Tab's repeats are not new sends, as Enter's rule
+                  // (composerEnterAction) says for its own key.
+                  if (
+                    ev.key === "Tab" &&
+                    props.generating &&
+                    queueArmed &&
+                    !(slashOpen || atOpen || atRangeOpen || argOpen) &&
+                    !ev.repeat &&
+                    !ev.shiftKey &&
+                    !ev.ctrlKey &&
+                    !ev.altKey &&
+                    !ev.metaKey
+                  ) {
+                    ev.preventDefault();
+                    queueDraft(props.queueMode ? oppositeQueueMode(props.queueMode) : undefined, true);
+                    return;
+                  }
                   const enterAction = composerEnterAction(
                     {
                       key: ev.key,
@@ -3092,7 +3270,9 @@ export function Composer(props: {
                     const el = ev.currentTarget;
                     const start = el.selectionStart ?? props.value.length;
                     const end = el.selectionEnd ?? start;
-                    const next = insertNewline(props.value, start, end);
+                    const next =
+                      expandCodeFenceAtCaret(props.value, start, end) ??
+                      insertNewline(props.value, start, end);
                     setCaretPos(next.caret);
                     preEnhanceRef.current = null;
                     setEnhanceErr(null);
@@ -3141,9 +3321,13 @@ export function Composer(props: {
                     tabIndex={-1}
                     data-testid="composer-file-input"
                     onChange={(ev) => {
-                      const files = ev.target.files;
-                      if (!files || files.length === 0) return;
-                      setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
+                      // Copied now: the input's FileList is live, and clearing
+                      // the input below empties it before React runs the
+                      // update, which it defers whenever the app has other
+                      // updates queued - as it does all through a turn.
+                      const files = Array.from(ev.target.files ?? []);
+                      if (files.length === 0) return;
+                      setAttachedFiles((prev) => [...prev, ...files]);
                       ev.target.value = "";
                     }}
                   />
@@ -3155,9 +3339,7 @@ export function Composer(props: {
                     data-testid="composer-attach-btn"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden="true">
-                      <path d="M13.5 7.5l-6 6A4 4 0 012 8l7-7a2.5 2.5 0 013.5 3.5l-6 6A1 1 0 015 9l5-5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <PaperclipIcon size={14} />
                   </button>
                 </>
               ) : null}
@@ -3350,6 +3532,11 @@ export function Composer(props: {
           contextPct={pct}
           maxContextTokens={maxCtx}
           breakdown={props.contextBreakdown}
+          sessionId={props.sessionId}
+          compactAvailable={props.compactionSettings?.enabled}
+          compactAutoEnabled={props.compactionSettings?.autoEnabled}
+          compactThreshold={props.compactionSettings?.threshold}
+          onCompacted={props.onContextCompacted}
           usage={props.providerUsage ?? null}
           modelId={llmVal || ""}
         />

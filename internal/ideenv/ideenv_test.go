@@ -3,6 +3,7 @@ package ideenv
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSetGetRoundTrip(t *testing.T) {
@@ -81,6 +82,28 @@ func TestSetCapsSelectionText(t *testing.T) {
 	}
 	if len(got.Selection.Text) != maxSelectionBytes {
 		t.Fatalf("len = %d, want %d", len(got.Selection.Text), maxSelectionBytes)
+	}
+	if !strings.HasSuffix(long, got.Selection.Text) {
+		t.Fatal("cap must keep the tail")
+	}
+}
+
+func TestSetCapsSelectionTextOnRuneBoundary(t *testing.T) {
+	t.Cleanup(Reset)
+	// Three-byte runes (U+597D) make the byte cap land mid-rune (16384 % 3 == 1),
+	// so a raw byte slice leaves a dangling partial rune in the stored text that
+	// readers such as idepasteclassify then hand on as if it were valid UTF-8.
+	long := strings.Repeat("好", maxSelectionBytes/3+50)
+	Set(nil, "", &Selection{File: "/ws/a.go", StartLine: 1, EndLine: 2, Text: long})
+	got := Get()
+	if got.Selection == nil {
+		t.Fatal("selection dropped")
+	}
+	if !utf8.ValidString(got.Selection.Text) {
+		t.Fatalf("cap split a rune: %q", got.Selection.Text)
+	}
+	if len(got.Selection.Text) > maxSelectionBytes {
+		t.Fatalf("len = %d, want <= %d", len(got.Selection.Text), maxSelectionBytes)
 	}
 	if !strings.HasSuffix(long, got.Selection.Text) {
 		t.Fatal("cap must keep the tail")

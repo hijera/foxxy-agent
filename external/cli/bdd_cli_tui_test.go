@@ -9,10 +9,12 @@ package cli
 // observations, and on persisted session state.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +37,8 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/docs"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/mcp/mcptest"
 	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -165,6 +170,25 @@ type cliTUIState struct {
 	usageEnvSet bool
 	// usageAsked counts the stand-in's requests (under mu).
 	usageAsked int
+
+	// mcpRelease is the file the gated MCP server of the scenario waits for
+	// before it answers initialize; mcpOffered (under mu) records the MCP
+	// clients the stub turn found on its session when it started.
+	mcpRelease string
+	// mcpOffered holds, per stub turn, the MCP clients the turn found on its
+	// session when it started.
+	mcpOffered [][]string
+	// mcpStarted is the marker the project mcp.json stub writes when spawned.
+	mcpStarted string
+	// mcpTokens is what the tool of each mcptest server of the scenario
+	// answers, by server name; mcpRemote are the remote ones to close.
+	mcpTokens map[string]string
+	mcpRemote []*mcptest.Server
+	// skillDirs and skillSources go into the config the app is built with;
+	// silentSource is the skill source that accepts and never answers.
+	skillDirs    []string
+	skillSources []string
+	silentSource *silentListener
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -197,6 +221,9 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	s.mcpRelease, s.mcpOffered, s.mcpStarted = "", nil, ""
+	s.mcpTokens, s.mcpRemote = nil, nil
+	s.skillDirs, s.skillSources, s.silentSource = nil, nil, nil
 	if s.outside != "" {
 		_ = os.RemoveAll(s.outside)
 	}
@@ -242,6 +269,14 @@ func (s *cliTUIState) shutdown() {
 		s.usageStand.Close()
 		s.usageStand = nil
 	}
+	for _, srv := range s.mcpRemote {
+		srv.Close()
+	}
+	s.mcpRemote = nil
+	if s.silentSource != nil {
+		s.silentSource.close()
+		s.silentSource = nil
+	}
 	if s.usageEnvSet {
 		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
 		_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
@@ -275,6 +310,11 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	}
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
+	var offered []string
+	for _, c := range st.GetMCPClients() {
+		offered = append(offered, c.Name())
+	}
+	s.mcpOffered = append(s.mcpOffered, offered)
 	s.mu.Unlock()
 	// Like the agent: a woken turn tells the surface what woke it before its
 	// first message is persisted, and the message keeps the marker.
@@ -402,6 +442,22 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					return string(acp.StopReasonCancelled), nil
 				case <-d.blockCh:
 				}
+			case "call_mcp":
+				// The tool of every MCP server the session holds is called,
+				// the way the agent routes a model's call, and each answer
+				// is a line of the reply.
+				for _, c := range st.GetMCPClients() {
+					out, err := c.CallTool(ctx, mcptest.Tool, `{}`)
+					if err != nil {
+						out = "error: " + err.Error()
+					}
+					line := c.Name() + " answered " + out + "\n"
+					_ = snd.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+						SessionUpdate: "agent_message_chunk",
+						Content:       acp.ContentBlock{Type: "text", Text: line},
+					})
+					assistant += line
+				}
 			case "fail":
 				return "", d.err
 			case "end":
@@ -460,7 +516,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 			{Model: "stub/model-one", MaxTokens: 1000, MaxContextTokens: 100000},
 			{Model: "stub/model-two", MaxTokens: 1000, MaxContextTokens: 100000},
 		},
-		Agent: config.Agent{Model: "stub/model-one"},
+		Agent: config.Agent{Model: "stub/model-one", QueueMode: "steer"},
 	}
 	if neuraldeep {
 		if err := s.startUsageStand(); err != nil {
@@ -484,6 +540,8 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 	}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
+	cfg.Skills.Dirs = append(cfg.Skills.Dirs, s.skillDirs...)
+	cfg.Skills.Sources = append(cfg.Skills.Sources, s.skillSources...)
 	s.cfg = cfg
 	s.store = &session.FileStore{Root: filepath.Join(s.home, "sessions")}
 
@@ -492,6 +550,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 	var app *App
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, s.stubRunner, log, s.cwd, s.store)
+	wireLocalManager(mgr)
 	if neuraldeep {
 		s.usageClock = &usageClock{}
 		mgr.SetProviderUsageClock(s.usageClock.Now, func(d time.Duration, fn func()) func() bool {
@@ -908,17 +967,60 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 // screenShowsQueuedMessage asserts the queue widget above the input is showing
 // that follow-up, under the header naming how many are waiting.
 func (s *cliTUIState) screenShowsQueuedMessage(text string) error {
-	if err := s.waitScreen("queued for the next step", 2*time.Second); err != nil {
+	if err := s.waitScreen("queued messages", 2*time.Second); err != nil {
 		return err
 	}
 	return s.waitScreen(text, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorTabsPrompt(text string) error {
+	s.typeText(text)
+	s.press("\t")
+	return nil
+}
+
+func (s *cliTUIState) screenShowsQueueMode(mode, text string) error {
+	return s.waitScreen("["+mode+"] "+text, 2*time.Second)
+}
+
+// appStartsWithNoQueueMode starts a console whose config names no Enter
+// preference, with a config file the answer can be saved into.
+func (s *cliTUIState) appStartsWithNoQueueMode() error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	s.cfg.Paths.ConfigPath = filepath.Join(s.home, "config.yaml")
+	if err := os.WriteFile(s.cfg.Paths.ConfigPath, []byte("agent:\n  model: stub/model-one\n"), 0o600); err != nil {
+		return err
+	}
+	s.cfg.Agent.QueueMode = ""
+	s.app.queuePreference = ""
+	return s.startApp("")
+}
+
+func (s *cliTUIState) screenAsksForQueueMode() error {
+	return s.waitScreen("Choose the default queue mode once", 2*time.Second)
+}
+
+// savedQueueModeIs reads the answer back from the config file on disk.
+func (s *cliTUIState) savedQueueModeIs(mode string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	var raw []byte
+	for time.Now().Before(deadline) {
+		raw, _ = os.ReadFile(s.cfg.Paths.ConfigPath)
+		if strings.Contains(string(raw), "queue_mode: "+mode) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("config.yaml does not save queue_mode %q:\n%s", mode, raw)
 }
 
 // screenShowsNothingQueued asserts the widget is gone once the turn is over.
 func (s *cliTUIState) screenShowsNothingQueued() error {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if !strings.Contains(s.screenText(), "queued for the next step") {
+		if !strings.Contains(s.screenText(), "queued messages") {
 			return nil
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -1441,14 +1543,37 @@ func (s *cliTUIState) editorAcceptsNewInput() error {
 }
 
 func (s *cliTUIState) operatorStartsNewSession() error {
-	// Captured before any input is sent: the later sessionID write on the UI
-	// goroutine is ordered after this read via the input channel.
-	s.prevSessionID = s.app.sessionID
+	// Read the current session on the UI loop before submitting /new.
+	if err := s.onLoop(3*time.Second, func() { s.prevSessionID = s.app.sessionID }); err != nil {
+		return err
+	}
 	s.typeText("/new")
 	s.press("\r")
 	// The status line confirms adoption; reading the frame snapshot is
 	// mutex-guarded, so no direct app-field polling is needed.
 	return s.waitScreen("Started new session", 3*time.Second)
+}
+
+func (s *cliTUIState) operatorResumesPreviousSession() error {
+	if err := s.onLoop(3*time.Second, func() { s.app.resumeInto(s.prevSessionID) }); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var resumed bool
+		if err := s.onLoop(time.Second, func() {
+			resumed = !s.app.switching && s.app.sessionID == s.prevSessionID
+		}); err != nil {
+			return err
+		}
+		// Wait for a frame from the resumed transcript, so the next step
+		// cannot mistake the new session's MCP warning for a restored one.
+		if resumed && !strings.Contains(s.screenText(), "Started new session") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the previous session was not resumed")
 }
 
 func (s *cliTUIState) cancelledTurnEmitsLateChunk(text string) error {
@@ -1769,6 +1894,29 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a foxxycode console app over a stub agent runner$`, s.aConsoleAppOverStubRunner)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
+	sc.Step(`^the console config declares an MCP server "([^"]*)" that answers only when released$`, s.consoleDeclaresGatedMCP)
+	sc.Step(`^the MCP server "([^"]*)" is released$`, s.mcpServerReleased)
+	sc.Step(`^the console config declares an MCP server "([^"]*)" run as a binary$`, s.consoleDeclaresBinaryMCP)
+	sc.Step(`^the console config declares an MCP server "([^"]*)" over streamable http$`, func(name string) error { return s.consoleDeclaresRemoteMCP(name, "http") })
+	sc.Step(`^the console config declares an MCP server "([^"]*)" over sse$`, func(name string) error { return s.consoleDeclaresRemoteMCP(name, "sse") })
+	sc.Step(`^the stub turn calls the tool of every MCP server$`, s.stubTurnCallsEveryMCPTool)
+	sc.Step(`^the skills directory holds (\d+) skills$`, s.skillsDirectoryHolds)
+	sc.Step(`^the skill sources name one that accepts connections and never answers$`, s.skillSourcesNameASilentOne)
+	sc.Step(`^the skill source was never contacted$`, s.skillSourceNeverContacted)
+	sc.Step(`^the session holds the (\d+) skills$`, s.sessionHoldsTheSkills)
+	sc.Step(`^the screen shows the answer of every MCP server$`, s.screenShowsEveryMCPAnswer)
+	sc.Step(`^the footer shows "([^"]*)"$`, s.footerShows)
+	sc.Step(`^the footer no longer shows "([^"]*)"$`, s.footerNoLongerShows)
+	sc.Step(`^the stub turn was offered the MCP server "([^"]*)"$`, s.stubTurnWasOfferedMCP)
+	sc.Step(`^the stub turn was offered the same MCP servers as the turn before$`, s.stubTurnOfferedSameAsBefore)
+	sc.Step(`^the stub turn ends$`, s.stubTurnEnds)
+	sc.Step(`^the workspace holds a project mcp\.json with an MCP server "([^"]*)"$`, s.workspaceHoldsProjectMCP)
+	sc.Step(`^the project MCP server "([^"]*)" is approved for that workspace$`, s.projectMCPApproved)
+	sc.Step(`^the project MCP server "([^"]*)" has not been started$`, s.projectMCPNotStarted)
+	sc.Step(`^the project MCP server "([^"]*)" has been started$`, s.projectMCPStarted)
+	sc.Step(`^the screen shows "([^"]*)"$`, s.screenShowsText)
+	sc.Step(`^the screen does not show "([^"]*)"$`, s.screenDoesNotShow)
+	sc.Step(`^the footer does not show "([^"]*)"$`, s.screenDoesNotShow)
 	sc.Step(`^the screen shows the foxxycode version header$`, s.screenShowsVersionHeader)
 	sc.Step(`^the workspace holds a nested AGENTS\.md in a folder no tool has entered$`, s.workspaceHoldsANestedAgentsFile)
 	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryIsOn)
@@ -1818,6 +1966,12 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the background subagent "([^"]*)" is answered "([^"]*)"$`, s.backgroundSubagentAnswered)
 	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
 	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
+	sc.Step(`^the operator queues "([^"]*)" with Tab$`, s.operatorTabsPrompt)
+	sc.Step(`^the screen shows "([^"]*)" queued as "([^"]*)"$`, func(text, mode string) error { return s.screenShowsQueueMode(mode, text) })
+	sc.Step(`^the console app starts with no queue mode chosen$`, s.appStartsWithNoQueueMode)
+	sc.Step(`^the screen asks which mode Enter uses$`, s.screenAsksForQueueMode)
+	sc.Step(`^the operator presses "([^"]*)"$`, func(key string) error { s.press(key); return nil })
+	sc.Step(`^the saved queue mode is "([^"]*)"$`, s.savedQueueModeIs)
 	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
 	sc.Step(`^the operator presses F1$`, s.operatorPressesF1)
@@ -1852,6 +2006,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows an error notice containing "([^"]*)"$`, s.transcriptShowsErrorNotice)
 	sc.Step(`^the editor accepts new input$`, s.editorAcceptsNewInput)
 	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
+	sc.Step(`^the operator resumes the previous session$`, s.operatorResumesPreviousSession)
 	sc.Step(`^the cancelled turn emits a late text chunk "([^"]*)"$`, s.cancelledTurnEmitsLateChunk)
 	sc.Step(`^the transcript does not show "([^"]*)"$`, s.transcriptDoesNotShow)
 	sc.Step(`^the operator presses ctrl\+c twice$`, s.operatorPressesCtrlCTwice)
@@ -1883,6 +2038,15 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows a usage notice containing "([^"]*)"$`, s.transcriptShowsUsageNotice)
 	sc.Step(`^the usage clock moves (\d+) seconds forward$`, s.usageClockMoves)
 	sc.Step(`^the operator submits the command "([^"]*)"$`, s.operatorSubmitsCommand)
+	sc.Step(`^a foxxycode console app over a stub agent runner with the global MCP server "([^"]*)"$`, s.consoleWithGlobalMCPServer)
+	sc.Step(`^a foxxycode console app over a stub agent runner with the project MCP server "([^"]*)"$`, s.consoleWithProjectMCPServer)
+	sc.Step(`^the MCP list shows "([^"]*)" as "([^"]*)"$`, s.mcpListShows)
+	sc.Step(`^the session is connected to the MCP server "([^"]*)"$`, func(name string) error { return s.sessionMCPConnection(name, true) })
+	sc.Step(`^the session is not connected to the MCP server "([^"]*)"$`, func(name string) error { return s.sessionMCPConnection(name, false) })
+	sc.Step(`^the operator opens the highlighted MCP server$`, s.operatorOpensHighlightedMCPServer)
+	sc.Step(`^the operator highlights "([^"]*)"$`, s.operatorHighlights)
+	sc.Step(`^the operator chooses "([^"]*)"$`, s.operatorChooses)
+	sc.Step(`^the confirmation shows what "([^"]*)" would run$`, s.confirmationShowsDeclaration)
 	sc.Step(`^the session runs the background command "([^"]*)"$`, s.sessionRunsBackgroundCommand)
 	sc.Step(`^the tasks overlay lists "([^"]*)" as running$`, s.tasksOverlayListsRunning)
 	sc.Step(`^the footer names (\d+) running task$`, s.footerNamesRunningTasks)
@@ -1907,7 +2071,7 @@ func TestCLITUIFeature(t *testing.T) {
 		ScenarioInitializer: initializeCLITUIScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/cli_tui.feature"},
+			Paths:    []string{"../../features/cli_tui.feature", "../../features/cli_mcp.feature"},
 			TestingT: t,
 			Strict:   true,
 		},
@@ -2004,4 +2168,508 @@ func (s *cliTUIState) oneShotEndsCleanly() error {
 	case <-time.After(3 * time.Second):
 		return fmt.Errorf("one-shot run did not finish")
 	}
+}
+
+// consoleDeclaresGatedMCP adds a stdio server to the scenario's config that
+// answers initialize only once its release file exists (TestHelperConsoleMCP).
+func (s *cliTUIState) consoleDeclaresGatedMCP(name string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.mcpRelease = filepath.Join(s.home, "mcp-release-"+name)
+	s.cfg.MCPServers = append(s.cfg.MCPServers, config.MCPServerConfig{
+		Type:    "stdio",
+		Name:    name,
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestHelperConsoleMCP$"},
+		Env: []config.EnvVarConfig{
+			{Name: consoleMCPHelperEnv, Value: "1"},
+			{Name: consoleMCPReleaseEnv, Value: s.mcpRelease},
+		},
+	})
+	return nil
+}
+
+func (s *cliTUIState) mcpServerReleased(string) error {
+	return os.WriteFile(s.mcpRelease, []byte("1"), 0o644)
+}
+
+func (s *cliTUIState) footerShows(text string) error { return s.waitScreen(text, 5*time.Second) }
+
+func (s *cliTUIState) footerNoLongerShows(text string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), text) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("screen still shows %q; last frame:\n%s", text, s.screenText())
+}
+
+func (s *cliTUIState) stubTurnWasOfferedMCP(name string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		var last []string
+		if n := len(s.mcpOffered); n > 0 {
+			last = append([]string(nil), s.mcpOffered[n-1]...)
+		}
+		s.mu.Unlock()
+		for _, n := range last {
+			if n == name {
+				return nil
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the stub turn never saw the MCP server %q", name)
+}
+
+// stubTurnOfferedSameAsBefore: the tool list a turn is offered is the one
+// the previous turn had, so the tools prefix the provider caches does not
+// move between turns once the servers have answered.
+func (s *cliTUIState) stubTurnOfferedSameAsBefore() error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		n := len(s.mcpOffered)
+		var prev, last []string
+		if n >= 2 {
+			prev = append([]string(nil), s.mcpOffered[n-2]...)
+			last = append([]string(nil), s.mcpOffered[n-1]...)
+		}
+		s.mu.Unlock()
+		if n >= 2 {
+			if strings.Join(prev, ",") != strings.Join(last, ",") {
+				return fmt.Errorf("the turn was offered %v, the one before %v", last, prev)
+			}
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("fewer than two stub turns ran")
+}
+
+// stubTurnEnds ends the running stub turn and waits for the console to see it
+// end. The runner returns before the console's loop takes the end of the
+// turn, and a prompt typed in between joins the running turn's queue instead
+// of starting a turn of its own.
+func (s *cliTUIState) stubTurnEnds() error {
+	s.directives <- stubDirective{kind: "end"}
+	if err := s.waitTurnEnd(10 * time.Second); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		idle := false
+		if err := s.onLoop(time.Second, func() { idle = !s.app.turnActive && !s.app.remoteTurnActive }); err != nil {
+			return err
+		}
+		if idle {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the console still runs a turn after the stub turn ended")
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+}
+
+// workspaceHoldsProjectMCP writes a project-local .foxxycode/mcp.json running the
+// console's stdio stub, which the trust gate holds until approved.
+func (s *cliTUIState) workspaceHoldsProjectMCP(name string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.mcpStarted = filepath.Join(s.home, "mcp-started-"+name)
+	entry := config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestHelperConsoleMCP$"},
+		Env:     map[string]string{consoleMCPHelperEnv: "1", consoleMCPStartedEnv: s.mcpStarted},
+	}
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), name, entry)
+}
+
+// projectMCPApproved records the operator's approval of the exact project
+// declaration, the way `foxxycode mcp trust` does.
+func (s *cliTUIState) projectMCPApproved(name string) error {
+	servers, err := mcp.ListManagedServers(s.cfg, s.cwd)
+	if err != nil {
+		return err
+	}
+	for _, srv := range servers {
+		if srv.Config.Name == name {
+			return mcp.NewTrustStore(s.home).Approve(s.cwd, config.MCPJSONPath(s.cwd), srv.Config)
+		}
+	}
+	return fmt.Errorf("project server %q not in the merged list", name)
+}
+
+func (s *cliTUIState) projectMCPNotStarted(string) error {
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(s.mcpStarted); err == nil {
+		return fmt.Errorf("the project server was started although the trust gate holds it")
+	}
+	return nil
+}
+
+func (s *cliTUIState) projectMCPStarted(string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(s.mcpStarted); err == nil {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the approved project server was never started")
+}
+
+func (s *cliTUIState) screenShowsText(text string) error { return s.waitScreen(text, 5*time.Second) }
+
+func (s *cliTUIState) screenDoesNotShow(text string) error {
+	time.Sleep(500 * time.Millisecond)
+	if strings.Contains(s.screenText(), text) {
+		return fmt.Errorf("screen shows %q; last frame:\n%s", text, s.screenText())
+	}
+	return nil
+}
+
+// --- /mcp steps (features/cli_mcp.feature) ---
+
+// cliMCPHelperEntry declares the stdio MCP server TestCLIMCPHelperProcess
+// plays: this test binary run again, serving one tool, ping.
+func cliMCPHelperEntry() config.MCPJSONServer {
+	return config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestCLIMCPHelperProcess$"},
+		Env:     map[string]string{"GO_WANT_CLI_MCP_HELPER": "1"},
+	}
+}
+
+func (s *cliTUIState) consoleWithGlobalMCPServer(name string) error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, cliMCPHelperEntry())
+}
+
+func (s *cliTUIState) consoleWithProjectMCPServer(name string) error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), name, cliMCPHelperEntry())
+}
+
+// mcpListShows waits for the server list to name the server with that
+// summary; the list opens once the probes of its servers are in.
+func (s *cliTUIState) mcpListShows(name, summary string) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, title, err := s.selectedLabel(); err == nil && title == "MCP servers" {
+			text := s.screenText()
+			if strings.Contains(text, name) && strings.Contains(text, summary) {
+				return nil
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the MCP list never showed %s as %q; last frame:\n%s", name, summary, s.screenText())
+}
+
+// sessionMCPConnection waits for the console's session to hold, or not to
+// hold, a live client of the server: the tools of the next turn come from it.
+func (s *cliTUIState) sessionMCPConnection(name string, want bool) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		connected := false
+		if st := s.app.mgr.SessionByID(s.app.sessionID); st != nil {
+			for _, client := range st.GetMCPClients() {
+				if client.Name() == name {
+					connected = true
+				}
+			}
+		}
+		if connected == want {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("session connected to %s = %v, want %v", name, connected, want)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// selectedLabel reads the open selector on the console loop: its title and
+// the label under the cursor, both empty when no selector is open.
+func (s *cliTUIState) selectedLabel() (label, title string, err error) {
+	err = s.onLoop(2*time.Second, func() {
+		if m, ok := s.app.modal.(*selectorModal); ok && m != nil {
+			title = m.title
+			if item := m.list.SelectedItem(); item != nil {
+				label = item.Label
+			}
+		}
+	})
+	return label, title, err
+}
+
+// operatorOpensHighlightedMCPServer presses enter on the list and waits for
+// the server's controls, titled after the server.
+func (s *cliTUIState) operatorOpensHighlightedMCPServer() error {
+	name, _, err := s.selectedLabel()
+	if err != nil {
+		return err
+	}
+	s.press("\r")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, title, err := s.selectedLabel(); err == nil && strings.HasPrefix(title, name+" · ") {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the controls of %s never opened; last frame:\n%s", name, s.screenText())
+}
+
+// operatorHighlights narrows the open selector to the item by typing its
+// label, the selector filtering as it is typed, and waits for the cursor.
+func (s *cliTUIState) operatorHighlights(label string) error {
+	s.typeText(label)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if current, _, err := s.selectedLabel(); err == nil && current == label {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the cursor never reached %q; last frame:\n%s", label, s.screenText())
+}
+
+// operatorChooses presses enter on the item, highlighting it first unless the
+// cursor is already there.
+func (s *cliTUIState) operatorChooses(label string) error {
+	current, _, err := s.selectedLabel()
+	if err != nil {
+		return err
+	}
+	if current != label {
+		if err := s.operatorHighlights(label); err != nil {
+			return err
+		}
+	}
+	s.press("\r")
+	return nil
+}
+
+// confirmationShowsDeclaration checks that the approval asks about the
+// declaration in full: the command it runs and the names of its variables.
+func (s *cliTUIState) confirmationShowsDeclaration(name string) error {
+	for _, needle := range []string{"Trust " + name + "?", "TestCLIMCPHelperProcess", "GO_WANT_CLI_MCP_HELPER", "workspace:", "source:"} {
+		if err := s.waitScreen(needle, 3*time.Second); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TestCLIMCPHelperProcess is not a test: run with GO_WANT_CLI_MCP_HELPER=1 it
+// is the stdio MCP server of features/cli_mcp.feature, with one tool, ping.
+func TestCLIMCPHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_CLI_MCP_HELPER") != "1" {
+		t.Skip("helper process")
+	}
+	enc := json.NewEncoder(os.Stdout)
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		var req struct {
+			ID     interface{} `json:"id"`
+			Method string      `json:"method"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &req) != nil || req.ID == nil {
+			continue
+		}
+		var result interface{}
+		switch req.Method {
+		case "initialize":
+			result = map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]interface{}{},
+				"serverInfo":      map[string]string{"name": "cli-mcp", "version": "1"},
+			}
+		case "tools/list":
+			result = map[string]interface{}{"tools": []interface{}{map[string]interface{}{
+				"name": "ping", "description": "Answers pong", "inputSchema": map[string]string{"type": "object"},
+			}}}
+		default:
+			result = map[string]interface{}{}
+		}
+		_ = enc.Encode(map[string]interface{}{"jsonrpc": "2.0", "id": req.ID, "result": result})
+	}
+	os.Exit(0)
+}
+
+// --- MCP servers of every kind (mcptest) ---
+
+// TestHelperMCPTestServer is the stdio server mcptest.Stdio declares: this
+// test binary re-executed, serving its token.
+func TestHelperMCPTestServer(t *testing.T) { mcptest.Main() }
+
+// mcpToken is the token the scenario's server name answers with.
+func (s *cliTUIState) mcpToken(name string) string {
+	if s.mcpTokens == nil {
+		s.mcpTokens = map[string]string{}
+	}
+	token := strings.ToUpper(name) + "-TOKEN"
+	s.mcpTokens[name] = token
+	return token
+}
+
+// consoleDeclaresBinaryMCP adds a stdio server that is a program run
+// directly: this test binary.
+func (s *cliTUIState) consoleDeclaresBinaryMCP(name string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.cfg.MCPServers = append(s.cfg.MCPServers, mcptest.Stdio(name, s.mcpToken(name)))
+	return nil
+}
+
+// consoleDeclaresRemoteMCP adds a remote server on a local port, over
+// streamable HTTP or the HTTP+SSE transport.
+func (s *cliTUIState) consoleDeclaresRemoteMCP(name, transport string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	var srv *mcptest.Server
+	if transport == "sse" {
+		srv = mcptest.NewSSEServer(s.mcpToken(name))
+	} else {
+		srv = mcptest.NewHTTPServer(s.mcpToken(name))
+	}
+	s.mcpRemote = append(s.mcpRemote, srv)
+	s.cfg.MCPServers = append(s.cfg.MCPServers, config.MCPServerConfig{Name: name, Type: transport, URL: srv.URL})
+	return nil
+}
+
+func (s *cliTUIState) stubTurnCallsEveryMCPTool() error {
+	s.directives <- stubDirective{kind: "call_mcp"}
+	return nil
+}
+
+func (s *cliTUIState) screenShowsEveryMCPAnswer() error {
+	for name, token := range s.mcpTokens {
+		if err := s.waitScreen(name+" answered "+token, 10*time.Second); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// --- issue #319: skills at startup ---
+
+// silentListener accepts TCP connections, counts them and never answers.
+type silentListener struct {
+	ln       net.Listener
+	accepted atomic.Int64
+	mu       sync.Mutex
+	held     []net.Conn
+}
+
+func newSilentListener() (*silentListener, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	l := &silentListener{ln: ln}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			l.accepted.Add(1)
+			l.mu.Lock()
+			l.held = append(l.held, conn)
+			l.mu.Unlock()
+		}
+	}()
+	return l, nil
+}
+
+func (l *silentListener) close() {
+	_ = l.ln.Close()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, conn := range l.held {
+		_ = conn.Close()
+	}
+}
+
+// skillsDirectoryHolds writes n generated skills into a directory the app's
+// skills.dirs lists, and builds the app again with it: the manager reads its
+// skill directories when it is made.
+func (s *cliTUIState) skillsDirectoryHolds(n int) error {
+	dir, err := os.MkdirTemp("", "foxxycode-cli-bdd-skills-*")
+	if err != nil {
+		return err
+	}
+	s.homes = append(s.homes, dir)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("synthetic-%03d", i)
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			return err
+		}
+		body := fmt.Sprintf("---\nname: %s\ndescription: Synthetic skill number %d.\n---\n\nDo step %d.\n", name, i, i)
+		if err := os.WriteFile(filepath.Join(dir, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
+	s.skillDirs = append(s.skillDirs, dir)
+	return s.buildApp()
+}
+
+func (s *cliTUIState) skillSourcesNameASilentOne() error {
+	l, err := newSilentListener()
+	if err != nil {
+		return err
+	}
+	s.silentSource = l
+	s.skillSources = append(s.skillSources, "http://"+l.ln.Addr().String()+"/marketplace.json")
+	return s.buildApp()
+}
+
+func (s *cliTUIState) skillSourceNeverContacted() error {
+	time.Sleep(300 * time.Millisecond)
+	if n := s.silentSource.accepted.Load(); n != 0 {
+		return fmt.Errorf("the console start contacted the skill source %d time(s)", n)
+	}
+	return nil
+}
+
+func (s *cliTUIState) sessionHoldsTheSkills(n int) error {
+	var got int
+	if err := s.onLoop(3*time.Second, func() {
+		if st := s.mgr.SessionByID(s.app.sessionID); st != nil {
+			for _, sk := range st.GetSkills() {
+				if strings.HasPrefix(sk.Name, "synthetic-") {
+					got++
+				}
+			}
+		}
+	}); err != nil {
+		return err
+	}
+	if got != n {
+		return fmt.Errorf("the session holds %d generated skills, want %d", got, n)
+	}
+	return nil
 }

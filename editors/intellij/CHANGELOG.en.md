@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-10-20
+## Unreleased — 2026-11-07
 
 **Turn a completed task into a Mini App.**
 The web and desktop workspace distills successful tool-backed sessions into reviewed,
@@ -37,6 +37,102 @@ Applying a patch invalidates the checks for the previous draft revision.
 
 **Live progress works with tokens and remote servers.**
 Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.42 — 2026-11-07
+
+- Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
+- **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
+
+## 0.3.41 — 2026-11-01
+
+**File actions and filters.** Reveal on server uses the Windows Shell API instead of launching a hidden Explorer process, including paths with spaces and Unicode. Copying names and paths also works when the embedded browser denies Clipboard API access. File-card actions are no longer clipped by the card and close with Escape or a second click. The project-only choice and collapsed groups survive IDE restarts that change the panel's port. Reopening a loaded chat also recovers a removed worktree without restarting the IDE.
+
+**Chat history.** A saved archive filter is visible above the list and can be reset with Show active chats. An empty archive no longer looks like lost history. The filter button stays beside search in a narrow panel again. A temporary metadata lock on Windows reports a read error and preserves the previous rows.
+
+**Shared files and chat state.** The agent can publish completed files inline with its answer, with downloads, image previews and source-file actions. History distinguishes unseen errors, acknowledged errors and waits for user input; collapsed groups retain their state. Internal file placement markers stay out of exported text.
+
+**Workspaces and independent review.** MCP Settings follows the selected chat's workspace, connections start in the background when the chat opens, and sessions from removed worktrees recover to the main checkout. Folder and branch search, subagent cards and Tasks are improved. Crossreview 2.0 supports independent reviewers and trusted project rosters. Provider proxy authentication, Anthropic history and permission-resumed tool-call pairing are fixed.
+
+## 0.3.39 — 2026-10-30
+
+- Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
+
+- Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.
+- Added manual compaction and its automatic threshold control to the Context popover; estimates now include tool schemas, reasoning and images and retain provider token anchors.
+- Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
+- User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
+- Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
+
+## 0.3.38 — 2026-10-26
+
+**Android and Termux.**
+Native builds are available for Android arm64 and x86_64. The console and web UI run in Termux, with command execution, certificates and temporary files adapted to Android.
+
+**Pictures in exports from the download button.** HTML, PDF and DOCX retain uploaded images and pictures returned by tools while keeping tool arguments and output text hidden. JSON retains picture paths.
+
+**Images read directly from project files.**
+The agent can read a picture with the read tool and show a preview beneath its call. The picture stays with the chat, survives a restart and appears in exports that include tools.
+
+**Continuing background subagents.**
+Subagents and scheduled jobs have a separate connection recovery budget: five continuations with increasing pauses. A finished subagent can resume with its existing transcript.
+
+**Faster startup with MCP.**
+Servers connect concurrently in the background. The interface stays available, a prompt shows when it is waiting for tools, and an initialization timeout gets one retry.
+
+**HTTP headers, skill marketplaces and Codex models.**
+HTTP request settings can provide default headers. Adding a marketplace no longer installs all its skills: choose the plugin to install separately. The Codex catalog supplies available models and their context windows. Composer suggestions and the environment menu work more reliably in a narrow panel.
+
+**Export, skill installation and remote environment fixes.**
+HTML, PDF and DOCX files created by /export retain pictures from tool results. Installing a selected plugin respects its skills list, including plugins sharing a repository root. Brief Windows directory locks no longer immediately abort installation. Working remote servers are no longer marked unreachable in older IntelliJ browsers.
+
+## 0.3.36 — 2026-10-25
+
+**Safer preparation of Coddy updates.**
+Maintainers can preview upstream changes against FoxxyCode, split the port into consecutive waves and apply changes that merge cleanly. The helper preserves local edits and ignored files, checks for leftover Coddy naming and runs guards for retained FoxxyCode behavior on explicit request. Reviewed porting decisions can be recorded in one batch.
+
+## 0.3.35 — 2026-10-25
+
+**Preparing the interface for Coddy updates.**
+Styles for SVN cards, onboarding, provider import and export, and the IntelliJ panel now live in separate files. This makes future Coddy ports easier while preserving the interface's appearance.
+
+## 0.3.34 — 2026-10-23
+
+**Attachments returned by the remote console.**
+Taking a queued message back with /queue drop restores the attachment contents together with its text, so sending it again keeps the files.
+
+**Reading position when resizing the panel.**
+Narrowing or widening the panel keeps the running command visible when following output and preserves the visible row when reading history.
+
+**Safe repeated settings saves.**
+Edits typed while saving are carried onto the merged server result. Saving again preserves changes from another window, even if the background refresh fails.
+
+**Separate clocks in a narrow panel.**
+The command timer stays beside the status phrase, and the turn time and token count appear on the next line. Long-running commands no longer show two joined durations.
+
+**Deferred prompts continue after the output cap.**
+When a model reaches its answer token limit, unread Steer messages are delivered first in their original order, followed by After turn prompts. The cut answer and its notice remain visible. Provider errors, context overflow and Stop keep deferred prompts waiting.
+
+**Stop closes a pending permission request.**
+Stopping a turn dismisses its tool approval card, including after reloading the chat. The tool is persisted as cancelled; if Stop fails, the permission request remains available.
+
+**Two queue modes and images.**
+While a reply is running, steer that turn or queue a separate prompt after it. Choose the default on first use; Tab switches the mode for one submission. Queued images stay attached and return with a recovered draft.
+
+**MCP controls in chat.**
+Manage servers and individual tools in web settings, the console and Telegram. Project overrides live outside the checkout, and local servers pass the trust check before connecting.
+
+**Stable context and preserved settings.**
+Project rules use the first populated root, and standing prompt content stays stable between steps. Settings account for concurrent edits and preserve unchanged YAML values and comments. Open session settings from chat and dismiss panels with Escape.
+
+## 0.3.33 — 2026-10-20
+
+**Sign in to NeuralDeep right from onboarding.**
+The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving. The domain selector comes first: choose neuraldeep.ru or neuraldeep.tech, and sign-in, the model catalog and saved settings use that domain.
+
+## 0.3.32 — 2026-10-20
+
+**Keep whole characters in IDE context.**
+Long code selections and terminal output are shortened at character boundaries before being sent to chat. Cyrillic text, CJK characters and emoji are no longer corrupted at the beginning of the retained fragment.
 
 ## 0.3.31 — 2026-10-16
 

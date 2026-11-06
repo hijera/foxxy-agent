@@ -37,6 +37,12 @@ export type SectionDescriptor = {
  */
 const HIDDEN_KEYS = ["ui"];
 
+/** Label for a route while its schema is loading. */
+export function knownSectionLabel(id: string): string | null {
+  const key = SECTION_LABEL_KEYS[id];
+  return key ? t(key) : null;
+}
+
 /**
  * Config keys folded into the single "Prompts" tab (rarely edited), which
  * closes the list of schema tabs. The scheduler, the logger and the gateways
@@ -84,6 +90,7 @@ const SECTION_DESC_IDS = new Set([
   "logger",
   "gateways",
   "system",
+  "swarm",
 ]);
 
 /**
@@ -115,6 +122,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   logger: "settings.section.logger.label",
   gateways: "settings.section.gateways.label",
   system: "settings.section.system.label",
+  swarm: "settings.section.swarm.label",
 };
 
 /** Resolve a tile blurb: curated i18n summary first, then the schema description. */
@@ -142,6 +150,13 @@ function labelFor(id: string, sub?: JsonSchema): string {
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
+  opts: {
+    /**
+     * The page is on a swarm relay. A relay has no sessions, so the Sessions
+     * tab is left out even before (or without) a schema that says so.
+     */
+    relay?: boolean;
+  } = {},
 ): SectionDescriptor[] {
   const general: SectionDescriptor = {
     id: "general",
@@ -168,8 +183,12 @@ export function deriveSettingsSections(
     schemaKey: SESSIONS_CONFIG_KEY,
   };
 
+  // A relay's form (config.RelayUISchemaMap) says it is one; the stored
+  // sessions the Sessions tab manages exist only on an agent.
+  const relay = opts.relay === true || schema?.["x-foxxycode-relay"] === true;
+  const head = relay ? [appearance] : [general, appearance, sessionsManager];
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [general, appearance, sessionsManager];
+    return head;
   }
 
   const props = schema.properties;
@@ -265,5 +284,5 @@ export function deriveSettingsSections(
   if (system) {
     out.push(system);
   }
-  return [general, appearance, sessionsManager, ...out];
+  return [...head, ...out];
 }

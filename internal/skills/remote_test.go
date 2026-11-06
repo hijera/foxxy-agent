@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,6 +81,31 @@ func TestPluginSourceUnmarshal(t *testing.T) {
 			json: `{"repo":"a/b"}`,
 			want: PluginSource{Kind: "github", Repo: "a/b"},
 		},
+		{
+			name: "archive object with sha256",
+			json: `{"source":"archive","url":"https://neuraldeep.ru/skapi/plugins/demo.zip","sha256":" ` + testDigest + ` "}`,
+			want: PluginSource{Kind: "archive", URL: "https://neuraldeep.ru/skapi/plugins/demo.zip", SHA256: testDigest},
+		},
+		{
+			name: "archive object without sha256",
+			json: `{"source":"archive","url":"https://neuraldeep.ru/skapi/plugins/demo.zip"}`,
+			want: PluginSource{Kind: "archive", URL: "https://neuraldeep.ru/skapi/plugins/demo.zip"},
+		},
+		{
+			name: "url object naming a zip stays a git url",
+			json: `{"url":"https://example.com/plugins/demo.zip"}`,
+			want: PluginSource{Kind: "url", URL: "https://example.com/plugins/demo.zip"},
+		},
+		{
+			name: "url object with the url keyword naming a zip stays a git url",
+			json: `{"source":"url","url":"https://example.com/plugins/demo.zip","sha256":"` + testDigest + `"}`,
+			want: PluginSource{Kind: "url", URL: "https://example.com/plugins/demo.zip", SHA256: testDigest},
+		},
+		{
+			name: "string naming a zip stays a git url",
+			json: `"https://example.com/plugins/demo.zip"`,
+			want: PluginSource{Kind: "url", URL: "https://example.com/plugins/demo.zip"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,6 +117,32 @@ func TestPluginSourceUnmarshal(t *testing.T) {
 				t.Errorf("got %+v, want %+v", ps, tt.want)
 			}
 		})
+	}
+}
+
+// testDigest is a well-formed sha256 (of the empty input).
+const testDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// TestMarketplaceDecodesTheCatalogueArchiveEntry decodes the manifest the
+// neuraldeep.ru catalogue serves per skill: one plugin whose source is an
+// archive, next to fields FoxxyCode does not use.
+func TestMarketplaceDecodesTheCatalogueArchiveEntry(t *testing.T) {
+	data := `{"name":"neuraldeep","owner":{"name":"NeuralDeep","url":"https://neuraldeep.ru"},` +
+		`"plugins":[{"name":"demo","description":"A demo skill",` +
+		`"source":{"source":"archive","url":"https://neuraldeep.ru/skapi/plugins/demo.zip"},` +
+		`"homepage":"https://neuraldeep.ru/skills/demo","repository":"https://github.com/o/r",` +
+		`"author":{"name":"o"}}]}`
+	var mf Marketplace
+	if err := json.Unmarshal([]byte(data), &mf); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(mf.Plugins) != 1 {
+		t.Fatalf("plugins = %+v", mf.Plugins)
+	}
+	p := mf.Plugins[0]
+	want := PluginSource{Kind: "archive", URL: "https://neuraldeep.ru/skapi/plugins/demo.zip"}
+	if p.Name != "demo" || p.Description != "A demo skill" || p.Source != want {
+		t.Errorf("plugin = %+v, want demo with source %+v", p, want)
 	}
 }
 
@@ -252,6 +304,8 @@ func TestInstallFromDirWritesManagedDirAndLock(t *testing.T) {
 // local git repo: clone → marketplace manifest with a relative ("path") plugin
 // → locate nested SKILL.md → copy into ManagedDir → lockfile. Git-gated.
 func TestSyncFromLocalMarketplaceGit(t *testing.T) {
+	// Sync covers the built-in marketplace too, a real GitHub address.
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
@@ -793,4 +847,96 @@ func offlineSystemSources(t *testing.T) {
 	prev := SystemSources
 	SystemSources = nil
 	t.Cleanup(func() { SystemSources = prev })
+}
+
+// TestInstallRefusesNamesOfTheManagedDirsOwnFiles: a skill whose name starts
+// with a dot would take the place of .remote.json, .marketplaces.json or a
+// staging copy in the managed dir - and the loader skips dot names anyway - so
+// the installer refuses it and leaves the lock as it was.
+func TestInstallRefusesNamesOfTheManagedDirsOwnFiles(t *testing.T) {
+	src := t.TempDir()
+	writeSkill(t, filepath.Join(src, "skills", "evil"), ".remote.json")
+	writeSkill(t, filepath.Join(src, "skills", "good"), "good")
+	managed := t.TempDir()
+	lock := map[string]RemoteEntry{"older": {Source: "owner/older"}}
+	if err := writeRemoteLock(managed, lock); err != nil {
+		t.Fatal(err)
+	}
+	res := &SyncResult{}
+	err := installFromDir(src, RemoteEntry{Source: "evil/market"}, managed, lock, res)
+	if err == nil || !strings.Contains(err.Error(), `".remote.json"`) {
+		t.Fatalf("installFromDir = %v, want the dot name refused", err)
+	}
+	if strings.Join(res.Added, ",") != "good" || len(res.Updated) != 0 {
+		t.Errorf("result = %+v, want only good added", res)
+	}
+	if err := writeRemoteLock(managed, lock); err != nil {
+		t.Fatalf("the lock can no longer be written: %v", err)
+	}
+	got := readRemoteLock(managed)
+	if _, ok := got["older"]; !ok || len(got) != 2 {
+		t.Fatalf("lock = %+v, want older and good", got)
+	}
+}
+
+// TestGitPluginsInstallTheSkillAtTheirRoot: a plugin that is one skill, its
+// SKILL.md at the plugin root and no "skills" field in its manifest, installs
+// that skill from git too - cloned from its own repository (a url source) or
+// read from inside the marketplace repository (a path source). Git plugins are
+// searched for every SKILL.md, so the root one is found without the rule
+// archives follow.
+func TestGitPluginsInstallTheSkillAtTheirRoot(t *testing.T) {
+	offlineSystemSources(t)
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	writeRootSkillPlugin := func(dir, name string) {
+		t.Helper()
+		files := map[string]string{
+			filepath.Join(".claude-plugin", "plugin.json"): `{"name":"` + name + `"}`,
+			"SKILL.md":                                 "---\nname: " + name + "\ndescription: d\n---\n",
+			filepath.Join("commands", "review.md"):     "Review the argument.\n",
+			filepath.Join("references", "concepts.md"): "concepts\n",
+		}
+		for rel, body := range files {
+			p := filepath.Join(dir, rel)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pluginRepo := t.TempDir()
+	writeRootSkillPlugin(pluginRepo, "logika")
+	gitCommitAllRepo(t, pluginRepo, true, "plugin")
+
+	market := t.TempDir()
+	writeRootSkillPlugin(filepath.Join(market, "plugins", "rooted"), "rooted")
+	if err := os.MkdirAll(filepath.Join(market, ".claude-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"m","plugins":[` +
+		`{"name":"logika","source":{"source":"url","url":"file://` + filepath.ToSlash(pluginRepo) + `"}},` +
+		`{"name":"rooted","source":"./plugins/rooted"}]}`
+	if err := os.WriteFile(filepath.Join(market, ".claude-plugin", "marketplace.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAllRepo(t, market, true, "marketplace")
+
+	home := t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home}, Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}}}
+	res, err := SyncSource(context.Background(), cfg, "file://"+filepath.ToSlash(market))
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("failures: %+v", res.Failed)
+	}
+	for _, name := range []string{"logika", "rooted"} {
+		if _, err := os.Stat(filepath.Join(home, "skills", name, "references", "concepts.md")); err != nil {
+			t.Errorf("skill %q was not installed with its references: %v", name, err)
+		}
+	}
 }
