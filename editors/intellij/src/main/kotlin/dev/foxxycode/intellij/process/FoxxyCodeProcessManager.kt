@@ -318,7 +318,16 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         }
     }
 
-    /** Stops the backend without disposing the project service, so the panel can reopen it. */
+    /**
+     * Stops the backend without disposing the project service, so the panel can reopen it.
+     *
+     * Called from the EDT when the tool window hides. [BackendLaunchGate.cancel] takes the gate
+     * monitor, which a concurrent launch holds while it creates the process, so in that window
+     * this blocks the EDT until the creation finishes - bounded by the short, non-blocking
+     * actions the gate contract allows, and deliberate: the stop must either see and kill the
+     * fresh handler, or be invalidated before it spawns. The wait for actual termination runs
+     * on a pooled thread ([awaitTerminated]), never on the EDT.
+     */
     fun stop() {
         launchGate.cancel { signalStop() }
         ApplicationManager.getApplication().executeOnPooledThread { awaitTerminated(DISPOSE_WAIT_MS) }
