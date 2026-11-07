@@ -400,7 +400,7 @@ func TestBuiltinTemplatesKeepTheTodoListOutOfTheSystemPrompt(t *testing.T) {
 // family back on a cache miss per request without any test noticing.
 func TestNoBuiltinTemplateIsVolatile(t *testing.T) {
 	for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
-		for _, variants := range [][]string{nil, {"openai"}, {"gpt-oss"}, {"anthropic"}, {"gpt-oss-20b", "gpt-oss"}, {"gpt-oss-120b", "gpt-oss"}} {
+		for _, variants := range [][]string{nil, {"openai"}, {"gpt-oss"}, {"anthropic"}, {"kimi"}, {"gpt-oss-20b", "gpt-oss"}, {"gpt-oss-120b", "gpt-oss"}} {
 			if prompts.RendersVolatile(mode, variants, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile) {
 				t.Errorf("built-in %s template (variants %v) prints the clock or the todo list", mode, variants)
 			}
@@ -648,13 +648,17 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
+// knownFamilies lists every prompt family with a notes_<family>.md fragment.
+// Shared by the family render tests below so a new family is added once and
+// covered by all of them; keep it in sync with prompts.Family.
+var knownFamilies = []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "neuraldeep"}
+
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
-	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
 	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fam := range families {
+	for _, fam := range knownFamilies {
 		t.Run(fam, func(t *testing.T) {
 			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
@@ -777,8 +781,7 @@ func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
 	// "Background commands" sections. After the section-assembly refactor every
 	// family variant must render those shared sections, because they come from a
 	// single shared fragment.
-	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
-	for _, fam := range families {
+	for _, fam := range knownFamilies {
 		t.Run(fam, func(t *testing.T) {
 			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
