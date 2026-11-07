@@ -20,6 +20,12 @@ workspace becomes the main checkout and its project catalogs reload; the
 original persisted path is retained. This read does not start MCP connections.
 The initial transcript read with `activate_mcp=1` performs the same recovery.
 
+The IntelliJ and VS Code launchers additionally enable a shared local
+[Telegram relay](../surfaces/gateway.md#telegram-from-intellij-and-vs-code) when
+Telegram is configured. Agent sessions still use this backend's existing HTTP
+routes. The relay's private authenticated loopback protocol is separate from the
+public HTTP API; ordinary `foxxycode http` does not start it.
+
 Specs are regenerated on each request so they stay aligned with handlers.
 
 - **`GET /openapi.yaml`** - OpenAPI 3.0 (YAML); **`GET /openapi.json`** mirrors it in JSON (both **`Content-Disposition: inline`**).

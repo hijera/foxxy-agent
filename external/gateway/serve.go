@@ -14,6 +14,9 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
+// EditorEnv is set only by the IntelliJ and VS Code process launchers.
+const EditorEnv = "FOXXYCODE_EDITOR"
+
 // PromptSurfaces is where an adapter offers to show the permission prompt of a
 // subagent whose parent turn has ended. `foxxycode serve` passes its runtime, which
 // offers each such prompt to every surface of the process at once.

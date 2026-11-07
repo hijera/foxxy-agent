@@ -58,7 +58,7 @@ groups:
         summary: Startup stage timings, first-response latency and the debug logging to collect when the IDE panel starts or answers slowly.
       - path: surfaces/gateway.md
         title: Telegram gateway
-        summary: The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
+        summary: The Telegram bot adapter, shared relay for IntelliJ and VS Code, project selection, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
   - id: operate
     title: Operate
     summary: Running FoxxyCode as a service, reaching it from elsewhere and bounding what it may do.

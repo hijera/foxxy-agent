@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/external/gateway"
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
@@ -42,6 +43,9 @@ type CommandDeps struct {
 
 // StartParams configures PrepareHTTP / StartHTTP.
 type StartParams struct {
+	// Editor is set by plugin launchers through FOXXYCODE_EDITOR, never inferred
+	// from the workspace or configuration. Other HTTP/desktop surfaces leave it empty.
+	Editor           string
 	CLI              config.CLIPaths
 	SessionsRoot     string
 	SessionID        string
@@ -87,14 +91,17 @@ func boolFlagIfPassed(fs *flag.FlagSet, name string, val *bool) *bool {
 
 // StartedHTTP holds a running HTTP stack built by StartHTTP.
 type StartedHTTP struct {
-	Server     *Server
-	Manager    *session.Manager
-	Log        *slog.Logger
-	LogCloser  func() error
-	ListenAddr string
-	Paths      config.Paths
-	Config     *config.Config
-	httpSrv    *http.Server
+	Server        *Server
+	Manager       *session.Manager
+	Log           *slog.Logger
+	LogCloser     func() error
+	ListenAddr    string
+	Paths         config.Paths
+	Config        *config.Config
+	httpSrv       *http.Server
+	editor        string
+	gatewayCancel context.CancelFunc
+	gatewayDone   chan struct{}
 }
 
 // StartHTTP resolves config, starts optional scheduler, and builds the HTTP server wrapper.
@@ -254,6 +261,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 
 	return &StartedHTTP{
+		editor:     params.Editor,
 		Server:     s,
 		Manager:    mgr,
 		Log:        log,
@@ -311,7 +319,12 @@ func listenAddress(cfg *config.Config, params StartParams) string {
 // ListenAndServe blocks until the HTTP server stops.
 func (st *StartedHTTP) ListenAndServe() error {
 	st.Log.Info("listening", "addr", st.ListenAddr)
-	return describeListenError(st.httpSrv.ListenAndServe(), st.ListenAddr)
+	ln, err := net.Listen("tcp", st.ListenAddr)
+	if err != nil {
+		return describeListenError(err, st.ListenAddr)
+	}
+	st.startEditorGateway()
+	return describeListenError(st.httpSrv.Serve(ln), st.ListenAddr)
 }
 
 // Serve starts listening in a background goroutine. Returns when the listener is ready or ctx is done.
@@ -321,6 +334,7 @@ func (st *StartedHTTP) Serve(ctx context.Context) error {
 		return describeListenError(err, st.ListenAddr)
 	}
 	st.ListenAddr = ln.Addr().String()
+	st.startEditorGateway()
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- st.httpSrv.Serve(ln)
@@ -370,6 +384,13 @@ func describeListenError(err error, addr string) error {
 
 // Shutdown gracefully stops the HTTP server and drains background work.
 func (st *StartedHTTP) Shutdown(ctx context.Context) error {
+	if st.gatewayCancel != nil {
+		st.gatewayCancel()
+		select {
+		case <-st.gatewayDone:
+		case <-ctx.Done():
+		}
+	}
 	if st.httpSrv != nil {
 		_ = st.httpSrv.Shutdown(ctx)
 	}
@@ -422,6 +443,7 @@ func Run(args []string, deps CommandDeps) error {
 	}
 
 	params := StartParams{
+		Editor: os.Getenv(gateway.EditorEnv),
 		CLI: config.CLIPaths{
 			Home:   strings.TrimSpace(*homeDir),
 			CWD:    strings.TrimSpace(*httpCWD),
@@ -443,6 +465,9 @@ func Run(args []string, deps CommandDeps) error {
 		Debug:            boolFlagIfPassed(fs, config.DebugFlagName, debugFlag),
 		ProjectTrust:     strings.TrimSpace(*projectTrust),
 	}
+	// Commands and MCP servers launched by the backend must not inherit an
+	// editor identity and accidentally start another editor adapter themselves.
+	_ = os.Unsetenv(gateway.EditorEnv)
 	out := deps.CheckOutput
 	if out == nil {
 		out = os.Stdout
