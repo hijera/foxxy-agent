@@ -62,9 +62,7 @@ export function DistillationWorkspace(props: {
   const status = (job?.status || "pending").toLowerCase();
   const candidates = job?.candidates ?? job?.scenario_candidates ?? [];
   const waiting =
-    status === "waiting_for_scenario" ||
-    status === "needs_scenario" ||
-    candidates.length > 0;
+    status === "waiting_for_scenario" || status === "needs_scenario";
   const complete =
     status === "succeeded" || status === "completed" || !!job?.app_id;
   const completedAppId = job?.app_id;

@@ -1,6 +1,12 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MiniAppRunner } from "./MiniAppRunner";
 import type { MiniAppDocument } from "./types";
 
@@ -36,4 +42,45 @@ test("a failed start reports the error instead of doing nothing visible", async 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "source evidence is missing",
   );
+});
+
+test("integer inputs are submitted as JSON numbers", async () => {
+  let submitted: { inputs?: Record<string, unknown> } | undefined;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/test-runs")) {
+      submitted = JSON.parse(String(init?.body)) as typeof submitted;
+      return new Response(
+        JSON.stringify({ id: "integer-job", status: "queued" }),
+        { status: 202 },
+      );
+    }
+    if (path.includes("/events")) {
+      return new Response("unavailable", { status: 500 });
+    }
+    return new Response(
+      JSON.stringify({ id: "integer-job", status: "failed" }),
+    );
+  });
+  const integerApp: MiniAppDocument = {
+    ...app,
+    inputs: [
+      {
+        id: "count",
+        type: "integer",
+        title: "Count",
+        required: true,
+        ui: { control: "number" },
+      },
+    ],
+  };
+
+  render(
+    <MiniAppRunner app={integerApp} released={false} onClose={() => {}} />,
+  );
+  fireEvent.change(screen.getByLabelText("Count"), { target: { value: "7" } });
+  fireEvent.click(screen.getByTestId("miniapps-run-start"));
+
+  await waitFor(() => expect(submitted).toBeDefined());
+  expect(submitted).toEqual({ inputs: { count: 7 } });
 });

@@ -4,8 +4,6 @@ package httpserver
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -17,7 +15,6 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	"github.com/hijera/foxxycode-agent/external/miniapps"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -115,11 +112,8 @@ func TestMiniAppsBrowserValidatesTheOpenDraft(t *testing.T) {
 // generated form and watches it finish. The step really executes the write
 // tool in an isolated run workspace.
 func TestMiniAppsBrowserRunsFromTheGeneratedForm(t *testing.T) {
-	ts, srv := newMiniAppsBrowserServerAndHandle(t)
-	// Seeded through the store rather than POST /foxxycode/miniapps: that route
-	// creates a draft with no source evidence, and StartTestRun requires it, so
-	// a catalog-created app can never be test-run.
-	seedMiniAppWithEvidence(t, srv)
+	ts := newMiniAppsBrowserServer(t)
+	seedMiniAppForBrowser(t, ts.URL)
 
 	browserCtx, cancel := newMiniAppsBrowserContext(t)
 	defer cancel()
@@ -226,41 +220,6 @@ func newMiniAppsBrowserServerAndHandle(t *testing.T) (*httptest.Server, *Server)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() { ts.Close(); srv.Drain() })
 	return ts, srv
-}
-
-// seedMiniAppWithEvidence stores a draft together with the source evidence a
-// test run replays, which the catalog create route does not write.
-func seedMiniAppWithEvidence(t *testing.T, srv *Server) {
-	t.Helper()
-	raw, err := json.Marshal(miniAppsTestDocument())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var app miniapps.MiniApp
-	if err := json.Unmarshal(raw, &app); err != nil {
-		t.Fatal(err)
-	}
-	// A test run is a replay against the source session: with no accepted result
-	// recorded, verification passes when the artifacts match, and the expected
-	// set comes from the sanitized trace. Distillation normally writes this;
-	// here it stands in for the greeting file the write step produces.
-	const accepted = "hello"
-	digest := sha256.Sum256([]byte(accepted))
-	evidence := &miniapps.SourceEvidence{
-		SessionID: "seeded",
-		SanitizedTrace: &miniapps.NormalizedTrace{Actions: []miniapps.TraceAction{{
-			Index: 0, Name: "write", Kind: "builtin",
-			Status:      miniapps.TraceActionSucceeded,
-			ResultFound: true,
-			Artifacts: []miniapps.TraceArtifact{{
-				Path: "greeting.txt", Kind: "file",
-				SHA256: hex.EncodeToString(digest[:]), SizeBytes: int64(len(accepted)),
-			}},
-		}}},
-	}
-	if err := srv.miniAppsHTTPState().store.CreateDraft(app, evidence); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func seedMiniAppForBrowser(t *testing.T, baseURL string) {

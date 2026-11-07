@@ -22,6 +22,12 @@ shell commands can be distilled into portable profiles. A new machine asks for t
 bound to the profile hash and resolved binary, and offers supported package managers
 when the binary is missing.
 
+**Mini App confirmations and forms are more reliable.**
+Confirmations redact secret inputs. Command trust is checked before side effects and works
+when confirmed by run id. Integer fields submit numbers, cancelling distillation leaves
+scenario review, and editing the visible expected result updates the enforced criterion.
+Drafts created through the API without a source session can pass their own checks and release.
+
 **Mini Apps follow live settings.**
 Provider, key, model and MCP changes apply to the next step without a restart.
 

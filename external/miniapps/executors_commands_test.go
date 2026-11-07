@@ -172,7 +172,72 @@ func TestValidateMiniAppCapabilitiesAcceptsDocumentProfiles(t *testing.T) {
 }
 
 // The retry loop must not re-raise a trust pause: one pause parks the run.
-func TestRunnerParksAnUntrustedProfileDespiteRetries(t *testing.T) {
+type recordingCommandExecutor struct {
+	*BuiltinToolExecutor
+	beforeCalls int
+}
+
+func (e *recordingCommandExecutor) ValidateMiniAppCapabilities(MiniApp) error { return nil }
+
+func (e *recordingCommandExecutor) ExecuteTool(ctx context.Context, req ToolRequest) (any, error) {
+	if req.Tool == "record_before_command" {
+		e.beforeCalls++
+		return "recorded", nil
+	}
+	return e.BuiltinToolExecutor.ExecuteTool(ctx, req)
+}
+
+func TestRunnerChecksCommandTrustBeforeEarlierSideEffects(t *testing.T) {
+	fake, profile := buildDocProfile(t)
+	t.Setenv("PATH", filepath.Dir(fake.Binary)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	live, home := liveExecutorWithHome(t, nil)
+	executor := &recordingCommandExecutor{BuiltinToolExecutor: live}
+	store := NewStore(t.TempDir())
+	runner := NewRunner(store, Executors{Tool: executor}).WithWorkspaceRoot(t.TempDir())
+
+	app := commandProfileApp()
+	app.Inputs = nil
+	app.Permissions = Permissions{Tools: []string{"record_before_command", profile.ToolName()}}
+	app.Requirements.Commands = []cmdprofile.ProfileSpec{profile.Portable()}
+	app.Workflow = []Step{
+		{ID: "before", Kind: "tool", Title: "Before", Tool: "record_before_command", Arguments: map[string]any{}},
+		{ID: "convert", Kind: "tool", Title: "Convert", Tool: profile.ToolName(), Arguments: map[string]any{
+			"input_path": "in.mp4", "output_path": "out.mp3",
+		}},
+	}
+	app.Success = SuccessSpec{Mode: "all", Checks: []SuccessCheck{{Kind: "step", Step: "convert", Status: string(RunSucceeded)}}}
+	app.Outputs = []Output{{ID: "result", Type: "string", Value: Ref{Ref: "steps.convert.outputs.result"}}}
+
+	waiting, err := runner.RunPortable(context.Background(), app, nil, nil)
+	if !errors.Is(err, errWaitingForConfirmation) || waiting.Status != RunWaitingForConfirmation {
+		t.Fatalf("untrusted run = %+v, error %v", waiting, err)
+	}
+	if executor.beforeCalls != 0 {
+		t.Fatalf("earlier side effect ran %d times before trust approval", executor.beforeCalls)
+	}
+
+	portable := profile.Portable()
+	resolved, err := cmdprofile.ResolveBinary(portable, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := cmdprofile.CanonicalHash(portable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdprofile.NewTrustStore(home).Record(hash, resolved); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := runner.RunPortable(context.Background(), app, nil, nil)
+	if err != nil || completed.Status != RunSucceeded {
+		t.Fatalf("trusted run = %+v, error %v", completed, err)
+	}
+	if executor.beforeCalls != 1 {
+		t.Fatalf("earlier side effect ran %d times, want once", executor.beforeCalls)
+	}
+}
+
+func TestRunnerPreflightParksAnUntrustedProfileWithoutAttempts(t *testing.T) {
 	fake, profile := buildDocProfile(t)
 	// The runner attaches the document (portable, bare-name) profile, so the
 	// binary must resolve the way it would on a real machine: via PATH.
@@ -200,7 +265,7 @@ func TestRunnerParksAnUntrustedProfileDespiteRetries(t *testing.T) {
 	if step.Status != RunWaitingForConfirmation {
 		t.Fatalf("step status = %q", step.Status)
 	}
-	if step.Attempts != 1 {
-		t.Fatalf("attempts = %d, want the pause to stop retries", step.Attempts)
+	if step.Attempts != 0 {
+		t.Fatalf("attempts = %d, want no execution before trust", step.Attempts)
 	}
 }

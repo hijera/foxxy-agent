@@ -117,7 +117,7 @@ func VerifyReplay(_ context.Context, app MiniApp, evidence SourceEvidence, run R
 
 	expected, ok := acceptedReplayResult(evidence)
 	if !ok {
-		if artifactCount > 0 && artifactOK && explicitExpectedOK {
+		if (artifactCount > 0 && artifactOK || replayEvidenceEmpty(evidence)) && explicitExpectedOK {
 			report.Status, report.Passed = VerificationPassed, true
 			return report
 		}
@@ -259,6 +259,13 @@ func acceptedReplayResult(evidence SourceEvidence) (any, bool) {
 		return value, true
 	}
 	return nil, false
+}
+
+func replayEvidenceEmpty(evidence SourceEvidence) bool {
+	return evidence.SessionID == "" && len(evidence.ScenarioCandidates) == 0 &&
+		evidence.ConfirmedScenario == nil && evidence.SanitizedTrace == nil &&
+		evidence.AcceptedResult == nil && evidence.SourceFixture == nil &&
+		len(evidence.FixtureFiles) == 0 && evidence.Metrics == nil
 }
 
 func replayValuesEqual(expected, actual any) bool {

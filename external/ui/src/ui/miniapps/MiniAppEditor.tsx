@@ -730,7 +730,12 @@ export function MiniAppEditor(props: {
               }
               onChange={(e) =>
                 update({
-                  success: { ...draft.success, expectations: e.target.value },
+                  success: {
+                    ...draft.success,
+                    ...(draft.success?.expectations !== undefined
+                      ? { expectations: e.target.value }
+                      : { expected_result: e.target.value }),
+                  },
                 })
               }
             />

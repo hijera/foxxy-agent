@@ -296,6 +296,9 @@ Catalog and review routes:
   /foxxycode/miniapps/{id}`**, and **`GET|PUT .../{id}/draft`** manage the global
   catalog and mutable draft. Updates require the current revision in the body
   or **`If-Match`** and return **`409 revision_conflict`** on stale writes.
+  A draft created directly through **`POST /foxxycode/miniapps`** has no source
+  session; its test run passes when its own workflow and explicit success
+  criteria pass, without a source-data replay.
 - **`GET .../{id}/authoring/source`** returns private sanitized evidence;
   **`POST .../authoring/patches`** proposes bounded repairs and **`POST
   .../patches/{patch_id}/accept`** applies one explicitly against its base

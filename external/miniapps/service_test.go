@@ -4,7 +4,10 @@ package miniapps
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +298,47 @@ func TestServiceNeverPersistsRawSecretToolErrors(t *testing.T) {
 		if strings.Contains(event.Message, secret) {
 			t.Fatalf("event leaked secret: %+v", event)
 		}
+	}
+}
+
+func TestServiceConfirmationRedactsSecretInputs(t *testing.T) {
+	store := NewStore(t.TempDir())
+	app := verificationTestApp()
+	app.ID = "secret-confirmation-service"
+	app.Inputs[0].Type = "secret"
+	app.Inputs[0].UI.Control = "password"
+	app.Workflow = []Step{{
+		ID: "confirm", Kind: "confirm", Title: "Confirm",
+		Message: "Use {{inputs.name}}?", Details: map[string]any{"value": Ref{Ref: "inputs.name"}},
+	}}
+	app.Success.Checks = []SuccessCheck{{Kind: "step", Step: "confirm", Status: string(RunSucceeded)}}
+	app.Outputs = []Output{{ID: "result", Type: "boolean", Value: Ref{Ref: "steps.confirm.outputs.result"}}}
+	if err := store.CreateDraft(app, &SourceEvidence{AcceptedResult: true}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, NewRunner(store, Executors{}))
+	const secret = "runtime-secret-value"
+	job, err := service.StartTestRun(app.ID, map[string]any{"name": secret}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := waitForJob(t, service, job.ID, func(item AsyncJob) bool { return item.Status == JobWaitingForConfirm })
+	if waiting.Confirmation == nil {
+		t.Fatal("waiting job has no confirmation")
+	}
+	encoded, err := json.Marshal(waiting.Confirmation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), secret) || !strings.Contains(string(encoded), "REDACTED") {
+		t.Fatalf("confirmation was not redacted: %s", encoded)
+	}
+	persisted, err := os.ReadFile(filepath.Join(store.Root(), ".jobs", job.ID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(persisted), secret) {
+		t.Fatal("persisted job contains the raw secret")
 	}
 }
 

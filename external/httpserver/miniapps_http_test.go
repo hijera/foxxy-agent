@@ -347,6 +347,62 @@ func TestMiniAppsSSEResumeUsesLastEventID(t *testing.T) {
 	}
 }
 
+func TestMiniAppsCatalogDraftCanPassItsOwnChecksAndRelease(t *testing.T) {
+	ts, srv := newMiniAppsHTTPTestServer(t)
+	body, _ := json.Marshal(miniAppsTestDocument())
+	created, err := http.Post(ts.URL+"/foxxycode/miniapps", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft miniapps.MiniApp
+	if err := json.NewDecoder(created.Body).Decode(&draft); err != nil {
+		t.Fatal(err)
+	}
+	_ = created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status %d", created.StatusCode)
+	}
+
+	started, err := http.Post(ts.URL+"/foxxycode/miniapps/greeting-app/test-runs", "application/json", strings.NewReader(`{"inputs":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startBody, _ := io.ReadAll(started.Body)
+	_ = started.Body.Close()
+	if started.StatusCode != http.StatusAccepted {
+		t.Fatalf("test start status %d: %s", started.StatusCode, startBody)
+	}
+	var job miniapps.AsyncJob
+	if err := json.Unmarshal(startBody, &job); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err = srv.miniAppsHTTPState().service.GetJob(job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status == miniapps.JobSucceeded || job.Status == miniapps.JobFailed || job.Status == miniapps.JobCancelled || job.Status == miniapps.JobInterrupted {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if job.Status != miniapps.JobSucceeded || job.Report == nil || !job.Report.Passed {
+		t.Fatalf("manual draft test = %+v", job)
+	}
+
+	releaseBody, _ := json.Marshal(map[string]any{"version": "1.0.0", "approved": true, "expected_revision": draft.Revision})
+	released, err := http.Post(ts.URL+"/foxxycode/miniapps/greeting-app/release", "application/json", strings.NewReader(string(releaseBody)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseResponse, _ := io.ReadAll(released.Body)
+	_ = released.Body.Close()
+	if released.StatusCode != http.StatusCreated {
+		t.Fatalf("release status %d: %s", released.StatusCode, releaseResponse)
+	}
+}
+
 func TestMiniAppsConfirmationInfersSingleWaitingStep(t *testing.T) {
 	ts, srv := newMiniAppsHTTPTestServer(t)
 	state := srv.miniAppsHTTPState()

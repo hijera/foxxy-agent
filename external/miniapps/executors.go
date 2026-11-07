@@ -171,6 +171,13 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 	return result, nil
 }
 
+// PreflightCommandProfile checks local executability and trust without running
+// the command. The runner uses it to collect approvals before any side effects.
+func (e *BuiltinToolExecutor) PreflightCommandProfile(profile cmdprofile.ProfileSpec) error {
+	_, err := e.trustedCommandProfile(profile)
+	return err
+}
+
 // executeCommandProfile runs a document-embedded command profile. The order of
 // the gates matters: an ask-profile is a hard error (a Mini App runs
 // unattended, so a prompt could never be answered), a missing binary is an
@@ -179,36 +186,9 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 // hash to the exact resolved binary path; a profile whose hash matches an
 // operator-declared config profile is implicitly trusted.
 func (e *BuiltinToolExecutor) executeCommandProfile(ctx context.Context, req ToolRequest, argsJSON, workspace string) (any, error) {
-	profile := req.CommandProfile.Clone()
-	// When the operator's config declares this same profile (the document form
-	// is the portable, bare-name spelling of it), execute the config
-	// declaration instead: it knows where the binary actually lives on this
-	// machine, and it is the operator's own trust anchor.
-	if declared, ok := e.configProfileForDocument(profile); ok {
-		profile = declared
-	}
-	if err := profile.Validate(); err != nil {
-		return nil, fmt.Errorf("command profile %q: %w", profile.Name, err)
-	}
-	if profile.ResolvedPermission() != cmdprofile.PermissionAllow {
-		return nil, fmt.Errorf("command profile %q must declare permission: allow to run inside a Mini App", profile.Name)
-	}
-	resolved, err := cmdprofile.ResolveBinary(profile, workspace)
-	if err != nil {
-		var missing *cmdprofile.BinaryNotFoundError
-		if errors.As(err, &missing) {
-			return nil, fmt.Errorf("command %q is not installed on this machine%s", profile.Binary, commandInstallHint(profile))
-		}
-		return nil, err
-	}
-	hash, err := cmdprofile.CanonicalHash(profile)
+	profile, err := e.trustedCommandProfile(req.CommandProfile.Clone())
 	if err != nil {
 		return nil, err
-	}
-	if !e.commandProfileTrusted(hash, resolved) {
-		return nil, fmt.Errorf(
-			"command profile %q wants to run %s and is not trusted on this machine: %w",
-			profile.Name, resolved, errWaitingForConfirmation)
 	}
 	tool := toolcmd.Tool(profile)
 	out, err := tool.Execute(ctx, argsJSON, &tooling.Env{
@@ -218,6 +198,40 @@ func (e *BuiltinToolExecutor) executeCommandProfile(ctx context.Context, req Too
 		return nil, err
 	}
 	return out, nil
+}
+
+func (e *BuiltinToolExecutor) trustedCommandProfile(profile cmdprofile.ProfileSpec) (cmdprofile.ProfileSpec, error) {
+	// When the operator's config declares this same profile (the document form
+	// is the portable, bare-name spelling of it), execute the config
+	// declaration instead: it knows where the binary actually lives on this
+	// machine, and it is the operator's own trust anchor.
+	if declared, ok := e.configProfileForDocument(profile); ok {
+		profile = declared
+	}
+	if err := profile.Validate(); err != nil {
+		return cmdprofile.ProfileSpec{}, fmt.Errorf("command profile %q: %w", profile.Name, err)
+	}
+	if profile.ResolvedPermission() != cmdprofile.PermissionAllow {
+		return cmdprofile.ProfileSpec{}, fmt.Errorf("command profile %q must declare permission: allow to run inside a Mini App", profile.Name)
+	}
+	resolved, err := cmdprofile.ResolveBinary(profile, "")
+	if err != nil {
+		var missing *cmdprofile.BinaryNotFoundError
+		if errors.As(err, &missing) {
+			return cmdprofile.ProfileSpec{}, fmt.Errorf("command %q is not installed on this machine%s", profile.Binary, commandInstallHint(profile))
+		}
+		return cmdprofile.ProfileSpec{}, err
+	}
+	hash, err := cmdprofile.CanonicalHash(profile)
+	if err != nil {
+		return cmdprofile.ProfileSpec{}, err
+	}
+	if !e.commandProfileTrusted(hash, resolved) {
+		return cmdprofile.ProfileSpec{}, fmt.Errorf(
+			"command profile %q wants to run %s and is not trusted on this machine: %w",
+			profile.Name, resolved, errWaitingForConfirmation)
+	}
+	return profile, nil
 }
 
 // configProfileForDocument finds the config-declared profile whose portable

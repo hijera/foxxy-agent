@@ -52,7 +52,9 @@ An embedded profile requires approval on the machine running the workflow. The
 confirmation names its content hash, resolved binary and argument template.
 Approval is stored in `<home>/command-trust.json`, bound to the hash and binary
 path. Changing either asks again. A matching profile in the operator's own
-configuration is already trusted and supplies the local binary path.
+configuration is already trusted and supplies the local binary path. Trust is
+checked before any workflow step runs, so approving a command never repeats an
+earlier step's side effects.
 
 ![Command profile awaiting approval](../assets/mini-apps/commands-panel-untrusted-dark-1280.png)
 

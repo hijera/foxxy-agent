@@ -279,7 +279,7 @@ func (s *Server) miniAppsCatalogPost(w http.ResponseWriter, r *http.Request) {
 	if err := decodeMiniAppsJSON(w, r, &app); err != nil {
 		return
 	}
-	if err := s.miniAppsHTTPState().store.CreateDraft(app, nil); err != nil {
+	if err := s.miniAppsHTTPState().store.CreateDraft(app, &miniapps.SourceEvidence{}); err != nil {
 		s.writeMiniAppsServiceError(w, err)
 		return
 	}
@@ -789,6 +789,10 @@ func (s *Server) miniAppsRunConfirmationPost(w http.ResponseWriter, r *http.Requ
 	decisions, decisionsErr := s.miniAppsConfirmationDecisions(state, job, body.ConfirmationID)
 	if decisionsErr != nil {
 		writeMiniAppsError(w, http.StatusUnprocessableEntity, "invalid_confirmation", decisionsErr.Error())
+		return
+	}
+	if err := s.recordCommandTrustFromConfirmation(job); err != nil {
+		s.writeMiniAppsServiceError(w, err)
 		return
 	}
 	resumed, err := state.service.ConfirmRun(job.ID, decisions)

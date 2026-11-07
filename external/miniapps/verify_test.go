@@ -35,6 +35,26 @@ func TestVerifyReplayUsesAcceptedMetricsAndReportsMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifyReplayWithoutSourceEvidenceUsesWorkflowSuccess(t *testing.T) {
+	app := verificationTestApp()
+	report := VerifyReplay(context.Background(), app, SourceEvidence{}, Run{
+		ID: "manual-run", AppID: app.ID, Revision: app.Revision, Status: RunSucceeded,
+		Outputs: map[string]any{"result": "hello"},
+	})
+	if !report.Passed || report.Status != VerificationPassed {
+		t.Fatalf("manual draft report = %+v", report)
+	}
+
+	app.Success.ExpectedResult = "before"
+	mismatch := VerifyReplay(context.Background(), app, SourceEvidence{}, Run{
+		ID: "manual-mismatch", AppID: app.ID, Revision: app.Revision, Status: RunSucceeded,
+		Outputs: map[string]any{"result": "after"},
+	})
+	if mismatch.Passed || !hasDiscrepancyKind(mismatch, "expected_result_mismatch") {
+		t.Fatalf("explicit expectation was not enforced: %+v", mismatch)
+	}
+}
+
 func TestVerifyReplayPrefersDeterministicArtifactHashOverAssistantProse(t *testing.T) {
 	content := []byte("hello Ada\n")
 	sum := sha256.Sum256(content)

@@ -261,7 +261,7 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 	run.Inputs = redactValueMap(values, secretVals)
 
 	preflightRefs := map[string]any{"inputs": values, "steps": map[string]any{}, "app": map[string]any{"id": app.ID, "version": app.Version}}
-	if stepID, missing, err := r.firstMissingConfirmation(app.Workflow, decisions, "", 0, preflightRefs); err != nil {
+	if stepID, missing, err := r.firstMissingConfirmation(app.Workflow, app.Requirements.Commands, decisions, "", 0, preflightRefs); err != nil {
 		return finishMiniAppRun(run, err, secretVals)
 	} else if missing {
 		now := time.Now().UTC()
@@ -354,7 +354,7 @@ func materializeMiniAppFixture(workspace string, fixture map[string][]byte) erro
 	return nil
 }
 
-func (r *Runner) firstMissingConfirmation(steps []Step, decisions *OperatorDecisions, prefix string, depth int, refs map[string]any) (string, bool, error) {
+func (r *Runner) firstMissingConfirmation(steps []Step, commands []cmdprofile.ProfileSpec, decisions *OperatorDecisions, prefix string, depth int, refs map[string]any) (string, bool, error) {
 	for _, step := range steps {
 		if step.When != nil {
 			if selected, err := ExecuteCondition(context.Background(), *step.When, refs); err == nil && !selected {
@@ -380,16 +380,30 @@ func (r *Runner) firstMissingConfirmation(steps []Step, decisions *OperatorDecis
 				if selected {
 					branch = step.Then
 				}
-				if id, missing, err := r.firstMissingConfirmation(branch, decisions, prefix, depth, refs); err != nil || missing {
+				if id, missing, err := r.firstMissingConfirmation(branch, commands, decisions, prefix, depth, refs); err != nil || missing {
 					return id, missing, err
 				}
 				continue
 			}
 		}
-		if id, missing, err := r.firstMissingConfirmation(step.Then, decisions, prefix, depth, refs); err != nil || missing {
+		if step.Kind == "tool" {
+			if profile, declared := commandProfileByToolName(commands, step.Tool); declared {
+				if checker, ok := r.executors.Tool.(interface {
+					PreflightCommandProfile(cmdprofile.ProfileSpec) error
+				}); ok {
+					if err := checker.PreflightCommandProfile(profile); err != nil {
+						if errors.Is(err, errWaitingForConfirmation) {
+							return prefix + step.ID, true, nil
+						}
+						return "", false, err
+					}
+				}
+			}
+		}
+		if id, missing, err := r.firstMissingConfirmation(step.Then, commands, decisions, prefix, depth, refs); err != nil || missing {
 			return id, missing, err
 		}
-		if id, missing, err := r.firstMissingConfirmation(step.Else, decisions, prefix, depth, refs); err != nil || missing {
+		if id, missing, err := r.firstMissingConfirmation(step.Else, commands, decisions, prefix, depth, refs); err != nil || missing {
 			return id, missing, err
 		}
 		if step.Kind == "miniapp" {
@@ -409,7 +423,7 @@ func (r *Runner) firstMissingConfirmation(steps []Step, decisions *OperatorDecis
 					nestedRefs = map[string]any{"inputs": inputs, "steps": map[string]any{}, "app": map[string]any{"id": nested.ID, "version": nested.Version}}
 				}
 			}
-			if id, missing, err := r.firstMissingConfirmation(nested.Workflow, decisions, prefix+step.ID+".", depth+1, nestedRefs); err != nil || missing {
+			if id, missing, err := r.firstMissingConfirmation(nested.Workflow, nested.Requirements.Commands, decisions, prefix+step.ID+".", depth+1, nestedRefs); err != nil || missing {
 				return id, missing, err
 			}
 		}

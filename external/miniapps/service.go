@@ -505,25 +505,35 @@ func (s *Service) pendingConfirmation(app MiniApp, run Run, inputs map[string]an
 		return confirmation
 	}
 	refs := map[string]any{"inputs": inputs, "steps": map[string]any{}, "app": map[string]any{"id": app.ID, "version": app.Version}}
+	secrets := secretInputLiterals(app.Inputs, inputs)
 	if message, err := ResolveValue(step.Message, refs); err == nil {
-		confirmation.Message = redactString(fmt.Sprint(message), nil)
+		confirmation.Message = redactString(fmt.Sprint(message), secrets)
 	}
 	if details, err := ResolveValue(step.Details, refs); err == nil {
-		confirmation.Details = redactValue(details, nil, false)
+		confirmation.Details = redactValue(details, secrets, false)
 	}
 	return confirmation
+}
+
+func secretInputLiterals(spec []Input, inputs map[string]any) []string {
+	var secrets []string
+	for _, input := range spec {
+		if input.Type != "secret" {
+			continue
+		}
+		if value := strings.TrimSpace(fmt.Sprint(inputs[input.ID])); value != "" && value != "<nil>" {
+			secrets = append(secrets, value)
+		}
+	}
+	return secrets
 }
 
 // commandTrustConfirmation builds the typed confirmation payload for a tool
 // step that paused on an untrusted command profile. Nil when the waiting step
 // is not a command-profile step.
 func (s *Service) commandTrustConfirmation(app MiniApp, stepID string) *PendingConfirmation {
-	step, found := findWorkflowStep(app.Workflow, stepID)
-	if !found || step.Kind != "tool" {
-		return nil
-	}
-	profile, declared := commandProfileByToolName(app.Requirements.Commands, step.Tool)
-	if !declared {
+	profile, found := s.commandProfileForConfirmation(app.Workflow, app.Requirements.Commands, stepID, "", 0)
+	if !found {
 		return nil
 	}
 	hash, err := cmdprofile.CanonicalHash(profile)
@@ -547,20 +557,27 @@ func (s *Service) commandTrustConfirmation(app MiniApp, stepID string) *PendingC
 	}
 }
 
-// findWorkflowStep locates a step by id, including branch bodies.
-func findWorkflowStep(steps []Step, want string) (Step, bool) {
+func (s *Service) commandProfileForConfirmation(steps []Step, commands []cmdprofile.ProfileSpec, want, prefix string, depth int) (cmdprofile.ProfileSpec, bool) {
 	for _, step := range steps {
-		if step.ID == want {
-			return step, true
+		if prefix+step.ID == want && step.Kind == "tool" {
+			return commandProfileByToolName(commands, step.Tool)
 		}
-		if found, ok := findWorkflowStep(step.Then, want); ok {
-			return found, true
+		if profile, found := s.commandProfileForConfirmation(step.Then, commands, want, prefix, depth); found {
+			return profile, true
 		}
-		if found, ok := findWorkflowStep(step.Else, want); ok {
-			return found, true
+		if profile, found := s.commandProfileForConfirmation(step.Else, commands, want, prefix, depth); found {
+			return profile, true
+		}
+		if step.Kind == "miniapp" && depth < maxMiniAppNesting && s.store != nil {
+			nested, err := s.store.GetRelease(step.AppID, step.AppVersion)
+			if err == nil {
+				if profile, found := s.commandProfileForConfirmation(nested.Workflow, nested.Requirements.Commands, want, prefix+step.ID+".", depth+1); found {
+					return profile, true
+				}
+			}
 		}
 	}
-	return Step{}, false
+	return cmdprofile.ProfileSpec{}, false
 }
 
 func (s *Service) findConfirmationStep(steps []Step, want, prefix string, depth int) (Step, bool) {

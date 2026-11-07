@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/hijera/foxxycode-agent/external/miniapps"
 	"github.com/hijera/foxxycode-agent/internal/cmdprofile/cmdtest"
 )
 
@@ -108,6 +110,90 @@ func TestMiniAppsCommandsStatusAndTrustEndpoints(t *testing.T) {
 		t.Fatalf("row after trust = %#v", after)
 	}
 	_ = srv
+}
+
+func TestMiniAppsCommandConfirmationAcceptsPersistedRunID(t *testing.T) {
+	fake, err := cmdtest.Build(t.TempDir(), "fakeenc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.Setenv(t.Setenv)
+	t.Setenv("PATH", filepath.Dir(fake.Binary)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ts, srv := newMiniAppsHTTPTestServer(t)
+	raw, _ := json.Marshal(commandsTestDocument())
+	var app miniapps.MiniApp
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatal(err)
+	}
+	state := srv.miniAppsHTTPState()
+	if err := state.store.CreateDraft(app, nil); err != nil {
+		t.Fatal(err)
+	}
+	draft, err := state.store.GetDraft(app.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.store.RecordPassingTest(app.ID, miniapps.Run{
+		ID: "test-before-release", AppID: app.ID, Revision: draft.Revision, Test: true, Status: miniapps.RunSucceeded,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.store.Release(app.ID, "1.0.0", miniapps.ReleaseOptions{Approved: true, ExpectedRevision: draft.Revision}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := http.Post(ts.URL+"/foxxycode/miniapps/greeting-app/versions/1.0.0/runs", "application/json", strings.NewReader(`{"inputs":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job miniapps.AsyncJob
+	if err := json.NewDecoder(response.Body).Decode(&job); err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err = state.service.GetJob(job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status == miniapps.JobWaitingForConfirm {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if job.Status != miniapps.JobWaitingForConfirm || job.RunID == "" {
+		t.Fatalf("run did not wait for trust: %+v", job)
+	}
+
+	confirmed, err := http.Post(ts.URL+"/foxxycode/miniapp-runs/"+job.RunID+"/confirmation", "application/json", strings.NewReader(`{"approved":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmationBody, _ := io.ReadAll(confirmed.Body)
+	_ = confirmed.Body.Close()
+	if confirmed.StatusCode != http.StatusAccepted {
+		t.Fatalf("confirmation status %d: %s", confirmed.StatusCode, confirmationBody)
+	}
+	for time.Now().Before(deadline) {
+		job, err = state.service.GetJob(job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status == miniapps.JobSucceeded || job.Status == miniapps.JobFailed || job.Status == miniapps.JobCancelled || job.Status == miniapps.JobInterrupted {
+			break
+		}
+		if job.Status == miniapps.JobWaitingForConfirm {
+			t.Fatalf("run waited for the same trust again: %+v", job)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if job.Status != miniapps.JobSucceeded {
+		t.Fatalf("confirmed run = %+v", job)
+	}
+	if calls, err := fake.Calls(); err != nil || len(calls) != 1 {
+		t.Fatalf("fake calls = %#v, error %v", calls, err)
+	}
 }
 
 func TestMiniAppsCommandsTrustRequiresAnInstalledBinary(t *testing.T) {

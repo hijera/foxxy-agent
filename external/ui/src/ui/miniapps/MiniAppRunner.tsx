@@ -154,7 +154,8 @@ export function MiniAppRunner(props: {
 
   const updateValue = (input: MiniAppInput, raw: string | boolean) => {
     let value: unknown = raw;
-    if (input.type === "number") value = raw === "" ? "" : Number(raw);
+    if (input.type === "number" || input.type === "integer")
+      value = raw === "" ? "" : Number(raw);
     if (input.type === "boolean") value = raw === true || raw === "true";
     setValues((current) => ({ ...current, [input.id]: value }));
   };
@@ -345,7 +346,10 @@ export function MiniAppRunner(props: {
                   <dt>{t("miniapps.commands.confirmBinary")}</dt>
                   <dd>
                     <code>
-                      {commandProfileDetails(run?.confirmation?.details)?.binary}
+                      {
+                        commandProfileDetails(run?.confirmation?.details)
+                          ?.binary
+                      }
                     </code>
                   </dd>
                   <dt>{t("miniapps.commands.confirmArgv")}</dt>
