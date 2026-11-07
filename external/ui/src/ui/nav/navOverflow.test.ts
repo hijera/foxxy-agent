@@ -5,6 +5,13 @@ const signedIn: NavItemId[] = ["history", "scheduler", "docs", "settings", "sign
 const relay: NavItemId[] = ["history", "scheduler", "swarm", "docs", "settings", "signOut"];
 
 describe("splitNavItems", () => {
+  test("Mini Apps stays reachable through More when the bar is full", () => {
+    const present: NavItemId[] = ["history", "scheduler", "miniapps", "docs", "settings"];
+    const { bar, menu } = splitNavItems(present, 3);
+    expect(bar).toEqual(["history", "settings"]);
+    expect(menu).toContain("miniapps");
+    expect([...bar, ...menu]).toHaveLength(present.length);
+  });
   test("an unmeasured bar keeps every item", () => {
     expect(splitNavItems(signedIn, null)).toEqual({ bar: signedIn, menu: [] });
   });

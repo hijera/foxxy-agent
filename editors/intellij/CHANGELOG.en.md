@@ -9,6 +9,43 @@
 
 ## Unreleased — 2026-11-07
 
+**Turn a completed task into a Mini App.**
+The web and desktop workspace distills successful tool-backed sessions into reviewed,
+versioned workflows, verifies the result on the source data, and generates a form for
+future runs. Progress, confirmations, cancellation and run history are persisted.
+The workspace remains hidden in IDE embeds.
+
+**Run external programs through command profiles.**
+A profile fixes one binary, an argument template and typed parameters. Execution uses
+argv without a shell; only profiles with allow permission run in Mini Apps. Matching
+shell commands can be distilled into portable profiles. A new machine asks for trust
+bound to the profile hash and resolved binary, and offers supported package managers
+when the binary is missing.
+
+**Mini App confirmations and forms are more reliable.**
+Confirmations redact secret inputs. Command trust is checked before side effects and works
+when confirmed by run id. Integer fields submit numbers, cancelling distillation leaves
+scenario review, and editing the visible expected result updates the enforced criterion.
+Drafts created through the API without a source session can pass their own checks and release.
+
+**Mini Apps follow live settings.**
+Provider, key, model and MCP changes apply to the next step without a restart.
+
+**Release checks recognize Windows paths.**
+Local drive and network paths are rejected in portable documents alongside Unix paths.
+
+**Browser tools stay outside unattended runs.**
+The whole registered browser tool family, including screenshots, is excluded.
+
+**An assistant helps edit the workflow.**
+Ask for a change in plain language, inspect the proposed patch and apply it explicitly.
+Applying a patch invalidates the checks for the previous draft revision.
+
+**Live progress works with tokens and remote servers.**
+Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.42 — 2026-11-07
+
 - Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
 - **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
 

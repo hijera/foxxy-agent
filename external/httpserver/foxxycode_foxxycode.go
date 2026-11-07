@@ -260,6 +260,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerRewindRoute()
 	s.registerSkillsManagementRoutes()
 	s.registerMCPManagementRoutes()
+	s.registerMiniAppsRoutes()
+	s.mux.HandleFunc("GET /foxxycode/capabilities", s.foxxycodeCapabilitiesGet)
 }
 
 // writeArtifactError answers with the JSON error envelope the artifact routes
