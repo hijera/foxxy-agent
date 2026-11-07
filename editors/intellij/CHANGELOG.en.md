@@ -7,7 +7,10 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-06
+## Unreleased — 2026-11-07
+
+- Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
+- **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
 
 **Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
 

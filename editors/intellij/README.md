@@ -21,6 +21,9 @@ IDE  ──tool window──▶  JBCefBrowser  ──http──▶  foxxycode ht
 
 - One `foxxycode http` process per open project, on a free localhost port, with `--cwd` set to the
   project root so the agent works on the open project.
+- Enable **Settings | Tools | FoxxyCode | Stop the process when the FoxxyCode tab is closed** to
+  stop the backend when the tool window is closed or hidden and restart it on reopening. This is
+  off by default. Closing interrupts running turns and background tasks; saved sessions remain.
 - The bundled binary is a **full-feature build** (`http ui scheduler memory`), produced by the
   `foxxycodeGoBuild_*` Gradle tasks from the repo root.
 

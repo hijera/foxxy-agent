@@ -44,6 +44,7 @@ class FoxxyCodeAutocompleteService(private val project: Project) : Disposable {
     @Volatile
     private var inFlight: CompletionClient.InFlight? = null
 
+    @Volatile
     private var configPollStarted = false
 
     /** The settings the backend published; [AutocompleteClientConfig.DISABLED] until it answers. */
@@ -57,23 +58,30 @@ class FoxxyCodeAutocompleteService(private val project: Project) : Disposable {
         scheduleConfigRefresh(0)
     }
 
-    override fun dispose() {
+    fun stop() {
+        configPollStarted = false
+        clientConfig = AutocompleteClientConfig.DISABLED
         typingAlarm.cancelAllRequests()
         configAlarm.cancelAllRequests()
-        inFlight?.cancel()
+        val pending = inFlight
+        inFlight = null
+        if (pending != null) ApplicationManager.getApplication().executeOnPooledThread { pending.cancel() }
     }
 
+    override fun dispose() = stop()
+
     private fun scheduleConfigRefresh(delayMs: Int) {
-        if (project.isDisposed) return
+        if (project.isDisposed || !configPollStarted) return
         configAlarm.cancelAllRequests()
         configAlarm.addRequest({ refreshConfig() }, delayMs)
     }
 
     private fun refreshConfig() {
-        if (project.isDisposed) return
+        if (project.isDisposed || !configPollStarted) return
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl
         if (base != null) {
             CompletionClient.fetchConfig(base)?.let { fetched ->
+                if (!configPollStarted || FoxxyCodeProcessManager.getInstance(project).baseUrl != base) return@let
                 if (fetched != clientConfig) {
                     log.info("autocomplete config: enabled=${fetched.enabled} trigger=${fetched.trigger}")
                 }

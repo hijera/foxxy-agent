@@ -83,6 +83,10 @@ NeuralDeskApp/
 .zcode/plans/
 .zcode/sessions/
 
+# Kimi Code machine-local workspace settings. The hook and its config fragment
+# under .kimi-code/ are shared and versioned.
+.kimi-code/local.toml
+
 UPSTREAM_SYNC.md	
 codex-main/
 
