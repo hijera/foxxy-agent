@@ -59,6 +59,9 @@ type Bot struct {
 	// FOXXYCODE_TELEGRAM_API_BASE environment variable, and failing that
 	// api.telegram.org. Tests set it to point the bot at a local stand-in.
 	apiBase string
+	// httpClient sends editor traffic through the single local Telegram relay.
+	// Nil keeps the standalone gateway's normal proxy-aware client.
+	httpClient tgbotapi.HTTPClient
 
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
@@ -111,6 +114,9 @@ func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, lo
 // Name satisfies gateway.Adapter.
 func (b *Bot) Name() string { return "telegram" }
 
+// SetHTTPClient overrides Bot API transport before Start, for an editor relay.
+func (b *Bot) SetHTTPClient(client tgbotapi.HTTPClient) { b.httpClient = client }
+
 // Start connects to Telegram and begins polling. Blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	httpClient, err := proxyutil.BuildHTTPClient(b.cfg.Proxy)
@@ -130,7 +136,11 @@ func (b *Bot) Start(ctx context.Context) error {
 	if endpoint != tgbotapi.APIEndpoint {
 		b.log.Info("telegram: api base override", "base", strings.TrimSuffix(endpoint, apiEndpointSuffix))
 	}
-	bot, err := tgbotapi.NewBotAPIWithClient(token, endpoint, httpClient)
+	var transport tgbotapi.HTTPClient = httpClient
+	if b.httpClient != nil {
+		transport = b.httpClient
+	}
+	bot, err := tgbotapi.NewBotAPIWithClient(token, endpoint, transport)
 	if err != nil {
 		return fmt.Errorf("telegram: connect: %w", err)
 	}

@@ -103,6 +103,10 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 
 ## Editor and IDE integration
 
+**Telegram in editor plugins:** IntelliJ and VS Code share one local relay per
+user; `/project` selects the connected workspace that receives messages.
+See the [relay guide](docs/surfaces/gateway.md#telegram-from-intellij-and-vs-code).
+
 FoxxyCode is an **ACP server** (`foxxycode acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`foxxycode http`** UI are clients that share the same **`FOXXYCODE_HOME`** sessions when configured with the same home directory.
 
 Configure clients with the **absolute path** to the binary rather than relying on `PATH` — some harnesses spawn the agent via `cmd /c` or `sh -c` without the user `PATH` (on Windows: `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; see [`docs/getting-started/install.md`](docs/getting-started/install.md#windows)).

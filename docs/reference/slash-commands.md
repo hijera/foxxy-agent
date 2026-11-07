@@ -6,6 +6,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 
 | Command | Surfaces | What it does | Details |
 |---|---|---|---|
+| `/project [number]` | Telegram through the IntelliJ and VS Code plugins | Lists authorized connected projects with selection buttons. Saves the chosen project per bot, chat and user; subsequent messages go only there. | [Editor Telegram relay](../surfaces/gateway.md#telegram-from-intellij-and-vs-code) |
 | `/model <id> [--once\|--count=N]` | console, web UI, ACP editors, HTTP, Telegram | Switches to a configured model for the session or the next turns. A bare command opens a selector in the console and web UI, or Telegram's keyboard. | [Session settings](../features/session-settings.md#the-commands) |
 | `/reasoning <level\|off\|default>`, `/effort`, `/think`, `/nothink` | console, web UI, ACP editors, HTTP, Telegram | Changes the reasoning level for the session or the next turns. A bare `/reasoning` opens a picker in the console and web UI. | [Session settings](../features/session-settings.md#thinking-off) |
 | `/agent`, `/plan`, `/ask`, `/debug` | console, web UI, ACP editors, HTTP, Telegram | Selects an operating mode for the session or the next turns. | [Session settings](../features/session-settings.md#the-commands) |

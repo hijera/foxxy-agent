@@ -31,6 +31,10 @@ VS Code  ──POST /foxxycode/sessions/<id>/permission──▶       foxxycode
 
 ## Requirements
 
+Telegram is supported through the shared local relay: enable it in FoxxyCode
+settings, open the workspace panel, then use `/project` in Telegram to choose a
+VS Code or IntelliJ project. See the [relay guide](../../docs/surfaces/gateway.md#telegram-from-intellij-and-vs-code).
+
 - VS Code **1.75 or newer**.
 - **Build prerequisites (host machine):** Go (per the root `go.mod`), Node.js with npm. Required
   for `vsce package` because the foxxycode binary is built locally during extension assembly.

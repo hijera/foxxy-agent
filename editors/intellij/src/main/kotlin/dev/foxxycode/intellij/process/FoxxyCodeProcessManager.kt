@@ -127,6 +127,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         stage("proxy_resolution_end")
         log.info("[foxxycode] " + ProxyEnvironment.describe(proxy))
         cmd.withEnvironment(proxy.env)
+        cmd.withEnvironment("FOXXYCODE_EDITOR", "intellij")
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())

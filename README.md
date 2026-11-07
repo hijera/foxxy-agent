@@ -101,6 +101,10 @@ FoxxyCode — совместимая с distroless **среда выполнен
 
 ## Интеграция с редакторами и IDE
 
+**Telegram in editor plugins:** IntelliJ and VS Code share one local relay per
+user; `/project` selects the connected workspace that receives messages.
+See the [relay guide](docs/surfaces/gateway.md#telegram-from-intellij-and-vs-code).
+
 FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsidian**, **VS Code**, **Zed**, скрипты и встроенный интерфейс **`foxxycode http`** выступают клиентами и используют одни и те же сессии в **`FOXXYCODE_HOME`**, если настроены на общий домашний каталог.
 
 Указывайте в клиентах **абсолютный путь** к исполняемому файлу, не полагаясь на `PATH`: некоторые среды запускают агента через `cmd /c` или `sh -c` без пользовательского `PATH` (в Windows: `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; см. [`docs/getting-started/install.md`](docs/getting-started/install.md#windows)).

@@ -7,6 +7,7 @@ The messenger gateway lets you drive a FoxxyCode agent directly from a chat appl
 - [Overview](#overview)
 - [Build tags](#build-tags)
 - [Quick start (Telegram)](#quick-start-telegram)
+- [Telegram from IntelliJ and VS Code](#telegram-from-intellij-and-vs-code)
 - [Configuration reference](#configuration-reference)
   - [Access levels](#access-levels)
   - [Session isolation modes](#session-isolation-modes)
@@ -131,6 +132,62 @@ make build TAGS="gateway.telegram"
 Open Telegram, find your bot, send a message. The agent replies in the same chat.
 
 ---
+
+## Telegram from IntelliJ and VS Code
+
+The bundled IntelliJ and VS Code plugins support Telegram through one local relay
+process per OS user. Enable `gateways.telegram.enable` and set the bot token in the
+plugin's FoxxyCode settings, or use the configuration from [Quick start](#quick-start-telegram).
+Open the FoxxyCode panel so its project backend is running. No separate gateway
+command, service installation, or public listening port is needed.
+
+Send `/project` to the bot. Its inline keyboard lists the connected projects you
+may access, with their IDE and workspace path. Tap a project, or send `/project N`
+using a number from the latest list. Subsequent messages go only to that project.
+With one connected project and no previous selection, it is selected automatically.
+The choice is saved per bot, chat and Telegram user, including across relay restarts;
+group members can choose independently. A disconnected selection is never silently
+replaced with another project. Open `/project` to choose again.
+
+```text
+IntelliJ project backend ─┐
+                         ├─ authenticated loopback relay ─ Telegram Bot API
+VS Code project backend ─┘          one poller per bot
+```
+
+The relay owns all Telegram API requests and long polling. Agent turns, tools,
+permissions, session history and live updates to the IDE panel stay in the selected
+project's backend. Existing model, MCP and permission buttons return to the project
+that created them even after you select a different project. After a relay restart,
+reopen those menus; their old button ownership is intentionally not persisted.
+Each project keeps its own Telegram conversation map under the sessions root as
+`gateway_editor_<project-id>.json`. Its `/resume` picker lists only sessions of
+that project's working directory.
+
+The relay starts only for backends launched by these two plugins, and only while
+Telegram is enabled. Ordinary `foxxycode http`, ACP, the console and the desktop
+launcher do not start it. The launchers set `FOXXYCODE_EDITOR` to `intellij` or
+`vscode`; it is consumed by the HTTP command and removed before child tools start.
+The plugins already bundle the required `gateway` build tag. A custom binary must
+include it too.
+
+The relay uses a private, random loopback port and a bearer credential in
+`FoxxyCode/telegram-relay-v1/endpoint.json` under the user's OS cache directory
+(`%LOCALAPPDATA%` on Windows, the user cache on macOS/Linux). Startup and worker
+locks prevent simultaneous IntelliJ and VS Code launches from starting competing
+services. Bot tokens remain in memory; the selection file stores hashed chat
+identities and opaque project IDs. Access rules and admin-only isolation apply to
+the project picker as well as to agent messages.
+
+Backends renew their leases every 15 seconds and reconnect if the relay dies.
+Disconnected projects expire after 75 seconds; the relay exits once all editor
+leases have expired. Closing one project leaves the others connected, including when the IDE
+terminates the entire backend process tree. Changes to
+the Telegram enable switch, token, proxy or ACL in settings restart that project's
+adapter automatically. Projects sharing a token must agree on the Bot API origin
+and effective proxy; inherited proxies are resolved in each editor before registration.
+Use a different token for a simultaneously running standalone `gateway` or `serve`
+process: those surfaces retain their own polling lifecycle.
 
 ## Configuration reference
 

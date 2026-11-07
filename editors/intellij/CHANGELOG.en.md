@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-11-07
 
+**Telegram for IntelliJ and VS Code projects.**
+The plugins share one local relay that communicates with Telegram and receives bot updates. Use `/project` to list available projects and select one with a button; only that project receives subsequent messages. The choice survives restarts, and closing another project leaves the remaining connections running. Telegram settings and access rules apply to each project.
+
 - Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
 - **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
 

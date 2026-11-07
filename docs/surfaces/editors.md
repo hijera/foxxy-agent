@@ -25,6 +25,15 @@ In IntelliJ, **Settings → Tools → FoxxyCode → Stop the process when the Fo
 
 *The process shutdown option is off by default in Settings → Tools → FoxxyCode.*
 
+## Telegram in the bundled plugins
+
+Enable Telegram in FoxxyCode settings and open the project panel. The IntelliJ
+and VS Code backends share one local Telegram relay per OS user. In Telegram,
+send `/project` and tap the project to work on. Only that project receives your
+messages; its conversation is visible in the same IDE panel. Closing another
+project does not interrupt it. See [Telegram from IntelliJ and VS Code](gateway.md#telegram-from-intellij-and-vs-code)
+for selection, access control and relay lifecycle details.
+
 ## ACP
 
 FoxxyCode is an ACP server. `foxxycode acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over its own stdin and stdout, so an editor, a plugin or a script that implements the client side of ACP starts the binary and gets the same agent as the console and the web UI: the same modes and models, the same permission policy, the same skills, and the same session bundles under `$FOXXYCODE_HOME`. Nothing in FoxxyCode is editor-specific - Zed, VS Code and a Python harness connect the same way.

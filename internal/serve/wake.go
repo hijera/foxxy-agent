@@ -63,6 +63,10 @@ func (r *Runtime) attachWaker() {
 	agent.NewBackgroundWaker(r.Log, r.runBackgroundWake).Attach(bgtask.Default())
 }
 
+// AttachBackgroundWaker lets an editor HTTP stack with an existing manager
+// share the same wake and permission surfaces as a serve process.
+func (r *Runtime) AttachBackgroundWaker() { r.attachWaker() }
+
 // runBackgroundWake runs one woken turn where it belongs.
 //
 // The surface that owns the conversation comes first - a chat bound to the

@@ -29,6 +29,10 @@ IDE  ──tool window──▶  JBCefBrowser  ──http──▶  foxxycode ht
 
 ## Install
 
+Telegram is supported through the shared local relay: enable it in FoxxyCode
+settings, open the project panel, then use `/project` in Telegram to choose an
+IntelliJ or VS Code project. See the [relay guide](../../docs/surfaces/gateway.md#telegram-from-intellij-and-vs-code).
+
 The plugin is not on the JetBrains Marketplace. It ships from **its own plugin repository**, which
 is a single URL the IDE polls — so it installs and updates itself like any marketplace plugin.
 

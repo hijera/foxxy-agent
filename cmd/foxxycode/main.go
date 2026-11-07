@@ -85,6 +85,13 @@ func main() {
 	// Before any request: net/http reads the proxy environment once, and on
 	// Windows the system proxy (manual, PAC or WPAD) reaches Go only this way.
 	netx.InstallSystemProxy()
+	if handled, err := runTelegramRelayWorker(); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

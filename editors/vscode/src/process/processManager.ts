@@ -97,7 +97,7 @@ export class ProcessManager {
     log?.(`[foxxycode] launching ${binary} ${args.join(" ")}`);
     const child = spawn(binary, args, {
       cwd: workspaceRoot ?? undefined,
-      env: withProxyEnv(process.env, this.opts.proxyEnv ?? {}),
+      env: { ...withProxyEnv(process.env, this.opts.proxyEnv ?? {}), FOXXYCODE_EDITOR: "vscode" },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
