@@ -2680,3 +2680,227 @@ test("a draft queued while the slash menu is open closes the menu", async () => 
   });
   vi.unstubAllGlobals();
 });
+
+describe("cwd-scoped requests follow the chat workspace", () => {
+  function slashHarness(props: {
+    sessionId?: string;
+    workspacePath?: string;
+  }) {
+    function Harness() {
+      const [value, setValue] = useState("");
+      return (
+        <Composer
+          value={value}
+          isEmpty={false}
+          mode="agent"
+          modes={["agent", "plan"]}
+          onModeChange={() => {}}
+          onChange={setValue}
+          onSend={() => {}}
+          {...props}
+        />
+      );
+    }
+    return Harness;
+  }
+
+  function stubFetch() {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [], has_more: false, page: 1 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const slashCall = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("/foxxycode/slash-commands"),
+    );
+
+  test("a new chat lists the skills of the folder picked before the session exists", async () => {
+    const fetchMock = stubFetch();
+    const Harness = slashHarness({ workspacePath: "/projects/данные" });
+    render(<Harness />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "/rgs", selectionStart: 4, selectionEnd: 4 },
+    });
+    await waitFor(() => expect(slashCall(fetchMock)).toBeTruthy());
+    const [url, init] = slashCall(fetchMock) as [string, RequestInit];
+    expect(new URL(url, "http://x").searchParams.get("cwd")).toBe(
+      "/projects/данные",
+    );
+    expect(new Headers(init?.headers).get("X-FoxxyCode-Session-ID")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  test("a session names its workspace by id, with its folder as the fallback", async () => {
+    const fetchMock = stubFetch();
+    const Harness = slashHarness({
+      sessionId: "sess_1",
+      workspacePath: "/projects/other",
+    });
+    render(<Harness />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "/rgs", selectionStart: 4, selectionEnd: 4 },
+    });
+    await waitFor(() => expect(slashCall(fetchMock)).toBeTruthy());
+    const [url, init] = slashCall(fetchMock) as [string, RequestInit];
+    expect(new URL(url, "http://x").searchParams.get("cwd")).toBe(
+      "/projects/other",
+    );
+    expect(new Headers(init?.headers).get("X-FoxxyCode-Session-ID")).toBe("sess_1");
+    vi.unstubAllGlobals();
+  });
+
+  test("a prefix that matched nothing in one folder is asked again in the next", async () => {
+    const fetchMock = stubFetch();
+    function Harness() {
+      const [value, setValue] = useState("");
+      const [path, setPath] = useState("/projects/other");
+      return (
+        <>
+          <button type="button" onClick={() => setPath("/projects/data")}>
+            pick data
+          </button>
+          <Composer
+            value={value}
+            isEmpty={false}
+            mode="agent"
+            modes={["agent", "plan"]}
+            onModeChange={() => {}}
+            onChange={setValue}
+            onSend={() => {}}
+            workspacePath={path}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const ta = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(ta, {
+      target: { value: "/rgs", selectionStart: 4, selectionEnd: 4 },
+    });
+    const slashCwds = () =>
+      fetchMock.mock.calls
+        .filter((c: unknown[]) => String(c[0]).includes("/foxxycode/slash-commands"))
+        .map((c: unknown[]) =>
+          new URL(String(c[0]), "http://x").searchParams.get("cwd"),
+        );
+    await waitFor(() => expect(slashCwds()).toEqual(["/projects/other"]));
+    fireEvent.click(screen.getByRole("button", { name: "pick data" }));
+    fireEvent.change(ta, {
+      target: { value: "/dat-", selectionStart: 5, selectionEnd: 5 },
+    });
+    await waitFor(() =>
+      expect(slashCwds()).toEqual(["/projects/other", "/projects/data"]),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  test("a slash answer for the folder left behind is not shown", async () => {
+    // The bottom-sheet picker renders under jsdom (no layout for the anchor).
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+      onchange: null,
+    }));
+    let releaseOld: () => void = () => {};
+    const fetchMock = vi.fn((input: string) => {
+      const url = new URL(String(input), "http://x");
+      if (url.pathname !== "/foxxycode/slash-commands") {
+        return Promise.resolve({ ok: true, json: async () => ({ items: [] }) });
+      }
+      const body = {
+        items:
+          url.searchParams.get("cwd") === "/projects/data"
+            ? [{ name: "dat-report", description: "data skill" }]
+            : [],
+        has_more: false,
+        page: 1,
+      };
+      const answer = { ok: true, json: async () => body };
+      // Both answers are held: the one for data is released while the menu
+      // already waits for the folder picked after it.
+      return new Promise((resolve) => {
+        if (url.searchParams.get("cwd") === "/projects/data") {
+          releaseOld = () => resolve(answer);
+        }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    function Harness() {
+      const [value, setValue] = useState("");
+      const [path, setPath] = useState("/projects/data");
+      return (
+        <>
+          <button type="button" onClick={() => setPath("/projects/other")}>
+            pick other
+          </button>
+          <Composer
+            value={value}
+            isEmpty={false}
+            mode="agent"
+            modes={["agent", "plan"]}
+            onModeChange={() => {}}
+            onChange={setValue}
+            onSend={() => {}}
+            workspacePath={path}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "/rgs", selectionStart: 4, selectionEnd: 4 },
+    });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c: unknown[]) =>
+          String(c[0]).includes("cwd=%2Fprojects%2Fdata"),
+        ),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "pick other" }));
+    releaseOld();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "/dat-", selectionStart: 5, selectionEnd: 5 },
+    });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c: unknown[]) =>
+          String(c[0]).includes("cwd=%2Fprojects%2Fother"),
+        ),
+      ).toBe(true),
+    );
+    // The answer for data came after data was left: the menu that opens next,
+    // waiting for the other folder, never lists what data holds.
+    expect(screen.queryByText("/dat-report")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  test("an @ mention of a new chat searches the picked folder", async () => {
+    const fetchMock = stubFetch();
+    const Harness = slashHarness({ workspacePath: "/projects/data" });
+    render(<Harness />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "@READ", selectionStart: 5, selectionEnd: 5 },
+    });
+    const mentionCall = () =>
+      fetchMock.mock.calls.find((c: unknown[]) =>
+        String(c[0]).startsWith("/foxxycode/mentions?"),
+      );
+    await waitFor(() => expect(mentionCall()).toBeTruthy());
+    const [url] = mentionCall() as [string];
+    expect(new URL(url, "http://x").searchParams.get("cwd")).toBe(
+      "/projects/data",
+    );
+    vi.unstubAllGlobals();
+  });
+});

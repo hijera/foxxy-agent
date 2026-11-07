@@ -541,7 +541,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List slash commands (paginated)",
 					"description": "Returns slash command **`name`** and **`description`** rows: settings commands (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/debug`**, **`/permissions`**) first with optional **`hint`**, then deterministic actions (**`/compact`**, **`/export`**, **`/plugin`**), then skill-derived commands. **`/docs`** is the client-side documentation reader. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
+						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the folder in **`cwd`** applies (a new chat's picked folder), else the server default cwd.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -549,6 +549,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Optional session whose cwd scopes skill path expansion.",
 						},
+						listingCWDParam(),
 						map[string]interface{}{
 							"name": "page", "in": "query", "required": true,
 							"schema":      map[string]interface{}{"type": "integer", "minimum": 1},
@@ -966,15 +967,16 @@ func openAPISpec() map[string]interface{} {
 					"description": "What the **`@`** picker offers for **`q`**, the text after **`@`** (a leading **`\"`** opens a quoted path). " +
 						"Without a scheme it ranks the files and folders of the session **cwd** against **`q`** (fuzzy: the file name first, then path segments, then letters in order; inside a git checkout the index follows **`.gitignore`** and keeps dotfiles) and merges in the rules, subagents and plans whose names match. " +
 						"**`q`** starting with **`/`**, **`~`**, **`./`**, **`../`** or a drive letter browses the folder typed so far, filtered by the name after its last separator. " +
-						"**`session:`**, **`rule:`** and **`agent:`** list that kind; **`foxxycode:`** lists the pages of the documentation built into the binary, finds pages by slug or title and sections by their words, and after **`<page>#`** the sections of that page. An empty **`q`** offers the four scheme hints and the top of the workspace. " +
+						"**`session:`**, **`rule:`** and **`agent:`** list that kind; **`foxxycode:`** lists the pages of the documentation built into the binary, finds pages by slug or title and sections by their words, and after **`<page>#`** the sections of that page. An empty **`q`** offers the four scheme hints and the top of the workspace, and a **`q`** that starts a scheme's name puts that scheme's hint first. " +
 						"**`refresh=1`** rebuilds the workspace index even when the last build is fresh (the picker just opened). **`total`** counts every match before the cut to **`limit`**; **`indexing`** says the first index of the workspace is still being built.",
 					"operationId": "searchMentions",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Session the draft belongs to: its **cwd**, rules and plans answer. Without it the server's default cwd is searched.",
+							"description": "Session the draft belongs to: its **cwd**, rules and plans answer. Without it the folder in **`cwd`** is searched, else the server's default cwd.",
 						},
+						listingCWDParam(),
 						map[string]interface{}{
 							"name": "q", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
@@ -1019,6 +1021,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Session the draft would be sent to: its **cwd**, rules, plans and scope answer. Without it the server's default cwd is used, as for a first message.",
 						},
+						listingCWDParam(),
 					},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1062,6 +1065,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Session whose **cwd** is the read root.",
 						},
+						listingCWDParam(),
 						map[string]interface{}{
 							"name": "path_rel", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
@@ -1347,7 +1351,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers, and the **token** of an **`httpserver.remotes`** entry that carries one: the page presents it to that remote). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers, and the **token** of an **`httpserver.remotes`** entry that carries one: the page presents it to that remote). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1363,7 +1367,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys, the existing key order and the spelling of every value the body did not change survive the save (a **`${VAR}`** reference, **`${FOXXYCODE_HOME}`**, **`~`**, quotes, a list written on one line), a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. A value sent back as the client read it keeps what the file says now: what the process runs differently from the file (a command-line flag, the relay address **foxxycode serve** fills in, a pairing token from the environment) is not written into it by an unrelated save, and a value another save changed after the client's **GET** is not put back. \"As the client read it\" is measured against the configuration the body's **`revision`** names, else against the one live when the **PUT** arrives. A list is one value: an edited list is written as sent. **`agent.model`** is optional and stored as sent: calls that need a default model (`foxxycode -p`, `foxxycode acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults and from what the file loads them as: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file, and an entry of a list (a provider, a model, an MCP server) keeps only the fields it named plus the ones the body set. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**; legacy **`enabled`** remains accepted.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys, the existing key order and the spelling of every value the body did not change survive the save (a **`${VAR}`** reference, **`${FOXXYCODE_HOME}`**, **`~`**, quotes, a list written on one line), a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. A value sent back as the client read it keeps what the file says now: what the process runs differently from the file (a command-line flag, the relay address **foxxycode serve** fills in, a pairing token from the environment) is not written into it by an unrelated save, and a value another save changed after the client's **GET** is not put back. \"As the client read it\" is measured against the configuration the body's **`revision`** names, else against the one live when the **PUT** arrives. A list is one value: an edited list is written as sent. **`agent.model`** is optional and stored as sent: calls that need a default model (`foxxycode -p`, `foxxycode acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults and from what the file loads them as: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file, and an entry of a list (a provider, a model) keeps only the fields it named plus the ones the body set. MCP servers are not part of this document (they live in **`<home>/mcp.json`** and the project's **`.foxxycode/mcp.json`**, see `/foxxycode/mcp`); a changed **`mcp.project_trust`** reconnects them in active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path. Every on/off switch is named **`enable`**; legacy **`enabled`** remains accepted.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1741,7 +1745,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/subagents": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
-					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**, and the hidden orchestrator **crossreview**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**, and the hidden orchestrator **crossreview**), user-scope files under **`~/.agents/agents`** and **`${FOXXYCODE_HOME}/agents`**, project-scope files under the workspace's **`.agents/agents`** and **`.foxxycode/agents`**, then the extra directories of **`subagents.dirs`**, later directories overriding earlier ones by name. " +
 						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **spawns**, **role_bytes**; a bound the file does not declare is absent, which means it inherits) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. The role body itself is never served. Errors are **`{\"error\":{\"message\"}}`** JSON. " +
 						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
 					"operationId": "listSubagents",
@@ -1781,7 +1785,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Approve a project subagent definition for a workspace",
 					"description": "Records a receipt in **`<home>/subagents-trust.json`** binding the workspace, the definition name and the digest of its current file content, so **spawn_agent** may run it under **`subagents.project_trust: ask`**. Rewriting the file changes the digest and withdraws the approval. " +
-						"Optional body **`{\"cwd\": ...}`** selects the workspace (default: the server's default cwd). **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+						"Optional body **`{\"cwd\": ..., \"digest\": ...}`** selects the workspace (default: the server's default cwd) and names the content the operator was shown: a file rewritten since is refused with **409**. **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry. Settings -> Subagents approves through this route.",
 					"operationId": "trustSubagent",
 					"parameters":  []interface{}{subagentNameParam()},
 					"requestBody": subagentTrustRequestBody(),
@@ -1789,6 +1793,7 @@ func openAPISpec() map[string]interface{} {
 						"200": subagentEntryResponse("Approval recorded; the entry now reports **trusted**."),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2877,7 +2882,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List skills",
 					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.foxxycode/skills/.disabled`). " +
-						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default cwd applies.",
+						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the folder in **`cwd`** applies, else the server default cwd.",
 					"operationId": "listSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2885,6 +2890,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Optional session whose cwd scopes skill path expansion.",
 						},
+						listingCWDParam(),
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -3127,7 +3133,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List MCP servers",
-					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.foxxycode/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/foxxycode/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`env`/`url`/`fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.",
+					"description": "Returns the merged MCP server list from two files: the global **`<home>/mcp.json`** (scope `global`) and the project-local **`.foxxycode/mcp.json`** (scope `local`); both are Cursor-compatible and the project file overrides a name. config.yaml declares no MCP server: an old **`mcp_servers`** key is moved into `<home>/mcp.json` when the configuration loads. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/foxxycode/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`url`, the names of its `env` and `headers`, its `reads` and the `fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.\n\nNo `env` or `headers` value of either file is ever returned: each one reads `<redacted>`, which **PUT** `/foxxycode/mcp/{name}` takes back as \"keep the stored value\". A probe error shows the URL as written and `<redacted>` for a value the declaration resolves to.",
 					"operationId": "listMCPServers",
 					"parameters": []interface{}{
 						mcpWorkspaceSessionParam(),
@@ -3183,7 +3189,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}/trust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Approve a project MCP server for this workspace",
-					"description": "Records the operator's approval of a project-local (`.foxxycode/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"description": "Records the operator's approval of a project-local (`.foxxycode/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
 					"operationId": "trustMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"requestBody": map[string]interface{}{
@@ -3314,7 +3320,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/mcp/{name}": map[string]interface{}{
 				"put": map[string]interface{}{
 					"summary":     "Create or update an mcp.json MCP server",
-					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.foxxycode/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Live sessions start the server, or start it again from the edited declaration, and keep their other servers running. Config.yaml-defined servers are edited via **PUT** `/foxxycode/config` instead.",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.foxxycode/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. The body replaces the stored entry whole; an `env` or `headers` value of `<redacted>` (the placeholder **GET** `/foxxycode/mcp` shows) keeps the value the target file stores for that name, and is a 400 for a name the file stores no value for. **`?fingerprint=`** names the declaration the client was shown: when the file holds another one by then the answer is 409 and nothing is written or approved; a project entry keeps a stored value only with it (400 otherwise). A project entry written under `mcp.project_trust: ask` is approved as written. Live sessions start the server, or start it again from the edited declaration, and keep their other servers running. config.yaml declares no MCP server.",
 					"operationId": "putMCPServer",
 					"parameters": []interface{}{
 						mcpServerNameParam(),
@@ -3323,6 +3329,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "scope", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
 							"description": "Target file: local (default) = ./.foxxycode/mcp.json, global = <home>/mcp.json.",
+						},
+						map[string]interface{}{
+							"name": "fingerprint", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The `fingerprint` **GET** `/foxxycode/mcp` listed for the entry being edited. The save is refused with 409 when the file holds another declaration by then; required to keep a `<redacted>` value of a project entry.",
 						},
 					},
 					"requestBody": map[string]interface{}{
@@ -3337,12 +3348,13 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Server saved."},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Delete an mcp.json MCP server",
-					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server. Servers defined in config.yaml are refused with 400.",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server.",
 					"operationId": "deleteMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
@@ -3355,13 +3367,13 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/sync": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Sync remote skill sources",
-					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory, then refreshes every marketplace added with `plugin marketplace add` and reinstalls only the plugins installed from it. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"description": "Fetches every source in effect for the session workspace (the server default workspace without **X-FoxxyCode-Session-ID**): the built-in one, the sources of **`<home>/marketplaces.json`** and those of the workspace's **`.foxxycode/marketplaces.json`** the trust gate admits (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**), and materializes their skills into the managed skills directory, then refreshes every marketplace in effect and reinstalls only the plugins installed from it. A project entry the gate holds back (**`skills.project_trust`**) is reported in **`held`** and not fetched. Manual only - never runs automatically. Returns lists of added/updated skill names and per-source failures.",
 					"operationId": "syncSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "source", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Sync only this source; a marketplace added with `plugin marketplace add` refreshes only the plugins installed from it. Omit to sync everything.",
+							"description": "Sync only this source, or refresh only the plugins installed from this marketplace (by name or source). Omit to sync everything in effect. A project entry the trust gate holds back is refused with 400.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -3373,26 +3385,34 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 			},
 			"/foxxycode/skills/sources": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List remote skill sources",
-					"description": "Returns the configured **`skills.sources`** entries (GitHub repos, git URLs, or marketplace.json URLs).",
+					"summary":     "List skill sources and marketplaces",
+					"description": "Lists what is declared for the session workspace (the server default workspace without **X-FoxxyCode-Session-ID**, as the MCP tab does): the built-in source, the entries of **`<home>/marketplaces.json`** and those of the workspace's **`.foxxycode/marketplaces.json`**, each once, with its kind, origin, file and trust state. A project entry takes effect only as **`skills.project_trust`** allows: under `ask` once approved for the workspace (`POST /foxxycode/skills/sources/trust`).",
 					"operationId": "listSkillSources",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Configured sources.",
+							"description": "Declared sources and marketplaces.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object": map[string]string{"type": "string", "example": "foxxycode.skills_sources"},
-											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Every source in effect: the built-in ones first, then what skills.sources names."},
-											"system": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The subset of items FoxxyCode brings itself. They are not in config.yaml, DELETE refuses them, and a client should offer no remove control for them."},
+											"object":        map[string]string{"type": "string", "example": "foxxycode.skills_sources"},
+											"workspace":     map[string]string{"type": "string", "description": "The workspace whose project file was read."},
+											"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "The skills.project_trust in force."},
+											"items":         map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources installed whole that are in effect: the built-in ones first, then the operator's, then the project's the gate admits."},
+											"system":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources FoxxyCode brings itself. They are in no file, always trusted, DELETE refuses them, and a client should offer no remove control for them."},
+											"entries": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/SkillSourceEntry"},
+											},
+											"errors": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "A marketplaces.json that could not be read; it declares nothing until repaired."},
 										},
 									},
 								},
@@ -3401,8 +3421,8 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"post": map[string]interface{}{
-					"summary":     "Add a remote skill source",
-					"description": "Appends a source to **`skills.sources`** in **config.yaml** and reloads config. Set **`sync:true`** to also fetch it immediately. The source is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard **`marketplace.json`**.",
+					"summary":     "Declare a skill source or marketplace",
+					"description": "Declares a source (installed whole: every plugin it publishes, kept in sync) or, with **`kind: marketplace`**, a catalog whose plugins are installed one by one (its **`marketplace.json`** is read for its name). **`scope: global`** (default) writes **`<home>/marketplaces.json`**; **`scope: local`** writes the session workspace's **`.foxxycode/marketplaces.json`** and approves the entry for that workspace, the operator having typed it. Set **`sync:true`** to also fetch a source immediately; with **`kind: marketplace`** it is a 400, because declaring a marketplace installs nothing. config.yaml is not touched.",
 					"operationId": "addSkillSource",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3412,7 +3432,9 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
-										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding (kind source only)."},
+										"scope":  map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "global: <home>/marketplaces.json (default); local: the workspace's .foxxycode/marketplaces.json."},
+										"kind":   map[string]interface{}{"type": "string", "enum": []string{"source", "marketplace"}, "description": "source (default): installed whole; marketplace: a catalog."},
 									},
 									"required": []interface{}{"source"},
 								},
@@ -3420,24 +3442,79 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Source added (with optional sync result)."},
+						"200": map[string]interface{}{"description": "Declared (added:false when it was declared already), with an optional sync result."},
 						"400": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 				"delete": map[string]interface{}{
-					"summary":     "Remove a remote skill source",
-					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400, and so does a source listed under **`system`** by `GET /foxxycode/skills/sources`: those are built into FoxxyCode and are not in the file.",
+					"summary":     "Remove a skill source or marketplace",
+					"description": "Takes every source and marketplace **`source`** names (a marketplace by name, either kind by source in any spelling; a marketplace removed by name takes a source of its address with it) out of **`<home>/marketplaces.json`** and the session workspace's **`.foxxycode/marketplaces.json`** (only out of the one **`origin`** names, when given), with the approvals of the project entries removed. Already-installed skills remain until removed. Missing **`source`** returns 400, and so do an unknown **`origin`** and a source listed under **`system`** by `GET /foxxycode/skills/sources`: those are built into FoxxyCode and are in no file.",
 					"operationId": "removeSkillSource",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "source", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
-							"description": "The exact configured source string to remove.",
+							"description": "A marketplace name, or a source address.",
+						},
+						map[string]interface{}{
+							"name": "origin", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"home", "project"}},
+							"description": "Remove only from this file (the origin of the row a client showed): home is <home>/marketplaces.json, project the workspace's .foxxycode/marketplaces.json. Omitted: both.",
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Source removed (or absent, with removed:false)."},
+						"200": map[string]interface{}{"description": "Removed (or absent, with removed:false)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/sources/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Approve a project skill source",
+					"description": "Records the operator's approval of an entry of the session workspace's **`.foxxycode/marketplaces.json`** for that workspace, so a sync uses it. The optional **`fingerprint`** names the entry the operator was shown (`GET /foxxycode/skills/sources`); when the checkout rewrote it since, the answer is **409** and nothing is recorded. Receipts live in **`<home>/skills-trust.json`**. **400** for an entry no file declares, one of the operator's own or the built-in one (they need no approval), and under **`skills.project_trust: deny`**.",
+					"operationId": "trustSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"key":         map[string]string{"type": "string", "description": "A marketplace name, or a source address."},
+										"fingerprint": map[string]string{"type": "string", "description": "The fingerprint the listing reported for the entry."},
+									},
+									"required": []interface{}{"key"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Approved: {\"ok\": true, \"fingerprint\": \"sha256:...\"}."},
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/sources/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw the approval of a project skill source",
+					"description": "Removes the receipt of the entry **`key`** names for the session workspace. Skills it installed stay until removed.",
+					"operationId": "untrustSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"key": map[string]string{"type": "string", "description": "A marketplace name, or a source address."}},
+									"required":   []interface{}{"key"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "{\"ok\": true, \"removed\": bool}."},
 						"400": errorResponseRef(),
 					},
 				},
@@ -3445,8 +3522,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/available": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List installable marketplace plugins",
-					"description": "Fetches the manifest of every configured source and of every marketplace added with `plugin marketplace add` (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
+					"description": "Fetches the manifest of every source and marketplace in effect for the workspace (network / git) and returns the plugins they advertise, each flagged with `installed`; a project entry the trust gate holds back offers nothing. Backs the browse/filter install control.",
 					"operationId": "listAvailablePlugins",
+					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
 						"500": errorResponseRef(),
@@ -3482,8 +3560,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/updates": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Check installed remote skills for updates",
-					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update.",
+					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update. A source a project of the workspace declares (**X-FoxxyCode-Session-ID**, else the optional **`cwd`** query, else the server default cwd) that the trust gate holds back is not contacted and reports no update.",
 					"operationId": "checkSkillUpdates",
+					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Per-skill update status.",
@@ -3500,7 +3579,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/{name}/update": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Update a skill to its latest version",
-					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace added with `plugin marketplace add` reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source.",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace (a catalog) reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source, and when that source is a project entry of the session workspace the trust gate holds back (approval withdrawn, or `skills.project_trust: deny`). A source no file of the workspace declares any more stays updatable.",
 					"operationId": "updateSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3525,7 +3604,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/{name}": map[string]interface{}{
 				"delete": map[string]interface{}{
 					"summary":     "Remove a remote skill",
-					"description": "Deletes any on-disk skill by name (its directory, and its remote provenance entry when synced). Bundled (read-only) skills cannot be deleted and return 400; so do skills outside the configured skill directories.",
+					"description": "Deletes any on-disk skill by name (its directory, and its remote provenance entry when synced). Bundled (read-only) skills cannot be deleted and return 400; so do skills outside the configured skill directories. The skill is looked up in the workspace of the session in **X-FoxxyCode-Session-ID**, else the folder in **`cwd`**, else the server default cwd, the way the skills list resolves it. A skill linked into a skills directory from elsewhere is removed as the link: what it points at stays on disk.",
 					"operationId": "removeRemoteSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3533,6 +3612,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Canonical skill name (single segment, no slashes).",
 						},
+						listingCWDParam(),
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Remote skill removed."},
@@ -3976,7 +4056,7 @@ func openAPISpec() map[string]interface{} {
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
 						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else `sha256:` and the first 12 hex digits of the archive for a plugin installed from a zip archive, else the SKILL.md frontmatter version. Absent when unknown."},
-						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
+						"source":      map[string]string{"type": "string", "description": "The source the skill was installed from (as a marketplaces.json declares it, or as an install named it); absent for local/bundled skills."},
 						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for bundled skills, which cannot be deleted."},
 					},
 				},
@@ -3996,6 +4076,25 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"held": map[string]interface{}{
+							"type":        "array",
+							"description": "Project entries the workspace trust gate kept out of the sync.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/SkillSourceEntry"},
+						},
+					},
+				},
+				"SkillSourceEntry": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"kind":        map[string]interface{}{"type": "string", "enum": []string{"source", "marketplace"}, "description": "source: installed whole; marketplace: a catalog whose plugins are installed one by one."},
+						"name":        map[string]string{"type": "string", "description": "A marketplace's name, what <plugin>@<name> uses."},
+						"source":      map[string]string{"type": "string", "description": "owner/repo, a git URL or a marketplace.json URL."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"system", "home", "project"}, "description": "Built into FoxxyCode, <home>/marketplaces.json, or the workspace's .foxxycode/marketplaces.json."},
+						"source_path": map[string]string{"type": "string", "description": "The file it is declared in; absent for the built-in source."},
+						"gated":       map[string]interface{}{"type": "boolean", "description": "True for a project entry, the kind the trust gate decides on."},
+						"trusted":     map[string]interface{}{"type": "boolean"},
+						"status":      map[string]interface{}{"type": "string", "enum": []string{"ready", "needs_approval", "denied"}},
+						"fingerprint": map[string]string{"type": "string", "description": "The digest an approval of a project entry binds to."},
 					},
 				},
 				"SkillUpdateList": map[string]interface{}{
@@ -4097,24 +4196,23 @@ func openAPISpec() map[string]interface{} {
 				"MCPServerRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"name":                 map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
-						"source":               map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
-						"origin":               map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
-						"readonly":             map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
-						"transport":            map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
-						"command":              map[string]string{"type": "string"},
-						"args":                 map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"url":                  map[string]string{"type": "string"},
-						"env":                  map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"headers":              map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
-						"insecure_skip_verify": map[string]interface{}{"type": "boolean", "description": "True when this http/sse server is contacted without verifying its TLS certificate."},
-						"enabled":              map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
-						"status":               map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
-						"error":                map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
-						"source_path":          map[string]string{"type": "string", "description": "File the declaration was read from."},
-						"trusted":              map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
-						"gated":                map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
-						"fingerprint":          map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
+						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (<home>/mcp.json) or local (./.foxxycode/mcp.json)."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"home", "project"}, "description": "File that owns the definition: <home>/mcp.json or ./.foxxycode/mcp.json."},
+						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":     map[string]string{"type": "string"},
+						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":         map[string]string{"type": "string"},
+						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "Names of the environment variables the declaration sets; every value is `<redacted>`."},
+						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "Names of the HTTP headers sent to http/sse servers; every value is `<redacted>`."},
+						"reads":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Names of the environment variables of the FoxxyCode process the declaration's values read (${NAME}), shown by an approval since header values are not."},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
+						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported (the URL as written, `<redacted>` for a value the declaration resolves to), or why the trust gate refused the entry."},
+						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
+						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
+						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
+						"fingerprint": map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
 						"tools": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
@@ -4141,9 +4239,9 @@ func openAPISpec() map[string]interface{} {
 						"type":               map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
 						"command":            map[string]string{"type": "string", "description": "Executable for stdio transport."},
 						"args":               map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"env":                map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"env":                map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "Environment of a stdio server; on PUT a value of `<redacted>` keeps the stored one."},
 						"url":                map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
-						"headers":            map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":            map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers of an http/sse server; on PUT a value of `<redacted>` keeps the stored one."},
 						"insecureSkipVerify": map[string]interface{}{"type": "boolean", "description": "Contact this http/sse server without verifying its TLS certificate (self-signed or expired certificates). Removes the protection against a man in the middle; setting it changes the declaration digest, so a project entry needs approving again."},
 						"disabled":           map[string]interface{}{"type": "boolean"},
 						"disabledTools":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
@@ -5085,7 +5183,8 @@ func subagentTrustRequestBody() map[string]interface{} {
 				"schema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**."},
+						"cwd":    map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**."},
+						"digest": map[string]string{"type": "string", "description": "trust only: the digest the catalog reported for the definition the operator was shown; a file rewritten since is refused with **409** and nothing is recorded."},
 					},
 				},
 			},
@@ -5147,5 +5246,18 @@ func subagentEntryResponse(description string) map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+// listingCWDParam is the cwd query of the read-only listings the composer asks
+// for while the user types: the folder a new chat picked before its session
+// exists (resolveListingCWD).
+func listingCWDParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "cwd", "in": "query", "required": false,
+		"schema": map[string]string{"type": "string"},
+		"description": "Absolute path of an existing folder that names the workspace when no session is behind the request " +
+			"(X-FoxxyCode-Session-ID absent, or naming a session the server does not have yet): the folder a new chat picked before its first message. " +
+			"Ignored next to a session the server has. 400 for a relative path or a missing folder.",
 	}
 }

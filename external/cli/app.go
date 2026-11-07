@@ -15,6 +15,8 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 )
@@ -476,22 +478,47 @@ func (a *App) refreshFooterModel() {
 }
 
 func (a *App) populateHeader() {
-	var contextFiles []string
-	contextFiles = append(contextFiles, a.config().Instructions.Files...)
 	var skillNames []string
 	rulesCount := 0
-	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+	cfg := a.config()
+	cwd := cfg.Paths.CWD
+	st := a.mgr.SessionByID(a.sessionID)
+	if st != nil {
+		cwd = st.GetCWD()
+	}
+	// The documents the session's prompt carries: the AGENTS.md and DESIGN.md
+	// of the agent home and of the workspace, then the files instructions.files
+	// adds, each once (rules.LoadStanding).
+	var contextFiles []string
+	standing := rules.LoadStanding(cfg.Paths.Home, cwd, session.ResolveInstructionFiles(cfg.Instructions.Files, cwd, cfg.Paths.Home))
+	for _, doc := range append(standing.Docs, standing.User...) {
+		contextFiles = append(contextFiles, doc.Label)
+	}
+	if st != nil {
 		for _, sk := range st.GetSkills() {
 			skillNames = append(skillNames, sk.Name)
 		}
 		rulesCount = len(st.GetRulesCatalog())
 	}
-	var mcpNames []string
-	for _, srv := range a.config().MCPServers {
-		mcpNames = append(mcpNames, srv.Name)
-	}
-	a.header.SetSections(contextFiles, skillNames, rulesCount, mcpNames)
+	a.header.SetSections(contextFiles, skillNames, rulesCount, a.headerMCPNames())
 	a.seedMCPStatus()
+}
+
+// headerMCPNames lists the MCP servers a session in the console's workspace
+// starts: the enabled servers of <home>/mcp.json and the project's
+// .foxxycode/mcp.json that the workspace trust gate lets run.
+func (a *App) headerMCPNames() []string {
+	cfg := a.config()
+	cwd := cfg.Paths.CWD
+	gate := mcp.NewTrustGate(cfg)
+	var names []string
+	for _, srv := range mcp.ListManagedServersTolerant(cfg, cwd, nil) {
+		if srv.Config.Disabled || gate.Evaluate(cwd, srv) != mcp.TrustStateAllowed {
+			continue
+		}
+		names = append(names, srv.Config.Name)
+	}
+	return names
 }
 
 // initialTurnStatus is the first step of a turn: waiting for the model, or,

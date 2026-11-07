@@ -19,7 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/webauth"
 )
 
-const modeline = "# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json\n"
+const modeline = "# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json\n"
 
 // prepare writes body as <home>/config.yaml and runs the static stage.
 func prepare(t *testing.T, body string) (*Prepared, string) {
@@ -214,6 +214,17 @@ func TestTelegramTokenProbe(t *testing.T) {
 	}
 }
 
+// runWithMCP prepares body, writes mcpJSON as <home>/mcp.json - where the MCP
+// servers are declared - and runs the probes.
+func runWithMCP(t *testing.T, body, mcpJSON string) *Report {
+	t.Helper()
+	prep, home := prepare(t, body)
+	if err := os.WriteFile(config.GlobalMCPJSONPath(home), []byte(mcpJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+}
+
 func TestMCPCommandLookup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PATH lookup of a shell script is a POSIX fixture")
@@ -223,16 +234,25 @@ func TestMCPCommandLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	rep := run(t, "mcp_servers:\n  - name: found\n    command: foxxycode-dry-run-tool\n  - name: missing\n    command: definitely-not-installed-foxxycode-mcp\n  - name: off\n    command: definitely-not-installed-foxxycode-mcp\n    disabled: true\n", nil)
-	if c := find(t, rep, "mcp_servers[found]"); c.Status != StatusOK || !strings.Contains(c.Message, "resolves to") {
+	rep := runWithMCP(t, "agent:\n  max_turns: 5\n", `{"mcpServers": {
+  "found": {"command": "foxxycode-dry-run-tool"},
+  "missing": {"command": "definitely-not-installed-foxxycode-mcp"},
+  "off": {"command": "definitely-not-installed-foxxycode-mcp", "disabled": true}
+}}`)
+	if c := find(t, rep, "mcp.json[found]"); c.Status != StatusOK || !strings.Contains(c.Message, "resolves to") {
 		t.Errorf("found %+v", c)
 	}
-	m := find(t, rep, "mcp_servers[missing]")
-	if m.Status != StatusError || !strings.Contains(m.Message, "not found") || m.Line != 6 {
+	m := find(t, rep, "mcp.json[missing]")
+	if m.Status != StatusError || !strings.Contains(m.Message, "not found") || !strings.Contains(m.Fix, "mcp.json") {
 		t.Errorf("missing %+v", m)
 	}
-	if c := find(t, rep, "mcp_servers[off]"); c.Status != StatusSkipped {
+	if c := find(t, rep, "mcp.json[off]"); c.Status != StatusSkipped {
 		t.Errorf("disabled %+v", c)
+	}
+
+	broken := runWithMCP(t, "agent:\n  max_turns: 5\n", `{"mcpServers": [`)
+	if c := find(t, broken, "mcp.json"); c.Status != StatusError || !strings.Contains(c.Fix, "mcpServers") {
+		t.Errorf("an mcp.json that does not read %+v", c)
 	}
 }
 
@@ -248,11 +268,17 @@ func TestMCPRemoteReachability(t *testing.T) {
 	down := httptest.NewServer(http.NotFoundHandler())
 	downURL := down.URL
 	down.Close()
-	rep := run(t, fmt.Sprintf("mcp_servers:\n  - name: up\n    url: %s/mcp\n    headers:\n      - name: X-Token\n        value: secret\n  - name: down\n    url: %s/mcp\n", srv.URL, downURL), nil)
-	if c := find(t, rep, "mcp_servers[up]"); c.Status != StatusOK || !strings.Contains(c.Message, "HTTP 405") {
+	// A header that names an environment variable is sent with its value, as
+	// the server would be started.
+	t.Setenv("FOXXYCODE_DRY_RUN_MCP_TOKEN", "secret")
+	rep := runWithMCP(t, "agent:\n  max_turns: 5\n", fmt.Sprintf(`{"mcpServers": {
+  "up": {"url": %q, "headers": {"X-Token": "${FOXXYCODE_DRY_RUN_MCP_TOKEN}"}},
+  "down": {"url": %q}
+}}`, srv.URL+"/mcp", downURL+"/mcp"))
+	if c := find(t, rep, "mcp.json[up]"); c.Status != StatusOK || !strings.Contains(c.Message, "HTTP 405") {
 		t.Errorf("up %+v", c)
 	}
-	if c := find(t, rep, "mcp_servers[down]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
+	if c := find(t, rep, "mcp.json[down]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
 		t.Errorf("down %+v", c)
 	}
 }
@@ -418,6 +444,26 @@ func TestExplicitSkillsDirMissingIsAWarningDefaultsAreSilent(t *testing.T) {
 	for _, c := range rep.Checks {
 		if strings.HasPrefix(c.Path, "skills.dirs") && c.Status != StatusOK {
 			t.Errorf("a default dir that is absent must stay quiet: %+v", c)
+		}
+	}
+}
+
+// A relative skills.dirs or subagents.dirs entry names a folder of the
+// workspace, as the loaders read it, not of the directory the check runs in.
+func TestRelativeDirsAreProbedInTheWorkspace(t *testing.T) {
+	prep, home := prepare(t, "skills:\n  dirs: [\"team-skills\"]\nsubagents:\n  dirs: [\"team-agents\"]\n")
+	for _, d := range []string{"team-agents", "team-skills"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if wd, _ := os.Getwd(); wd == prep.Paths.CWD {
+		t.Fatalf("the workspace must differ from the process cwd for this test (%s)", wd)
+	}
+	rep := Run(t.Context(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+	for _, path := range []string{"skills.dirs[0]", "subagents.dirs[0]"} {
+		if c := find(t, rep, path); c.Status != StatusOK {
+			t.Errorf("%s = %+v, want the workspace folder found", path, c)
 		}
 	}
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
-import { IconCheck, IconSync } from "./icons";
+import { MarketplacesEditor } from "./MarketplacesEditor";
+import { sessionHeaders } from "./marketplaces";
 import { SwitchField } from "./SwitchField";
-import { t } from "../i18n/i18n";
+import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
 import { filterInstallableMatches } from "./installableMatches";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -30,15 +31,28 @@ type SkillUpdate = {
   update_available: boolean;
 };
 
-async function fetchInstalled(): Promise<InstalledSkill[]> {
-  const res = await fetch("/foxxycode/skills");
+// workspacePath names the folder ${CWD} in skills.dirs resolves against, so the
+// project skills listed are those of the chat's workspace, like Subagents.
+async function fetchInstalled(
+  workspacePath: string | undefined,
+): Promise<InstalledSkill[]> {
+  const path = (workspacePath || "").trim();
+  const res = await fetch(
+    path ? `/foxxycode/skills?cwd=${encodeURIComponent(path)}` : "/foxxycode/skills",
+  );
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: InstalledSkill[] };
   return data.items ?? [];
 }
 
-async function fetchUpdates(): Promise<SkillUpdate[]> {
-  const res = await fetch("/foxxycode/skills/updates");
+// The update check, the install search, an update and an install go to the
+// viewed session's workspace, like the marketplaces list they follow: a
+// project marketplace approved there is offered, and one held there is
+// neither checked nor updated from.
+async function fetchUpdates(sessionId: string | undefined): Promise<SkillUpdate[]> {
+  const res = await fetch("/foxxycode/skills/updates", {
+    headers: sessionHeaders(sessionId),
+  });
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: SkillUpdate[] };
   return data.items ?? [];
@@ -52,14 +66,12 @@ type AvailablePlugin = {
   installed: boolean;
 };
 
-async function fetchSystemSources(): Promise<string[]> {
-  const res = await fetch("/foxxycode/skills/sources");
-  const data = (await res.json()) as { system?: string[] };
-  return data.system ?? [];
-}
-
-async function fetchAvailable(): Promise<AvailablePlugin[]> {
-  const res = await fetch("/foxxycode/skills/available");
+async function fetchAvailable(
+  sessionId: string | undefined,
+): Promise<AvailablePlugin[]> {
+  const res = await fetch("/foxxycode/skills/available", {
+    headers: sessionHeaders(sessionId),
+  });
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: AvailablePlugin[] };
   return data.items ?? [];
@@ -69,12 +81,13 @@ async function apiSend(
   path: string,
   method: "POST" | "DELETE",
   body?: unknown,
+  sessionId?: string | undefined,
 ): Promise<{ ok: boolean; error?: string }> {
-  const init: RequestInit = { method };
-  if (body !== undefined) {
-    init.headers = { "Content-Type": "application/json" };
-    init.body = JSON.stringify(body);
-  }
+  const init: RequestInit = {
+    method,
+    headers: sessionHeaders(sessionId, body !== undefined),
+  };
+  if (body !== undefined) init.body = JSON.stringify(body);
   const res = await fetch(path, init);
   if (!res.ok) {
     try {
@@ -99,185 +112,32 @@ function IconDownload() {
   );
 }
 
-// Flash key for the "Sync all" action (NUL-prefixed so it never collides with a real source string).
-const SYNC_ALL_KEY = "\0all";
-
 /**
- * SourcesEditor renders the `skills.sources` array (config-backed via onChange)
- * with a per-marketplace Sync button and, in the footer, Add (left) plus
- * Sync all (right). It replaces the generic array control via SchemaForm's
- * fieldOverride hook.
- */
-function SourcesEditor(props: {
-  value: string[];
-  /** Sources built into FoxxyCode: shown, syncable, and not editable away. */
-  system: string[];
-  onChange: (next: string[]) => void;
-  onSyncOne: (source: string) => void;
-  onSyncAll: () => void;
-  syncing: boolean;
-  flash: string | null;
-}) {
-  const { value, system, onChange, onSyncOne, onSyncAll, syncing, flash } =
-    props;
-  const sources = Array.isArray(value) ? value : [];
-  // A config that repeats a built-in marketplace must not show it twice: the
-  // server lists it once, and so does this. Rows are skipped where they are,
-  // never compacted into a new array - two rows can hold the same text (click
-  // Add twice) and an index recovered by value would then edit the wrong one.
-  const lowerSystem = new Set(system.map((one) => one.trim().toLowerCase()));
-  return (
-    <fieldset className="settings-fieldset">
-      <LegendWithHint label={t("settings.skills.sourcesLegend")} description={<>
-
-        {t("settings.skills.sourcesDescBefore")}{" "}
-        <a href="https://agents.md" target="_blank" rel="noreferrer">
-          {t("settings.skills.sourcesDescStandard")}
-        </a>{" "}
-        {t("settings.skills.sourcesDescAfter")}
-      </>} />
-      <ul className="settings-array">
-        {system.map((src) => (
-          <li key={`system-${src}`} className="settings-array-row">
-            <div className="settings-array-row-field">
-              <input
-                className="settings-input"
-                type="text"
-                value={src}
-                readOnly
-                disabled
-                title={t("settings.skills.systemSource")}
-              />
-            </div>
-            <button
-              type="button"
-              className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
-              disabled={syncing}
-              onClick={() => onSyncOne(src)}
-              title={
-                flash === src
-                  ? t("settings.skills.synced")
-                  : t("settings.skills.syncSource", { source: src })
-              }
-              aria-label={t("settings.skills.syncThisMarketplace")}
-              data-testid={`skills-sync-system-${src}`}
-            >
-              {flash === src ? <IconCheck /> : <IconSync />}
-            </button>
-            <button
-              type="button"
-              className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-              disabled
-              title={t("settings.skills.systemSource")}
-              aria-label={t("settings.skills.removeMarketplace")}
-              data-testid={`skills-remove-system-${src}`}
-            >
-              <IconTrash />
-            </button>
-          </li>
-        ))}
-        {sources.map((src, i) =>
-          lowerSystem.has(src.trim().toLowerCase()) ? null : (
-            <li key={i} className="settings-array-row">
-              <div className="settings-array-row-field">
-                <input
-                  className="settings-input"
-                  type="text"
-                  value={src}
-                  placeholder={t("settings.skills.sourcePlaceholder")}
-                  onChange={(e) => {
-                    const next = [...sources];
-                    next[i] = e.target.value;
-                    onChange(next);
-                  }}
-                />
-              </div>
-              <button
-                type="button"
-                className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
-                disabled={syncing || !src.trim()}
-                onClick={() => onSyncOne(src)}
-                title={
-                  flash === src
-                    ? t("settings.skills.synced")
-                    : t("settings.skills.syncSource", {
-                        source: src.trim() || t("settings.skills.thisMarketplace"),
-                      })
-                }
-                aria-label={t("settings.skills.syncThisMarketplace")}
-                data-testid={`skills-sync-source-${i}`}
-              >
-                {flash === src ? <IconCheck /> : <IconSync />}
-              </button>
-              <button
-                type="button"
-                className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-                onClick={() => onChange(sources.filter((_, j) => j !== i))}
-                title={t("settings.skills.remove")}
-                aria-label={t("settings.skills.removeMarketplace")}
-              >
-                <IconTrash />
-              </button>
-            </li>
-          ),
-        )}
-      </ul>
-      <div className="skills-sources-footer">
-        <button
-          type="button"
-          className="settings-btn"
-          onClick={() => onChange([...sources, ""])}
-        >
-          {t("settings.skills.add")}
-        </button>
-        <button
-          type="button"
-          className={`settings-btn skills-sync-all-btn${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
-          disabled={syncing || sources.length + system.length === 0}
-          onClick={onSyncAll}
-          title={t("settings.skills.syncAllTitle")}
-          data-testid="skills-sync-all"
-        >
-          {flash === SYNC_ALL_KEY ? (
-            <>
-              <IconCheck />
-              <span>{t("settings.skills.completed")}</span>
-            </>
-          ) : (
-            <>
-              <IconSync />
-              <span>{t("settings.skills.syncAll")}</span>
-            </>
-          )}
-        </button>
-      </div>
-    </fieldset>
-  );
-}
-
-/**
- * SkillsSection is the combined Skills tab: the schema-driven `skills.dirs`
- * editor, a config-backed remote-sources editor (add/list/remove with a
- * per-source and a Sync-all button), and the installed-skills list with
- * versions, an iOS-style enable switch, a Download-update action when a newer
- * version exists, and a Delete action (disabled for bundled read-only skills).
+ * SkillsSection is the combined Skills tab: the schema-driven `skills` editor
+ * (extra directories, the project marketplace trust policy), the marketplaces
+ * list (MarketplacesEditor, API-driven: ~/.foxxycode/marketplaces.json and the
+ * workspace's .foxxycode/marketplaces.json, with a per-entry and a Sync-all
+ * button and the trust shield), and the installed-skills list with versions,
+ * an iOS-style enable switch, a Download-update action when a newer version
+ * exists, and a Delete action (disabled for bundled read-only skills).
  */
 export function SkillsSection(props: {
   schema: JsonSchema;
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
+  workspacePath?: string | undefined;
+  /** The viewed session, whose workspace's marketplaces are listed. */
+  activeSessionId?: string | undefined;
 }) {
   const { schema, value, onChange } = props;
-  const [systemSources, setSystemSources] = useState<string[]>([]);
+  const workspacePath = props.workspacePath;
+  const { t } = useT();
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
   const [updates, setUpdates] = useState<Record<string, SkillUpdate>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  // Transient "synced" flash on a Sync button (SYNC_ALL_KEY or a source string).
-  const [flash, setFlash] = useState<string | null>(null);
   // Marketplace browse/install control.
   const [available, setAvailable] = useState<AvailablePlugin[] | null>(null);
   const [availableLoading, setAvailableLoading] = useState(false);
@@ -292,17 +152,6 @@ export function SkillsSection(props: {
   // the install without a jarring jump.
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
 
-  const flashDone = useCallback((key: string) => {
-    setFlash(key);
-    window.setTimeout(() => setFlash((f) => (f === key ? null : f)), 1600);
-  }, []);
-
-  // The search covers what the configured sources publish; with none there is
-  // nothing to ask the server for, and the tab says where sources are added.
-  const hasSources =
-    Array.isArray(value.sources) &&
-    value.sources.some((s) => typeof s === "string" && s.trim() !== "");
-
   const invalidateAvailable = useCallback(() => {
     availableRequest.current += 1;
     setAvailable(null);
@@ -316,33 +165,35 @@ export function SkillsSection(props: {
   // again. Nothing is fetched here - a git source is cloned for every request.
   useEffect(() => {
     invalidateAvailable();
-  }, [value.sources, invalidateAvailable]);
+  }, [value, workspacePath, props.activeSessionId, invalidateAvailable]);
 
   // firstLoad guards the "Loading…" placeholder so a refresh never unmounts the
   // list (which would collapse height and jump the scroll to the top).
+  // A list asked for a workspace left since (Settings open while another
+  // folder is picked) must not paint over the list of the current one.
+  const installedGenRef = useRef(0);
   const loadInstalled = useCallback(async (firstLoad = false) => {
+    const gen = ++installedGenRef.current;
     if (firstLoad) setLoading(true);
-    setInstalled(await fetchInstalled());
-    if (firstLoad) setLoading(false);
-  }, []);
+    const rows = await fetchInstalled(workspacePath);
+    if (gen !== installedGenRef.current) return;
+    setInstalled(rows);
+    // The latest load ends the placeholder, whichever call started it.
+    setLoading(false);
+  }, [workspacePath]);
 
+  const sessionId = props.activeSessionId;
   const refreshUpdates = useCallback(async () => {
-    const ups = await fetchUpdates();
+    const ups = await fetchUpdates(sessionId);
     const map: Record<string, SkillUpdate> = {};
     for (const u of ups) map[u.name] = u;
     setUpdates(map);
     return map;
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     void loadInstalled(true);
   }, [loadInstalled]);
-
-  // The sources FoxxyCode carries itself. They are not in config.yaml, so the
-  // editor cannot derive them from the value it edits.
-  useEffect(() => {
-    void (async () => setSystemSources(await fetchSystemSources()))();
-  }, []);
 
   // After an install, briefly flash the new row so it is easy to spot, then
   // clear the flag. No scroll — the list position is left untouched.
@@ -374,7 +225,11 @@ export function SkillsSection(props: {
     setBusy((p) => ({ ...p, [skill.name]: true }));
     setError(null);
     void (async () => {
-      const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}`, "DELETE");
+      // The same workspace the list was read for: a project skill of the
+      // chat's folder is found there, not in the server's default cwd.
+      const path = (workspacePath || "").trim();
+      const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}` +
+          (path ? `?cwd=${encodeURIComponent(path)}` : ""), "DELETE");
       if (!res.ok) {
         setError(res.error || t("settings.skills.deleteFailed"));
       } else {
@@ -389,7 +244,12 @@ export function SkillsSection(props: {
     setError(null);
     setStatus(null);
     void (async () => {
-      const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}/update`, "POST");
+      const res = await apiSend(
+        `/foxxycode/skills/${encodeURIComponent(skill.name)}/update`,
+        "POST",
+        undefined,
+        sessionId,
+      );
       if (!res.ok) {
         setError(res.error || t("settings.skills.updateFailed"));
       } else {
@@ -401,44 +261,12 @@ export function SkillsSection(props: {
     })();
   };
 
-  // Sync all configured sources, then refresh the list and re-check versions.
-  // Success is shown on the button itself (checkmark), not as a status line.
-  const onSync = () => {
-    setSyncing(true);
-    setError(null);
-    void (async () => {
-      const res = await apiSend("/foxxycode/skills/sync", "POST");
-      if (!res.ok) setError(res.error || t("settings.skills.syncFailed"));
-      else {
-        // What is installed changed, so the installable list is stale too.
-        invalidateAvailable();
-        await loadInstalled();
-        await refreshUpdates();
-        flashDone(SYNC_ALL_KEY);
-      }
-      setSyncing(false);
-    })();
-  };
-
-  // Sync a single marketplace by its source string (works on the current row
-  // value even before the settings are saved).
-  const onSyncOne = (source: string) => {
-    const src = source.trim();
-    if (!src) return;
-    setSyncing(true);
-    setError(null);
-    void (async () => {
-      const res = await apiSend(`/foxxycode/skills/sync?source=${encodeURIComponent(src)}`, "POST");
-      if (!res.ok) setError(res.error || t("settings.skills.syncFailed"));
-      else {
-        invalidateAvailable();
-        await loadInstalled();
-        await refreshUpdates();
-        flashDone(src);
-      }
-      setSyncing(false);
-    })();
-  };
+  // After a sync of the marketplaces: refresh the list and re-check versions.
+  const onSynced = useCallback(async () => {
+    invalidateAvailable();
+    await loadInstalled();
+    await refreshUpdates();
+  }, [invalidateAvailable, loadInstalled, refreshUpdates]);
 
   // Lazily fetch the plugins advertised by configured marketplaces (network /
   // git) when the install control is used and no list is cached; force to
@@ -446,11 +274,10 @@ export function SkillsSection(props: {
   // loaded" guard sees the current value. A request that invalidateAvailable
   // overtook is dropped on arrival.
   const loadAvailable = async (force = false) => {
-    if (!hasSources) return;
     if (!force && (available !== null || availableLoading)) return;
     const request = ++availableRequest.current;
     setAvailableLoading(true);
-    const items = await fetchAvailable();
+    const items = await fetchAvailable(sessionId);
     if (request !== availableRequest.current) return;
     setAvailable(items);
     setAvailableLoading(false);
@@ -461,8 +288,16 @@ export function SkillsSection(props: {
     setError(null);
     setStatus(null);
     void (async () => {
-      const res = await apiSend("/foxxycode/skills/install", "POST", { source: p.source, plugin: p.name });
-      if (!res.ok) setError(res.error || t("settings.skills.installFailed", { name: p.name }));
+      const res = await apiSend(
+        "/foxxycode/skills/install",
+        "POST",
+        { source: p.source, plugin: p.name },
+        sessionId,
+      );
+      if (!res.ok)
+        setError(
+          res.error || t("skills.error.install", { name: p.name }),
+        );
       else {
         setStatus(t("settings.skills.installedStatus", { name: p.name }));
         // Optimistically drop it from the dropdown right away, then refresh.
@@ -486,20 +321,7 @@ export function SkillsSection(props: {
   // away, clearing the search, before the drawer hears the key.
   useEscapeCloses(installQ !== "", () => setInstallQuery(""));
 
-  const fieldOverride: FieldOverride = ({ path, value: fv, onChange: fc }) => {
-    if (path === "sources") {
-      return (
-        <SourcesEditor
-          system={systemSources}
-          value={(fv as string[]) ?? []}
-          onChange={(next) => fc(next)}
-          onSyncOne={onSyncOne}
-          onSyncAll={onSync}
-          syncing={syncing}
-          flash={flash}
-        />
-      );
-    }
+  const fieldOverride: FieldOverride = ({ path }) => {
     // Auto-discovery is rendered as its own fieldset at the top of the section
     // (see below); suppress the default inline boolean here.
     if (path === "auto_discovery") {
@@ -535,7 +357,31 @@ export function SkillsSection(props: {
         />
       </fieldset>
 
-      <SchemaForm schema={schema} value={value} onChange={onChange} fieldOverride={fieldOverride} />
+      {/*
+        The policy for the project's marketplaces.json stands in a fieldset of
+        its own above the list it governs, the way MCP discovery does in the
+        MCP tab; unlike that one it is part of the settings document.
+      */}
+      <SchemaForm
+        schema={schema}
+        value={value}
+        onChange={onChange}
+        fieldOverride={fieldOverride}
+        groups={[
+          {
+            id: "skills-marketplace-trust",
+            legend: t("skills.trust.legend"),
+            description: t("skills.trust.description"),
+            paths: ["project_trust"],
+          },
+        ]}
+      />
+
+      <MarketplacesEditor
+        activeSessionId={props.activeSessionId}
+        onSynced={onSynced}
+        onChanged={invalidateAvailable}
+      />
 
       <fieldset
         className="settings-fieldset skills-installed-box"
@@ -548,11 +394,6 @@ export function SkillsSection(props: {
           description={t("skills.install.cliHint")}
         />
 
-        {!hasSources ? (
-          <p className="settings-muted" data-testid="skills-install-no-sources">
-            {t("settings.skills.noSourcesHint")}
-          </p>
-        ) : null}
         <div className="skills-install">
           <input
             className="settings-input skills-install-input"
@@ -570,13 +411,9 @@ export function SkillsSection(props: {
           />
           {/* A dropped list hides the menu until the search is used again,
               rather than showing "no matches" for a list nobody fetched. */}
-          {installQ && (!hasSources || availableLoading || available !== null) ? (
+          {installQ && (availableLoading || available !== null) ? (
             <ul className="skills-install-results" data-testid="skills-install-results">
-              {!hasSources ? (
-                <li className="skills-install-empty settings-muted">
-                  {t("settings.skills.noSourcesHint")}
-                </li>
-              ) : available === null ? (
+              {available === null ? (
                 <li className="skills-install-empty settings-muted">
                   {t("settings.skills.loadingMarketplaces")}
                 </li>

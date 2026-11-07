@@ -5,6 +5,7 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -25,6 +26,8 @@ func (s *Server) registerSkillsManagementRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/skills/sync", s.foxxycodeSkillsSyncPost)
 	s.mux.HandleFunc("POST /foxxycode/skills/sources", s.foxxycodeSkillsSourcesPost)
 	s.mux.HandleFunc("DELETE /foxxycode/skills/sources", s.foxxycodeSkillsSourcesDelete)
+	s.mux.HandleFunc("POST /foxxycode/skills/sources/trust", s.foxxycodeSkillsSourceTrust)
+	s.mux.HandleFunc("POST /foxxycode/skills/sources/untrust", s.foxxycodeSkillsSourceUntrust)
 	s.mux.HandleFunc("DELETE /foxxycode/skills/{name}", s.foxxycodeSkillsDelete)
 }
 
@@ -40,8 +43,9 @@ type skillRowResponse struct {
 
 // foxxycodeSkillsGet lists all skills with their enabled/disabled state. ${CWD} in
 // skills.dirs resolves against the session named by the optional
-// X-FoxxyCode-Session-ID header, or the server default workspace without it, the
-// same way /foxxycode/slash-commands does.
+// X-FoxxyCode-Session-ID header, else the folder in the cwd query (Settings → Skills
+// of a new chat), else the server default workspace, the same way
+// /foxxycode/slash-commands does.
 func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -49,9 +53,9 @@ func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := s.activeCfg()
 	installDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
-	loader := skills.NewLoader(cfg.Skills.Dirs)
+	loader := skills.NewLoader(cfg.Skills.SearchDirs())
 
-	cwd, ok := s.resolveSessionCWD(w, r)
+	cwd, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}
@@ -138,47 +142,76 @@ func (s *Server) foxxycodeSkillsDisablePost(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
-// foxxycodeSkillsSyncPost fetches all configured skill sources and materializes them.
+// foxxycodeSkillsSyncPost fetches the skill sources in effect for the session
+// workspace (the server default workspace without a session) and
+// materializes them; a project entry the trust gate holds back is reported in
+// held, not fetched.
 func (s *Server) foxxycodeSkillsSyncPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
 	// Optional ?source=<src>: only that source, or only what is installed from
-	// it when it is a marketplace added with `plugin marketplace add`;
-	// otherwise sync all.
+	// it when it is a marketplace; otherwise sync all.
 	var res *skills.SyncResult
 	var err error
 	if src := strings.TrimSpace(r.URL.Query().Get("source")); src != "" {
-		res, _, err = skills.UpdateSource(r.Context(), s.activeCfg(), src)
+		res, _, err = skills.UpdateSource(r.Context(), s.activeCfg(), cwd, src)
 	} else {
-		res, err = skills.Sync(r.Context(), s.activeCfg())
+		res, err = skills.Sync(r.Context(), s.activeCfg(), cwd)
 	}
 	if err != nil {
+		// An entry the trust gate holds back is the caller's to approve, not
+		// a failure of the server.
+		status := http.StatusInternalServerError
+		if errors.Is(err, skills.ErrHeld) {
+			status = http.StatusBadRequest
+		}
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
-		http.Error(w, string(body), http.StatusInternalServerError)
+		http.Error(w, string(body), status)
 		return
 	}
 	s.invalidateSlashCache()
 	slog.Info("skills synced", "added", len(res.Added), "updated", len(res.Updated), "failed", len(res.Failed))
 	w.Header().Set("Content-Type", "application/json")
+	held := res.Held
+	if held == nil {
+		held = []skills.Declaration{}
+	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":      true,
 		"added":   res.Added,
 		"updated": res.Updated,
 		"failed":  res.Failed,
+		"held":    held,
 	})
 }
 
 type skillSourceRequest struct {
 	Source string `json:"source"`
 	Sync   bool   `json:"sync"`
+	// Scope picks the file: "global" (default) <home>/marketplaces.json,
+	// "local" the session workspace's .foxxycode/marketplaces.json.
+	Scope string `json:"scope,omitempty"`
+	// Kind is "source" (default, installed whole) or "marketplace" (a
+	// catalog whose plugins are installed one by one).
+	Kind string `json:"kind,omitempty"`
 }
 
-// foxxycodeSkillsSourcesPost adds a remote source to skills.sources (and optionally syncs).
+// foxxycodeSkillsSourcesPost declares a remote source (or a marketplace) in the
+// marketplaces.json the scope names, and optionally syncs it. A local entry
+// is approved for the workspace by the act of writing it.
 func (s *Server) foxxycodeSkillsSourcesPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
+		return
+	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
 		return
 	}
 	var req skillSourceRequest
@@ -187,14 +220,29 @@ func (s *Server) foxxycodeSkillsSourcesPost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	cfg := s.activeCfg()
-	added, err := skills.AddSource(cfg, req.Source)
+	var added bool
+	var err error
+	switch strings.TrimSpace(req.Kind) {
+	case "", skills.KindSource:
+		added, err = skills.AddSource(cfg, cwd, req.Source, req.Scope)
+	case skills.KindMarketplace:
+		if req.Sync {
+			// Declaring a marketplace installs nothing; syncing its source
+			// would install every plugin it lists and record them so.
+			http.Error(w, `{"error":{"message":"a marketplace installs nothing on its own: install its plugins one by one (POST /foxxycode/skills/install, or plugin install <plugin>@<marketplace>), or add it with kind source to have every plugin installed"}}`, http.StatusBadRequest)
+			return
+		}
+		var refreshed bool
+		_, refreshed, err = skills.AddMarketplace(r.Context(), cfg, cwd, req.Source, req.Scope)
+		added = !refreshed
+	default:
+		err = fmt.Errorf("unknown kind %q (use %q or %q)", req.Kind, skills.KindSource, skills.KindMarketplace)
+	}
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusBadRequest)
 		return
 	}
-	// AddSource persisted config.yaml; reload so the running server sees it.
-	s.reloadConfigFromDisk()
 
 	resp := map[string]interface{}{"ok": true, "added": added}
 	if req.Sync {
@@ -221,7 +269,17 @@ func (s *Server) foxxycodeSkillsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
-	if err := skills.DeleteSkill(s.activeCfg(), s.sessionDefaultCWD(), name); err != nil {
+	// The skill is looked up in the workspace of the list it was picked from:
+	// a project skill of the chat's folder is not in the server's default cwd.
+	// The reach is the listing's (a session, else cwd, else the default) and
+	// DeleteSkill still removes only a path inside a configured skills
+	// directory of that workspace; for a skill linked in from elsewhere that
+	// path is the link, so what it points at stays on disk.
+	cwd, ok := s.resolveListingCWD(w, r)
+	if !ok {
+		return
+	}
+	if err := skills.DeleteSkill(s.activeCfg(), cwd, name); err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusBadRequest)
 		return
@@ -233,13 +291,19 @@ func (s *Server) foxxycodeSkillsDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // foxxycodeSkillsUpdatesGet reports, per installed remote skill, whether a newer
-// version is available in its marketplace source (performs network/git access).
+// version is available in its marketplace source (performs network/git
+// access). A source a project of the workspace declares and the trust gate
+// holds back is not contacted.
 func (s *Server) foxxycodeSkillsUpdatesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
-	statuses, err := skills.CheckUpdates(r.Context(), s.activeCfg())
+	cwd, ok := s.resolveListingCWD(w, r)
+	if !ok {
+		return
+	}
+	statuses, err := skills.CheckUpdates(r.Context(), s.activeCfg(), cwd)
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusInternalServerError)
@@ -260,7 +324,11 @@ func (s *Server) foxxycodeSkillsAvailableGet(w http.ResponseWriter, r *http.Requ
 		http.NotFound(w, r)
 		return
 	}
-	items, err := skills.AvailablePlugins(r.Context(), s.activeCfg(), s.sessionDefaultCWD())
+	cwd, ok := s.resolveListingCWD(w, r)
+	if !ok {
+		return
+	}
+	items, err := skills.AvailablePlugins(r.Context(), s.activeCfg(), cwd)
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusInternalServerError)
@@ -311,23 +379,95 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// foxxycodeSkillsSourcesGet lists every remote skill source in effect. system names
-// the subset FoxxyCode brings itself: they are in items like any other, but they do
-// not live in config.yaml and DELETE refuses them, so a client shows them
-// without a remove control.
+// foxxycodeSkillsSourcesGet lists the skill sources and marketplaces declared
+// for the session workspace (the server default workspace without a session,
+// as the MCP tab does): entries carries each with its kind, origin, file and
+// trust state; items are the sources installed whole in effect and system
+// the subset FoxxyCode brings itself, which DELETE refuses.
 func (s *Server) foxxycodeSkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
+	cfg := s.activeCfg()
+	decls, errs := skills.Declarations(cfg, cwd)
+	if decls == nil {
+		decls = []skills.Declaration{}
+	}
+	messages := make([]string, 0, len(errs))
+	for _, err := range errs {
+		messages = append(messages, err.Error())
+	}
 	system := make([]string, 0, len(skills.SystemSources))
 	system = append(system, skills.SystemSources...)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "foxxycode.skills_sources",
-		"items":  skills.ListSources(s.activeCfg()),
-		"system": system,
+		"object":        "foxxycode.skills_sources",
+		"workspace":     cwd,
+		"project_trust": cfg.Skills.ResolvedProjectTrust(),
+		"items":         skills.ListSources(cfg, cwd),
+		"system":        system,
+		"entries":       decls,
+		"errors":        messages,
 	})
+}
+
+type skillSourceTrustRequest struct {
+	Key         string `json:"key"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// foxxycodeSkillsSourceTrust approves a project entry of the session workspace's
+// .foxxycode/marketplaces.json. The optional fingerprint names the entry the
+// operator was shown: one the checkout rewrote since is refused with 409.
+func (s *Server) foxxycodeSkillsSourceTrust(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
+	var req skillSourceTrustRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Key) == "" {
+		http.Error(w, `{"error":{"message":"body must name the entry: {\"key\": \"<marketplace | source>\"}"}}`, http.StatusBadRequest)
+		return
+	}
+	d, err := skills.ApproveShown(s.activeCfg(), cwd, req.Key, req.Fingerprint)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, skills.ErrDeclarationChanged) {
+			status = http.StatusConflict
+		}
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), status)
+		return
+	}
+	slog.Info("project skill source approved", "key", req.Key, "workspace", cwd)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "fingerprint": d.Fingerprint})
+}
+
+// foxxycodeSkillsSourceUntrust withdraws the approval of a project entry.
+func (s *Server) foxxycodeSkillsSourceUntrust(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
+	var req skillSourceTrustRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Key) == "" {
+		http.Error(w, `{"error":{"message":"body must name the entry: {\"key\": \"<marketplace | source>\"}"}}`, http.StatusBadRequest)
+		return
+	}
+	removed, err := skills.Revoke(s.activeCfg(), cwd, req.Key)
+	if err != nil {
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }
 
 // foxxycodeSkillsUpdatePost re-syncs the source that provides {name}, installing the
@@ -337,8 +477,12 @@ func (s *Server) foxxycodeSkillsUpdatePost(w http.ResponseWriter, r *http.Reques
 		http.NotFound(w, r)
 		return
 	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
 	name := r.PathValue("name")
-	res, err := skills.UpdateSkill(r.Context(), s.activeCfg(), name)
+	res, err := skills.UpdateSkill(r.Context(), s.activeCfg(), cwd, name)
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusBadRequest)
@@ -355,10 +499,17 @@ func (s *Server) foxxycodeSkillsUpdatePost(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// foxxycodeSkillsSourcesDelete removes a source from skills.sources (query ?source=).
+// foxxycodeSkillsSourcesDelete takes the sources and marketplaces ?source= names
+// (a marketplace by name, either kind by source) out of the operator's
+// marketplaces.json and the session workspace's, or only out of the one
+// ?origin= names.
 func (s *Server) foxxycodeSkillsSourcesDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.NotFound(w, r)
+		return
+	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
 		return
 	}
 	source := strings.TrimSpace(r.URL.Query().Get("source"))
@@ -366,7 +517,9 @@ func (s *Server) foxxycodeSkillsSourcesDelete(w http.ResponseWriter, r *http.Req
 		http.Error(w, `{"error":{"message":"missing source query parameter"}}`, http.StatusBadRequest)
 		return
 	}
-	removed, err := skills.RemoveSource(s.activeCfg(), source)
+	// origin (home or project) limits the removal to the file of the row a
+	// client showed; without it both files are edited.
+	removed, err := skills.RemoveSource(s.activeCfg(), cwd, source, r.URL.Query().Get("origin"))
 	var notice skills.RemovalNotice
 	if errors.As(err, &notice) {
 		// The entry was dropped; the notice only says the built-in source stays.
@@ -378,7 +531,6 @@ func (s *Server) foxxycodeSkillsSourcesDelete(w http.ResponseWriter, r *http.Req
 		http.Error(w, string(body), http.StatusBadRequest)
 		return
 	}
-	s.reloadConfigFromDisk()
 	slog.Info("skill source removed", "source", source, "removed", removed)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
@@ -390,7 +542,7 @@ func (s *Server) invalidateSlashCache() {
 	s.slashMu.Unlock()
 }
 
-// reloadConfigFromDisk re-reads config.yaml (after AddSource persisted it) and
+// reloadConfigFromDisk re-reads config.yaml (after a route persisted it) and
 // swaps it into the running server and session manager.
 func (s *Server) reloadConfigFromDisk() {
 	c := s.activeCfg()
