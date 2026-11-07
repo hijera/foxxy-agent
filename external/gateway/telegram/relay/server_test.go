@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,7 @@ import (
 	"github.com/cucumber/godog"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tgfake"
 )
 
@@ -30,6 +33,20 @@ func TestMain(m *testing.M) {
 		if err := RunWorker(ctx, dir); err != nil {
 			os.Exit(1)
 		}
+		os.Exit(0)
+	}
+	if dir := os.Getenv("FOXXYCODE_RELAY_TEST_LAUNCHER"); dir != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		d, err := ensure(ctx, dir)
+		if err != nil {
+			os.Exit(2)
+		}
+		data, _ := json.Marshal(d)
+		if err := os.WriteFile(filepath.Join(dir, "launcher-ready.json"), data, 0o600); err != nil {
+			os.Exit(3)
+		}
+		<-ctx.Done()
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
@@ -173,6 +190,51 @@ func TestConcurrentLaunchersReuseOneWorker(t *testing.T) {
 	}
 	if first.PID == 0 || first.PID == os.Getpid() {
 		t.Fatal("no separate relay process")
+	}
+}
+
+func TestRelaySurvivesLauncherProcessTreeTermination(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows recursive process termination")
+	}
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	launcher := exec.CommandContext(ctx, os.Args[0], "-test.run=^$")
+	launcher.Env = append(os.Environ(), "FOXXYCODE_RELAY_TEST_LAUNCHER="+dir)
+	platform.HideConsoleWindow(launcher)
+	platform.AdaptCommand(launcher)
+	if err := launcher.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = launcher.Process.Kill(); _ = launcher.Wait() })
+	var before discovery
+	for {
+		data, err := os.ReadFile(filepath.Join(dir, "launcher-ready.json"))
+		if err == nil && json.Unmarshal(data, &before) == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("launcher did not become ready")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	t.Cleanup(func() {
+		if p, err := os.FindProcess(before.PID); err == nil {
+			_ = p.Kill()
+			_, _ = p.Wait()
+		}
+	})
+	// IntelliJ force-stops the complete backend tree, not just its root PID.
+	kill := exec.CommandContext(ctx, "taskkill", "/PID", fmt.Sprint(launcher.Process.Pid), "/T", "/F")
+	platform.HideConsoleWindow(kill)
+	platform.AdaptCommand(kill)
+	if out, err := kill.CombinedOutput(); err != nil {
+		t.Fatalf("terminate launcher tree: %v: %s", err, out)
+	}
+	if after, ok := readLive(ctx, dir); !ok || after != before {
+		t.Fatal("terminating an IDE backend tree killed the shared relay")
 	}
 }
 

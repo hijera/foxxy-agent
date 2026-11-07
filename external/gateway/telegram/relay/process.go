@@ -21,8 +21,12 @@ import (
 )
 
 // WorkerEnv selects the private worker entrypoint, before normal command parsing.
-// The value is the user-private discovery directory, never a token or a command.
+// The value names the user-private discovery directory, never a token or a command.
 const WorkerEnv = "FOXXYCODE_INTERNAL_TELEGRAM_RELAY"
+
+// A short-lived bootstrap breaks the backend's process ancestry before clients
+// connect. IntelliJ recursively kills its backend tree even for detached children.
+const bootstrapPrefix = "bootstrap:"
 
 type discovery struct {
 	URL    string `json:"url"`
@@ -50,6 +54,25 @@ func localClient() *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 35 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
+func workerCommand(dir string) (*exec.Cmd, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(exe) // #nosec G204 -- this binary's private worker, no shell
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if !strings.EqualFold(name, WorkerEnv) {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, WorkerEnv+"="+dir)
+	platform.DetachFromTerminal(cmd)
+	platform.HideConsoleWindow(cmd)
+	platform.AdaptCommand(cmd)
+	return cmd, nil
+}
+
 // ensure serializes discovery and startup across both editor families and all homes.
 // A stale record is harmless: only an authenticated, live loopback endpoint is reused.
 func ensure(ctx context.Context, dir string) (discovery, error) {
@@ -70,28 +93,29 @@ func ensure(ctx context.Context, dir string) (discovery, error) {
 	if d, ok := readLive(ctx, dir); ok {
 		return d, nil
 	}
-	exe, err := os.Executable()
+	cmd, err := workerCommand(bootstrapPrefix + dir)
 	if err != nil {
 		return discovery{}, err
 	}
-	cmd := exec.Command(exe) // #nosec G204 -- this binary's private worker, no shell
-	for _, entry := range os.Environ() {
-		name, _, _ := strings.Cut(entry, "=")
-		if !strings.EqualFold(name, WorkerEnv) {
-			cmd.Env = append(cmd.Env, entry)
-		}
-	}
-	cmd.Env = append(cmd.Env, WorkerEnv+"="+dir)
-	platform.DetachFromTerminal(cmd)
-	platform.HideConsoleWindow(cmd)
-	platform.AdaptCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return discovery{}, errors.New("cannot start Telegram relay worker")
 	}
-	// Wait reaps the process without tying its lifetime to the launching backend.
-	go func() { _ = cmd.Wait() }()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
 	timer := time.NewTimer(10 * time.Second)
 	defer timer.Stop()
+	// Wait for the bootstrap to exit before publishing a ready worker, so an
+	// immediate IDE shutdown cannot still reach it through a live descendant.
+	select {
+	case err := <-done:
+		if err != nil {
+			return discovery{}, errors.New("cannot start Telegram relay worker")
+		}
+	case <-ctx.Done():
+		return discovery{}, ctx.Err()
+	case <-timer.C:
+		return discovery{}, errors.New("telegram relay bootstrap did not exit")
+	}
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -137,6 +161,16 @@ func readLive(ctx context.Context, dir string) (discovery, bool) {
 
 // RunWorker serves one user-wide relay, stopping after the last editor lease expires.
 func RunWorker(ctx context.Context, dir string) error {
+	if strings.HasPrefix(dir, bootstrapPrefix) {
+		cmd, err := workerCommand(strings.TrimPrefix(dir, bootstrapPrefix))
+		if err != nil {
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		return cmd.Process.Release()
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

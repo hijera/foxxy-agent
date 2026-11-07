@@ -181,7 +181,8 @@ the project picker as well as to agent messages.
 
 Backends renew their leases every 15 seconds and reconnect if the relay dies.
 Disconnected projects expire after 75 seconds; the relay exits once all editor
-leases have expired. Closing one project leaves the others connected. Changes to
+leases have expired. Closing one project leaves the others connected, including when the IDE
+terminates the entire backend process tree. Changes to
 the Telegram enable switch, token, proxy or ACL in settings restart that project's
 adapter automatically. Projects sharing a token must agree on the Bot API origin
 and effective proxy; inherited proxies are resolved in each editor before registration.
