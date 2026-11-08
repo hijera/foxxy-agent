@@ -59,11 +59,19 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
     fun startIfNeeded() {
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
         if (client != null && clientBase == base) return
-        client?.stop()
+        stop()
         val c = FoxxyCodeIdeEventClient(base) { ev -> onEvent(ev) }
         client = c
         clientBase = base
         c.start()
+    }
+
+    fun stop() {
+        val previous = client
+        client = null
+        clientBase = null
+        // HttpURLConnection.disconnect can wait for a blocked stream reader; never do it on EDT.
+        if (previous != null) ApplicationManager.getApplication().executeOnPooledThread { previous.stop() }
     }
 
     private fun onEvent(ev: FoxxyCodeEditEvent) {
@@ -310,8 +318,7 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
     private fun fileName(path: String): String = path.replace('\\', '/').substringAfterLast('/')
 
     override fun dispose() {
-        client?.stop()
-        client = null
+        stop()
         for (set in highlighters.values) {
             for (hl in set.markers) {
                 try {
