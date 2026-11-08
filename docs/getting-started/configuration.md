@@ -730,6 +730,9 @@ Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL t
 
 With the default 10 extra attempts, a streamed model that stays completely silent gets about 55 minutes 30 seconds: 11 requests capped at 90 seconds each, plus 39 minutes of stall pauses (1 minute, 3 minutes, then seven 5-minute pauses). Network failures can exhaust the same allowance sooner. The one-hour `llm_stall_retry_max_wait_ms` bounds pauses, not the time spent inside requests. A retry count explicitly saved in an existing config still overrides the default.
 
+An explicit `agent.max_turns: 0` also disables the step limit when inherited through a YAML
+merge (`<<`) or anchor; an explicit value on `agent` overrides the merged value.
+
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Both the immediate first-token replay and later reissues after a stall wait spend this allowance; `llm_stall_retry_max_wait_ms` also limits the time spent waiting. Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
 
 `/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: foxxycode` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.

@@ -214,13 +214,16 @@ func (c *Agent) UnmarshalYAML(value *yaml.Node) error {
 	if err := value.Decode(&decoded); err != nil {
 		return err
 	}
-	*c = Agent(decoded)
-	for i := 0; i+1 < len(value.Content); i += 2 {
-		if value.Content[i].Value == "max_turns" {
-			c.maxTurnsSet = true
-			break
-		}
+	// Decode presence through YAML as well: max_turns may come from a merge
+	// mapping or anchor rather than a direct child of this node.
+	var presence struct {
+		MaxTurns *int `yaml:"max_turns"`
 	}
+	if err := value.Decode(&presence); err != nil {
+		return err
+	}
+	*c = Agent(decoded)
+	c.maxTurnsSet = presence.MaxTurns != nil
 	return nil
 }
 

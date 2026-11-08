@@ -280,6 +280,10 @@ themselves:
   the file in their order (one it lists already, in any spelling, and the built-in source are not
   repeated), and `config.yaml` is rewritten without the key, the old file kept beside it as
   `config.yaml.bak-<timestamp>` and the move logged with what it carried;
+  Environment references (`$NAME` and `${NAME}`), `${FOXXYCODE_HOME}` and escaped dollars
+  are resolved as the old YAML loader resolved them. The JSON file stores the resulting literal
+  addresses, so later environment changes do not change migrated sources. Declaration files
+  are written with owner-only permissions (`0600` on Unix), since an address can contain credentials.
 - the first time it reads the marketplaces, the ones `.marketplaces.json` remembers are added to the
   file unless it declares that name or source already. `.marketplaces.json` stays, holding only the
   plugin lists FoxxyCode read from each marketplace.

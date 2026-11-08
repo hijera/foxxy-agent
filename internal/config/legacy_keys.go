@@ -247,18 +247,21 @@ func moveLegacySkillSources(paths Paths, value *yaml.Node) (moved, kept []string
 	for _, s := range file.Sources {
 		known[strings.ToLower(strings.TrimSpace(s))] = true
 	}
-	for _, s := range sources {
-		s = strings.TrimSpace(s)
+	for _, raw := range sources {
+		// The new JSON file holds literal addresses; preserve what the old
+		// YAML loader resolved, including escaped dollars and the home path.
+		s := strings.TrimSpace(expandConfigText(raw, paths))
 		if s == "" {
 			continue
 		}
 		if known[strings.ToLower(s)] {
-			kept = append(kept, s)
+			kept = append(kept, raw)
 			continue
 		}
 		known[strings.ToLower(s)] = true
 		file.Sources = append(file.Sources, s)
-		moved = append(moved, s)
+		// Log the original spelling, not a credential resolved from the environment.
+		moved = append(moved, raw)
 	}
 	if len(moved) > 0 {
 		if err := WriteMarketplacesFile(target, file); err != nil {

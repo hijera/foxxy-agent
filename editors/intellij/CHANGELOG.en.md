@@ -9,6 +9,8 @@
 
 ## Unreleased — 2026-11-07
 
+**Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors.
+
 - Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
 - **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
 

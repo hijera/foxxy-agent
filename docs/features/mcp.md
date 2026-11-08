@@ -102,7 +102,8 @@ load of such a file moves the list into `~/.foxxycode/mcp.json` and takes the ke
 `config.yaml`:
 
 - every server goes into the file under its name, with `env` and `headers` turned into
-  objects; a name the file already declares is kept as the file has it;
+  objects; a name the file already declares is kept as the file has it. The JSON file is
+  written with owner-only permissions (`0600` on Unix), including literal credentials;
 - every value keeps meaning what it meant in `config.yaml`: an environment reference
   (`${GITHUB_TOKEN}`, or a bare `$GITHUB_TOKEN`) is written as `${GITHUB_TOKEN}`, which the
   file resolves when the server starts, so no secret is written; `${FOXXYCODE_HOME}` is
