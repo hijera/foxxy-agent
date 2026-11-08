@@ -238,3 +238,114 @@ test("mini-agent errors are announced as errors", async () => {
     "Assistant response is invalid",
   );
 });
+
+function mockVerificationFlow() {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path === "/foxxycode/miniapps")
+      return json({
+        apps: [
+          {
+            id: "hello",
+            name: "Greeting",
+            state: "released",
+            version: "1.0.0",
+          },
+        ],
+      });
+    if (path.endsWith("/draft"))
+      return json({
+        id: "hello",
+        state: "draft",
+        revision: "r2",
+        metadata: { name: "Greeting", goal: "Write greeting" },
+        inputs: [],
+        workflow: [],
+        success: {},
+      });
+    if (path.endsWith("/versions/1.0.0"))
+      return json({
+        id: "hello",
+        state: "released",
+        version: "1.0.0",
+        revision: "r1",
+        metadata: { name: "Greeting", goal: "Write greeting" },
+        inputs: [],
+        workflow: [],
+        success: {},
+      });
+    if (path.endsWith("/authoring/source")) return json({});
+    if (path.endsWith("/miniapps/hello/runs")) return json({ runs: [] });
+    if (path.endsWith("/validate")) return json({ valid: true, issues: [] });
+    if (path.endsWith("/sanitize")) return json({ clean: true, findings: [] });
+    if (path.endsWith("/test-runs"))
+      return json({ id: "test-job", status: "queued" }, 202);
+    if (path.endsWith("/versions/1.0.0/runs"))
+      return json({ id: "release-job", status: "queued" }, 202);
+    if (path.includes("/miniapp-runs/") && path.endsWith("/events"))
+      return json({}, 500);
+    if (path.endsWith("/miniapp-runs/test-job"))
+      return json({ id: "test-job", status: "succeeded" });
+    if (path.endsWith("/miniapp-runs/release-job"))
+      return json({ id: "release-job", status: "succeeded" });
+    return json({});
+  });
+}
+
+async function validateAndSanitizeCurrentDraft() {
+  fireEvent.click(screen.getByTestId("miniapps-tab-permissions"));
+  fireEvent.click(screen.getByRole("button", { name: "Validate draft" }));
+  await waitFor(() =>
+    expect(screen.getByText("Validation complete")).toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check sanitization" }));
+  await waitFor(() =>
+    expect(screen.getByText("Sanitization check complete")).toBeInTheDocument(),
+  );
+}
+
+test("a successful test stays release-ready after closing the runner", async () => {
+  mockVerificationFlow();
+  render(
+    <MiniAppsPage
+      selectedAppId="hello"
+      onNavigate={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Greeting" }),
+  ).toBeInTheDocument();
+  await validateAndSanitizeCurrentDraft();
+  fireEvent.click(screen.getByRole("button", { name: "Test generated workflow" }));
+  fireEvent.click(await screen.findByTestId("miniapps-run-start"));
+  expect(await screen.findByText("Succeeded")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+  expect(
+    screen.getByRole("button", { name: "Release version" }),
+  ).toBeEnabled();
+});
+
+test("a released run does not verify the edited draft", async () => {
+  mockVerificationFlow();
+  render(
+    <MiniAppsPage
+      selectedAppId="hello"
+      onNavigate={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Greeting" }),
+  ).toBeInTheDocument();
+  await validateAndSanitizeCurrentDraft();
+  fireEvent.click(screen.getByRole("button", { name: "Run released version" }));
+  fireEvent.click(await screen.findByTestId("miniapps-run-start"));
+  expect(await screen.findByText("Succeeded")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+  expect(
+    screen.getByRole("button", { name: "Release version" }),
+  ).toBeDisabled();
+});

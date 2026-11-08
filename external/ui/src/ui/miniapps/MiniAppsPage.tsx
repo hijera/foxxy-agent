@@ -138,7 +138,7 @@ export function MiniAppsPage(props: {
           released={running.released}
           onClose={() => setRunning(null)}
           onCompleted={(run) => {
-            if (run.status === "succeeded") {
+            if (!running.released && run.status === "succeeded") {
               setVerifiedRevision(selected.revision || null);
             }
             void listRuns(selected.id).then((history) => {

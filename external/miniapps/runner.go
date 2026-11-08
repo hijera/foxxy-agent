@@ -133,6 +133,8 @@ type Runner struct {
 	store         AppStore
 	executors     Executors
 	workspaceRoot string
+	pausedMu      sync.Mutex
+	paused        map[string]*runExecution
 }
 
 func NewRunner(store AppStore, executors Executors) *Runner {
@@ -147,6 +149,56 @@ func (r *Runner) WithWorkspaceRoot(root string) *Runner {
 		r.workspaceRoot = strings.TrimSpace(root)
 	}
 	return r
+}
+
+// Paused reports whether runID has an in-memory continuation. Static preflight
+// pauses intentionally have no continuation: no step ran, so their existing
+// restart path is already side-effect free.
+func (r *Runner) Paused(runID string) bool {
+	if r == nil || strings.TrimSpace(runID) == "" {
+		return false
+	}
+	r.pausedMu.Lock()
+	defer r.pausedMu.Unlock()
+	_, ok := r.paused[runID]
+	return ok
+}
+
+// Discard drops a paused continuation and its temporary workspace.
+func (r *Runner) Discard(runID string) {
+	if r == nil || strings.TrimSpace(runID) == "" {
+		return
+	}
+	r.pausedMu.Lock()
+	exec := r.paused[runID]
+	delete(r.paused, runID)
+	r.pausedMu.Unlock()
+	if exec != nil {
+		_ = os.RemoveAll(exec.workspace)
+		for _, nestedRunID := range exec.nestedRuns {
+			r.Discard(nestedRunID)
+		}
+	}
+}
+
+func (r *Runner) takePaused(runID string) *runExecution {
+	r.pausedMu.Lock()
+	defer r.pausedMu.Unlock()
+	exec := r.paused[runID]
+	delete(r.paused, runID)
+	return exec
+}
+
+func (r *Runner) rememberPaused(exec *runExecution) {
+	if r == nil || exec == nil || exec.run == nil {
+		return
+	}
+	r.pausedMu.Lock()
+	if r.paused == nil {
+		r.paused = make(map[string]*runExecution)
+	}
+	r.paused[exec.run.ID] = exec
+	r.pausedMu.Unlock()
 }
 
 func (r *Runner) RunDraft(ctx context.Context, id string, inputs map[string]any, decisions *OperatorDecisions) (Run, error) {
@@ -190,8 +242,51 @@ func (r *Runner) RunPortableWithFixture(ctx context.Context, app MiniApp, inputs
 	return r.runAndPersist(ctx, app, inputs, decisions, app.State != StateReleased, fixture)
 }
 
+// Resume continues a run whose confirmation became reachable only after an
+// earlier step produced a value. Successful steps and the workspace are kept,
+// so answering the operator never repeats their side effects.
+func (r *Runner) Resume(ctx context.Context, runID string, decisions *OperatorDecisions) (Run, error) {
+	if r == nil {
+		return Run{}, errors.New("mini app runner is nil")
+	}
+	exec := r.takePaused(strings.TrimSpace(runID))
+	if exec == nil {
+		return Run{}, fmt.Errorf("%w: paused run %s", ErrNotFound, runID)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if decisions == nil {
+		decisions = &OperatorDecisions{}
+	}
+	exec.ctx, exec.decisions = ctx, decisions
+	exec.run.Status, exec.run.Error, exec.run.FinishedAt = RunRunning, "", time.Time{}
+	defer func() {
+		if exec.run.Status != RunSucceeded && exec.run.Status != RunWaitingForConfirmation {
+			_ = os.RemoveAll(exec.workspace)
+		}
+	}()
+	if err := exec.emit(ctx, RunEvent{Type: "run.resumed", Status: RunRunning}); err != nil {
+		run, finishErr := exec.finish(err)
+		return r.persistResult(run, finishErr)
+	}
+	if err := exec.executeSteps(exec.app.Workflow); err != nil {
+		run, finishErr := exec.finish(err)
+		if run.Status == RunWaitingForConfirmation {
+			r.rememberPaused(exec)
+		}
+		return r.persistResult(run, finishErr)
+	}
+	run, err := exec.complete()
+	return r.persistResult(run, err)
+}
+
 func (r *Runner) runAndPersist(ctx context.Context, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, test bool, fixture map[string][]byte) (Run, error) {
 	run, err := r.run(ctx, app, inputs, decisions, test, fixture)
+	return r.persistResult(run, err)
+}
+
+func (r *Runner) persistResult(run Run, err error) (Run, error) {
 	if r.store != nil {
 		if saveErr := r.store.SaveRun(run); err == nil && saveErr != nil {
 			err = saveErr
@@ -212,6 +307,7 @@ type runExecution struct {
 	secretVals []string
 	workspace  string
 	eventsPath string
+	nestedRuns map[string]string
 	persistErr error
 	fileMu     sync.Mutex
 }
@@ -274,7 +370,7 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 		return finishMiniAppRun(run, err, secretVals)
 	}
 	defer func() {
-		if run.Status != RunSucceeded {
+		if run.Status != RunSucceeded && run.Status != RunWaitingForConfirmation {
 			_ = os.RemoveAll(workspace)
 		}
 	}()
@@ -291,6 +387,7 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 	exec := &runExecution{
 		runner: r, ctx: ctx, app: app, run: &run, decisions: decisions,
 		secretVals: secretVals, workspace: workspace, eventsPath: run.EventsPath,
+		nestedRuns: make(map[string]string),
 		refs: map[string]any{
 			"inputs": values,
 			"steps":  map[string]any{},
@@ -302,39 +399,48 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 		return exec.finish(err)
 	}
 	if err := exec.executeSteps(app.Workflow); err != nil {
-		return exec.finish(err)
+		pausedRun, finishErr := exec.finish(err)
+		if pausedRun.Status == RunWaitingForConfirmation {
+			r.rememberPaused(exec)
+		}
+		return pausedRun, finishErr
 	}
-	if err := exec.evaluateSuccess(); err != nil {
-		return exec.finish(err)
+	return exec.complete()
+}
+
+func (e *runExecution) complete() (Run, error) {
+	if err := e.evaluateSuccess(); err != nil {
+		return e.finish(err)
 	}
-	outputs := make(map[string]any, len(app.Outputs))
-	for _, output := range app.Outputs {
-		value, err := ResolveValue(output.Value, exec.refs)
+	outputs := make(map[string]any, len(e.app.Outputs))
+	for _, output := range e.app.Outputs {
+		value, err := ResolveValue(output.Value, e.refs)
 		if err != nil {
-			return exec.finish(fmt.Errorf("output %s: %w", output.ID, err))
+			return e.finish(fmt.Errorf("output %s: %w", output.ID, err))
 		}
 		if err := validateJSONType(value, output.Schema); err != nil {
-			return exec.finish(fmt.Errorf("output %s: %w", output.ID, err))
+			return e.finish(fmt.Errorf("output %s: %w", output.ID, err))
 		}
 		outputs[output.ID] = value
 	}
-	run.Outputs = redactValueMap(outputs, secretVals)
-	run.Artifacts, err = collectRunArtifacts(workspace)
+	e.run.Outputs = redactValueMap(outputs, e.secretVals)
+	artifacts, err := collectRunArtifacts(e.workspace)
 	if err != nil {
-		return exec.finish(err)
+		return e.finish(err)
 	}
-	for index := range run.Artifacts {
-		run.Artifacts[index].Path = redactString(run.Artifacts[index].Path, secretVals)
+	e.run.Artifacts = artifacts
+	for index := range e.run.Artifacts {
+		e.run.Artifacts[index].Path = redactString(e.run.Artifacts[index].Path, e.secretVals)
 	}
-	run.Status = RunSucceeded
-	run.FinishedAt = time.Now().UTC()
-	if err := exec.emit(ctx, RunEvent{Type: "run.succeeded", Status: RunSucceeded, Data: map[string]any{"outputs": outputs}}); err != nil {
-		return exec.finish(err)
+	e.run.Status = RunSucceeded
+	e.run.FinishedAt = time.Now().UTC()
+	if err := e.emit(e.ctx, RunEvent{Type: "run.succeeded", Status: RunSucceeded, Data: map[string]any{"outputs": outputs}}); err != nil {
+		return e.finish(err)
 	}
-	if exec.persistErr != nil {
-		return exec.finish(exec.persistErr)
+	if e.persistErr != nil {
+		return e.finish(e.persistErr)
 	}
-	return run, nil
+	return *e.run, nil
 }
 
 func materializeMiniAppFixture(workspace string, fixture map[string][]byte) error {
@@ -357,7 +463,11 @@ func materializeMiniAppFixture(workspace string, fixture map[string][]byte) erro
 func (r *Runner) firstMissingConfirmation(steps []Step, commands []cmdprofile.ProfileSpec, decisions *OperatorDecisions, prefix string, depth int, refs map[string]any) (string, bool, error) {
 	for _, step := range steps {
 		if step.When != nil {
-			if selected, err := ExecuteCondition(context.Background(), *step.When, refs); err == nil && !selected {
+			selected, err := ExecuteCondition(context.Background(), *step.When, refs)
+			if err != nil || !selected {
+				// A condition that needs a previous output becomes decidable only
+				// during execution. Its checkpoint is handled by Resume instead of
+				// asking for approval before the operator can know the branch.
 				continue
 			}
 		}
@@ -374,17 +484,19 @@ func (r *Runner) firstMissingConfirmation(steps []Step, commands []cmdprofile.Pr
 				return decisionID, false, fmt.Errorf("confirmation %q was rejected", decisionID)
 			}
 		}
-		if step.Kind == "branch" && step.If != nil {
-			if selected, err := ExecuteCondition(context.Background(), *step.If, refs); err == nil {
-				branch := step.Else
-				if selected {
-					branch = step.Then
+		if step.Kind == "branch" {
+			if step.If != nil {
+				if selected, err := ExecuteCondition(context.Background(), *step.If, refs); err == nil {
+					branch := step.Else
+					if selected {
+						branch = step.Then
+					}
+					if id, missing, err := r.firstMissingConfirmation(branch, commands, decisions, prefix, depth, refs); err != nil || missing {
+						return id, missing, err
+					}
 				}
-				if id, missing, err := r.firstMissingConfirmation(branch, commands, decisions, prefix, depth, refs); err != nil || missing {
-					return id, missing, err
-				}
-				continue
 			}
+			continue
 		}
 		if step.Kind == "tool" {
 			if profile, declared := commandProfileByToolName(commands, step.Tool); declared {
@@ -400,12 +512,6 @@ func (r *Runner) firstMissingConfirmation(steps []Step, commands []cmdprofile.Pr
 				}
 			}
 		}
-		if id, missing, err := r.firstMissingConfirmation(step.Then, commands, decisions, prefix, depth, refs); err != nil || missing {
-			return id, missing, err
-		}
-		if id, missing, err := r.firstMissingConfirmation(step.Else, commands, decisions, prefix, depth, refs); err != nil || missing {
-			return id, missing, err
-		}
 		if step.Kind == "miniapp" {
 			if depth >= maxMiniAppNesting {
 				return "", false, fmt.Errorf("mini app nesting limit of %d is exceeded", maxMiniAppNesting)
@@ -417,10 +523,10 @@ func (r *Runner) firstMissingConfirmation(steps []Step, commands []cmdprofile.Pr
 			if err != nil {
 				return "", false, err
 			}
-			nestedRefs := refs
+			nestedRefs := map[string]any{"inputs": map[string]any{}, "steps": map[string]any{}, "app": map[string]any{"id": nested.ID, "version": nested.Version}}
 			if mapped, mapErr := ResolveValue(step.InputMap, refs); mapErr == nil {
 				if inputs, ok := mapped.(map[string]any); ok {
-					nestedRefs = map[string]any{"inputs": inputs, "steps": map[string]any{}, "app": map[string]any{"id": nested.ID, "version": nested.Version}}
+					nestedRefs["inputs"] = inputs
 				}
 			}
 			if id, missing, err := r.firstMissingConfirmation(nested.Workflow, nested.Requirements.Commands, decisions, prefix+step.ID+".", depth+1, nestedRefs); err != nil || missing {
@@ -599,6 +705,9 @@ func (e *runExecution) executeSteps(steps []Step) error {
 		if err := e.ctx.Err(); err != nil {
 			return err
 		}
+		if previous, ok := e.run.Steps[step.ID]; ok && previous.Status == RunSucceeded {
+			continue
+		}
 		if step.When != nil {
 			ok, err := ExecuteCondition(e.ctx, *step.When, e.refs)
 			if err != nil {
@@ -653,13 +762,26 @@ func (e *runExecution) executeSteps(steps []Step) error {
 		}
 		result.FinishedAt = time.Now().UTC()
 		if execErr != nil {
+			if errors.Is(execErr, errWaitingForConfirmation) && step.Kind == "branch" {
+				delete(e.run.Steps, step.ID)
+				return execErr
+			}
 			result.Status = RunFailed
 			if errors.Is(execErr, errWaitingForConfirmation) {
 				result.Status = RunWaitingForConfirmation
 			}
 			result.Error = redactString(execErr.Error(), e.secretVals)
-			e.run.Steps[step.ID] = result
-			_ = e.emit(e.ctx, RunEvent{Type: "step.failed", StepID: step.ID, Status: result.Status, Attempt: result.Attempts, Message: result.Error})
+			resultStepID := step.ID
+			var nestedPause *nestedConfirmationPause
+			if errors.As(execErr, &nestedPause) && nestedPause.stepID != "" {
+				resultStepID = nestedPause.stepID
+			}
+			result.ID = resultStepID
+			if resultStepID != step.ID {
+				delete(e.run.Steps, step.ID)
+			}
+			e.run.Steps[resultStepID] = result
+			_ = e.emit(e.ctx, RunEvent{Type: "step.failed", StepID: resultStepID, Status: result.Status, Attempt: result.Attempts, Message: result.Error})
 			return fmt.Errorf("step %s: %w", step.ID, execErr)
 		}
 		if err := validateJSONType(output, step.OutputSchema); err != nil {
@@ -672,6 +794,11 @@ func (e *runExecution) executeSteps(steps []Step) error {
 		}
 		result.Status = RunSucceeded
 		result.Outputs = redactValueMap(map[string]any{"result": output}, e.secretVals)
+		for id, stepResult := range e.run.Steps {
+			if strings.HasPrefix(id, step.ID+".") && stepResult.Status == RunWaitingForConfirmation {
+				delete(e.run.Steps, id)
+			}
+		}
 		e.run.Steps[step.ID] = result
 		e.refs["steps"].(map[string]any)[step.ID] = map[string]any{
 			"outputs": map[string]any{"result": output}, "status": string(result.Status),
@@ -679,6 +806,25 @@ func (e *runExecution) executeSteps(steps []Step) error {
 		_ = e.emit(e.ctx, RunEvent{Type: "step.succeeded", StepID: step.ID, Status: RunSucceeded, Attempt: result.Attempts, Data: map[string]any{"output": output}})
 	}
 	return nil
+}
+
+type nestedConfirmationPause struct{ stepID string }
+
+func (e *nestedConfirmationPause) Error() string { return errWaitingForConfirmation.Error() }
+func (e *nestedConfirmationPause) Unwrap() error { return errWaitingForConfirmation }
+
+func waitingConfirmationStep(steps map[string]StepResult) string {
+	ids := make([]string, 0, 1)
+	for id, result := range steps {
+		if result.Status == RunWaitingForConfirmation {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Strings(ids)
+	return ids[0]
 }
 
 func (e *runExecution) executeStep(ctx context.Context, step Step) (any, error) {
@@ -781,10 +927,24 @@ func (e *runExecution) executeStep(ctx context.Context, step Step) (any, error) 
 			mapped[key] = resolved
 		}
 		nestedCtx := context.WithValue(ctx, miniAppNestingKey{}, depth+1)
-		nested, err := e.runner.RunRelease(nestedCtx, step.AppID, step.AppVersion, mapped, nestedOperatorDecisions(e.decisions, step.ID+"."))
+		nestedDecisions := nestedOperatorDecisions(e.decisions, step.ID+".")
+		var nested Run
+		var err error
+		if nestedRunID := e.nestedRuns[step.ID]; nestedRunID != "" {
+			nested, err = e.runner.Resume(nestedCtx, nestedRunID, nestedDecisions)
+		} else {
+			nested, err = e.runner.RunRelease(nestedCtx, step.AppID, step.AppVersion, mapped, nestedDecisions)
+		}
+		if nested.Status == RunWaitingForConfirmation {
+			e.nestedRuns[step.ID] = nested.ID
+			if waitingID := waitingConfirmationStep(nested.Steps); waitingID != "" {
+				return nil, &nestedConfirmationPause{stepID: step.ID + "." + waitingID}
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
+		delete(e.nestedRuns, step.ID)
 		return nested.Outputs, nil
 	default:
 		return nil, fmt.Errorf("unsupported step kind %q", step.Kind)

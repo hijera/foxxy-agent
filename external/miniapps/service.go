@@ -97,13 +97,14 @@ type pendingDistillation struct {
 }
 
 type pendingRun struct {
-	kind      JobKind
-	app       MiniApp
-	appID     string
-	version   string
-	inputs    map[string]any
-	decisions *OperatorDecisions
-	evidence  SourceEvidence
+	kind        JobKind
+	app         MiniApp
+	appID       string
+	version     string
+	inputs      map[string]any
+	decisions   *OperatorDecisions
+	evidence    SourceEvidence
+	resumeRunID string
 }
 
 // Service owns asynchronous Mini App lifecycle work. It intentionally has no
@@ -339,13 +340,19 @@ func (s *Service) StartTestRun(appID string, inputs map[string]any, decisions *O
 	s.mu.Lock()
 	s.runs[job.ID] = pendingRun{kind: JobTestRun, app: app, appID: app.ID, inputs: cloneMap(inputs), decisions: cloneDecisions(decisions), evidence: evidence}
 	s.mu.Unlock()
-	s.launchWorker(job.ID, func() { s.runTestJob(ctx, job.ID, app, inputs, decisions, evidence) })
+	s.launchWorker(job.ID, func() { s.runTestJob(ctx, job.ID, app, inputs, decisions, evidence, "") })
 	return s.GetJob(job.ID)
 }
 
-func (s *Service) runTestJob(ctx context.Context, id string, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, evidence SourceEvidence) {
+func (s *Service) runTestJob(ctx context.Context, id string, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, evidence SourceEvidence, resumeRunID string) {
 	s.updateJob(id, func(job *AsyncJob) { job.Status, job.Phase, job.Progress = JobRunning, "running_draft", 10 })
-	run, err := s.runner.RunPortableWithFixture(ctx, app, inputs, decisions, evidence.FixtureFiles)
+	var run Run
+	var err error
+	if resumeRunID != "" {
+		run, err = s.runner.Resume(ctx, resumeRunID, decisions)
+	} else {
+		run, err = s.runner.RunPortableWithFixture(ctx, app, inputs, decisions, evidence.FixtureFiles)
+	}
 	s.updateJob(id, func(job *AsyncJob) { job.RunID, job.Progress = run.ID, 70 })
 	if err != nil && strings.TrimSpace(run.Error) != "" {
 		err = errors.New(run.Error)
@@ -360,6 +367,7 @@ func (s *Service) runTestJob(ctx context.Context, id string, app MiniApp, inputs
 		if ctx.Err() != nil || run.Status == RunCancelled {
 			s.finishContextJob(id, ctx.Err())
 		} else if run.Status == RunWaitingForConfirmation {
+			s.rememberRunContinuation(id, run)
 			confirmation := s.pendingConfirmation(app, run, inputs)
 			s.updateJob(id, func(job *AsyncJob) {
 				job.Status, job.Phase, job.Confirmation = JobWaitingForConfirm, "awaiting_confirmation", confirmation
@@ -399,13 +407,19 @@ func (s *Service) StartReleaseRun(appID, version string, inputs map[string]any, 
 	s.mu.Lock()
 	s.runs[job.ID] = pendingRun{kind: JobReleaseRun, app: app, appID: app.ID, version: app.Version, inputs: cloneMap(inputs), decisions: cloneDecisions(decisions)}
 	s.mu.Unlock()
-	s.launchWorker(job.ID, func() { s.runReleaseJob(ctx, job.ID, app, inputs, decisions) })
+	s.launchWorker(job.ID, func() { s.runReleaseJob(ctx, job.ID, app, inputs, decisions, "") })
 	return s.GetJob(job.ID)
 }
 
-func (s *Service) runReleaseJob(ctx context.Context, id string, app MiniApp, inputs map[string]any, decisions *OperatorDecisions) {
+func (s *Service) runReleaseJob(ctx context.Context, id string, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, resumeRunID string) {
 	s.updateJob(id, func(job *AsyncJob) { job.Status, job.Phase, job.Progress = JobRunning, "running_release", 10 })
-	run, err := s.runner.RunPortable(ctx, app, inputs, decisions)
+	var run Run
+	var err error
+	if resumeRunID != "" {
+		run, err = s.runner.Resume(ctx, resumeRunID, decisions)
+	} else {
+		run, err = s.runner.RunPortable(ctx, app, inputs, decisions)
+	}
 	s.updateJob(id, func(job *AsyncJob) { job.RunID, job.Progress = run.ID, 80 })
 	if err != nil && strings.TrimSpace(run.Error) != "" {
 		err = errors.New(run.Error)
@@ -414,6 +428,7 @@ func (s *Service) runReleaseJob(ctx context.Context, id string, app MiniApp, inp
 		if ctx.Err() != nil || run.Status == RunCancelled {
 			s.finishContextJob(id, ctx.Err())
 		} else if run.Status == RunWaitingForConfirmation {
+			s.rememberRunContinuation(id, run)
 			confirmation := s.pendingConfirmation(app, run, inputs)
 			s.updateJob(id, func(job *AsyncJob) {
 				job.Status, job.Phase, job.Confirmation = JobWaitingForConfirm, "awaiting_confirmation", confirmation
@@ -432,7 +447,21 @@ func (s *Service) runReleaseJob(ctx context.Context, id string, app MiniApp, inp
 	s.clearActive(id)
 }
 
-// ConfirmRun resumes a run that paused at an explicit confirm step. The
+func (s *Service) rememberRunContinuation(id string, run Run) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending, ok := s.runs[id]
+	if !ok {
+		return
+	}
+	pending.resumeRunID = ""
+	if s.runner.Paused(run.ID) {
+		pending.resumeRunID = run.ID
+	}
+	s.runs[id] = pending
+}
+
+// ConfirmRun resumes a run that paused for operator confirmation. The
 // original app/version/inputs are retained in memory until the job reaches a
 // terminal state; the caller supplies only the new operator decisions.
 func (s *Service) ConfirmRun(id string, decisions *OperatorDecisions) (AsyncJob, error) {
@@ -443,39 +472,46 @@ func (s *Service) ConfirmRun(id string, decisions *OperatorDecisions) (AsyncJob,
 	if job.Kind != JobTestRun && job.Kind != JobReleaseRun {
 		return AsyncJob{}, fmt.Errorf("job %q is not a run", id)
 	}
-	if job.Status != JobWaitingForConfirm {
-		return AsyncJob{}, fmt.Errorf("run job %q is not waiting for confirmation", id)
-	}
-	s.mu.Lock()
-	pending, ok := s.runs[id]
-	s.mu.Unlock()
-	if !ok {
-		return AsyncJob{}, errors.New("run continuation state is unavailable")
-	}
-	if job.Confirmation == nil || decisions == nil {
-		return AsyncJob{}, errors.New("a pending confirmation decision is required")
-	}
-	if _, decided := decisions.Confirmations[job.Confirmation.ID]; !decided {
-		return AsyncJob{}, fmt.Errorf("confirmation %q decision is required", job.Confirmation.ID)
-	}
-	pending.decisions = mergeDecisions(pending.decisions, decisions)
-	s.mu.Lock()
-	s.runs[id] = pending
-	s.mu.Unlock()
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	s.mu.Lock()
+	current, ok := s.jobs[id]
+	if !ok || current.Status != JobWaitingForConfirm {
+		s.mu.Unlock()
+		workerCancel()
+		return AsyncJob{}, fmt.Errorf("run job %q is not waiting for confirmation", id)
+	}
+	pending, ok := s.runs[id]
+	if !ok {
+		s.mu.Unlock()
+		workerCancel()
+		return AsyncJob{}, errors.New("run continuation state is unavailable")
+	}
+	if current.Confirmation == nil || decisions == nil {
+		s.mu.Unlock()
+		workerCancel()
+		return AsyncJob{}, errors.New("a pending confirmation decision is required")
+	}
+	if _, decided := decisions.Confirmations[current.Confirmation.ID]; !decided {
+		s.mu.Unlock()
+		workerCancel()
+		return AsyncJob{}, fmt.Errorf("confirmation %q decision is required", current.Confirmation.ID)
+	}
+	pending.decisions = mergeDecisions(pending.decisions, decisions)
+	s.runs[id] = pending
 	s.cancels[id] = workerCancel
+	current.Status, current.Phase, current.Progress, current.Error, current.Confirmation = JobRunning, "resuming_after_confirmation", 10, "", nil
+	current.UpdatedAt = time.Now().UTC()
+	s.jobs[id] = current
+	s.persistJob(current)
+	s.appendJobEventLocked(current, "job.updated", current.Phase, nil)
 	s.mu.Unlock()
-	s.updateJob(id, func(item *AsyncJob) {
-		item.Status, item.Phase, item.Progress, item.Error, item.Confirmation = JobRunning, "resuming_after_confirmation", 10, "", nil
-	})
 	if pending.kind == JobTestRun {
 		s.launchWorker(id, func() {
-			s.runTestJob(workerCtx, id, pending.app, pending.inputs, pending.decisions, pending.evidence)
+			s.runTestJob(workerCtx, id, pending.app, pending.inputs, pending.decisions, pending.evidence, pending.resumeRunID)
 		})
 	} else {
 		s.launchWorker(id, func() {
-			s.runReleaseJob(workerCtx, id, pending.app, pending.inputs, pending.decisions)
+			s.runReleaseJob(workerCtx, id, pending.app, pending.inputs, pending.decisions, pending.resumeRunID)
 		})
 	}
 	return s.GetJob(id)
@@ -783,6 +819,9 @@ func (s *Service) Close() {
 	}
 	s.mu.Unlock()
 	for _, id := range ids {
+		if job, err := s.GetJob(id); err == nil && job.RunID != "" && s.runner != nil {
+			s.runner.Discard(job.RunID)
+		}
 		s.updateJob(id, func(job *AsyncJob) {
 			if !job.Status.terminal() {
 				job.Status, job.Phase, job.Progress = JobInterrupted, "interrupted", 100
@@ -866,6 +905,9 @@ func (s *Service) Cancel(id string) (AsyncJob, error) {
 	})
 	if cancel != nil {
 		cancel()
+	}
+	if job.RunID != "" && s.runner != nil {
+		s.runner.Discard(job.RunID)
 	}
 	s.clearActive(id)
 	if done != nil {

@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -339,6 +342,123 @@ func TestServiceConfirmationRedactsSecretInputs(t *testing.T) {
 	}
 	if strings.Contains(string(persisted), secret) {
 		t.Fatal("persisted job contains the raw secret")
+	}
+}
+
+func TestServiceConcurrentConfirmationStartsOneRun(t *testing.T) {
+	previousProcs := runtime.GOMAXPROCS(32)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previousProcs) })
+	store := NewStore(t.TempDir())
+	app := verificationTestApp()
+	app.ID = "confirm-race-service"
+	app.Workflow = []Step{
+		{ID: "confirm", Kind: "confirm", Title: "Confirm", Message: "Proceed?"},
+		{ID: "greet", Kind: "tool", Title: "Greet", Tool: "greet", Arguments: map[string]any{"name": "Ada"}},
+	}
+	app.Success.Checks = []SuccessCheck{{Kind: "step", Step: "greet", Status: string(RunSucceeded)}}
+	if err := store.CreateDraft(app, &SourceEvidence{AcceptedResult: "hello Ada"}); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	tool := &concurrentConfirmationTool{release: release}
+	service := NewService(store, NewRunner(store, Executors{Tool: tool}))
+	job, err := service.StartTestRun(app.ID, map[string]any{"name": "Ada"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForJob(t, service, job.ID, func(item AsyncJob) bool { return item.Status == JobWaitingForConfirm })
+	const confirmations = 64
+	var ready, done sync.WaitGroup
+	var accepted atomic.Int32
+	ready.Add(confirmations)
+	done.Add(confirmations)
+	begin := make(chan struct{})
+	for index := 0; index < confirmations; index++ {
+		go func() {
+			defer done.Done()
+			ready.Done()
+			<-begin
+			if _, confirmErr := service.ConfirmRun(job.ID, &OperatorDecisions{Confirmations: map[string]bool{"confirm": true}}); confirmErr == nil {
+				accepted.Add(1)
+			}
+		}()
+	}
+	ready.Wait()
+	close(begin)
+	done.Wait()
+	close(release)
+	completed := waitForJob(t, service, job.ID, func(item AsyncJob) bool { return item.Status.terminal() })
+	if completed.Status != JobSucceeded {
+		t.Fatalf("confirmed job = %+v", completed)
+	}
+	if got := accepted.Load(); got != 1 {
+		t.Fatalf("accepted confirmations = %d, want exactly one", got)
+	}
+	if got := tool.calls.Load(); got != 1 {
+		t.Fatalf("side-effecting executions = %d, want exactly one", got)
+	}
+}
+
+type concurrentConfirmationTool struct {
+	calls   atomic.Int32
+	release <-chan struct{}
+}
+
+func (t *concurrentConfirmationTool) ExecuteTool(ctx context.Context, _ ToolRequest) (any, error) {
+	t.calls.Add(1)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-t.release:
+		return "hello Ada", nil
+	}
+}
+
+func TestServiceDynamicBranchConfirmationResumesWithoutReplayingSteps(t *testing.T) {
+	store := NewStore(t.TempDir())
+	app := verificationTestApp()
+	app.ID = "dynamic-confirmation-service"
+	app.Inputs = nil
+	app.Workflow = []Step{
+		{ID: "first", Kind: "tool", Title: "First", Tool: "greet", Arguments: map[string]any{"name": "Ada"}},
+		{ID: "choose", Kind: "branch", Title: "Choose", If: &Condition{Op: "eq", Left: Ref{Ref: "steps.first.outputs.result"}, Right: "FIRST"},
+			Then: []Step{{ID: "approve-then", Kind: "confirm", Title: "Then", Message: "Then?"}},
+			Else: []Step{{ID: "approve-else", Kind: "confirm", Title: "Else", Message: "Else?"}}},
+	}
+	app.Success.Checks = []SuccessCheck{{Kind: "step", Step: "choose", Status: string(RunSucceeded)}}
+	app.Outputs = nil
+	if err := store.CreateDraft(app, nil); err != nil {
+		t.Fatal(err)
+	}
+	revision := appRevision(t, store, app.ID)
+	if err := store.RecordPassingTest(app.ID, Run{ID: "dynamic-passing-test", AppID: app.ID, Revision: revision, Test: true, Status: RunSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Release(app.ID, "1.0.0", ReleaseOptions{Approved: true, ExpectedRevision: revision}); err != nil {
+		t.Fatal(err)
+	}
+	tool := &runnerTestTool{fn: func(_ context.Context, _ ToolRequest) (any, error) { return "FIRST", nil }}
+	service := NewService(store, NewRunner(store, Executors{Tool: tool}))
+	job, err := service.StartReleaseRun(app.ID, "1.0.0", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := waitForJob(t, service, job.ID, func(item AsyncJob) bool { return item.Status == JobWaitingForConfirm })
+	if waiting.Confirmation == nil || waiting.Confirmation.ID != "approve-then" {
+		t.Fatalf("dynamic confirmation = %+v", waiting.Confirmation)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("tool calls before confirmation = %d, want one", tool.calls)
+	}
+	if _, err := service.ConfirmRun(job.ID, &OperatorDecisions{Confirmations: map[string]bool{"approve-then": true}}); err != nil {
+		t.Fatal(err)
+	}
+	completed := waitForJob(t, service, job.ID, func(item AsyncJob) bool { return item.Status.terminal() })
+	if completed.Status != JobSucceeded || completed.RunID != waiting.RunID {
+		t.Fatalf("resumed job = %+v, want success on run %s", completed, waiting.RunID)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("tool calls after resume = %d, want no replay", tool.calls)
 	}
 }
 

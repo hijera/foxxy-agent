@@ -359,6 +359,47 @@ func TestRunnerNamespacesNestedConfirmations(t *testing.T) {
 	}
 }
 
+func TestRunnerNestedDynamicConfirmationResumesBothRuns(t *testing.T) {
+	nested := runnerTestApp()
+	nested.ID, nested.State, nested.Version = "nested-dynamic", StateReleased, "1.0.0"
+	nested.Inputs = nil
+	nested.Workflow = []Step{
+		{ID: "first", Kind: "tool", Title: "First", Tool: "fake", Arguments: map[string]any{"value": "first"}},
+		{ID: "choose", Kind: "branch", Title: "Choose", If: &Condition{Op: "eq", Left: Ref{Ref: "steps.first.outputs.result"}, Right: "FIRST"},
+			Then: []Step{{ID: "approve-then", Kind: "confirm", Title: "Then", Message: "Then?"}},
+			Else: []Step{{ID: "approve-else", Kind: "confirm", Title: "Else", Message: "Else?"}}},
+	}
+	nested.Success.Checks = []SuccessCheck{{Kind: "step", Step: "choose", Status: string(RunSucceeded)}}
+	nested.Outputs = nil
+	parent := runnerTestApp()
+	parent.ID = "parent-dynamic"
+	parent.Inputs = nil
+	parent.Permissions.Apps = []string{nested.ID}
+	parent.Workflow = []Step{{ID: "nested-step", Kind: "miniapp", Title: "Nested", AppID: nested.ID, AppVersion: nested.Version}}
+	parent.Success.Checks = []SuccessCheck{{Kind: "step", Step: "nested-step", Status: string(RunSucceeded)}}
+	parent.Outputs = nil
+	store := &runnerTestStore{apps: map[string]MiniApp{parent.ID: parent, nested.ID: nested}}
+	tool := &runnerTestTool{fn: func(_ context.Context, _ ToolRequest) (any, error) { return "FIRST", nil }}
+	runner := NewRunner(store, Executors{Tool: tool})
+	waiting, err := runner.RunPortable(context.Background(), parent, nil, nil)
+	if err == nil || waiting.Status != RunWaitingForConfirmation {
+		t.Fatalf("nested dynamic run = %+v, error=%v", waiting, err)
+	}
+	if _, ok := waiting.Steps["nested-step.approve-then"]; !ok {
+		t.Fatalf("waiting steps = %+v, want nested confirmation", waiting.Steps)
+	}
+	if !runner.Paused(waiting.ID) || tool.calls != 1 {
+		t.Fatalf("paused = %v, tool calls = %d", runner.Paused(waiting.ID), tool.calls)
+	}
+	completed, err := runner.Resume(context.Background(), waiting.ID, &OperatorDecisions{Confirmations: map[string]bool{"nested-step.approve-then": true}})
+	if err != nil || completed.Status != RunSucceeded {
+		t.Fatalf("resumed nested run = %+v, error=%v", completed, err)
+	}
+	if completed.ID != waiting.ID || tool.calls != 1 {
+		t.Fatalf("run id = %s, tool calls = %d; want same run and no replay", completed.ID, tool.calls)
+	}
+}
+
 func TestRunnerOnlyRequiresConfirmationFromSelectedInputBranch(t *testing.T) {
 	app := runnerTestApp()
 	app.Inputs = []Input{{ID: "enabled", Type: "boolean", Title: "Enabled", Required: true, UI: InputUI{Control: "checkbox"}}}

@@ -340,7 +340,6 @@ export function MiniAppEditor(props: {
     setAssistantMessages([]);
     setAssistantPrompt("");
     setAssistantProposal(null);
-    props.onChecksReset?.();
   }, [props.initial]);
   useEffect(() => {
     const candidate =
