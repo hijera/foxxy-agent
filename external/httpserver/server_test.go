@@ -6125,6 +6125,10 @@ func TestListingCWDQueryEdges(t *testing.T) {
 		[]byte(`{"mcpServers":{"picked-only":{"command":"true"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(picked, ".foxxycode", "marketplaces.json"),
+		[]byte(`{"sources":["owner/picked-held"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	file := filepath.Join(picked, "notes.txt")
 	if err := os.WriteFile(file, []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -6175,6 +6179,17 @@ func TestListingCWDQueryEdges(t *testing.T) {
 	}
 	if status, body := get(slash+url.QueryEscape(picked), ""); status != http.StatusOK || !strings.Contains(body, "dat-local") {
 		t.Fatalf("picked cwd: status %d body %s", status, body)
+	}
+	if status, body := get("/foxxycode/skills/sources?cwd="+url.QueryEscape(picked), ""); status != http.StatusOK || !strings.Contains(body, "owner/picked-held") {
+		t.Fatalf("sources with picked cwd: status %d body %s", status, body)
+	}
+	syncRes, err := http.Post(ts.URL+"/foxxycode/skills/sync?cwd="+url.QueryEscape(picked), "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncBody, _ := ioReadAllClose(syncRes.Body)
+	if syncRes.StatusCode != http.StatusOK || !strings.Contains(string(syncBody), "owner/picked-held") {
+		t.Fatalf("sync with picked cwd: status %d body %s", syncRes.StatusCode, syncBody)
 	}
 	// The composer's highlight check resolves a mention against the same folder.
 	checkRes, err := http.Post(ts.URL+"/foxxycode/mentions/check?cwd="+url.QueryEscape(picked), "application/json",

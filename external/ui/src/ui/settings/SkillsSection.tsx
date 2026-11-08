@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
 import { MarketplacesEditor } from "./MarketplacesEditor";
-import { sessionHeaders } from "./marketplaces";
+import { sessionHeaders, withMarketplaceWorkspace } from "./marketplaces";
 import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
@@ -46,13 +46,17 @@ async function fetchInstalled(
 }
 
 // The update check, the install search, an update and an install go to the
-// viewed session's workspace, like the marketplaces list they follow: a
-// project marketplace approved there is offered, and one held there is
-// neither checked nor updated from.
-async function fetchUpdates(sessionId: string | undefined): Promise<SkillUpdate[]> {
-  const res = await fetch("/foxxycode/skills/updates", {
-    headers: sessionHeaders(sessionId),
-  });
+// viewed chat's workspace, like the marketplaces list they follow: a project
+// marketplace approved there is offered, and one held there is neither checked
+// nor updated from.
+async function fetchUpdates(
+  sessionId: string | undefined,
+  workspacePath: string | undefined,
+): Promise<SkillUpdate[]> {
+  const res = await fetch(
+    withMarketplaceWorkspace("/foxxycode/skills/updates", workspacePath),
+    { headers: sessionHeaders(sessionId) },
+  );
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: SkillUpdate[] };
   return data.items ?? [];
@@ -68,10 +72,12 @@ type AvailablePlugin = {
 
 async function fetchAvailable(
   sessionId: string | undefined,
+  workspacePath: string | undefined,
 ): Promise<AvailablePlugin[]> {
-  const res = await fetch("/foxxycode/skills/available", {
-    headers: sessionHeaders(sessionId),
-  });
+  const res = await fetch(
+    withMarketplaceWorkspace("/foxxycode/skills/available", workspacePath),
+    { headers: sessionHeaders(sessionId) },
+  );
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: AvailablePlugin[] };
   return data.items ?? [];
@@ -183,13 +189,16 @@ export function SkillsSection(props: {
   }, [workspacePath]);
 
   const sessionId = props.activeSessionId;
+  const updatesGenRef = useRef(0);
   const refreshUpdates = useCallback(async () => {
-    const ups = await fetchUpdates(sessionId);
+    const gen = ++updatesGenRef.current;
+    const ups = await fetchUpdates(sessionId, workspacePath);
+    if (gen !== updatesGenRef.current) return {};
     const map: Record<string, SkillUpdate> = {};
     for (const u of ups) map[u.name] = u;
     setUpdates(map);
     return map;
-  }, [sessionId]);
+  }, [sessionId, workspacePath]);
 
   useEffect(() => {
     void loadInstalled(true);
@@ -245,7 +254,10 @@ export function SkillsSection(props: {
     setStatus(null);
     void (async () => {
       const res = await apiSend(
-        `/foxxycode/skills/${encodeURIComponent(skill.name)}/update`,
+        withMarketplaceWorkspace(
+          `/foxxycode/skills/${encodeURIComponent(skill.name)}/update`,
+          workspacePath,
+        ),
         "POST",
         undefined,
         sessionId,
@@ -277,7 +289,7 @@ export function SkillsSection(props: {
     if (!force && (available !== null || availableLoading)) return;
     const request = ++availableRequest.current;
     setAvailableLoading(true);
-    const items = await fetchAvailable(sessionId);
+    const items = await fetchAvailable(sessionId, workspacePath);
     if (request !== availableRequest.current) return;
     setAvailable(items);
     setAvailableLoading(false);
@@ -289,7 +301,7 @@ export function SkillsSection(props: {
     setStatus(null);
     void (async () => {
       const res = await apiSend(
-        "/foxxycode/skills/install",
+        withMarketplaceWorkspace("/foxxycode/skills/install", workspacePath),
         "POST",
         { source: p.source, plugin: p.name },
         sessionId,
@@ -379,6 +391,7 @@ export function SkillsSection(props: {
 
       <MarketplacesEditor
         activeSessionId={props.activeSessionId}
+        workspacePath={workspacePath}
         onSynced={onSynced}
         onChanged={invalidateAvailable}
       />

@@ -169,14 +169,68 @@ test("the install search and the update check go to the viewed session", async (
   );
   fireEvent.focus(await screen.findByTestId("skills-install-input"));
   await waitFor(() =>
-    expect(seen.find((c) => c.url === "/foxxycode/skills/available")?.session).toBe(
+    expect(seen.find((c) => c.url === "/foxxycode/skills/available?cwd=%2Fprojects%2Fdata")?.session).toBe(
       "sess_data",
     ),
   );
   fireEvent.click(screen.getByTestId("skills-sync-all"));
   await waitFor(() =>
-    expect(seen.find((c) => c.url === "/foxxycode/skills/updates")?.session).toBe(
+    expect(seen.find((c) => c.url === "/foxxycode/skills/updates?cwd=%2Fprojects%2Fdata")?.session).toBe(
       "sess_data",
     ),
   );
+});
+
+test("marketplace actions follow a folder picked before the session", async () => {
+  const seen: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.startsWith("/foxxycode/skills?")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ name: "dat-report", file_path: "/projects/data/.foxxycode/skills/dat-report/SKILL.md", enabled: true }],
+          }),
+        };
+      }
+      if (url.startsWith("/foxxycode/skills/updates")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ name: "dat-report", source: "team/data", version: "1", latest: "2", update_available: true }],
+          }),
+        };
+      }
+      if (url.startsWith("/foxxycode/skills/available")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ name: "dat-plugin", source: "team/data", installed: false }],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ items: [], entries: [] }) };
+    }),
+  );
+  render(
+    <SkillsSection
+      schema={schema}
+      value={{}}
+      onChange={() => {}}
+      workspacePath="/projects/data"
+    />,
+  );
+  fireEvent.click(await screen.findByTestId("skills-sync-all"));
+  await waitFor(() => expect(seen).toContain("/foxxycode/skills/sync?cwd=%2Fprojects%2Fdata"));
+  await waitFor(() => expect(seen).toContain("/foxxycode/skills/updates?cwd=%2Fprojects%2Fdata"));
+  fireEvent.focus(screen.getByTestId("skills-install-input"));
+  await waitFor(() => expect(seen).toContain("/foxxycode/skills/available?cwd=%2Fprojects%2Fdata"));
+  fireEvent.change(screen.getByTestId("skills-install-input"), { target: { value: "dat" } });
+  fireEvent.click(await screen.findByTestId("skills-install-dat-plugin"));
+  await waitFor(() => expect(seen).toContain("/foxxycode/skills/install?cwd=%2Fprojects%2Fdata"));
+  fireEvent.click(await screen.findByTestId("skills-update-dat-report"));
+  await waitFor(() => expect(seen).toContain("/foxxycode/skills/dat-report/update?cwd=%2Fprojects%2Fdata"));
 });

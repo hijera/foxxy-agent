@@ -45,3 +45,26 @@ func TestBackupCurrentIsOwnerOnly(t *testing.T) {
 		t.Fatalf("config backup mode = %o, want 600", got)
 	}
 }
+
+func TestLegacyMCPMigrationKeepsSecretsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits do not apply on Windows")
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	path := filepath.Join(root, "config.yaml")
+	body := "mcp_servers:\n  - name: secret\n    command: server\n    env:\n      - name: TOKEN\n        value: literal-secret\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadWithPaths(Paths{Home: home, CWD: root, ConfigPath: path}); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(GlobalMCPJSONPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("migrated mcp.json mode = %o, want 600", got)
+	}
+}

@@ -122,10 +122,10 @@ func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (stri
 	return ap, true
 }
 
-// resolveListingCWD picks the workspace of a read-only listing the composer
-// asks for while the user types (skills, slash commands, mentions and the
-// subagents they offer, the file a mention names, the update check of the
-// installed skills): the session named by X-FoxxyCode-Session-ID when the server
+// resolveListingCWD picks the workspace of a cwd-scoped listing or skill
+// action (skills and their marketplace sync/install/update, slash commands,
+// mentions and the subagents they offer, the file a mention names): the session
+// named by X-FoxxyCode-Session-ID when the server
 // has it, exactly as resolveSessionCWD does, else the folder in the cwd query
 // parameter, else the server default cwd. The cwd parameter is how a new chat
 // names the folder picked on the start screen before its session exists; the
@@ -135,12 +135,13 @@ func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (stri
 // ignored when the session exists, whose own workspace always wins. A query
 // and not a header, because a folder name may not be ASCII.
 //
-// Routes that change a workspace (MCP declarations, trust, marketplaces,
-// folder creation) stay on resolveSessionCWD and never take cwd, with one
-// exception: DELETE /foxxycode/skills/{name} deletes a skill in the workspace
-// GET /foxxycode/skills listed it for, so Settings can delete a project skill of
-// a folder picked before its session exists. That grants nothing new: a
-// client can already open a session in any existing folder
+// Routes that change a workspace's declarations (MCP, marketplaces, trust,
+// folder creation) stay on resolveSessionCWD and never take cwd. Skill
+// sync/install/update use this resolver for the trust gate but write only the
+// operator's managed skills. DELETE /foxxycode/skills/{name} deletes a skill in
+// the workspace GET /foxxycode/skills listed it for, so Settings can delete a
+// project skill of a folder picked before its session exists. That grants
+// nothing new: a client can already open a session in any existing folder
 // (POST /foxxycode/sessions/{id}/workspace) and delete with its header, the route
 // is behind the same CSRF check as every other DELETE, and the delete only
 // removes paths inside that workspace's skill folders.

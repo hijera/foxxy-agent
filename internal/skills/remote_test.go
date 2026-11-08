@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -801,7 +802,7 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 	}
 
 	// Install just that plugin.
-	res, err := InstallPlugin(ctx, cfg, fileURL, "demo")
+	res, err := InstallPlugin(ctx, cfg, ".", fileURL, "demo")
 	if err != nil {
 		t.Fatalf("InstallPlugin: %v", err)
 	}
@@ -839,8 +840,23 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 	}
 
 	// Installing an unknown plugin errors.
-	if _, err := InstallPlugin(ctx, cfg, fileURL, "nope"); err == nil {
+	if _, err := InstallPlugin(ctx, cfg, ".", fileURL, "nope"); err == nil {
 		t.Error("expected error installing unknown plugin")
+	}
+}
+
+func TestInstallPluginRefusesAHeldProjectSource(t *testing.T) {
+	offlineSystemSources(t)
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: cwd}}
+	source := "https://example.test/marketplace.json"
+	if err := config.WriteMarketplacesFile(config.ProjectMarketplacesPath(cwd), config.MarketplacesFile{Sources: []string{source}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := InstallPlugin(ctx, cfg, cwd, source, "demo"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("InstallPlugin error = %v, want ErrHeld before any fetch", err)
 	}
 }
 

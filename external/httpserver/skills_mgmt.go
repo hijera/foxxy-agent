@@ -142,16 +142,16 @@ func (s *Server) foxxycodeSkillsDisablePost(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
-// foxxycodeSkillsSyncPost fetches the skill sources in effect for the session
-// workspace (the server default workspace without a session) and
-// materializes them; a project entry the trust gate holds back is reported in
-// held, not fetched.
+// foxxycodeSkillsSyncPost fetches the skill sources in effect for the chat
+// workspace (the session, else the cwd query of a picked folder, else the
+// server default) and materializes them; a project entry the trust gate holds
+// back is reported in held, not fetched.
 func (s *Server) foxxycodeSkillsSyncPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	cwd, ok := s.resolveSessionCWD(w, r)
+	cwd, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}
@@ -346,10 +346,15 @@ type skillInstallRequest struct {
 	Plugin string `json:"plugin"`
 }
 
-// foxxycodeSkillsInstallPost installs a single plugin from a marketplace source.
+// foxxycodeSkillsInstallPost installs a single plugin from a marketplace source
+// in effect for the chat workspace, or one the operator explicitly names.
 func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
+		return
+	}
+	cwd, ok := s.resolveListingCWD(w, r)
+	if !ok {
 		return
 	}
 	var req skillInstallRequest
@@ -357,7 +362,7 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 		http.Error(w, `{"error":{"message":"invalid request body"}}`, http.StatusBadRequest)
 		return
 	}
-	res, err := skills.InstallPlugin(r.Context(), s.activeCfg(), req.Source, req.Plugin)
+	res, err := skills.InstallPlugin(r.Context(), s.activeCfg(), cwd, req.Source, req.Plugin)
 	if err == nil && len(res.Added)+len(res.Updated) == 0 && len(res.Failed) > 0 {
 		// Nothing installed: an archive refused, a plugin without skills. The
 		// client reports the reason instead of a success.
@@ -380,16 +385,16 @@ func (s *Server) foxxycodeSkillsInstallPost(w http.ResponseWriter, r *http.Reque
 }
 
 // foxxycodeSkillsSourcesGet lists the skill sources and marketplaces declared
-// for the session workspace (the server default workspace without a session,
-// as the MCP tab does): entries carries each with its kind, origin, file and
-// trust state; items are the sources installed whole in effect and system
-// the subset FoxxyCode brings itself, which DELETE refuses.
+// for the chat workspace (the session, else the cwd query of a folder picked
+// before its session, else the server default): entries carries each with its
+// kind, origin, file and trust state; items are the sources installed whole in
+// effect and system the subset FoxxyCode brings itself, which DELETE refuses.
 func (s *Server) foxxycodeSkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
-	cwd, ok := s.resolveSessionCWD(w, r)
+	cwd, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}
@@ -477,7 +482,7 @@ func (s *Server) foxxycodeSkillsUpdatePost(w http.ResponseWriter, r *http.Reques
 		http.NotFound(w, r)
 		return
 	}
-	cwd, ok := s.resolveSessionCWD(w, r)
+	cwd, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}

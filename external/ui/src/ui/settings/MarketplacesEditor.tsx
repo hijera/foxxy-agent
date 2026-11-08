@@ -14,6 +14,7 @@ import {
   entryKey,
   fetchMarketplaces,
   liveSessionId,
+  withMarketplaceWorkspace,
   sessionHeaders,
   showsEntryTrustControl,
   type MarketplaceEntry,
@@ -84,12 +85,14 @@ function originBadgeKey(e: MarketplaceEntry): string {
  */
 export function MarketplacesEditor(props: {
   activeSessionId?: string | undefined;
+  workspacePath?: string | undefined;
   /** Called after a sync, so the installed list can follow. */
   onSynced: () => Promise<void> | void;
   onChanged?: (() => void) | undefined;
 }) {
   const { t } = useT();
   const sessionId = props.activeSessionId || undefined;
+  const workspacePath = props.workspacePath;
   const onSynced = props.onSynced;
   const [listing, setListing] = useState<MarketplaceListing | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -117,7 +120,7 @@ export function MarketplacesEditor(props: {
   const load = useCallback(async () => {
     const gen = ++genRef.current;
     try {
-      const next = await fetchMarketplaces(sessionId);
+      const next = await fetchMarketplaces(sessionId, workspacePath);
       if (gen !== genRef.current) return;
       setListing(next);
       setLoadError(null);
@@ -125,7 +128,7 @@ export function MarketplacesEditor(props: {
       if (gen !== genRef.current) return;
       setLoadError(translate("skills.sources.error.load"));
     }
-  }, [sessionId]);
+  }, [sessionId, workspacePath]);
 
   useEffect(() => {
     void load();
@@ -156,7 +159,11 @@ export function MarketplacesEditor(props: {
         ? `/foxxycode/skills/sync?source=${encodeURIComponent(key)}`
         : "/foxxycode/skills/sync";
       try {
-        const res = await send(sessionId, path, "POST");
+        const res = await send(
+          sessionId,
+          withMarketplaceWorkspace(path, workspacePath),
+          "POST",
+        );
         if (!res.ok) setError(res.error || translate("skills.error.sync"));
         else {
           await onSynced();

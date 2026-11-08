@@ -4,6 +4,7 @@
 
 import type { ProjectTrust } from "./mcpServerJson";
 import { isClientDraftSessionId } from "../sessions/draftSessions";
+import { withWorkspaceQuery } from "../chat/workspaceScope";
 
 /** One declared source or marketplace. Mirrors `skills.Declaration`. */
 export type MarketplaceEntry = {
@@ -71,13 +72,25 @@ export function sessionHeaders(
   return headers;
 }
 
-/** fetchMarketplaces reads what is declared for the viewed session's workspace. */
+export function withMarketplaceWorkspace(
+  path: string,
+  workspacePath: string | undefined,
+): string {
+  return withWorkspaceQuery(path, {
+    headers: {},
+    cwd: (workspacePath ?? "").trim(),
+  });
+}
+
+/** fetchMarketplaces reads what is declared for the viewed chat's workspace. */
 export async function fetchMarketplaces(
   sessionId: string | undefined,
+  workspacePath?: string | undefined,
 ): Promise<MarketplaceListing> {
-  const res = await fetch("/foxxycode/skills/sources", {
-    headers: sessionHeaders(sessionId),
-  });
+  const res = await fetch(
+    withMarketplaceWorkspace("/foxxycode/skills/sources", workspacePath),
+    { headers: sessionHeaders(sessionId) },
+  );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = (await res.json()) as {
     workspace?: string;

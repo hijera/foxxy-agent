@@ -1175,7 +1175,9 @@ func AvailablePlugins(ctx context.Context, cfg *config.Config, cwd string) ([]Av
 
 // InstallPlugin installs a single plugin from a marketplace source (rather than
 // syncing every plugin the source advertises). Backs the browse/filter install UI.
-func InstallPlugin(ctx context.Context, cfg *config.Config, source, pluginName string) (*SyncResult, error) {
+// A project source held for cwd is refused before any fetch; an explicitly named
+// source no project file holds remains installable.
+func InstallPlugin(ctx context.Context, cfg *config.Config, cwd, source, pluginName string) (*SyncResult, error) {
 	source = strings.TrimSpace(source)
 	pluginName = strings.TrimSpace(pluginName)
 	if source == "" || pluginName == "" {
@@ -1183,6 +1185,10 @@ func InstallPlugin(ctx context.Context, cfg *config.Config, source, pluginName s
 	}
 	if _, err := parseSource(source); err != nil {
 		return nil, err
+	}
+	decls, _ := Declarations(cfg, cwd)
+	if d, held := heldSource(decls, source); held {
+		return nil, heldError(d)
 	}
 	syncMu.Lock()
 	defer syncMu.Unlock()

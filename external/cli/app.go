@@ -510,6 +510,9 @@ func (a *App) populateHeader() {
 func (a *App) headerMCPNames() []string {
 	cfg := a.config()
 	cwd := cfg.Paths.CWD
+	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+		cwd = st.GetCWD()
+	}
 	gate := mcp.NewTrustGate(cfg)
 	var names []string
 	for _, srv := range mcp.ListManagedServersTolerant(cfg, cwd, nil) {

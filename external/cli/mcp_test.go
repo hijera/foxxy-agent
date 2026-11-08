@@ -3,10 +3,14 @@
 package cli
 
 import (
+	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/mcp"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -109,5 +113,33 @@ func TestMCPServerTitleNamesASwitchedOffServer(t *testing.T) {
 	row.Enabled = true
 	if got := mcpServerTitle(row); got != "proj · needs_approval" {
 		t.Fatalf("title = %q", got)
+	}
+}
+
+func TestHeaderMCPNamesFollowTheSessionWorkspace(t *testing.T) {
+	home := t.TempDir()
+	picked := t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: home}, MCP: config.MCP{ProjectTrust: config.ProjectTrustAllow}}
+	mgr := session.NewManager(cfg, nil, nil, slog.New(slog.DiscardHandler), home, nil)
+	t.Cleanup(mgr.CloseMCP)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: picked})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	if st == nil {
+		t.Fatal("session is not live")
+	}
+	t.Cleanup(st.CloseAll)
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(home), "launch", config.MCPJSONServer{Type: "unsupported"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(picked), "picked", config.MCPJSONServer{Type: "unsupported"}); err != nil {
+		t.Fatal(err)
+	}
+	a := newApp(cfg, mgr, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 30}, "dark", true)
+	a.sessionID = created.SessionID
+	if got := a.headerMCPNames(); len(got) != 1 || got[0] != "picked" {
+		t.Fatalf("header servers = %v, want [picked]", got)
 	}
 }

@@ -3367,7 +3367,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/sync": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Sync remote skill sources",
-					"description": "Fetches every source in effect for the session workspace (the server default workspace without **X-FoxxyCode-Session-ID**): the built-in one, the sources of **`<home>/marketplaces.json`** and those of the workspace's **`.foxxycode/marketplaces.json`** the trust gate admits (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**), and materializes their skills into the managed skills directory, then refreshes every marketplace in effect and reinstalls only the plugins installed from it. A project entry the gate holds back (**`skills.project_trust`**) is reported in **`held`** and not fetched. Manual only - never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"description": "Fetches every source in effect for the chat workspace (the session in **X-FoxxyCode-Session-ID**, else the optional **`cwd`** query of a folder picked before its session exists, else the server default cwd): the built-in one, the sources of **`<home>/marketplaces.json`** and those of the workspace's **`.foxxycode/marketplaces.json`** the trust gate admits (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**), and materializes their skills into the managed skills directory, then refreshes every marketplace in effect and reinstalls only the plugins installed from it. A project entry the gate holds back (**`skills.project_trust`**) is reported in **`held`** and not fetched. Manual only - never runs automatically. Returns lists of added/updated skill names and per-source failures.",
 					"operationId": "syncSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3375,6 +3375,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Sync only this source, or refresh only the plugins installed from this marketplace (by name or source). Omit to sync everything in effect. A project entry the trust gate holds back is refused with 400.",
 						},
+						listingCWDParam(),
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -3393,8 +3394,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/sources": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List skill sources and marketplaces",
-					"description": "Lists what is declared for the session workspace (the server default workspace without **X-FoxxyCode-Session-ID**, as the MCP tab does): the built-in source, the entries of **`<home>/marketplaces.json`** and those of the workspace's **`.foxxycode/marketplaces.json`**, each once, with its kind, origin, file and trust state. A project entry takes effect only as **`skills.project_trust`** allows: under `ask` once approved for the workspace (`POST /foxxycode/skills/sources/trust`).",
+					"description": "Lists what is declared for the chat workspace (the session in **X-FoxxyCode-Session-ID**, else the optional **`cwd`** query of a folder picked before its session exists, else the server default cwd): the built-in source, the entries of **`<home>/marketplaces.json`** and those of the workspace's **`.foxxycode/marketplaces.json`**, each once, with its kind, origin, file and trust state. A project entry takes effect only as **`skills.project_trust`** allows: under `ask` once approved for the workspace (`POST /foxxycode/skills/sources/trust`).",
 					"operationId": "listSkillSources",
+					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Declared sources and marketplaces.",
@@ -3534,8 +3536,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/install": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Install one plugin from a marketplace",
-					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises). Answers 400 when the plugin or the source is unknown, and when nothing could be installed (an archive refused, a plugin without skills), with the reason in the error message.",
+					"description": "Installs a single named plugin from a marketplace source in the chat workspace (the session in **X-FoxxyCode-Session-ID**, else the optional **`cwd`** query, else the server default cwd), rather than syncing every plugin the source advertises. A project source the trust gate holds back is refused before any fetch; an explicitly named source no project file holds remains installable. Answers 400 when the plugin or the source is unknown, and when nothing could be installed (an archive refused, a plugin without skills), with the reason in the error message.",
 					"operationId": "installPlugin",
+					"parameters":  []interface{}{listingCWDParam()},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -3579,7 +3582,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/skills/{name}/update": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Update a skill to its latest version",
-					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace (a catalog) reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source, and when that source is a project entry of the session workspace the trust gate holds back (approval withdrawn, or `skills.project_trust: deny`). A source no file of the workspace declares any more stays updatable.",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace (a catalog) reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source, and when that source is a project entry of the chat workspace (the session in **X-FoxxyCode-Session-ID**, else the optional **`cwd`** query, else the server default cwd) the trust gate holds back (approval withdrawn, or `skills.project_trust: deny`). A source no file of the workspace declares any more stays updatable.",
 					"operationId": "updateSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3587,6 +3590,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Canonical skill name (single segment, no slashes).",
 						},
+						listingCWDParam(),
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{

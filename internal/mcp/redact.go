@@ -9,8 +9,9 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
-// redactMinLength is the shortest value RedactValues takes out of a message:
-// a shorter one is too likely to be an ordinary word of the message itself.
+// redactMinLength is the shortest individual word RedactValues takes out of a
+// message. A whole declared value is redacted at any length; the threshold only
+// keeps an ordinary word of a longer value from mangling unrelated text.
 const redactMinLength = 8
 
 // RedactValues takes out of a message about srv - the probe or connect error a
@@ -55,15 +56,21 @@ func RedactValues(srv config.MCPServerConfig, cwd, msg string) string {
 	seen := map[string]bool{}
 	var secrets []string
 	add := func(s string) {
-		if len(s) >= redactMinLength && s != config.RedactedValue && !seen[s] {
+		if s != "" && s != config.RedactedValue && !seen[s] {
 			seen[s] = true
 			secrets = append(secrets, s)
 		}
 	}
 	for _, v := range values {
-		// The whole value and each of its words: "Bearer <token>" is echoed
-		// back as the token alone just as often.
-		for _, s := range append([]string{v}, strings.Fields(v)...) {
+		// The whole value is sensitive at any length. Individual words use a
+		// floor because a short word of "Bearer <token>" may be ordinary text.
+		for _, s := range []string{v, url.QueryEscape(v), url.PathEscape(v)} {
+			add(s)
+		}
+		for _, s := range strings.Fields(v) {
+			if len(s) < redactMinLength {
+				continue
+			}
 			add(s)
 			add(url.QueryEscape(s))
 			add(url.PathEscape(s))
@@ -72,7 +79,34 @@ func RedactValues(srv config.MCPServerConfig, cwd, msg string) string {
 	// Longest first, so a value is never cut by a shorter one inside it.
 	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
 	for _, s := range secrets {
-		msg = strings.ReplaceAll(msg, s, config.RedactedValue)
+		if len(s) >= redactMinLength {
+			msg = strings.ReplaceAll(msg, s, config.RedactedValue)
+			continue
+		}
+		// A short value is replaced only as a token: DEBUG=1 must not turn
+		// HTTP 401 into 40<redacted>, but an echoed one-character value still leaks.
+		msg = replaceShortSecret(msg, s)
 	}
 	return msg
+}
+
+func replaceShortSecret(msg, secret string) string {
+	var b strings.Builder
+	for i := 0; i < len(msg); {
+		end := i + len(secret)
+		if end <= len(msg) && strings.HasPrefix(msg[i:], secret) &&
+			(i == 0 || !secretTokenByte(msg[i-1])) &&
+			(end == len(msg) || !secretTokenByte(msg[end])) {
+			b.WriteString(config.RedactedValue)
+			i = end
+			continue
+		}
+		b.WriteByte(msg[i])
+		i++
+	}
+	return b.String()
+}
+
+func secretTokenByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
 }

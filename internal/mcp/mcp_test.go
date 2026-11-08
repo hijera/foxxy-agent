@@ -439,8 +439,8 @@ func TestRedactValues(t *testing.T) {
 	srv := config.MCPServerConfig{
 		Name:    "docs",
 		URL:     "https://mcp.example/${XR_REDACT_PATH}?api_key=${XR_REDACT_KEY}",
-		Env:     []config.EnvVarConfig{{Name: "TOKEN", Value: "tok-env-literal"}, {Name: "DEBUG", Value: "1"}},
-		Headers: []config.HTTPHeaderConfig{{Name: "Authorization", Value: "Bearer tok-hdr-s3cr3t"}, {Name: "X-Key", Value: "${XR_REDACT_KEY}"}},
+		Env:     []config.EnvVarConfig{{Name: "TOKEN", Value: "tok-env-literal"}, {Name: "DEBUG", Value: "1"}, {Name: "LETTER", Value: "d"}},
+		Headers: []config.HTTPHeaderConfig{{Name: "Authorization", Value: "Bearer tok-hdr-s3cr3t"}, {Name: "X-Key", Value: "${XR_REDACT_KEY}"}, {Name: "X-Short", Value: "abc123"}},
 	}
 	cases := []struct{ name, msg, want string }{
 		{"transport error prints the request URL",
@@ -455,8 +455,12 @@ func TestRedactValues(t *testing.T) {
 		{"a variable escaped into a path",
 			`GET /x/` + url.PathEscape("a/b+c=d/tok-path") + `: not found`,
 			`GET /x/<redacted>: not found`},
-		{"short values are ordinary words",
-			`exit status 1`, `exit status 1`},
+		{"a short header token is still a secret",
+			`sse connect: invalid token abc123`, `sse connect: invalid token <redacted>`},
+		{"even a one-character declaration value cannot leak",
+			`exit status 1`, `exit status <redacted>`},
+		{"short replacements neither corrupt numbers nor reprocess themselves",
+			`http 401: d d`, `http 401: <redacted> <redacted>`},
 		{"nothing to redact", "", ""},
 	}
 	for _, tc := range cases {

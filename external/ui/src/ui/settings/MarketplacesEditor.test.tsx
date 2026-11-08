@@ -439,3 +439,23 @@ test("removing a row names its file", async () => {
     ),
   );
 });
+
+test("a folder picked before the session scopes the list and sync", async () => {
+  const calls = stubApi(listing([PROJECT_SOURCE]));
+  render(
+    <MarketplacesEditor
+      workspacePath="/work/picked"
+      onSynced={() => {}}
+    />,
+  );
+  await screen.findByTestId("skills-marketplace-team/data-skills");
+  expect(calls[0]?.url).toBe(
+    "/foxxycode/skills/sources?cwd=%2Fwork%2Fpicked",
+  );
+  fireEvent.click(screen.getByTestId("skills-sync-all"));
+  await waitFor(() =>
+    expect(calls.find((c) => c.method === "POST")?.url).toBe(
+      "/foxxycode/skills/sync?cwd=%2Fwork%2Fpicked",
+    ),
+  );
+});
