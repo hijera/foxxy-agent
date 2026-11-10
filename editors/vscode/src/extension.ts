@@ -61,6 +61,7 @@ let editorPanelController: FoxxyCodePanelController | null = null;
 let editorPanelDisposed = false;
 let activationOutput: vscode.OutputChannel | null = null;
 let currentUrl: string | null = null;
+let backendGeneration = 0;
 /** Signature of the last-applied proxy env, so we only restart when it actually changes. */
 let lastProxyEnvSig = "";
 /** globalState key caching the last backend UI locale (for pre-boot strings). */
@@ -163,6 +164,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  backendGeneration++;
   diffService?.dispose();
   editorStateService?.dispose();
   terminalStateService?.dispose();
@@ -324,20 +326,24 @@ async function startServer(mode: "start" | "restart"): Promise<{ baseUrl: string
  *  Shows a status message, starts the server, points the controller at it,
  *  and wires the diff service. On error, shows an error view with Retry. */
 async function startController(controller: FoxxyCodePanelController): Promise<void> {
+  const generation = backendGeneration;
   controller.showStatus(t("process.status.starting"));
   try {
     const { baseUrl } = await startServer("start");
+    if (generation !== backendGeneration) return;
     // Adopt the backend UI language before the first iframe render so its
     // `?lang=` and the extension chrome agree from the first frame.
     await fetchBackendLocale(baseUrl);
+    if (generation !== backendGeneration) return;
     syncLocaleContext();
     await controller.setBaseUrl(baseUrl);
+    if (generation !== backendGeneration) return;
     diffService?.startIfNeeded(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
     terminalStateService?.startIfNeeded(baseUrl);
     inlineCompletionService?.startIfNeeded(baseUrl);
   } catch (e) {
-    if (e instanceof StartCancelledError) return;
+    if (e instanceof StartCancelledError || generation !== backendGeneration) return;
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
     controller.showError(t("process.error.startFailedPanel", msg));
@@ -349,20 +355,24 @@ async function startController(controller: FoxxyCodePanelController): Promise<vo
 async function restartActive(): Promise<void> {
   if (!processManager) return;
   if (panelControllers().length === 0) return;
+  const generation = ++backendGeneration;
   for (const controller of panelControllers()) controller.showStatus(t("process.status.restarting"));
   try {
     const { baseUrl } = await startServer("restart");
+    if (generation !== backendGeneration) return;
     await fetchBackendLocale(baseUrl);
+    if (generation !== backendGeneration) return;
     syncLocaleContext();
     // Re-read the controllers after the await: a tab may have closed, or a
     // sidebar may have opened while the replacement was becoming ready.
     await Promise.all(panelControllers().map((controller) => controller.setBaseUrl(baseUrl)));
+    if (generation !== backendGeneration) return;
     diffService?.startIfNeeded(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
     terminalStateService?.startIfNeeded(baseUrl);
     inlineCompletionService?.startIfNeeded(baseUrl);
   } catch (e) {
-    if (e instanceof StartCancelledError) return;
+    if (e instanceof StartCancelledError || generation !== backendGeneration) return;
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] restart failed: ${msg}`);
     for (const controller of panelControllers()) controller.showError(t("process.error.startFailedPanel", msg));
@@ -459,18 +469,22 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
   async start(): Promise<void> {
     const controller = this.controller;
     if (!controller || !processManager) return;
+    const generation = backendGeneration;
     controller.showStatus(t("process.status.starting"));
     try {
       const { baseUrl } = await startServer("start");
+      if (generation !== backendGeneration) return;
       await fetchBackendLocale(baseUrl);
+      if (generation !== backendGeneration) return;
       syncLocaleContext();
       await controller.setBaseUrl(baseUrl);
+      if (generation !== backendGeneration) return;
       this.diffService.startIfNeeded(baseUrl);
       editorStateService?.startIfNeeded(baseUrl);
       terminalStateService?.startIfNeeded(baseUrl);
       inlineCompletionService?.startIfNeeded(baseUrl);
     } catch (e) {
-      if (e instanceof StartCancelledError) return;
+      if (e instanceof StartCancelledError || generation !== backendGeneration) return;
       const msg = (e as Error).message ?? String(e);
       activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
       controller.showError(t("process.error.startFailedPanel", msg));

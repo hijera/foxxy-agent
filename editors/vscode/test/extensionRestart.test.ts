@@ -2,9 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const host = vi.hoisted(() => ({
   commands: new Map<string, (...args: unknown[]) => unknown>(),
-  provider: null as any, panel: null as any, controllers: [] as any[], process: null as any, restart: vi.fn(),
+  provider: null as any, panel: null as any, controllers: [] as any[], process: null as any, restart: vi.fn(), fetchLocale: vi.fn(),
 }));
 const disposable = () => ({ dispose() {} });
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 vi.mock("vscode", () => ({
   Uri: { file: (path: string) => ({ fsPath: path }) }, ViewColumn: { Active: 1 },
   workspace: { workspaceFolders: [{ uri: { fsPath: "/workspace" } }] },
@@ -32,7 +37,9 @@ vi.mock("../src/settings", () => ({
   readSettings: () => ({}), readHttpProxyEnv: () => ({}), syncLocaleContext() {},
   onSettingsChanged: () => ({ dispose() {} }), openSettingsUi: async () => {},
 }));
-vi.mock("../src/i18n/localeState", () => ({ initLocaleState() {}, fetchBackendLocale: async () => {}, setEffectiveLocale() {}, resolveLocale: () => "en" }));
+vi.mock("../src/i18n/localeState", () => ({
+  initLocaleState() {}, fetchBackendLocale: (url: string) => host.fetchLocale(url), setEffectiveLocale() {}, resolveLocale: () => "en",
+}));
 vi.mock("../src/webview/firstRun", () => ({ showFirstRunIfNeeded: async () => {}, openWelcomeWalkthrough: async () => {} }));
 vi.mock("../src/notifications", () => ({
   withProgress: (_: string, task: (report: () => void) => unknown) => task(() => {}),
@@ -55,6 +62,7 @@ let disposePanel: () => void;
 beforeEach(async () => {
   vi.resetModules(); host.commands.clear(); host.controllers = [];
   host.restart.mockReset().mockResolvedValue({ baseUrl: "http://127.0.0.1:42000/" });
+  host.fetchLocale.mockReset().mockResolvedValue(undefined);
   host.panel = { webview: {}, visible: true, active: true, reveal() {}, onDidChangeViewState: disposable, onDidDispose: (fn: () => void) => { disposePanel = fn; return disposable(); } };
   extension = await import("../src/extension");
   extension.activate({ subscriptions: [], extensionPath: "/extension", extensionUri: {}, extension: { packageJSON: { version: "test" } }, globalState: { get() {}, update: async () => {} } } as any);
@@ -93,5 +101,43 @@ describe("Restart with an editor tab and sidebar", () => {
     host.commands.get("foxxycode.restart")!();
     await new Promise((resolve) => setImmediate(resolve));
     for (const controller of host.controllers) expect(controller.showError).not.toHaveBeenCalled();
+  });
+  it("does not let an older restart overwrite the latest replacement URL", async () => {
+    const firstStart = deferred<{ baseUrl: string }>();
+    const secondStart = deferred<{ baseUrl: string }>();
+    const firstLocale = deferred<void>();
+    const firstUrl = "http://127.0.0.1:42001/";
+    const secondUrl = "http://127.0.0.1:42002/";
+    host.restart.mockReturnValueOnce(firstStart.promise).mockReturnValueOnce(secondStart.promise);
+    host.fetchLocale.mockImplementation((url: string) => url === firstUrl ? firstLocale.promise : Promise.resolve());
+
+    host.commands.get("foxxycode.restart")!();
+    firstStart.resolve({ baseUrl: firstUrl });
+    await vi.waitFor(() => expect(host.fetchLocale).toHaveBeenCalledWith(firstUrl));
+    host.commands.get("foxxycode.restart")!();
+    secondStart.resolve({ baseUrl: secondUrl });
+    await vi.waitFor(() => {
+      for (const controller of host.controllers) expect(controller.setBaseUrl).toHaveBeenLastCalledWith(secondUrl);
+    });
+
+    firstLocale.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    for (const controller of host.controllers) expect(controller.setBaseUrl).toHaveBeenLastCalledWith(secondUrl);
+  });
+  it("does not let a start finish into a panel replaced by restart", async () => {
+    const oldLocale = deferred<void>();
+    const oldUrl = "http://127.0.0.1:41000/";
+    const replacementUrl = "http://127.0.0.1:42000/";
+    host.fetchLocale.mockImplementation((url: string) => url === oldUrl ? oldLocale.promise : Promise.resolve());
+    const starting = host.provider.start() as Promise<void>;
+    await vi.waitFor(() => expect(host.fetchLocale).toHaveBeenCalledWith(oldUrl));
+
+    host.commands.get("foxxycode.restart")!();
+    await vi.waitFor(() => {
+      for (const controller of host.controllers) expect(controller.setBaseUrl).toHaveBeenLastCalledWith(replacementUrl);
+    });
+    oldLocale.resolve();
+    await starting;
+    for (const controller of host.controllers) expect(controller.setBaseUrl).toHaveBeenLastCalledWith(replacementUrl);
   });
 });
