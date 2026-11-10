@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ProcessManager } from "./process/processManager";
+import { ProcessManager, StartCancelledError } from "./process/processManager";
 import type { ProxyEnv } from "./process/proxyEnv";
 import { IdeDiffService } from "./diff/ideDiffService";
 import { EditorStateService } from "./ide/editorStateService";
@@ -193,6 +193,14 @@ function activeController(): FoxxyCodePanelController | null {
   return viewProvider?.controller ?? null;
 }
 
+/** Every live webview shares the same backend, including a retained hidden view. */
+function panelControllers(): FoxxyCodePanelController[] {
+  const controllers: FoxxyCodePanelController[] = [];
+  if (editorPanelController && editorPanel && !editorPanelDisposed) controllers.push(editorPanelController);
+  if (viewProvider?.controller) controllers.push(viewProvider.controller);
+  return controllers;
+}
+
 /** Order-independent signature of a proxy env, used to detect proxy setting changes. */
 function proxyEnvSig(env: ProxyEnv): string {
   return Object.entries(env)
@@ -329,6 +337,7 @@ async function startController(controller: FoxxyCodePanelController): Promise<vo
     terminalStateService?.startIfNeeded(baseUrl);
     inlineCompletionService?.startIfNeeded(baseUrl);
   } catch (e) {
+    if (e instanceof StartCancelledError) return;
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
     controller.showError(t("process.error.startFailedPanel", msg));
@@ -336,25 +345,27 @@ async function startController(controller: FoxxyCodePanelController): Promise<vo
   }
 }
 
-/** Restart the server, then re-render whichever controller is active. */
+/** Restart the shared server and rebase every surviving webview to its new URL. */
 async function restartActive(): Promise<void> {
   if (!processManager) return;
-  const controller = activeController();
-  if (!controller) return;
-  controller.showStatus(t("process.status.restarting"));
+  if (panelControllers().length === 0) return;
+  for (const controller of panelControllers()) controller.showStatus(t("process.status.restarting"));
   try {
     const { baseUrl } = await startServer("restart");
     await fetchBackendLocale(baseUrl);
     syncLocaleContext();
-    await controller.setBaseUrl(baseUrl);
+    // Re-read the controllers after the await: a tab may have closed, or a
+    // sidebar may have opened while the replacement was becoming ready.
+    await Promise.all(panelControllers().map((controller) => controller.setBaseUrl(baseUrl)));
     diffService?.startIfNeeded(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
     terminalStateService?.startIfNeeded(baseUrl);
     inlineCompletionService?.startIfNeeded(baseUrl);
   } catch (e) {
+    if (e instanceof StartCancelledError) return;
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] restart failed: ${msg}`);
-    controller.showError(t("process.error.startFailedPanel", msg));
+    for (const controller of panelControllers()) controller.showError(t("process.error.startFailedPanel", msg));
     showStartFailedNotification(msg);
   }
 }
@@ -459,6 +470,7 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
       terminalStateService?.startIfNeeded(baseUrl);
       inlineCompletionService?.startIfNeeded(baseUrl);
     } catch (e) {
+      if (e instanceof StartCancelledError) return;
       const msg = (e as Error).message ?? String(e);
       activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
       controller.showError(t("process.error.startFailedPanel", msg));
