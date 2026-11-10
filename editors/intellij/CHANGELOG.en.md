@@ -7,7 +7,12 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-07
+## Unreleased — 2026-11-10
+
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
+
+## 0.3.43 — 2026-11-07
 
 - Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
 - **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.

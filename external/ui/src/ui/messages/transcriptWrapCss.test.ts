@@ -91,6 +91,35 @@ describe("a tool row never widens the transcript", () => {
   });
 });
 
+describe("a system notice never widens the transcript", () => {
+  test("the row and its card are bounded by the transcript column", () => {
+    const stack = rule(".msg-system-stack");
+    expect(decl(stack, "width")).toBe("100%");
+    expect(decl(stack, "min-width")).toBe("0");
+
+    const card = rule(".msg-system");
+    expect(decl(card, "width")).toBe("fit-content");
+    expect(decl(card, "max-width")).toBe("100%");
+    expect(decl(card, "min-width")).toBe("0");
+    expect(decl(card, "box-sizing")).toBe("border-box");
+  });
+
+  test("the collapsed preview can shrink to its ellipsis", () => {
+    const details = rule(".msg-system-details");
+    expect(decl(details, "max-width")).toBe("100%");
+    expect(decl(details, "min-width")).toBe("0");
+    expect(decl(rule(".msg-system-summary"), "min-width")).toBe("0");
+    expect(decl(rule(".msg-system-preview"), "min-width")).toBe("0");
+  });
+
+  test("the expanded body wraps an unbroken error inside the card", () => {
+    const body = rule(".msg-system-body");
+    expect(decl(body, "max-width")).toBe("100%");
+    expect(decl(body, "box-sizing")).toBe("border-box");
+    expect(decl(body, "overflow-wrap")).toBe("anywhere");
+  });
+});
+
 describe("an answer never widens the transcript", () => {
   test("a long link or word in the prose breaks where it has to", () => {
     expect(decl(rule(".md"), "overflow-wrap")).toBe("anywhere");
