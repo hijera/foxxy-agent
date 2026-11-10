@@ -15,6 +15,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "editors/vscode/**"
+      - "features/vscode_backend_restart.feature"
       - "cmd/**"
       - "internal/**"
       - "external/**"
@@ -73,6 +74,13 @@ jobs:
         run: cd editors/vscode && npm run typecheck
       - name: Run tests (includes esbuild bundle build test)
         run: cd editors/vscode && npm test
+      - name: Set up Go for restart scenarios
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run backend restart scenarios
+        run: go test ./editors/vscode -run TestBackendRestartFeature -count=1
 
   resolve-version:
     name: Resolve version

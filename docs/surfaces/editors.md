@@ -11,6 +11,14 @@ The plugin (`editors/intellij`, every IntelliJ-based IDE from 2022.2) and the ex
 - the agent's file edits as native inline diffs with Accept, Reject and checkpoints, driven by the `/foxxycode/ide/*` routes;
 - inline code completion in the editor when `autocomplete` is on ([config reference](../reference/config.md#autocomplete)).
 
+In VS Code, **FoxxyCode: Restart** replaces the shared backend and reconnects both the sidebar
+and the editor tab to its new address. Hidden panels reconnect too; closing a tab while the
+replacement starts leaves it closed and updates the remaining panel.
+
+![Both VS Code panels after restarting the shared backend](../assets/editors/vscode-restart-both-panels-dark-1280.png)
+
+*The sidebar and editor tab reconnect together after Restart.*
+
 In IntelliJ, **Suggest Code at Caret** is available from the editor context menu and through `Alt+\` in the default keymap. The shortcut starts FoxxyCode if its panel has not been opened yet. Autocomplete is off by default; when it is off, the action shows a hint pointing to FoxxyCode Settings instead of silently doing nothing. If your keyboard layout does not produce that shortcut, find **Suggest Code at Caret** under Settings → Keymap and assign a key combination that works in your layout. Accept a shown suggestion with Tab or dismiss it with Escape.
 
 ![A directory dropped from the IntelliJ project tree inserts a mention ending in slash](../assets/editors/intellij-directory-mention-dark-1400.png)
