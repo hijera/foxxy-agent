@@ -6,6 +6,9 @@ package llm
 // finish_reason (for Codex: neither response.completed nor
 // response.incomplete) must fail with a truncation error while preserving the
 // text already delivered; a terminal event without the marker stays a success.
+// A frame or event cut inside its JSON (issue #384) is the same truncation,
+// and the request count proves the wrapper did not replay a stream whose
+// deltas had reached the caller.
 
 import (
 	"context"
@@ -40,6 +43,17 @@ var streamTruncationScripts = map[string]string{
 	// The cut lands inside the arguments of the call being written: the JSON
 	// never completed, so the call must not run.
 	"cuts the stream inside tool call arguments": cutCallArgsFrame,
+
+	// The body ends inside the JSON of the last frame, with no blank line
+	// after it: the lenient reader dispatches that frame like a browser
+	// would, and its decode fails at the end of the input. The cut lands
+	// inside a string value on purpose, the commonest place for a cut mid
+	// delta; which end-of-input diagnostic the decoder reports depends on
+	// that position (streamDecodeTruncation names the spellings).
+	"cuts the last frame inside its JSON": "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hello\"}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" fr\"}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"om",
 }
 
 // codexStreamTruncationScripts are the Codex Responses counterparts, named the
@@ -53,16 +67,29 @@ var codexStreamTruncationScripts = map[string]string{
 
 	"stops the response at its output cap": "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello fr\"}\n\n" +
 		"event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":5,\"output_tokens\":2}}}\n\n",
+
+	// A framed event (the blank line is there) whose JSON stops short: the
+	// SDK decoder dispatches it and its decode fails at the end of the input,
+	// the error of issue #384. The cut lands inside a string value on
+	// purpose; the SDK decoder appends a newline to the data line, so this
+	// position reads "invalid character '\n' in string literal".
+	"cuts an event inside its JSON after text deltas": "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\" fr\"}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"del\n\n",
 }
 
 type streamTruncationState struct {
-	requests atomic.Int32
 	server   *httptest.Server
 	provider Provider
 	resp     *Response
 	callErr  error
-	// prevCodexBaseURL restores the process-wide Codex redirect after a codex scenario.
+	// requests counts what the stub served: one per attempt of the wrapper.
+	requests atomic.Int32
+	// prevCodexBaseURL restores the process-wide Codex redirect after a codex
+	// scenario; hadCodexBaseURL says whether it was set at all, so a variable
+	// that was absent is removed rather than left empty.
 	prevCodexBaseURL string
+	hadCodexBaseURL  bool
 	setCodexBaseURL  bool
 	authDir          string
 }
@@ -81,7 +108,11 @@ func (s *streamTruncationState) cleanup() {
 		s.server = nil
 	}
 	if s.setCodexBaseURL {
-		_ = os.Setenv(EnvCodexBaseURL, s.prevCodexBaseURL)
+		if s.hadCodexBaseURL {
+			_ = os.Setenv(EnvCodexBaseURL, s.prevCodexBaseURL)
+		} else {
+			_ = os.Unsetenv(EnvCodexBaseURL)
+		}
 		s.setCodexBaseURL = false
 	}
 	if s.authDir != "" {
@@ -96,6 +127,7 @@ func (s *streamTruncationState) aCodexProviderPointedAtStub(scenario string) err
 		return fmt.Errorf("unknown codex stub scenario %q", scenario)
 	}
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		s.requests.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, script)
 	}))
@@ -110,7 +142,8 @@ func (s *streamTruncationState) aCodexProviderPointedAtStub(scenario string) err
 	if err := os.WriteFile(authPath, []byte(auth), 0o600); err != nil {
 		return err
 	}
-	s.prevCodexBaseURL, s.setCodexBaseURL = os.Getenv(EnvCodexBaseURL), true
+	s.prevCodexBaseURL, s.hadCodexBaseURL = os.LookupEnv(EnvCodexBaseURL)
+	s.setCodexBaseURL = true
 	if err := os.Setenv(EnvCodexBaseURL, s.server.URL); err != nil {
 		return err
 	}
@@ -237,6 +270,13 @@ func (s *streamTruncationState) theReportedStopReasonIs(want string) error {
 	return nil
 }
 
+func (s *streamTruncationState) theStubServerReceivedRequests(want int) error {
+	if got := int(s.requests.Load()); got != want {
+		return fmt.Errorf("the stub server received %d requests, want %d", got, want)
+	}
+	return nil
+}
+
 func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 	s := &streamTruncationState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -248,8 +288,8 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the stream after a whole tool call|cuts the stream inside tool call arguments)$`, s.aProviderPointedAtTruncatingStub)
-	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap)$`, s.aCodexProviderPointedAtStub)
+	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the stream after a whole tool call|cuts the stream inside tool call arguments|cuts the last frame inside its JSON)$`, s.aProviderPointedAtTruncatingStub)
+	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap|cuts an event inside its JSON after text deltas)$`, s.aCodexProviderPointedAtStub)
 	sc.Step(`^a streaming completion is requested$`, s.aTruncationStreamingCompletionIsRequested)
 	sc.Step(`^the call fails with a truncation error$`, s.theCallFailsWithATruncationError)
 	sc.Step(`^the partial response preserves text "([^"]*)"$`, s.thePartialResponsePreservesText)
@@ -258,6 +298,7 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the provider receives only one request$`, s.theProviderReceivesOneRequest)
 	sc.Step(`^the call succeeds with the complete text "([^"]*)"$`, s.theCallSucceedsWithCompleteText)
 	sc.Step(`^the reported stop reason is "([^"]*)"$`, s.theReportedStopReasonIs)
+	sc.Step(`^the stub server received (\d+) requests?$`, s.theStubServerReceivedRequests)
 }
 
 func TestLLMStreamTruncationFeature(t *testing.T) {

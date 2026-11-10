@@ -10,6 +10,7 @@ import { parseSSEBlocks } from "./sse";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { queuedUserMessageItem } from "./queuedUserMessage";
 import { sessionMessageFiles } from "./sessionMessageFiles";
+import { parseToolArtifacts } from "./toolArtifacts";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
@@ -41,6 +42,14 @@ type ToolCallStatusUpdate = {
       todoPlan?: unknown;
       /** Pictures the call showed the model, in the files shape of a message. */
       images?: unknown;
+      /** Downloadable files a share_file tool call deliberately shared. */
+      artifacts?: unknown;
+    };
+  };
+  /** ACP uses `meta`, while Responses streams use `_meta`. */
+  meta?: {
+    foxxycode?: {
+      artifacts?: unknown;
     };
   };
 };
@@ -60,6 +69,13 @@ function imagesFromToolStatus(u: ToolCallStatusUpdate) {
   if (raw === undefined) return undefined;
   const images = sessionMessageFiles(raw, "");
   return images.length > 0 ? images : undefined;
+}
+
+function artifactsFromToolStatus(u: ToolCallStatusUpdate) {
+  const raw = u._meta?.foxxycode?.artifacts ?? u.meta?.foxxycode?.artifacts;
+  if (raw === undefined) return undefined;
+  const artifacts = parseToolArtifacts(raw);
+  return artifacts.length > 0 ? artifacts : undefined;
 }
 
 /**
@@ -135,7 +151,7 @@ export type ConsumeComposerSseParams = {
   onTurnProgress?: (progress: TurnProgress) => void;
   /** FoxxyCode extension. The input was only settings commands: no turn ran and
    *  nothing of the exchange is in the history (`foxxycode_meta` carries
-   *  `settings_only`); the transcript's log keeps the notice. */
+   *  `settings_only`); the selectors show the change. */
   onSettingsOnly?: () => void;
 };
 
@@ -290,6 +306,7 @@ export async function consumeComposerSseReader(
                 it.fullResultText = upd.fullResultText;
               if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
               if (upd.images !== undefined) it.images = upd.images;
+              if (upd.artifacts !== undefined) it.artifacts = upd.artifacts;
               if (upd.startedAtMs !== undefined)
                 it.startedAtMs = upd.startedAtMs;
               if (upd.finishedAtMs !== undefined)
@@ -335,6 +352,7 @@ export async function consumeComposerSseReader(
               merged.fullResultText = upd.fullResultText;
             if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
             if (upd.images !== undefined) merged.images = upd.images;
+            if (upd.artifacts !== undefined) merged.artifacts = upd.artifacts;
             arr[idx] = merged;
             next = arr;
           }
@@ -919,6 +937,7 @@ export async function consumeComposerSseReader(
                 const trunc = toolSseShowsTruncatedPreview(u);
                 const todoPlan = todoPlanFromToolStatus(u);
                 const images = imagesFromToolStatus(u);
+                const artifacts = artifactsFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
@@ -927,6 +946,7 @@ export async function consumeComposerSseReader(
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
                   ...(todoPlan !== undefined ? { todoPlan } : {}),
                   ...(images !== undefined ? { images } : {}),
+                  ...(artifacts !== undefined ? { artifacts } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -936,11 +956,13 @@ export async function consumeComposerSseReader(
                   status === "cancelled"
                 ) {
                   const images = imagesFromToolStatus(u);
+                  const artifacts = artifactsFromToolStatus(u);
                   toolQueue.push({
                     toolCallId: u.toolCallId,
                     status,
                     finishedAtMs: now,
                     ...(images !== undefined ? { images } : {}),
+                    ...(artifacts !== undefined ? { artifacts } : {}),
                   });
                 } else if (status === "pending") {
                   // A pending update is a progress ping (streamed file
@@ -1207,6 +1229,7 @@ export async function consumeComposerSseReader(
                 const trunc = toolSseShowsTruncatedPreview(u);
                 const todoPlan = todoPlanFromToolStatus(u);
                 const images = imagesFromToolStatus(u);
+                const artifacts = artifactsFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
@@ -1215,6 +1238,7 @@ export async function consumeComposerSseReader(
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
                   ...(todoPlan !== undefined ? { todoPlan } : {}),
                   ...(images !== undefined ? { images } : {}),
+                  ...(artifacts !== undefined ? { artifacts } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -1224,11 +1248,13 @@ export async function consumeComposerSseReader(
                   status === "cancelled"
                 ) {
                   const images = imagesFromToolStatus(u);
+                  const artifacts = artifactsFromToolStatus(u);
                   toolQueue.push({
                     toolCallId: u.toolCallId,
                     status,
                     finishedAtMs: now,
                     ...(images !== undefined ? { images } : {}),
+                    ...(artifacts !== undefined ? { artifacts } : {}),
                   });
                 } else {
                   toolQueue.push({

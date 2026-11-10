@@ -514,7 +514,7 @@ func TestDeleteSessionTreeCancelsAnActiveParentTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-turnDone:
+	case <-turnDone: //nolint:errcheck // Only completion is needed here.
 	case <-time.After(10 * time.Second):
 		t.Fatal("the cancelled turn did not return")
 	}
@@ -2072,11 +2072,18 @@ func TestResumeSubagentSessionAnswersTheCallsTheEarlierRunNeverRan(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The stored transcript is seeded as the earlier run left it, hole
+	// included; only the outbound projection a resumed run sends closes the
+	// call that never answered.
 	msgs := again.GetMessages()
-	last := msgs[len(msgs)-1]
-	if len(msgs) != 4 || last.Role != llm.RoleTool || last.ToolCallID != "call_b" || !strings.Contains(last.Content, "no result was recorded") ||
+	if len(msgs) != 3 || msgs[2].ToolCallID != "call_a" {
+		t.Fatalf("the resumed transcript was rewritten: %+v", msgs)
+	}
+	outbound, _ := session.RepairMissingToolResults(session.MessagesForLLM(msgs))
+	last := outbound[len(outbound)-1]
+	if len(outbound) != 4 || last.Role != llm.RoleTool || last.ToolCallID != "call_b" || !strings.Contains(last.Content, "no result was recorded") ||
 		!strings.Contains(last.Content, "check the current state") {
-		t.Fatalf("the resumed transcript ends with %+v, want call_b answered with an unknown outcome", last)
+		t.Fatalf("the outbound projection ends with %+v, want call_b answered with an unknown outcome", last)
 	}
 	if _, err := m.RunSubagentTurn(context.Background(), spec.ID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go on"}}, noopSender{}); err != nil {
 		t.Fatal(err)
@@ -2085,13 +2092,15 @@ func TestResumeSubagentSessionAnswersTheCallsTheEarlierRunNeverRan(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Messages) != 5 || snap.Messages[3].ToolCallID != "call_b" {
-		t.Fatalf("the saved transcript lost the answer to call_b: %d messages", len(snap.Messages))
+	for i, msg := range snap.Messages {
+		if strings.Contains(msg.Content, "no result was recorded") {
+			t.Fatalf("a synthetic result reached the stored transcript at index %d", i)
+		}
 	}
 
 	// A batch left unanswered in the middle of the transcript - a resumed
 	// run's prompt already follows it - is answered where it stands, right
-	// after the results the batch has.
+	// after the results the batch has, again on the projection only.
 	middle := session.SubagentSpec{ID: newPortTestSessionID(t), ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_4", CWD: root}
 	mid, err := m.CreateSubagentSession(context.Background(), middle)
 	if err != nil {
@@ -2110,8 +2119,12 @@ func TestResumeSubagentSessionAnswersTheCallsTheEarlierRunNeverRan(t *testing.T)
 		t.Fatal(err)
 	}
 	got := repaired.GetMessages()
-	if len(got) != 5 || got[3].ToolCallID != "call_y" || !strings.Contains(got[3].Content, "no result was recorded") || got[4].Content != "go on" {
-		t.Fatalf("the batch in the middle was not answered where it stands: %+v", got)
+	if len(got) != 4 || got[3].Content != "go on" {
+		t.Fatalf("the resumed transcript was rewritten: %+v", got)
+	}
+	midOutbound, _ := session.RepairMissingToolResults(session.MessagesForLLM(got))
+	if len(midOutbound) != 5 || midOutbound[3].ToolCallID != "call_y" || !strings.Contains(midOutbound[3].Content, "no result was recorded") || midOutbound[4].Content != "go on" {
+		t.Fatalf("the batch in the middle was not answered where it stands: %+v", midOutbound)
 	}
 
 	// A transcript whose last batch is answered is left exactly as it was.

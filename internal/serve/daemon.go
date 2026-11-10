@@ -315,7 +315,7 @@ func runWorkerProcess(ctx context.Context, opts DaemonOptions, onStart func(pid 
 		if err := platform.TerminateProcessGroup(cmd, workerDrain); err != nil {
 			opts.logger().Warn("stopping the worker", "error", err)
 		}
-		<-done
+		<-done //nolint:errcheck // Only completion is needed here.
 		return 0, nil
 	}
 }

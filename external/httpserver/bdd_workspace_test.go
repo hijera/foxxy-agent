@@ -73,7 +73,7 @@ func (s *wsFeatureState) close() {
 		default:
 		}
 		select {
-		case <-s.turnDone:
+		case <-s.turnDone: //nolint:errcheck // Only completion is needed here.
 		case <-time.After(5 * time.Second):
 		}
 		s.turnGate, s.turnEntered, s.turnDone = nil, nil, nil
@@ -216,6 +216,19 @@ func (s *wsFeatureState) gitRepo(name, branchList string) error {
 			return err
 		}
 	}
+	origin := filepath.Join(s.root, name+"-origin.git")
+	if err := bddGit(dir, "clone", "--bare", dir, origin); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "remote", "add", "origin", origin); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "fetch", "origin"); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "remote", "set-head", "origin", "-a"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -229,6 +242,12 @@ func (s *wsFeatureState) sessionRootedAt(name string) error {
 		return err
 	}
 	s.sessionID = res.SessionID
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.mgr.SessionByID(s.sessionID).WaitMCPReady(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -596,6 +615,44 @@ func (s *wsFeatureState) worktreePathDiffersFromRoot() error {
 	return nil
 }
 
+func (s *wsFeatureState) contextDefaultBranch(branch string) error {
+	ctxBody, err := s.freshContext()
+	if err != nil {
+		return err
+	}
+	if got := ctxBody["base_branch"]; got != branch {
+		return fmt.Errorf("base_branch = %v, want %s", got, branch)
+	}
+	return nil
+}
+
+func (s *wsFeatureState) sessionListMainCheckout(name string) error {
+	res, err := http.Get(s.ts.URL + "/foxxycode/sessions")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			RepoRoot string `json:"repoRoot"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return err
+	}
+	for _, row := range body.Sessions {
+		if row.ID == s.sessionID {
+			want := s.folders[name]
+			if bddNormPath(row.RepoRoot) != bddNormPath(want) {
+				return fmt.Errorf("repoRoot = %q, want %q", row.RepoRoot, want)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("session %s missing from list", s.sessionID)
+}
+
 // worktreePathInsideRepo asserts the session landed on rel (a slash-separated
 // path) below the repository folder, which is where FoxxyCode keeps its worktrees.
 func (s *wsFeatureState) worktreePathInsideRepo(rel, name string) error {
@@ -723,6 +780,69 @@ func (s *wsFeatureState) sessionMCPClientsAre(list string) error {
 	return nil
 }
 
+func (s *wsFeatureState) removeSessionWorktree() error {
+	if err := s.removeLoadedSessionWorktree(); err != nil {
+		return err
+	}
+	s.mgr.ForgetLiveSession(s.sessionID)
+	return nil
+}
+
+func (s *wsFeatureState) removeLoadedSessionWorktree() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	path := st.GetCWD()
+	repo := gitws.MainCheckoutRoot(path)
+	if repo == "" {
+		return fmt.Errorf("session workspace %q has no main checkout", path)
+	}
+	if err := bddGit(repo, "worktree", "remove", "--force", path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *wsFeatureState) activateSessionTranscript() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/foxxycode/sessions/"+url.PathEscape(s.sessionID)+"/messages?activate_mcp=1", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", s.sessionID)
+	return s.do(req)
+}
+
+func (s *wsFeatureState) reopenSessionTranscript() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/foxxycode/sessions/"+url.PathEscape(s.sessionID)+"/messages", nil)
+	if err != nil {
+		return err
+	}
+	return s.do(req)
+}
+
+func (s *wsFeatureState) persistedCwdRemainsRemovedWorktree() error {
+	raw, err := os.ReadFile(filepath.Join(s.sessRoot, s.sessionID, "session.json"))
+	if err != nil {
+		return err
+	}
+	var meta struct {
+		CWD string `json:"cwd"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return err
+	}
+	if meta.CWD == "" {
+		return fmt.Errorf("persisted cwd is empty")
+	}
+	if _, err := os.Stat(meta.CWD); !os.IsNotExist(err) {
+		return fmt.Errorf("persisted cwd %q was rewritten or still exists: %v", meta.CWD, err)
+	}
+	return nil
+}
+
 func (s *wsFeatureState) requestFailsWithStatus(code int) error {
 	if s.status != code {
 		return fmt.Errorf("status = %d, want %d (body: %v)", s.status, code, s.body)
@@ -789,13 +909,20 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the context lists branches "([^"]+)"$`, s.contextListsBranches)
 	sc.Step(`^the context reports the session is (not )?in a worktree$`, s.contextWorktreeFlag)
 	sc.Step(`^the worktree path differs from the repository root$`, s.worktreePathDiffersFromRoot)
+	sc.Step(`^the context names "([^"]+)" as the default branch$`, s.contextDefaultBranch)
+	sc.Step(`^the session list names "([^"]+)" as its main checkout$`, s.sessionListMainCheckout)
 	sc.Step(`^the worktree path is "([^"]+)" inside repository "([^"]+)"$`, s.worktreePathInsideRepo)
 	sc.Step(`^repository "([^"]+)" reports no untracked files$`, s.repoHasNoUntrackedFiles)
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.sessionCwdPersistedAs)
 	sc.Step(`^MCP project trust is "([^"]+)"$`, s.mcpProjectTrustIs)
 	sc.Step(`^folder "([^"]+)" declares the project MCP server "([^"]+)"$`, s.folderDeclaresMCPServer)
 	sc.Step(`^repository "([^"]+)" branch "([^"]+)" declares the project MCP server "([^"]+)"$`, s.branchDeclaresMCPServer)
-	sc.Step(`^the session's configured MCP clients are "([^"]+)"$`, s.sessionMCPClientsAre)
+	sc.Step(`^the session's configured MCP clients are "([^"]*)"$`, s.sessionMCPClientsAre)
+	sc.Step(`^Git removes the session worktree$`, s.removeSessionWorktree)
+	sc.Step(`^Git removes the loaded session worktree$`, s.removeLoadedSessionWorktree)
+	sc.Step(`^I activate the session transcript$`, s.activateSessionTranscript)
+	sc.Step(`^I reopen the session transcript$`, s.reopenSessionTranscript)
+	sc.Step(`^the persisted session cwd remains the removed worktree$`, s.persistedCwdRemainsRemovedWorktree)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
 	sc.Step(`^no session was created$`, s.noSessionWasCreated)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)

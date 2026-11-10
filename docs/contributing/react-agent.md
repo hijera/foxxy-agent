@@ -621,3 +621,5 @@ Plan entries are updated as the agent progresses:
 ## Shared retry allowance
 
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
+
+A framed event cut inside its JSON follows the same truncation and continuation path as a stream cut between events. An undecodable frame that is not a truncation is final. Neither case permits executing unfinished tool calls or replaying text already emitted.

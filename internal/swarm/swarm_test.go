@@ -617,7 +617,7 @@ func TestDialTunnelStopsWhenItsContextIsCancelled(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	cancel()
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck // Only completion is needed here.
 	case <-time.After(5 * time.Second):
 		t.Fatal("a cancelled dial kept waiting on a blocking read")
 	}
@@ -650,6 +650,43 @@ func TestStartJoinsGivesEveryParentTheSameIdentity(t *testing.T) {
 	}
 	if clients[1].opts.InstanceUUID != first {
 		t.Fatalf("two parents saw two identities: %q and %q", first, clients[1].opts.InstanceUUID)
+	}
+}
+
+func TestStartJoinsChoosesTheCredentialAParentUses(t *testing.T) {
+	tests := []struct {
+		name      string
+		kind      string
+		authToken string
+		joinToken string
+		want      string
+	}{
+		{name: "relay falls back to its client token", kind: KindRelay, authToken: "relay-client", want: "relay-client"},
+		{name: "relay explicit join token wins", kind: KindRelay, authToken: "relay-client", joinToken: "parent-only", want: "parent-only"},
+		{name: "agent does not inherit the relay client token", kind: KindAgent, authToken: "relay-client"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Swarm.AuthToken = tt.authToken
+			cfg.Swarm.Join = []config.SwarmJoin{{URL: "http://127.0.0.1:1", Name: "child", Token: tt.joinToken}}
+
+			set, err := StartJoins(context.Background(), cfg, StartJoinsOptions{
+				Kind: tt.kind, Handler: http.NotFoundHandler(), Log: quietLogger(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer set.Stop()
+
+			clients := set.Clients()
+			if len(clients) != 1 {
+				t.Fatalf("expected one join client, got %d", len(clients))
+			}
+			if got := clients[0].opts.NodeToken; got != tt.want {
+				t.Fatalf("NodeToken = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

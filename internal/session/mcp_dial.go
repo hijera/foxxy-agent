@@ -73,12 +73,16 @@ func (m *Manager) connectTimeout() time.Duration {
 	return defaultMCPConnectTimeout
 }
 
-// configuredTarget is the dial of one configured server, through the gate.
+// configuredTarget is the dial of one configured server: through the gate,
+// then a lease from the manager's pool, so the session shares the server with
+// every other session that runs the same declaration (one process for a
+// global server, one per workspace for a project server) instead of
+// starting a copy of its own.
 func (m *Manager) configuredTarget(gate *mcp.TrustGate, srv mcp.ManagedServer, cwd string) mcpDialTarget {
 	return mcpDialTarget{
 		Server: srv,
 		Connect: func(ctx context.Context) (*mcp.Client, error) {
-			return gate.Connect(ctx, srv, cwd, m.log)
+			return gate.Acquire(ctx, m.mcpPool, srv, cwd)
 		},
 	}
 }
@@ -132,7 +136,10 @@ func (m *Manager) dialOne(ctx context.Context, target mcpDialTarget) (*mcp.Clien
 			_ = client.Close()
 			client = nil
 		}
-		if ctx.Err() == nil && errors.Is(srvCtx.Err(), context.DeadlineExceeded) {
+		// The start this dial waited for may be another session's, whose
+		// bound ran out before this one's: a server that started and never
+		// answered is the same no answer either way.
+		if ctx.Err() == nil && (errors.Is(srvCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) {
 			err = fmt.Errorf("%w within %s: %w", errMCPNoAnswer, timeout, err)
 		}
 	}

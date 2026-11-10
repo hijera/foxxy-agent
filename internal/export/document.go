@@ -796,7 +796,8 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 			}
 			entries = append(entries, ExportEntry{Type: ExportEntryUser, CreatedAt: m.CreatedAt, Text: text, Attachments: atts})
 		case m.Role == llm.RoleAssistant:
-			e := ExportEntry{Type: ExportEntryAssistant, CreatedAt: m.CreatedAt, Model: m.Model, Text: m.Content, Reasoning: m.Reasoning}
+			// File placements belong to the web transcript, not document text.
+			e := ExportEntry{Type: ExportEntryAssistant, CreatedAt: m.CreatedAt, Model: m.Model, Text: session.WithoutArtifactMarkers(m.Content), Reasoning: m.Reasoning}
 			if in.Options.NoThinking {
 				e.Reasoning = ""
 			}

@@ -49,31 +49,24 @@ export type TopologyLayout = {
  * moves its router mark with it instead of leaving it off-centre.
  */
 export const NODE_METRICS = {
-  relayWidth: 168,
-  relayHeight: 56,
-  relayRadius: 18,
+  /** A relay is a disc too, only a touch bigger than an agent's. */
+  relayRadius: 32,
   agentRadius: 26,
   /** The accent-filled tile that carries the router mark on a relay. */
-  tile: 36,
-  tileRadius: 11,
-  /** Gap between the card edge and the tile. */
-  tileInset: 12,
-  /** Gap between the tile and the text column beside it. */
-  textGap: 12,
+  tile: 28,
+  tileRadius: 9,
   statusRadius: 5.5,
-  statusInset: 15,
   badgeRadius: 8.5,
-  /** Centre of an agent's name chip, below the disc. */
+  /** Centre of a name chip, below the disc it names. */
   chipDrop: 45,
+  relayChipDrop: 51,
   chipHeight: 20,
   /** Baseline of the meta line under a name. */
   agentMetaDrop: 62,
+  relayMetaDrop: 68,
   /** Baseline of the work line, which hangs below each shape's furniture. */
   agentActivityDrop: 76,
-  relayActivityDrop: 44,
-  /** Offset of a relay's two text rows from the card's centre line. */
-  relayNameDrop: -3,
-  relayMetaDrop: 13,
+  relayActivityDrop: 82,
 } as const;
 
 /* Tall enough that a hop's label lands clear of both the corner it turns and
@@ -98,6 +91,17 @@ const MARGIN_TOP = 48;
 /** Room under the deepest row for an agent's name chip and meta line. */
 const BOTTOM_PAD = 82;
 
+/** The uuid of the local machine the map draws above the relay. */
+export const CLIENT_UUID = "__foxxycode_client__";
+
+export type LayoutOptions = {
+  /**
+   * The machine the page runs on, drawn one tier above the relay and wired to
+   * it: that is where the connection to the swarm starts (issue #401).
+   */
+  client?: { name: string };
+};
+
 /**
  * layoutTopology places the swarm on a tier per hop.
  *
@@ -109,7 +113,13 @@ const BOTTOM_PAD = 82;
  * A pure function of the topology, so the arrangement can be checked without
  * rendering anything.
  */
-export function layoutTopology(topology: SwarmTopology): TopologyLayout {
+export function layoutTopology(
+  topology: SwarmTopology,
+  opts: LayoutOptions = {},
+): TopologyLayout {
+  // The local machine takes the top tier, so everything of the swarm sits one
+  // tier lower than it would without it.
+  const lift = opts.client ? 1 : 0;
   const byUUID = new Map<string, TopologyNode>();
   for (const n of topology.nodes) {
     byUUID.set(n.uuid, n);
@@ -153,7 +163,8 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
   }
   // A single column still has to hold a whole relay card, so the widest shape
   // is part of the width rather than something that hangs over the edge.
-  const contentWidth = (widest - 1) * NODE_SPACING + NODE_METRICS.relayWidth;
+  const contentWidth =
+    (widest - 1) * NODE_SPACING + 2 * NODE_METRICS.relayRadius + 48;
   const width = GUTTER + contentWidth + MARGIN_RIGHT;
 
   // A route names the node it reaches, so a route minus its last hop names the
@@ -178,7 +189,7 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
     });
     const rowWidth = (members.length - 1) * NODE_SPACING;
     const startX = GUTTER + (contentWidth - rowWidth) / 2;
-    const y = MARGIN_TOP + depth * TIER_HEIGHT;
+    const y = MARGIN_TOP + (depth + lift) * TIER_HEIGHT;
     members.forEach((n, i) => {
       placed.set(n.uuid, {
         ...n,
@@ -198,6 +209,22 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
     });
   }
 
+  const root = placed.get(topology.root.uuid);
+  let client: PlacedNode | null = null;
+  if (opts.client && root) {
+    client = {
+      uuid: CLIENT_UUID,
+      name: opts.client.name,
+      kind: "client",
+      online: true,
+      depth: -1,
+      path: [],
+      x: root.x,
+      y: MARGIN_TOP,
+    };
+    rows.unshift({ depth: -1, y: MARGIN_TOP, count: 1, reachable: true });
+  }
+
   // A route reaches exactly one node, so its joined path identifies that node.
   // isAlternate needs it to tell the link the route arrives on from a link that
   // merely shares its name.
@@ -215,10 +242,22 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
 
   // Outside every card, so a link that skips a row never crosses one.
   const laneX =
-    Math.max(...[...placed.values()].map((n) => n.x + halfWidth(n)), GUTTER) +
-    LANE_GAP;
+    Math.max(
+      ...[...placed.values()].map((n) => n.x + nodeHalfWidth(n)),
+      GUTTER,
+    ) + LANE_GAP;
 
   const edges: PlacedEdge[] = [];
+  if (client && root) {
+    edges.push({
+      id: `${CLIENT_UUID}>${root.uuid}`,
+      from: client,
+      to: root,
+      name: "",
+      alternate: false,
+      laneX,
+    });
+  }
   for (const e of topology.edges || []) {
     const from = placed.get(e.from_uuid);
     const to = placed.get(e.to_uuid);
@@ -235,13 +274,14 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
     });
   }
 
-  const height = MARGIN_TOP + deepest * TIER_HEIGHT + BOTTOM_PAD;
+  const height = MARGIN_TOP + (deepest + lift) * TIER_HEIGHT + BOTTOM_PAD;
   // The lane only costs width when something actually runs in it.
   const skipsARow = edges.some(
     (e) => Math.abs(e.to.y - e.from.y) > TIER_HEIGHT * 1.5,
   );
+  const all = client ? [client, ...placed.values()] : [...placed.values()];
   return {
-    nodes: [...placed.values()].sort((a, b) => a.depth - b.depth || a.x - b.x),
+    nodes: all.sort((a, b) => a.depth - b.depth || a.x - b.x),
     edges,
     tiers: rows,
     spineX: GUTTER - 28,
@@ -277,13 +317,12 @@ export type Connector = {
 };
 
 /**
- * Clear space left between a shape and the wire leaving it. Wide enough that
- * the head on a dialled link, which sits at the near end and points back into
- * the node, is not swallowed by that node's shadow plate.
+ * Clear space left between a shape and a wire at either end: a wire stops
+ * short of the halo a working node pulses in (9 units out from its body), so
+ * the two never touch.
  */
 const EXIT_GAP = 10;
-/** The arrowhead is 12 user units long, so a wire stops that short of a shape. */
-const ARRIVE_GAP = 12;
+const ARRIVE_GAP = 10;
 /** Radius of an elbow corner where a hop turns onto its rail. */
 const CORNER = 12;
 /**
@@ -340,8 +379,8 @@ function bypassLink(
   laneX: number,
 ): Connector {
   const dir = laneX >= from.x ? 1 : -1;
-  const x0 = from.x + dir * (halfWidth(from) + EXIT_GAP);
-  const x1 = to.x + dir * (halfWidth(to) + ARRIVE_GAP);
+  const x0 = from.x + dir * (nodeHalfWidth(from) + EXIT_GAP);
+  const x1 = to.x + dir * (nodeHalfWidth(to) + ARRIVE_GAP);
   const vdir = to.y > from.y ? 1 : -1;
   const r = Math.min(
     CORNER,
@@ -365,8 +404,8 @@ function bypassLink(
 
 function peerLink(from: PlacedNode, to: PlacedNode): Connector {
   const dir = to.x >= from.x ? 1 : -1;
-  const x0 = from.x + dir * (halfWidth(from) + EXIT_GAP);
-  const x1 = to.x - dir * (halfWidth(to) + ARRIVE_GAP);
+  const x0 = from.x + dir * (nodeHalfWidth(from) + EXIT_GAP);
+  const x1 = to.x - dir * (nodeHalfWidth(to) + ARRIVE_GAP);
   const span = Math.max(dir * (x1 - x0), 0);
   if (span < PEER_MIN_SPAN) {
     // The two shapes all but meet. A bow across nothing is a spike, and anchors
@@ -403,8 +442,14 @@ function peerLink(from: PlacedNode, to: PlacedNode): Connector {
 
 function hopLink(from: PlacedNode, to: PlacedNode): Connector {
   const vdir = to.y > from.y ? 1 : -1;
-  const y0 = from.y + vdir * (halfHeight(from) + EXIT_GAP);
-  const y1 = to.y - vdir * (halfHeight(to) + ARRIVE_GAP);
+  // A disc carries its name chip under it. An agent has no hop below it, but
+  // the local machine does: its wire leaves under the chip, not through it.
+  const below =
+    from.kind === "client" && vdir > 0
+      ? NODE_METRICS.chipDrop + NODE_METRICS.chipHeight / 2
+      : nodeHalfHeight(from);
+  const y0 = from.y + vdir * (below + EXIT_GAP);
+  const y1 = to.y - vdir * (nodeHalfHeight(to) + ARRIVE_GAP);
   // Halfway between the two rows, not between the two shapes: siblings of
   // different sizes then still turn on one rail instead of on four of them.
   const railY = (from.y + to.y) / 2;
@@ -416,18 +461,24 @@ function hopLink(from: PlacedNode, to: PlacedNode): Connector {
       peer: false,
     };
   }
-  const hdir = to.x > from.x ? 1 : -1;
+  // A fan-out leaves at several points of the parent's lower half, the exit
+  // riding the bottom edge toward the child, rather than one centre stub
+  // every sibling shares.
+  const spread = nodeHalfWidth(from) * 0.8;
+  const exitX =
+    from.x + Math.max(-spread, Math.min(spread, to.x - from.x));
+  const hdir = to.x > exitX ? 1 : -1;
   const r = Math.min(
     CORNER,
-    Math.abs(to.x - from.x) / 2,
+    Math.abs(to.x - exitX) / 2,
     Math.abs(railY - y0),
     Math.abs(y1 - railY),
   );
   return {
     d:
-      `M${round(from.x)} ${round(y0)}` +
-      ` L${round(from.x)} ${round(railY - vdir * r)}` +
-      ` Q${round(from.x)} ${round(railY)} ${round(from.x + hdir * r)} ${round(railY)}` +
+      `M${round(exitX)} ${round(y0)}` +
+      ` L${round(exitX)} ${round(railY - vdir * r)}` +
+      ` Q${round(exitX)} ${round(railY)} ${round(exitX + hdir * r)} ${round(railY)}` +
       ` L${round(to.x - hdir * r)} ${round(railY)}` +
       ` Q${round(to.x)} ${round(railY)} ${round(to.x)} ${round(railY + vdir * r)}` +
       ` L${round(to.x)} ${round(y1)}`,
@@ -437,16 +488,58 @@ function hopLink(from: PlacedNode, to: PlacedNode): Connector {
   };
 }
 
-function halfWidth(n: PlacedNode): number {
-  return n.kind === "relay"
-    ? NODE_METRICS.relayWidth / 2
-    : NODE_METRICS.agentRadius;
+/**
+ * The smooth wire the graph mode draws between two nodes.
+ *
+ * A downward edge leaves the source's bottom and arrives at the target's top,
+ * a cubic whose control points pull on the vertical, so every wire flows top
+ * to bottom like the graph itself. An edge that stays level or climbs back
+ * (a ring's way round) leaves a side and bows out sideways, finite at every
+ * bend. An alternate edge keeps the same anchors but sways its control points
+ * off the direct line, so two links between the same shapes never paint over
+ * each other. Pure, like connectorFor; the tree keeps its orthogonal wires.
+ */
+export function graphConnectorFor(edge: PlacedEdge): Connector {
+  const { from, to } = edge;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  // A wire leaves wherever on the source's rim faces its target and arrives
+  // wherever on the target's rim faces back - so a fan reads as a fan, not a
+  // bundle of hooks under every shape.
+  const r0 = nodeHalfWidth(from) + EXIT_GAP;
+  const r1 = nodeHalfWidth(to) + ARRIVE_GAP;
+  const x0 = from.x + ux * r0;
+  const y0 = from.y + uy * r0;
+  const x1 = to.x - ux * r1;
+  const y1 = to.y - uy * r1;
+  const bend = Math.min(dist * 0.35, 56);
+  // An alternate bows sideways off the direct line, so two links between the
+  // same shapes never paint over each other.
+  const bow = edge.alternate ? Math.min(dist * 0.15, 30) : 0;
+  const c1x = x0 + ux * bend - uy * bow;
+  const c1y = y0 + uy * bend + ux * bow;
+  const c2x = x1 - ux * bend - uy * bow;
+  const c2y = y1 - uy * bend + ux * bow;
+  return {
+    d:
+      `M${round(x0)} ${round(y0)}` +
+      ` C${round(c1x)} ${round(c1y)} ${round(c2x)} ${round(c2y)}` +
+      ` ${round(x1)} ${round(y1)}`,
+    labelX: round(cubicMid(x0, c1x, c2x, x1)),
+    labelY: round(cubicMid(y0, c1y, c2y, y1)),
+    peer: dy <= 1,
+  };
 }
 
-function halfHeight(n: PlacedNode): number {
-  return n.kind === "relay"
-    ? NODE_METRICS.relayHeight / 2
-    : NODE_METRICS.agentRadius;
+export function nodeHalfWidth(n: PlacedNode): number {
+  return n.kind === "relay" ? NODE_METRICS.relayRadius : NODE_METRICS.agentRadius;
+}
+
+export function nodeHalfHeight(n: PlacedNode): number {
+  return n.kind === "relay" ? NODE_METRICS.relayRadius : NODE_METRICS.agentRadius;
 }
 
 /** The point halfway along a cubic, which is where a peer label sits. */
@@ -517,6 +610,25 @@ export function routeEdgeIds(
     if (edge) {
       out.add(edge.id);
     }
+  }
+  // The route starts where the page is, when the map draws that machine.
+  const fromClient = layout.edges.find((e) => e.from.uuid === CLIENT_UUID);
+  if (fromClient) {
+    out.add(fromClient.id);
+  }
+  return out;
+}
+
+/**
+ * The links a request to the relay the map is drawn for would follow: none
+ * inside the swarm, and the wire from the machine the page runs on when the map
+ * draws it.
+ */
+export function rootRouteEdgeIds(layout: TopologyLayout): Set<string> {
+  const out = new Set<string>();
+  const fromClient = layout.edges.find((e) => e.from.uuid === CLIENT_UUID);
+  if (fromClient) {
+    out.add(fromClient.id);
   }
   return out;
 }

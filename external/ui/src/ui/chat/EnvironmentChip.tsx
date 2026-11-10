@@ -3,12 +3,24 @@ import { createPortal } from "react-dom";
 import {
   connectLocal,
   connectRemote,
-  getRemoteToken,
-  localFetch,
-  probeRemote,
+  connectSwarmNode,
   snapshotEnv,
   subscribeEnv,
 } from "../env/remoteEnv";
+import {
+  connectConfiguredRemote,
+  refreshConfiguredRemotes,
+  tokenForRemote,
+  useConfiguredRemotes,
+  type ConfiguredRemote,
+} from "../env/configuredRemotes";
+import {
+  probeRemote,
+  relayAgents,
+  reportedName,
+  type RelayAgent,
+  type RemoteProbe,
+} from "../env/remoteProbe";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -16,10 +28,27 @@ import {
 } from "../shellBreakpoint";
 import { useActiveEnvHealth } from "../env/activeHealth";
 import { useT } from "../i18n/I18nProvider";
+import { rememberRelayHome } from "../env/pageMemory";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
-type Remote = { name: string; url: string };
 type Health = "checking" | "up" | "down";
+
+/**
+ * What the menu knows about one remote: nothing yet, or its probe's answer,
+ * with the name it reports for an entry the configuration leaves unnamed.
+ */
+type RowState =
+  | { state: "checking" }
+  | { state: "done"; probe: RemoteProbe; agents: RelayAgent[]; name: string };
+
+/**
+ * The height a menu may take in the room between its anchor and the window's
+ * edge, 12px short of the edge: with a relay's agents and a hint under a remote
+ * that cannot be reached, the menu can outgrow the window, and then it scrolls.
+ */
+function roomFor(space: number): number {
+  return Math.max(160, Math.floor(space - 12));
+}
 
 function hostLabel(url: string): string {
   return url.replace(/^https?:\/\//, "");
@@ -33,10 +62,11 @@ function normUrl(url: string): string {
  * the input (next to the folder / branch / worktree chips), Claude-Code style. Selecting an entry
  * connects immediately (no confirm step): the choice and per-remote token live in this browser
  * only, and the app reloads so sessions, models, and mode all come from the chosen backend. The
- * menu shows a reachability dot per remote (green up, red down, yellow while probing).
+ * menu shows a reachability dot per remote (green up, red down, yellow while probing), says why a
+ * red one is red, and lists the agents of a relay so a node is one click away (issue #401).
  */
 export function EnvironmentChip() {
-  const { t } = useT();
+  const { t, tp } = useT();
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const activeHealth = useActiveEnvHealth();
   const isMobileShell = useSyncExternalStore(
@@ -44,7 +74,7 @@ export function EnvironmentChip() {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
-  const [remotes, setRemotes] = useState<Remote[]>([]);
+  const remotes = useConfiguredRemotes();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   // The chip usually sits in the composer at the foot of the screen, where a
@@ -63,69 +93,60 @@ export function EnvironmentChip() {
         ),
       )
     : 0;
-  const [health, setHealth] = useState<Record<string, Health>>({});
+  const [rows, setRows] = useState<Record<string, RowState>>({});
   const [adding, setAdding] = useState(false);
   const [addName, setAddName] = useState("");
   const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
 
+  // Every listed remote is asked again whenever the menu opens and whenever
+  // the list it shows changes. The answer of an older opening is dropped.
   useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
     let alive = true;
-    localFetch("/foxxycode/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((cfg) => {
-        if (!alive || !cfg) return;
-        const list = cfg?.httpserver?.remotes;
-        if (Array.isArray(list)) {
-          setRemotes(
-            list
-              .map((r: unknown) => {
-                const o = (r ?? {}) as Record<string, unknown>;
-                return { name: String(o.name ?? ""), url: String(o.url ?? "") };
-              })
-              .filter((r: Remote) => r.url.trim() !== ""),
-          );
+    const next: Record<string, RowState> = {};
+    for (const r of remotes) {
+      next[normUrl(r.url)] = { state: "checking" };
+    }
+    setRows(next);
+    for (const r of remotes) {
+      const key = normUrl(r.url);
+      const token = tokenForRemote(r);
+      void (async () => {
+        const probe = await probeRemote(key, token);
+        // A switch to it starts the app over in place, a relay's map at once.
+        if (probe.reach === "up") {
+          rememberRelayHome(key, probe.relay);
         }
-      })
-      .catch(() => {
-        /* configured remotes are optional; Add remote… still works */
-      });
+        const [agents, name] = await Promise.all([
+          probe.relay && probe.reach === "up"
+            ? relayAgents(key, token)
+            : Promise.resolve([] as RelayAgent[]),
+          r.name ? Promise.resolve("") : reportedName(key, token, probe),
+        ]);
+        if (alive) {
+          setRows((cur) => ({
+            ...cur,
+            [key]: { state: "done", probe, agents, name },
+          }));
+        }
+      })();
+    }
     return () => {
       alive = false;
     };
-  }, []);
-
-  // Probe a remote's reachability (cross-origin, so it also verifies CORS + the saved token).
-  // Each probe takes a sequence number; an answer that arrives after a newer probe
-  // of the same remote started is dropped, so an older, slower reply cannot
-  // overwrite the state of the probe the menu asked for last.
-  const probeSeq = useRef<Record<string, number>>({});
-  const probe = (url: string) => {
-    const key = normUrl(url);
-    const seq = (probeSeq.current[key] ?? 0) + 1;
-    probeSeq.current[key] = seq;
-    const current = () => probeSeq.current[key] === seq;
-    setHealth((h) => ({ ...h, [key]: "checking" }));
-    const token = getRemoteToken(url);
-    probeRemote(
-      key + "/v1/models",
-      token ? { Authorization: "Bearer " + token } : {},
-      4000,
-    )
-      .then((res) => {
-        if (current()) setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" }));
-      })
-      .catch(() => {
-        if (current()) setHealth((h) => ({ ...h, [key]: "down" }));
-      });
-  };
+  }, [open, remotes]);
 
   const openMenu = () => {
     if (btnRef.current) setAnchor(btnRef.current.getBoundingClientRect());
     setAdding(false);
     setOpen(true);
-    remotes.forEach((r) => probe(r.url));
+    // The list is the local server's configuration, which may have changed
+    // since it was read: a remote committed a minute ago belongs in this menu.
+    void refreshConfiguredRemotes();
   };
   const closeMenu = () => {
     setOpen(false);
@@ -134,6 +155,14 @@ export function EnvironmentChip() {
   // The menu opens from a click, so the focus stays on the chip: Escape is
   // heard on the page, not on the menu.
   useEscapeCloses(open, closeMenu);
+
+  /** Opens the add form filled in for a remote whose token is missing. */
+  const enterTokenFor = (r: ConfiguredRemote) => {
+    setAddName(r.name || hostLabel(r.url));
+    setAddUrl(r.url);
+    setAddToken("");
+    setAdding(true);
+  };
 
   const label =
     env.mode === "local"
@@ -144,6 +173,114 @@ export function EnvironmentChip() {
   const dot = (state: Health | "local") => (
     <span className="env-status" data-state={state} aria-hidden="true" />
   );
+
+  /** Why a remote is not usable, in one line under it. */
+  const hintFor = (r: ConfiguredRemote, probe: RemoteProbe) => {
+    switch (probe.reach) {
+      case "unauthorized":
+        if (r.token) return t("composer.env.hint.configToken");
+        return probe.relay
+          ? t("composer.env.hint.relayToken")
+          : t("composer.env.hint.agentToken");
+      case "cors":
+        return t("composer.env.hint.cors", { origin: window.location.origin });
+      case "down":
+        return t("composer.env.hint.down");
+      default:
+        return "";
+    }
+  };
+
+  const renderRemote = (r: ConfiguredRemote) => {
+    const key = normUrl(r.url);
+    const row = rows[key];
+    const done = row?.state === "done" ? row : null;
+    const state: Health = !done
+      ? "checking"
+      : done.probe.reach === "up"
+        ? "up"
+        : "down";
+    const active = env.mode === "remote" && env.baseUrl === key;
+    const hint = done && done.probe.reach !== "up" ? hintFor(r, done.probe) : "";
+    const token = tokenForRemote(r);
+    const relayUp = !!done && done.probe.relay && done.probe.reach === "up";
+    // The configured name, else what the remote calls itself, else its
+    // address; the address goes on the right unless it is the name already.
+    const address = hostLabel(r.url);
+    const shown = r.name || done?.name || address;
+    const sub = relayUp
+      ? `${t("composer.env.relay")} · ${tp("swarm.summary.agents", done.agents.length)}`
+      : shown === address
+        ? ""
+        : address;
+    return (
+      <div
+        key={key}
+        className="mode-env-entry"
+        data-testid="composer-env-remote"
+        data-reach={done ? done.probe.reach : "checking"}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          className={`mode-item mode-env-item ${active ? "is-selected" : ""}`}
+          title={r.url}
+          onClick={() => connectConfiguredRemote({ ...r, name: shown })}
+        >
+          {dot(state)}
+          <span className="mode-env-name">{shown}</span>
+          {sub ? <span className="mode-env-sub">{sub}</span> : null}
+        </button>
+        {hint ? (
+          <div className="mode-env-hint" data-reach={done?.probe.reach}>
+            <span>{hint}</span>
+            {done?.probe.reach === "unauthorized" && !r.token ? (
+              <button
+                type="button"
+                className="mode-env-hint-action"
+                onClick={() => enterTokenFor(r)}
+              >
+                {t("composer.env.enterToken")}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {relayUp && done.agents.length > 0 ? (
+          <div className="mode-env-nodes" role="group" aria-label={shown}>
+            {done.agents.map((a) => {
+              const route = a.path.join("/");
+              const mount =
+                key + a.path.map((n) => `/swarm/nodes/${n}`).join("");
+              return (
+                <button
+                  key={route}
+                  type="button"
+                  role="menuitem"
+                  className={`mode-item mode-env-item mode-env-node ${
+                    env.mode === "remote" && env.baseUrl === mount
+                      ? "is-selected"
+                      : ""
+                  }`}
+                  title={mount}
+                  onClick={() => connectSwarmNode(key, a.path, token)}
+                >
+                  {dot(a.online ? "up" : "down")}
+                  <span className="mode-env-name">{a.name}</span>
+                  <span className="mode-env-sub">
+                    {a.online
+                      ? a.path.length > 1
+                        ? route
+                        : ""
+                      : t("composer.env.nodeOffline")}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="workspace-chip-wrap">
@@ -194,8 +331,13 @@ export function EnvironmentChip() {
                       ? {
                           left: menuLeft,
                           bottom: window.innerHeight - anchor.top + 8,
+                          maxHeight: roomFor(anchor.top - 8),
                         }
-                      : { left: menuLeft, top: anchor.bottom + 8 }
+                      : {
+                          left: menuLeft,
+                          top: anchor.bottom + 8,
+                          maxHeight: roomFor(window.innerHeight - anchor.bottom - 8),
+                        }
                 }
               >
                 <div className="mode-menu-group-label">
@@ -219,28 +361,11 @@ export function EnvironmentChip() {
                     {t("composer.env.groupRemote")}
                   </div>
                 ) : null}
-                {remotes.map((r) => {
-                  const active =
-                    env.mode === "remote" && env.baseUrl === normUrl(r.url);
-                  return (
-                    <button
-                      key={r.url}
-                      type="button"
-                      role="menuitem"
-                      className={`mode-item mode-env-item ${active ? "is-selected" : ""}`}
-                      title={r.url}
-                      onClick={() =>
-                        connectRemote(r.url, getRemoteToken(r.url), r.name)
-                      }
-                    >
-                      {dot(health[normUrl(r.url)] ?? "checking")}
-                      <span className="mode-env-name">
-                        {r.name || hostLabel(r.url)}
-                      </span>
-                      <span className="mode-env-sub">{hostLabel(r.url)}</span>
-                    </button>
-                  );
-                })}
+                {remotes.length ? (
+                  <div className="mode-env-remotes">
+                    {remotes.map(renderRemote)}
+                  </div>
+                ) : null}
 
                 {adding ? (
                   <div className="mode-menu-form">
@@ -268,6 +393,9 @@ export function EnvironmentChip() {
                       autoComplete="off"
                       placeholder={t("composer.env.tokenPlaceholder")}
                       value={addToken}
+                      // Opened for a remote whose token is missing, the form
+                      // already names the remote: the token is what is left.
+                      autoFocus={!!addUrl}
                       onChange={(e) => setAddToken(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && addUrl.trim()) {
@@ -310,7 +438,12 @@ export function EnvironmentChip() {
                     role="menuitem"
                     className="mode-item mode-env-add"
                     data-testid="composer-env-add"
-                    onClick={() => setAdding(true)}
+                    onClick={() => {
+                      setAddName("");
+                      setAddUrl("");
+                      setAddToken("");
+                      setAdding(true);
+                    }}
                   >
                     {t("composer.env.addRemote")}
                   </button>

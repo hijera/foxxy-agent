@@ -170,6 +170,18 @@ func TestPromptBodyPrefersTheRationale(t *testing.T) {
 	}
 }
 
+// The rationale says why a command runs, not where: a run_command that names a
+// directory shows it, so the operator approves the place as well.
+func TestPromptBodyShowsTheDirectoryOfACommand(t *testing.T) {
+	got := PromptBody("run_command", `{"command":"npm test","cwd":"D:/other/project","permission_rationale":"Run the tests"}`)
+	if !strings.Contains(got, "Run the tests") {
+		t.Fatalf("PromptBody() = %q, want the rationale kept", got)
+	}
+	if !strings.Contains(got, "D:/other/project") {
+		t.Fatalf("PromptBody() = %q, want the directory named", got)
+	}
+}
+
 func TestExtractRunCommand(t *testing.T) {
 	if got := ExtractRunCommand(`{"command":"  make build  "}`); got != "make build" {
 		t.Fatalf("ExtractRunCommand() = %q, want the trimmed command", got)

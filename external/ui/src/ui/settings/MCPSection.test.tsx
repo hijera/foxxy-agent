@@ -66,7 +66,7 @@ const listResponse = {
 };
 
 function stubFetch() {
-  const calls: Array<{ url: string; method: string }> = [];
+	const calls: Array<{ url: string; method: string }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -74,8 +74,27 @@ function stubFetch() {
       return Promise.resolve({ ok: true, json: async () => listResponse });
     }),
   );
-  return calls;
+	return calls;
 }
+
+test("lists MCP servers for the selected session workspace", async () => {
+  const calls: Array<{ url: string; headers: HeadersInit | undefined }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), headers: init?.headers });
+      return Promise.resolve({ ok: true, json: async () => listResponse });
+    }),
+  );
+
+  render(<MCPSection activeSessionId="sess_workspace" />);
+
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+  expect(calls[0]).toEqual({
+    url: "/foxxycode/mcp",
+    headers: { "X-FoxxyCode-Session-ID": "sess_workspace" },
+  });
+});
 
 test("renders merged servers with scope badges and per-origin locks", async () => {
   stubFetch();
@@ -122,10 +141,9 @@ test("renders merged servers with scope badges and per-origin locks", async () =
   );
 });
 
-// The row leads with its chevron and its status dot, then the name: a server
-// glyph between them said nothing the name did not, and on a phone it took
-// width the name needed.
-test("a server row leads with the chevron and the status dot, no glyph", async () => {
+// The row leads with its chevron and enable switch, then its status dot and
+// name: the whole-server control shares a column with the per-tool switches.
+test("a server row leads with the chevron and its enable switch", async () => {
   stubFetch();
   render(<MCPSection />);
   await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
@@ -134,10 +152,11 @@ test("a server row leads with the chevron and the status dot, no glyph", async (
   const head = dot.parentElement!;
   expect(head.className).toContain("mcp-list-item-head");
   expect(head.querySelectorAll(":scope > svg")).toHaveLength(0);
-  const [first, second, third] = Array.from(head.children);
+  const [first, second, third, fourth] = Array.from(head.children);
   expect(first).toBe(screen.getByTestId("mcp-expand-files"));
-  expect(second).toBe(dot);
-  expect(third!.className).toContain("mcp-list-item-text");
+  expect(second).toBe(screen.getByTestId("mcp-toggle-files"));
+  expect(third).toBe(dot);
+  expect(fourth!.className).toContain("mcp-list-item-text");
 });
 
 test("expanding a server shows per-tool switches reflecting disabled state", async () => {
@@ -158,6 +177,13 @@ test("expanding a server shows per-tool switches reflecting disabled state", asy
       .getByTestId("mcp-tool-toggle-files-write_file")
       .getAttribute("aria-checked"),
   ).toBe("false");
+  const toolRow = screen
+    .getByTestId("mcp-tool-toggle-files-read_file")
+    .closest("li")!;
+  expect(toolRow.firstElementChild).toBe(
+    screen.getByTestId("mcp-tool-toggle-files-read_file"),
+  );
+  expect(toolRow.children[1]?.className).toContain("mcp-tool-text");
 });
 
 test("tool switch posts the toggle endpoint", async () => {
@@ -390,6 +416,9 @@ test("the project trust policy is edited in this tab, not in a separate section"
 
   const picker = screen.getByTestId("mcp-project-trust") as HTMLSelectElement;
   expect(picker.value).toBe("ask");
+  expect(
+    screen.getByRole("button", { name: "About Project servers" }),
+  ).toBeInTheDocument();
 
   fireEvent.change(picker, { target: { value: "deny" } });
   await waitFor(() =>
@@ -704,4 +733,186 @@ test("a list that cannot be reached at all says so instead of loading forever", 
   const note = await screen.findByTestId("mcp-load-error");
   expect(note.textContent).toContain("Failed to fetch");
   expect(screen.queryByText("Loading…")).toBeNull();
+});
+
+test("malformed JSON on the first load ends loading and shows an error", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => Promise.reject(new SyntaxError("Invalid JSON")),
+    }),
+  );
+  render(<MCPSection />);
+
+  const note = await screen.findByTestId("mcp-load-error");
+  expect(note.textContent).toContain("Invalid JSON");
+  expect(screen.queryByText("Loading…")).toBeNull();
+  expect(
+    (screen.getByTestId("mcp-refresh") as HTMLButtonElement).disabled,
+  ).toBe(false);
+});
+
+test("malformed JSON on refresh keeps the rows and re-enables refresh", async () => {
+  let refresh = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (refresh) throw new SyntaxError("Invalid JSON");
+          return listResponse;
+        },
+      }),
+    ),
+  );
+  render(<MCPSection />);
+  await screen.findByTestId("mcp-list");
+
+  refresh = true;
+  fireEvent.click(screen.getByTestId("mcp-refresh"));
+  const note = await screen.findByTestId("mcp-load-error");
+  expect(note.textContent).toContain("Invalid JSON");
+  expect(screen.getByTestId("mcp-toggle-files")).toBeTruthy();
+  expect(
+    (screen.getByTestId("mcp-refresh") as HTMLButtonElement).disabled,
+  ).toBe(false);
+});
+
+test.each([
+  ["server switch", "mcp-toggle-files", "/foxxycode/mcp/files/disable"],
+  [
+    "tool switch",
+    "mcp-tool-toggle-files-read_file",
+    "/foxxycode/mcp/files/tools/read_file/disable",
+  ],
+  ["delete", "mcp-delete-files", "/foxxycode/mcp/files"],
+  ["project trust policy", "mcp-project-trust", "/foxxycode/mcp/project-trust"],
+])(
+  "a rejected %s request shows an error and releases its control",
+  async (_name, testId, path) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url === path && init?.method !== "GET") {
+          return Promise.reject(new TypeError("Connection lost"));
+        }
+        return Promise.resolve({ ok: true, json: async () => listResponse });
+      }),
+    );
+    render(<MCPSection />);
+    await screen.findByTestId("mcp-list");
+    if (testId.includes("tool-toggle")) {
+      fireEvent.click(screen.getByTestId("mcp-expand-files"));
+    }
+    const control = screen.getByTestId(testId);
+    if (testId === "mcp-project-trust") {
+      fireEvent.change(control, { target: { value: "deny" } });
+    } else {
+      fireEvent.click(control);
+    }
+
+    await waitFor(() =>
+      expect(screen.getByTestId("mcp-request-error").textContent).toContain(
+        "Connection lost",
+      ),
+    );
+    expect((control as HTMLButtonElement | HTMLSelectElement).disabled).toBe(
+      false,
+    );
+  },
+);
+
+test("a rejected trust request releases the approval control", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((_url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? Promise.reject(new TypeError("Connection lost"))
+        : Promise.resolve({
+            ok: true,
+            json: async () => pendingListResponse,
+          }),
+    ),
+  );
+  render(<MCPSection />);
+  const control = await screen.findByTestId("mcp-trust-audit-marker");
+  fireEvent.click(control);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("mcp-request-error").textContent).toContain(
+      "Connection lost",
+    ),
+  );
+  expect((control as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("a rejected editor save reports the error and re-enables save", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockImplementation((_url: string, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? Promise.reject(new TypeError("Connection lost"))
+          : Promise.resolve({ ok: true, json: async () => listResponse }),
+      ),
+  );
+  render(<MCPSection />);
+  await screen.findByTestId("mcp-list");
+  fireEvent.click(screen.getByTestId("mcp-add-server"));
+  fireEvent.change(screen.getByTestId("mcp-editor-name"), {
+    target: { value: "new-server" },
+  });
+  const save = screen.getByTestId("mcp-editor-save") as HTMLButtonElement;
+  fireEvent.click(save);
+
+  await waitFor(() =>
+    expect(
+      document.querySelector(".mcp-editor .settings-error")?.textContent,
+    ).toContain("Connection lost"),
+  );
+  expect(save.disabled).toBe(false);
+});
+
+test("a slow failed refresh cannot overwrite a newer reload", async () => {
+  let toggled = false;
+  let rejectRefresh: (err: unknown) => void = () => {};
+  const refreshRequest = new Promise<never>((_, reject) => {
+    rejectRefresh = reject;
+  });
+  const reloaded = {
+    ...listResponse,
+    items: [{ ...listResponse.items[0]!, name: "files-reloaded" }],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url) === "/foxxycode/mcp?refresh=1") return refreshRequest;
+      if (init?.method === "POST") {
+        toggled = true;
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => (toggled ? reloaded : listResponse),
+      });
+    }),
+  );
+  render(<MCPSection />);
+  await screen.findByTestId("mcp-list");
+
+  fireEvent.click(screen.getByTestId("mcp-refresh"));
+  fireEvent.click(screen.getByTestId("mcp-toggle-files"));
+  await screen.findByTestId("mcp-toggle-files-reloaded");
+
+  rejectRefresh(new TypeError("Connection lost"));
+  await waitFor(() =>
+    expect(
+      (screen.getByTestId("mcp-refresh") as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  expect(screen.queryByTestId("mcp-load-error")).toBeNull();
+  expect(screen.getByTestId("mcp-toggle-files-reloaded")).toBeTruthy();
 });

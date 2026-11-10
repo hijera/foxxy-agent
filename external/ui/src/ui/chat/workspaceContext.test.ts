@@ -24,7 +24,11 @@ const gitCtx: WorkspaceContext = {
   branches: ["zeta", "main", "feature/login"],
   worktrees: [
     { path: "/repos/foxxycode-agent", branch: "main", main: true },
-    { path: "/home/.foxxycode/worktrees/foxxycode-agent/feature-login", branch: "feature/login", main: false },
+    {
+      path: "/home/.foxxycode/worktrees/foxxycode-agent/feature-login",
+      branch: "feature/login",
+      main: false,
+    },
   ],
 };
 
@@ -49,8 +53,17 @@ describe("workspaceContext helpers", () => {
     expect(folderChipLabel(null)).toBe("workspace");
     expect(folderChipLabel(gitCtx)).toBe("foxxycode-agent");
     expect(
-      folderChipLabel({ ...gitCtx, name: "", path: "/tmp/alpha" }),
-    ).toBe("alpha");
+      folderChipLabel({
+        ...gitCtx,
+        path: "/repos/foxxycode-agent/.foxxycode/worktrees/feature-login",
+        name: "feature-login",
+        is_worktree: true,
+        branch: "feature/login",
+      }),
+    ).toBe("foxxycode-agent");
+    expect(folderChipLabel({ ...gitCtx, name: "", path: "/tmp/alpha" })).toBe(
+      "alpha",
+    );
   });
 
   it("shows the branch chip only inside git repositories", () => {
@@ -80,7 +93,9 @@ describe("workspaceContext helpers", () => {
     expect(isWorktreeBadgeActive(null, false)).toBe(false);
     expect(isWorktreeBadgeActive(gitCtx, false)).toBe(false);
     expect(isWorktreeBadgeActive(gitCtx, true)).toBe(true);
-    expect(isWorktreeBadgeActive({ ...gitCtx, is_worktree: true }, false)).toBe(true);
+    expect(isWorktreeBadgeActive({ ...gitCtx, is_worktree: true }, false)).toBe(
+      true,
+    );
   });
 
   it("shows the svn chip only inside svn working copies", () => {
@@ -150,8 +165,10 @@ describe("workspaceContext helpers", () => {
   });
 
   it("cleans typed and pasted paths", () => {
-    expect(cleanPathInput('  D:\\work  ')).toBe("D:\\work");
-    expect(cleanPathInput('"D:\\work with spaces"')).toBe("D:\\work with spaces");
+    expect(cleanPathInput("  D:\\work  ")).toBe("D:\\work");
+    expect(cleanPathInput('"D:\\work with spaces"')).toBe(
+      "D:\\work with spaces",
+    );
     expect(cleanPathInput('"')).toBe('"');
     expect(cleanPathInput("")).toBe("");
   });

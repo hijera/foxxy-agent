@@ -82,7 +82,7 @@ func compactionBoundary(history []llm.Message, keepLastTurns int) int {
 // outgrew the summarizer's window, and the live row. provider is the turn's provider: it stands in
 // for the session model's summarizer.
 func (a *Agent) maybeCompact(ctx context.Context, provider llm.Provider, lastInputTokens int) (bool, error) {
-	if !a.cfg.Compaction.CompactionEnabled() {
+	if !a.cfg.Compaction.IsAutoEnabled() {
 		return false, nil
 	}
 	history := a.state.GetMessages()

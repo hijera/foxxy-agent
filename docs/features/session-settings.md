@@ -33,7 +33,7 @@ The model, the reasoning level (thinking switched off included) and the mode of 
 
 ## What happens when you send one
 
-A message that is nothing but commands runs no turn. The settings are applied, the model sees nothing, and the surface shows a short notice of each change, such as `Model: rpa/qwen3.8-27b for the next 3 turns`.
+A message that is nothing but commands runs no turn. The settings are applied and the model sees nothing. The web UI and the console show the change on their selectors and footer; an editor, the Telegram bot and an HTTP client get a short notice of each change as the answer to the message, such as `Model: rpa/qwen3.8-27b for the next 3 turns`. The transcript keeps nothing of the exchange ([What the transcript shows](#what-the-transcript-shows)).
 
 A message with text after the commands applies the session-wide changes and runs the text as a turn with the turn-scoped ones. The override travels with that prompt and is installed only once the turn is admitted, so a second tab or a background wake cannot take it first.
 
@@ -70,6 +70,18 @@ The agent changes its model or reasoning level with `switch_model` only when the
 
 A model id or a level the configuration does not offer is an error in a `switch_model` or a `spawn_agent` call, for the model to correct. In a skill or a definition file it is a warning in the agent log, and the session's own value stays.
 
+## What the transcript shows
+
+A change you make shows where the surface keeps its settings: the composer's selectors and its line of overrides in the web UI, the footer of the console, the options of an editor. The transcript gets no line for it, whether it came from a selector, a command, the permission dialog, or `--model` and `--mode` at launch, `foxxycode -p` included: you made it, and it is on screen already.
+
+A change the agent made itself is the one the transcript notes: its `switch_model` call, or a skill whose frontmatter names a model or a reasoning level. The web UI shows a **SYSTEM** row at the end of that turn and the console prints one line, both with the text of the change, such as `Model: rpa/qwen3.8-27b for this session` or `Reasoning: off for the rest of this turn`.
+
+![A turn where the user asked for another model: the switch_model row, the answer written by the new model, and a SYSTEM row "Model: stub/reviewer for this session"](../assets/session-settings/session-settings-agent-switch-dark-1280.png)
+
+*The agent switched the model on request; the SYSTEM row closing the turn is the only line a settings change leaves.*
+
+A session saved by an earlier version keeps a notice of every change in its `ui_log.json`. The web UI does not show the ones the agent could not have made: a mode, a permission mode, a change for a number of turns, and a model or a level set for the session in a turn without a `switch_model` call.
+
 ## On each surface
 
 ### Web UI
@@ -78,7 +90,7 @@ The composer's **Mode**, **Permissions** and **Model** selectors show the sessio
 
 ![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 
-*The composer after the session was switched to bypass and the model changed for two turns; each change left a SYSTEM line in the transcript.*
+*The composer after the session was switched to bypass and the model changed for two turns: the selectors and the line of overrides show both changes, and the transcript has no line for them.*
 
 Typing `/` lists the commands with their arguments. Picking `/model`, `/reasoning` or `/permissions` opens that selector, and picking `/agent`, `/plan`, `/ask` or `/debug` switches the mode. `/docs` opens the built-in reader; the Mode selector chooses the `docs` editing mode. Typed out with a value and sent, a settings command goes to the server like any other prompt.
 
@@ -90,7 +102,7 @@ Typing `/` lists the commands with their arguments. Picking `/model`, `/reasonin
 
 The console runs the same commands through the same parser. A bare `/model`, `/reasoning` or `/permissions` opens its picker. The footer shows the permission mode next to the folder, in the warning colour for `bypass`, and a line of the turn overrides under the model. Both belong to the session on screen: after `/new` or `/resume` the footer names the permission mode and the overrides of the session entered.
 
-![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: three notices, bypass in the footer, and "next turn: model stub/foxxycode-mini • next 3 turns: reasoning high"](../assets/session-settings/session-settings-console-footer-dark.png)
+![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: no line in the transcript, bypass in the footer, and "next turn: model stub/foxxycode-mini • next 3 turns: reasoning high"](../assets/session-settings/session-settings-console-footer-dark.png)
 
 *The console footer: the permission mode, and what is changed for the next turn and the next three.*
 

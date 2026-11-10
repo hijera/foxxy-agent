@@ -51,6 +51,11 @@ type Subsystem struct {
 	// descriptor still exists so the configuration can be read and refused
 	// honestly instead of silently doing nothing.
 	Available bool
+	// NeedsSessions is true for a surface that runs agent turns through the
+	// runtime's session manager. A process whose enabled surfaces need none -
+	// a bare swarm relay - opens no session store, and such a surface cannot
+	// start in it (Supervisor.Sessionless).
+	NeedsSessions bool
 	// Enabled reports whether cfg asks for this surface.
 	Enabled func(*config.Config) bool
 	// Fingerprint returns the part of the configuration the surface is built
@@ -64,8 +69,12 @@ type Subsystem struct {
 	// so when this changes the whole process asks to be replaced instead. A nil
 	// RestartKey means nothing about this surface needs that.
 	RestartKey func(*config.Config) string
-	// Run blocks until ctx is cancelled or the surface fails.
-	Run func(ctx context.Context) error
+	// Run blocks until ctx is cancelled or the surface fails. cfg is the
+	// configuration it is started from - the one its Fingerprint and
+	// RestartKey were read from - so a surface a reload turns on is built, and
+	// listens, where that configuration says rather than where the process
+	// started.
+	Run func(ctx context.Context, cfg *config.Config) error
 }
 
 // enabled answers the descriptor's own question, tolerating a missing func.

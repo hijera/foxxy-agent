@@ -1,0 +1,143 @@
+package tools_test
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/cucumber/godog"
+
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	apptools "github.com/hijera/foxxycode-agent/internal/tools"
+)
+
+type worktreeCreateState struct {
+	root      string
+	state     *session.State
+	manager   *session.Manager
+	env       *apptools.Env
+	output    string
+	worktree  string
+	createErr error
+}
+
+func (s *worktreeCreateState) git(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %v: %w: %s", args, err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (s *worktreeCreateState) setup() error {
+	var err error
+	s.root, err = os.MkdirTemp("", "foxxycode-worktree-feature-*")
+	if err != nil {
+		return err
+	}
+	if _, err = s.git(s.root, "init", "-b", "main"); err != nil {
+		return err
+	}
+	if _, err = s.git(s.root, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "--allow-empty", "-m", "initial"); err != nil {
+		return err
+	}
+	origin := filepath.Join(s.root, "..", filepath.Base(s.root)+"-origin.git")
+	if _, err = s.git(s.root, "clone", "--bare", s.root, origin); err != nil {
+		return err
+	}
+	if _, err = s.git(s.root, "remote", "add", "origin", origin); err != nil {
+		return err
+	}
+	if _, err = s.git(s.root, "fetch", "origin"); err != nil {
+		return err
+	}
+	if _, err = s.git(s.root, "remote", "set-head", "origin", "-a"); err != nil {
+		return err
+	}
+	s.state = &session.State{ID: "sess_worktree_bdd", CWD: s.root, Mode: session.ModeAgent}
+	cfg := &config.Config{Paths: config.Paths{Home: s.root, CWD: s.root}}
+	s.manager = session.NewManager(cfg, &scriptedQuestionSender{}, nil, slog.Default(), s.root, nil)
+	s.env = &apptools.Env{CWD: s.root, SessionID: s.state.ID}
+	s.env.SwitchWorkspace = func(ctx context.Context, dir string) error {
+		return s.manager.SetSessionWorkspaceDuringTurn(ctx, s.state, dir)
+	}
+	return nil
+}
+
+func (s *worktreeCreateState) create(branch string) error {
+	_, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
+		fmt.Sprintf(`{"branch":%q}`, branch), s.env)
+	if err != nil {
+		return err
+	}
+	s.worktree = s.state.GetCWD()
+	return nil
+}
+
+func (s *worktreeCreateState) run(command string) error {
+	var err error
+	s.output, err = apptools.NewRegistry().Execute(context.Background(), "run_command", fmt.Sprintf(`{"command":%q}`, command), s.env)
+	return err
+}
+
+func (s *worktreeCreateState) tryCreate(branch string) error {
+	_, s.createErr = apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
+		fmt.Sprintf(`{"branch":%q}`, branch), s.env)
+	return nil
+}
+
+func (s *worktreeCreateState) refused() error {
+	if s.createErr == nil {
+		return fmt.Errorf("worktree_create succeeded where a refusal was expected")
+	}
+	if cwd := s.state.GetCWD(); cwd != s.root {
+		return fmt.Errorf("session moved to %q on a refused request", cwd)
+	}
+	return nil
+}
+
+func (s *worktreeCreateState) check() error {
+	if s.worktree == s.root || !strings.Contains(s.worktree, filepath.Join(".foxxycode", "worktrees")) {
+		return fmt.Errorf("session did not move into a worktree: %q", s.worktree)
+	}
+	if !strings.Contains(filepath.ToSlash(s.output), filepath.ToSlash(s.worktree)) {
+		return fmt.Errorf("run_command output %q does not name worktree %q", s.output, s.worktree)
+	}
+	return nil
+}
+
+func TestWorktreeCreateFeature(t *testing.T) {
+	s := &worktreeCreateState{}
+	suite := godog.TestSuite{
+		Name: "worktree-create",
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, s.setup() })
+			sc.After(func(_ context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				if s.root != "" {
+					_ = os.RemoveAll(s.root)
+					_ = os.RemoveAll(s.root + "-origin.git")
+				}
+				return context.Background(), nil
+			})
+			sc.Step(`^a session in a repository with a bare origin$`, func() error { return nil })
+			sc.Step(`^the agent creates a worktree for "([^"]*)"$`, s.create)
+			sc.Step(`^the agent tries to create a worktree for "([^"]*)"$`, s.tryCreate)
+			sc.Step(`^the creation is refused and the session stays in the main checkout$`, s.refused)
+			sc.Step(`^the agent runs "([^"]*)" without a cwd argument$`, s.run)
+			sc.Step(`^the command runs inside the new worktree$`, s.check)
+		},
+		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/worktree_create.feature"}, TestingT: t, Strict: true},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("worktree create feature failed")
+	}
+}

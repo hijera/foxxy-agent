@@ -13,9 +13,11 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/platform"
@@ -40,14 +42,31 @@ type transport interface {
 	Close() error
 }
 
+// stopper is a transport whose Close starts a shutdown that ends later: a
+// stdio server is given time to exit on its own before its process group is
+// terminated, a streamable HTTP session is ended with a DELETE. Stopped is
+// closed once that is over.
+type stopper interface {
+	Stopped() <-chan struct{}
+}
+
+// loser is a transport that can tell the connection is gone for good while
+// its message stream stays open: a streamable HTTP server that no longer
+// knows the session. Lost is closed then.
+type loser interface {
+	Lost() <-chan struct{}
+}
+
 // rpcResult carries one JSON-RPC outcome to a pending call.
 type rpcResult struct {
 	result json.RawMessage
 	err    error
 }
 
-// Client connects to a single MCP server and exposes its tools.
-type Client struct {
+// conn is one live connection to an MCP server: the transport, the calls in
+// flight and the tool list the server gave at the handshake. A Client is a
+// handle on a conn; the Pool hands several handles out on one conn.
+type conn struct {
 	name string
 	tr   transport
 	log  *slog.Logger
@@ -57,44 +76,88 @@ type Client struct {
 	mu      sync.Mutex
 
 	tools []ToolInfo
-	done  chan struct{}
-	// closeOnce guards close(done): Close runs from several unsynchronised
-	// teardown paths (CloseAll, reload parking, probe), and two of them
-	// racing the old select-default would panic on a double close.
-	closeOnce sync.Once
 
-	// declared is the fingerprint of the configured declaration the client
-	// was started from (TrustGate.Connect), empty for a client an ACP client
-	// supplied. A reconcile compares it to the declaration on disk, so a
-	// server whose command was edited is started again.
-	declared string
+	// done is closed by close. gone is closed by close as well, and when the
+	// transport's stream ends on its own: the server exited or dropped the
+	// connection, and nothing sent over it will be answered any more.
+	done      chan struct{}
+	closeOnce sync.Once
+	closeErr  error
+	gone      chan struct{}
+	goneOnce  sync.Once
 }
 
-// newClientWithTransport wraps a started transport, performs the MCP
-// handshake, and caches the server's tool list. The transport is closed on
-// handshake failure.
-func newClientWithTransport(ctx context.Context, name string, tr transport, log *slog.Logger) (*Client, error) {
-	c := &Client{
+// Client is a handle on a connection to one MCP server. A client Connect (or
+// NewStdioClient, NewHTTPClient, NewSSEClient) returns owns its connection:
+// Close ends it. A client a Pool hands out is a lease on a connection other
+// sessions may hold as well: Close gives the lease back, and the pool ends the
+// connection once nothing holds it and the pool does not keep it. Either way a
+// closed client refuses further calls.
+type Client struct {
+	name string
+	conn *conn
+	// release gives a pool lease back; nil for a client that owns its
+	// connection.
+	release func()
+	// releaseNow is release for a caller that started the server for itself
+	// (a probe): a server nobody else holds stops at once instead of waiting
+	// out the stop delay. Nil for a client that owns its connection.
+	releaseNow func()
+	closed     atomic.Bool
+
+	// declared is the fingerprint of the declaration the client was started
+	// from (TrustGate.Connect, Pool.Acquire), empty for one neither started.
+	// A reconcile compares it to the declaration on disk, so a configured
+	// server whose command was edited is started again.
+	declared string
+	// poolKey is the PoolKey a lease was taken under, empty for a client
+	// that owns its connection.
+	poolKey string
+}
+
+// newConn wraps a started transport, performs the MCP handshake, and caches
+// the server's tool list. The transport is closed on handshake failure.
+func newConn(ctx context.Context, name string, tr transport, log *slog.Logger) (*conn, error) {
+	c := &conn{
 		name:    name,
 		tr:      tr,
 		log:     log,
 		pending: make(map[interface{}]chan rpcResult),
 		done:    make(chan struct{}),
+		gone:    make(chan struct{}),
 	}
 
 	go c.readLoop()
 
 	if err := c.initialize(ctx); err != nil {
-		_ = c.Close()
+		c.closeAndWait()
 		return nil, fmt.Errorf("mcp %s: initialize: %w", name, err)
 	}
 
 	if err := c.listTools(ctx); err != nil {
-		_ = c.Close()
+		c.closeAndWait()
 		return nil, fmt.Errorf("mcp %s: list tools: %w", name, err)
 	}
 
 	return c, nil
+}
+
+// closeAndWait ends a connection whose handshake failed and returns once the
+// server behind it is gone, so a failed start leaves no process behind for
+// the caller's next try to run beside.
+func (c *conn) closeAndWait() {
+	_ = c.close()
+	<-c.stopped()
+}
+
+// newClientWithTransport connects over a started transport and returns a
+// client that owns the connection.
+func newClientWithTransport(ctx context.Context, name string, tr transport, log *slog.Logger) (*Client, error) {
+	c, err := newConn(ctx, name, tr, log)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{name: name, conn: c}, nil
 }
 
 // NewStdioClient starts an MCP server subprocess and connects to it.
@@ -110,17 +173,21 @@ func NewStdioClient(ctx context.Context, name, command string, args []string, en
 // list, without a connection. Used by tests and stubs; CallTool fails.
 func NewStaticClient(name string, tools []ToolInfo) *Client {
 	return &Client{
-		name:    name,
-		tools:   tools,
-		log:     slog.Default(),
-		pending: make(map[interface{}]chan rpcResult),
-		done:    make(chan struct{}),
+		name: name,
+		conn: &conn{
+			name:    name,
+			tools:   tools,
+			log:     slog.Default(),
+			pending: make(map[interface{}]chan rpcResult),
+			done:    make(chan struct{}),
+			gone:    make(chan struct{}),
+		},
 	}
 }
 
 // Tools returns the tools exposed by this MCP server.
 func (c *Client) Tools() []ToolInfo {
-	return c.tools
+	return c.conn.tools
 }
 
 // Name returns the server name.
@@ -134,8 +201,71 @@ func (c *Client) Declared() string {
 	return c.declared
 }
 
+// PoolKey returns the PoolKey a pool lease was taken under - what the server
+// resolves to and, for one tied to a workspace, the workspace - or "" for a
+// client that owns its connection.
+func (c *Client) PoolKey() string {
+	return c.poolKey
+}
+
+// Alive reports whether calls through the client can still reach the
+// server: false once the client was closed, or the connection ended - the
+// server exited or dropped it. A client without a connection
+// (NewStaticClient) is alive until closed.
+func (c *Client) Alive() bool {
+	if c.closed.Load() {
+		return false
+	}
+	select {
+	case <-c.conn.gone:
+		return false
+	default:
+		return true
+	}
+}
+
 // CallTool invokes a tool on the MCP server and returns the result.
 func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (string, error) {
+	if c.closed.Load() {
+		return "", fmt.Errorf("mcp %s: client closed", c.name)
+	}
+	return c.conn.callTool(ctx, toolName, argsJSON)
+}
+
+// Close lets the server go: a client that owns its connection ends it, a
+// pool lease is given back. Closing twice is a no-op.
+func (c *Client) Close() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	if c.release != nil {
+		c.release()
+		return nil
+	}
+	return c.conn.close()
+}
+
+// CloseNow is Close for a probe: a pooled server nobody else holds or keeps
+// stops at once rather than after the idle timeout.
+func (c *Client) CloseNow() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	if c.releaseNow != nil {
+		c.releaseNow()
+		return nil
+	}
+	if c.release != nil {
+		c.release()
+		return nil
+	}
+	return c.conn.close()
+}
+
+// ---- internal ----
+
+// callTool invokes a tool over the connection and returns its text result.
+func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (string, error) {
 	var args interface{}
 	if argsJSON != "" {
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
@@ -177,19 +307,38 @@ func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (strin
 	return text, nil
 }
 
-// Close stops the connection (and the subprocess for stdio transports).
-// It is safe to call concurrently and repeatedly.
-func (c *Client) Close() error {
-	c.closeOnce.Do(func() { close(c.done) })
-	if c.tr != nil {
-		return c.tr.Close()
-	}
-	return nil
+// close ends the connection (and, for stdio, the server's process group) and
+// fails the calls still waiting for an answer. Only the first call does
+// anything: the pool and a lease can end one connection at the same moment.
+func (c *conn) close() error {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		c.markGone()
+		c.failPending(fmt.Errorf("mcp %s: connection closed", c.name))
+		if c.tr != nil {
+			c.closeErr = c.tr.Close()
+		}
+	})
+	return c.closeErr
 }
 
-// ---- internal ----
+// markGone records that nothing sent over the connection is answered any more.
+func (c *conn) markGone() {
+	c.goneOnce.Do(func() { close(c.gone) })
+}
 
-func (c *Client) initialize(ctx context.Context) error {
+// stopped is closed once the server behind the connection no longer runs: at
+// once for a remote connection, once its process group is gone for stdio.
+func (c *conn) stopped() <-chan struct{} {
+	if s, ok := c.tr.(stopper); ok {
+		return s.Stopped()
+	}
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
+func (c *conn) initialize(ctx context.Context) error {
 	_, err := c.call(ctx, "initialize", map[string]interface{}{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]interface{}{},
@@ -205,18 +354,26 @@ func (c *Client) initialize(ctx context.Context) error {
 	return c.notify(ctx, "notifications/initialized", nil)
 }
 
-func (c *Client) listTools(ctx context.Context) error {
-	result, err := c.call(ctx, "tools/list", nil)
-	if err != nil {
-		return err
-	}
-
-	tools, err := parseToolListResult(result)
+// listTools asks the server for its tools at the handshake and keeps the list
+// as the connection's: every session holding the connection is offered it.
+func (c *conn) listTools(ctx context.Context) error {
+	tools, err := c.fetchTools(ctx)
 	if err != nil {
 		return err
 	}
 	c.tools = tools
 	return nil
+}
+
+// fetchTools asks the server for the tools it offers now, without touching
+// the list the connection was opened with.
+func (c *conn) fetchTools(ctx context.Context) ([]ToolInfo, error) {
+	result, err := c.call(ctx, "tools/list", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseToolListResult(result)
 }
 
 func parseToolListResult(result []byte) ([]ToolInfo, error) {
@@ -246,7 +403,15 @@ func parseToolListResult(result []byte) ([]ToolInfo, error) {
 	return tools, nil
 }
 
-func (c *Client) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
+func (c *conn) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
+	// A connection that ended answers nothing: fail at once rather than
+	// sending into it and waiting for the caller's context.
+	select {
+	case <-c.gone:
+		return nil, fmt.Errorf("mcp %s: connection closed", c.name)
+	default:
+	}
+
 	id := c.nextID.Add(1)
 	ch := make(chan rpcResult, 1)
 
@@ -276,12 +441,21 @@ func (c *Client) call(ctx context.Context, method string, params interface{}) (j
 	select {
 	case res := <-ch:
 		return res.result, res.err
+	case <-c.gone:
+		// The connection went while the call waited; an answer that made it
+		// in first still wins.
+		select {
+		case res := <-ch:
+			return res.result, res.err
+		default:
+			return nil, fmt.Errorf("mcp %s: connection closed", c.name)
+		}
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (c *Client) notify(ctx context.Context, method string, params interface{}) error {
+func (c *conn) notify(ctx context.Context, method string, params interface{}) error {
 	msg := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -292,7 +466,7 @@ func (c *Client) notify(ctx context.Context, method string, params interface{}) 
 	return c.send(ctx, msg)
 }
 
-func (c *Client) send(ctx context.Context, v interface{}) error {
+func (c *conn) send(ctx context.Context, v interface{}) error {
 	if c.tr == nil {
 		return fmt.Errorf("mcp %s: no transport (static client)", c.name)
 	}
@@ -303,10 +477,14 @@ func (c *Client) send(ctx context.Context, v interface{}) error {
 	return c.tr.Send(ctx, data)
 }
 
-func (c *Client) readLoop() {
+func (c *conn) readLoop() {
 	msgs := c.messagesOrNil()
 	if msgs == nil {
 		return
+	}
+	var lost <-chan struct{}
+	if l, ok := c.tr.(loser); ok {
+		lost = l.Lost()
 	}
 	for {
 		select {
@@ -314,10 +492,15 @@ func (c *Client) readLoop() {
 			if !ok {
 				// Transport died: fail every waiter instead of letting calls
 				// hang until their ctx expires.
+				c.markGone()
 				c.failPending(fmt.Errorf("mcp %s: connection closed", c.name))
 				return
 			}
 			c.dispatch(data)
+		case <-lost:
+			c.markGone()
+			c.failPending(fmt.Errorf("mcp %s: the server no longer knows this session", c.name))
+			return
 		case <-c.done:
 			return
 		}
@@ -325,7 +508,7 @@ func (c *Client) readLoop() {
 }
 
 // failPending resolves every in-flight call with err.
-func (c *Client) failPending(err error) {
+func (c *conn) failPending(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for id, ch := range c.pending {
@@ -337,7 +520,7 @@ func (c *Client) failPending(err error) {
 	}
 }
 
-func (c *Client) messagesOrNil() <-chan []byte {
+func (c *conn) messagesOrNil() <-chan []byte {
 	if c.tr == nil {
 		return nil
 	}
@@ -345,7 +528,7 @@ func (c *Client) messagesOrNil() <-chan []byte {
 }
 
 // dispatch routes one server->client JSON-RPC message to its pending call.
-func (c *Client) dispatch(data []byte) {
+func (c *conn) dispatch(data []byte) {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
 		return
@@ -395,57 +578,97 @@ func (c *Client) dispatch(data []byte) {
 
 // ---- stdio transport ----
 
+// stdioExitGrace is how long a closed stdio server is given to exit on its
+// own once its stdin is closed - the shutdown MCP asks a client to start with -
+// before its process group is terminated, and stdioTermGrace how long the
+// group then gets between SIGTERM and SIGKILL.
+const (
+	stdioExitGrace = 2 * time.Second
+	stdioTermGrace = 3 * time.Second
+)
+
 // stdioTransport speaks newline-delimited JSON-RPC with a subprocess.
 type stdioTransport struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	msgs   chan []byte
-	done   chan struct{}
-	cancel context.CancelFunc
-	// closeOnce keeps the teardown single-shot across racing Close callers.
+	name  string
+	log   *slog.Logger
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	// writeMu keeps one message whole on stdin while sessions sharing the
+	// server send side by side (os.File serializes writes as well; the
+	// transport does not lean on that). Close does not take it: closing the
+	// pipe is what wakes a write stuck on a server that stopped reading.
+	writeMu sync.Mutex
+	msgs    chan []byte
+	done    chan struct{}
+	// exited is closed once the server process has been waited for, stopped
+	// once Close has finished with its process group.
+	exited    chan struct{}
+	stopped   chan struct{}
 	closeOnce sync.Once
+	// exitGrace and termGrace are stdioExitGrace and stdioTermGrace for this
+	// server; a test shortens them.
+	exitGrace time.Duration
+	termGrace time.Duration
+	// closeJob ends the Windows job object the server runs in, and with it
+	// whatever of its tree is left (platform.KillTreeOnClose); a no-op
+	// elsewhere.
+	closeJob func()
 }
 
 // newStdioTransport starts the subprocess on a transport-owned lifetime: the
-// connect ctx only bounds the handshake (in Client.call), never the process.
+// connect ctx only bounds the handshake (in conn.call), never the process.
 // Tying the process to the caller's ctx would kill it as soon as the
 // session-creating HTTP request finishes, breaking every later turn.
+//
+// The server runs in a process group of its own. A package runner (npx, uvx)
+// starts the actual server as a child of its own, and Close has to stop that
+// child as well, not only the process FoxxyCode started.
 func newStdioTransport(_ context.Context, name, command string, args []string, env []string, log *slog.Logger) (*stdioTransport, error) {
-	procCtx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(procCtx, command, args...)
+	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(), env...)
 	platform.HideConsoleWindow(cmd)
+	platform.DetachProcessGroup(cmd)
 	platform.AdaptCommand(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("mcp %s: stdin pipe: %w", name, err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("mcp %s: stdout pipe: %w", name, err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		cancel()
 		return nil, fmt.Errorf("mcp %s: start: %w", name, err)
+	}
+	closeJob, err := platform.KillTreeOnClose(cmd)
+	if err != nil {
+		log.Debug("mcp server runs without a kill-on-close job", "server", name, "error", err)
 	}
 
 	t := &stdioTransport{
-		cmd:    cmd,
-		stdin:  stdin,
-		msgs:   make(chan []byte, 16),
-		done:   make(chan struct{}),
-		cancel: cancel,
+		name:      name,
+		log:       log,
+		cmd:       cmd,
+		stdin:     stdin,
+		msgs:      make(chan []byte, 16),
+		done:      make(chan struct{}),
+		exited:    make(chan struct{}),
+		stopped:   make(chan struct{}),
+		exitGrace: stdioExitGrace,
+		termGrace: stdioTermGrace,
+		closeJob:  closeJob,
 	}
 	go func() {
 		defer close(t.msgs)
 		// Reap the subprocess once its stdout closes so it never lingers as
 		// a zombie (probes and session teardown both end up here).
-		defer func() { _ = cmd.Wait() }()
+		defer func() {
+			_ = cmd.Wait()
+			close(t.exited)
+		}()
 		reader := bufio.NewReader(stdout)
 		for {
 			line, err := reader.ReadBytes('\n')
@@ -466,23 +689,61 @@ func newStdioTransport(_ context.Context, name, command string, args []string, e
 }
 
 func (t *stdioTransport) Send(_ context.Context, data []byte) error {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
 	_, err := t.stdin.Write(append(data, '\n'))
 	return err
 }
 
 func (t *stdioTransport) Messages() <-chan []byte { return t.msgs }
 
+// Close closes the server's stdin and returns; the rest of the shutdown
+// (stop) runs in the background, and Stopped says when it is over.
 func (t *stdioTransport) Close() error {
 	t.closeOnce.Do(func() {
 		close(t.done)
 		if t.stdin != nil {
 			_ = t.stdin.Close()
 		}
-		// Cancel the process lifetime; CommandContext kills it and the reader
-		// goroutine reaps it.
-		t.cancel()
+		go t.stop()
 	})
 	return nil
+}
+
+// Stopped is closed once the server and its process group are gone.
+func (t *stdioTransport) Stopped() <-chan struct{} { return t.stopped }
+
+// stop ends the server the way MCP asks a client to: with stdin closed the
+// server gets stdioExitGrace to exit on its own, then its process group is
+// terminated. The group is terminated whether the server exited by then or
+// not, since what it started - the node a package runner spawned - can
+// outlive it.
+func (t *stdioTransport) stop() {
+	defer close(t.stopped)
+	select {
+	case <-t.exited:
+	case <-time.After(t.exitGrace):
+	}
+	// Once the leader has been waited for, its pid is free to be reused by an
+	// unrelated process. On Windows a pid-addressed taskkill would then walk
+	// somebody else's tree, so only the job object (closeJob below) ends what
+	// is left there. On unix the group id still names what the server started.
+	leaderGone := false
+	select {
+	case <-t.exited:
+		leaderGone = true
+	default:
+	}
+	if !leaderGone || runtime.GOOS != "windows" {
+		if err := platform.TerminateProcessGroup(t.cmd, t.termGrace); err != nil {
+			t.log.Warn("mcp server process group did not stop", "server", t.name, "error", err)
+		}
+	}
+	t.closeJob()
+	select {
+	case <-t.exited:
+	case <-time.After(t.termGrace):
+	}
 }
 
 // ToLLMToolDefinition converts an MCP ToolInfo to an LLM tool definition.

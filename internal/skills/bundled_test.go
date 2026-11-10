@@ -17,6 +17,7 @@ import (
 // vendored from their own repositories by scripts/vendor-bundled-skills.sh.
 var deliveredSkills = []string{
 	"configure-foxxycode",
+	"crossreview",
 	"rpa-bugfix",
 	"rpa-feat",
 	"rpa-gen-rules",

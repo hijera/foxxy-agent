@@ -389,6 +389,9 @@ func runACP(args []string) error {
 	ref := &serverRef{p: &srv, cfg: cfg, live: live}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
+			return mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
+		})
 		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
@@ -402,6 +405,10 @@ func runACP(args []string) error {
 		}
 		mgr.SetPreferredSessionID(pid)
 	}
+	// The servers of the global configuration start now and stay up for every
+	// session the editor opens; they stop when the editor lets go of the agent.
+	mgr.StartGlobalMCPServers()
+	defer mgr.CloseMCP()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
 	// updates can read, live and when session/load replays it.

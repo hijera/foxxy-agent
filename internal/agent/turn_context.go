@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
+	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 )
@@ -39,7 +40,7 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
 		// No template prints these two, so a volatile one gets them here too.
 		var sections []string
-		for _, section := range []string{a.memoryTurnContextSection(), a.backgroundTasksSection()} {
+		for _, section := range []string{a.gitWorkspaceSection(), a.memoryTurnContextSection(), a.backgroundTasksSection()} {
 			if section != "" {
 				sections = append(sections, section)
 			}
@@ -51,6 +52,9 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	}
 	var parts []string
 	parts = append(parts, "## Current UTC time\n\n"+a.turnClock(frozen).Format(time.RFC3339))
+	if section := a.gitWorkspaceSection(); section != "" {
+		parts = append(parts, section)
+	}
 
 	// Agent mode only, matching the built-in templates: the todo tools are not
 	// offered in plan or ask mode, and a checklist left over from an earlier
@@ -74,6 +78,29 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +
 		strings.Join(parts, "\n\n") + "\n" + turnContextCloseTag
+}
+
+// gitWorkspaceSection stays stable while the cwd stays put. It gives the
+// agent the main checkout and default branch even after old tool results have
+// been compacted away, without spawning git on every model step.
+func (a *Agent) gitWorkspaceSection() string {
+	cwd := a.state.GetCWD()
+	if cwd == a.workspaceContextCWD {
+		return a.workspaceContextText
+	}
+	a.workspaceContextCWD = cwd
+	a.workspaceContextText = ""
+	info := gitws.Describe(cwd)
+	if !info.IsGitRepo {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "Current directory: "+cwd, "Main checkout: "+info.RepoRoot)
+	if info.BaseBranch != "" {
+		lines = append(lines, "Default branch: "+info.BaseBranch)
+	}
+	a.workspaceContextText = "## Git workspace\n\n" + strings.Join(lines, "\n")
+	return a.workspaceContextText
 }
 
 // backgroundTasksSection lists the background tasks of this session that are still

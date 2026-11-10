@@ -396,11 +396,11 @@ func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
 		return fmt.Errorf("session has no context breakdown after compaction")
 	}
 	window := s.llmWindowForEngine()
-	wantConversation := session.EstimateTokens(conversationText(window))
+	wantConversation := conversationTokens(window, s.ag.modelReadsImages())
 	if b.Conversation != wantConversation {
 		return fmt.Errorf("conversation tokens = %d, want %d", b.Conversation, wantConversation)
 	}
-	wantSummary := session.EstimateTokens(compactionSummaryText(window))
+	wantSummary := session.EstimateContextTokens(compactionSummaryText(window))
 	if b.Summary != wantSummary {
 		return fmt.Errorf("summary tokens = %d, want %d", b.Summary, wantSummary)
 	}

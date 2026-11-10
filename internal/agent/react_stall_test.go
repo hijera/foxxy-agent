@@ -181,12 +181,14 @@ func (p *stallProvider) Stream(ctx context.Context, messages []llm.Message, _ []
 
 	case b.progressOnly > 0:
 		for i := 0; i < b.progressOnly; i++ {
+			// Establish a live stream immediately, independent of scheduling
+			// delays before the first timer tick on a busy test host.
+			onChunk(llm.StreamChunk{Progress: true})
 			select {
 			case <-ctx.Done():
 				return &llm.Response{}, ctx.Err()
 			case <-time.After(10 * time.Millisecond):
 			}
-			onChunk(llm.StreamChunk{Progress: true})
 		}
 		onChunk(llm.StreamChunk{TextDelta: b.answer})
 		return &llm.Response{Content: b.answer, StopReason: "end_turn"}, nil

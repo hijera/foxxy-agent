@@ -326,6 +326,31 @@ func TestSettingsSaveWithoutEditsLeavesTheFileAsItWas(t *testing.T) {
 	}
 }
 
+// A remote's token written as an environment reference stays one: the page reads the
+// expanded token to talk to the remote and sends it back with the next save, and that
+// save must not write the secret into the file in its place (issue #401).
+func TestSettingsSaveKeepsARemoteTokenSpelledAsAnEnvironmentReference(t *testing.T) {
+	t.Setenv("FOXXYCODE_TEST_RELAY_TOKEN", "relay-client")
+	live, raw := settingsSaveFixture(t, spelledConfig+`httpserver:
+  remotes:
+    - name: office-relay
+      url: http://relay.lan:12346
+      token: ${FOXXYCODE_TEST_RELAY_TOKEN}
+`)
+	if got := live.HTTPServer.Remotes[0].Token; got != "relay-client" {
+		t.Fatalf("remote token = %q, want the environment's value", got)
+	}
+	got := saveFromSettings(t, live, func(doc map[string]any) {
+		object(t, doc, "agent")["max_turns"] = 41
+	})
+	if !strings.Contains(got, "token: ${FOXXYCODE_TEST_RELAY_TOKEN}") || strings.Contains(got, "relay-client") {
+		t.Errorf("the save wrote the remote's token instead of its reference:\n%s", got)
+	}
+	if strings.Contains(raw, "max_turns: 41") || !strings.Contains(got, "max_turns: 41") {
+		t.Errorf("the edit next to the remote did not land:\n%s", got)
+	}
+}
+
 // A value the operator changed is written the way they typed it, in a single value and
 // in a list alike; the values around it keep their spelling.
 func TestSettingsSaveWritesAChangedPathAsTyped(t *testing.T) {

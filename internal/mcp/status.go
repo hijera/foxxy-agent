@@ -41,8 +41,8 @@ type ToolStatus struct {
 
 // statusProbe is the probe ListStatus runs for one server, a variable so a
 // test can watch the probes without spawning servers.
-var statusProbe = func(ctx context.Context, gate *TrustGate, srv ManagedServer, cwd string, log *slog.Logger) ([]ToolInfo, error) {
-	return gate.Probe(ctx, srv, cwd, log)
+var statusProbe = func(ctx context.Context, gate *TrustGate, pool *Pool, srv ManagedServer, cwd string, log *slog.Logger) ([]ToolInfo, error) {
+	return gate.ProbeShared(ctx, pool, srv, cwd, log)
 }
 
 // statusProbeTimeout bounds one server's probe (spawn, initialize, tools/list),
@@ -51,8 +51,11 @@ const statusProbeTimeout = 8 * time.Second
 
 // ListStatus probes approved, enabled servers through the trust gate. The
 // probes run side by side, so the list takes as long as its slowest server.
-// Its declaration summary omits environment and header values.
-func ListStatus(ctx context.Context, cfg *config.Config, cwd string, log *slog.Logger) ([]ServerStatus, error) {
+// With a pool a server that already runs is asked for nothing new and no
+// second copy of it is started (TrustGate.ProbeShared); a nil pool probes
+// every server on a connection of its own. Its declaration summary omits
+// environment and header values.
+func ListStatus(ctx context.Context, cfg *config.Config, cwd string, pool *Pool, log *slog.Logger) ([]ServerStatus, error) {
 	managed, err := ListManagedServers(cfg, cwd)
 	if err != nil {
 		return nil, err
@@ -96,7 +99,7 @@ func ListStatus(ctx context.Context, cfg *config.Config, cwd string, log *slog.L
 			go func(row *ServerStatus, srv ManagedServer) {
 				defer wg.Done()
 				probeCtx, cancel := context.WithTimeout(ctx, statusProbeTimeout)
-				tools, probeErr := statusProbe(probeCtx, gate, srv, cwd, log)
+				tools, probeErr := statusProbe(probeCtx, gate, pool, srv, cwd, log)
 				cancel()
 				if probeErr != nil {
 					row.Status, row.Error = "error", probeErr.Error()

@@ -169,14 +169,21 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			// is collected on .done, so this only names it.
 			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
 				streamingCalls[ev.Item.ID] = ToolCall{ID: ev.Item.CallID, Name: ev.Item.Name}
-				emit(StreamChunk{ToolCallNamed: &ToolCall{
-					ID:   ev.Item.CallID,
-					Name: ev.Item.Name,
-				}})
+				// An announcement is a hint, not output: onChunk directly, as the
+				// openai path does, so a stream cut mid-arguments stays replayable.
+				if onChunk != nil {
+					onChunk(StreamChunk{ToolCallNamed: &ToolCall{
+						ID:   ev.Item.CallID,
+						Name: ev.Item.Name,
+					}})
+				}
 			}
 		case "response.function_call_arguments.delta":
 			if tc, ok := streamingCalls[ev.ItemID]; ok && ev.Delta.OfString != "" {
 				tc.InputJSON = ev.Delta.OfString
+				// Argument fragments stay on emit: a retry after them would
+				// replay the fragments into the same progress state, doubling
+				// the counts. The announcement alone bypasses emit.
 				emit(StreamChunk{ToolCallDelta: &tc})
 			}
 		case "response.output_item.done":
@@ -272,6 +279,17 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				OutputTokens:       outputTokens,
 				CachedInputTokens:  cachedInputTokens,
 			}, fmt.Errorf("codex stream: %w", err)
+		}
+		// The SDK decodes every framed event with json.Unmarshal, so an event
+		// whose JSON stops short surfaces here as a syntax error at the end
+		// of its input. That is a cut inside the event (issue #384), the
+		// terminal event itself included, and it takes the contract of a
+		// stream cut short of its terminal event: the delivered text and
+		// reasoning next to a truncation error, and the tool calls whose
+		// arguments arrived whole - fork(cut-keeps-complete-calls) - the
+		// decoder's error kept as the cause.
+		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
+			return cutPartial(), fmt.Errorf("codex stream: %w", trunc)
 		}
 		// Same transport wrapper as the openai and anthropic paths: a failure
 		// mid-read is retried only while nothing reached the caller, and an

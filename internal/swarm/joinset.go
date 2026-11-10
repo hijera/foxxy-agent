@@ -69,13 +69,17 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 
 	set := &JoinSet{}
 	for _, j := range cfg.Swarm.Join {
+		nodeToken := strings.TrimSpace(j.Token)
+		if nodeToken == "" && kind == KindRelay {
+			nodeToken = strings.TrimSpace(cfg.Swarm.AuthToken)
+		}
 		client, err := NewClient(JoinOptions{
 			RelayURL:     j.URL,
 			Name:         j.Name,
 			Kind:         kind,
 			PairingToken: j.PairingToken,
 			AdvertiseURL: j.AdvertiseURL,
-			NodeToken:    j.Token,
+			NodeToken:    nodeToken,
 			Version:      version.Get(),
 			Labels:       j.Labels,
 			Dial: netx.Options{

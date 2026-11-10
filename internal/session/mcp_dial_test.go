@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,13 @@ func (mcpTestSender) RequestQuestion(context.Context, acp.QuestionRequestParams)
 const (
 	gatedMCPStartedEnv = "FOXXYCODE_TEST_GATED_MCP_STARTED"
 	gatedMCPReleaseEnv = "FOXXYCODE_TEST_GATED_MCP_RELEASE"
+	// gatedMCPPIDEnv names a file the stub writes its pid to, so a test can
+	// end the process the way a crash would.
+	gatedMCPPIDEnv = "FOXXYCODE_TEST_GATED_MCP_PID"
+	// gatedMCPExitsEnv asks the stub to record its exit as well. Only a test
+	// that waits for the exits it causes sets it: a record written after the
+	// test ended would land in a temporary folder that is being removed.
+	gatedMCPExitsEnv = "FOXXYCODE_TEST_GATED_MCP_EXITS"
 )
 
 // gatedMCPServer declares a stdio server run by TestGatedMCPHelperProcess:
@@ -69,6 +77,9 @@ func TestGatedMCPHelperProcess(t *testing.T) {
 	if f, err := os.OpenFile(started, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		_, _ = f.WriteString("started\n")
 		_ = f.Close()
+	}
+	if pidFile := os.Getenv(gatedMCPPIDEnv); pidFile != "" {
+		_ = os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644)
 	}
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -104,6 +115,14 @@ func TestGatedMCPHelperProcess(t *testing.T) {
 			return
 		}
 	}
+	// Stdin closed: the client let the server go. One line per exit, so a
+	// test can tell a server that was stopped from one still running.
+	if os.Getenv(gatedMCPExitsEnv) == "1" {
+		if f, err := os.OpenFile(started, os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+			_, _ = f.WriteString("exited\n")
+			_ = f.Close()
+		}
+	}
 	os.Exit(0)
 }
 
@@ -126,6 +145,16 @@ func spawns(started string) int {
 		return 0
 	}
 	return strings.Count(string(data), "started\n")
+}
+
+// exits counts how often the gated server behind started saw its stdin close
+// and exited.
+func exits(started string) int {
+	data, err := os.ReadFile(started)
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), "exited\n")
 }
 
 func clientNames(st *State) []string {

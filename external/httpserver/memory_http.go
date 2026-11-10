@@ -358,7 +358,16 @@ func (s *Server) foxxycodeMemoryFileDelete(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":{"message":"invalid root"}}`, http.StatusBadRequest)
 		return
 	}
-	if memRoot == "" || filepath.Clean(abs) == filepath.Clean(memRoot) {
+	if memRoot == "" {
+		http.Error(w, `{"error":{"message":"cannot delete memory root"}}`, http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := absUnder(memRoot, "")
+	if err != nil {
+		http.Error(w, `{"error":{"message":"memory root unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	if abs == rootAbs {
 		http.Error(w, `{"error":{"message":"cannot delete memory root"}}`, http.StatusBadRequest)
 		return
 	}

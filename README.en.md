@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="MIT License" /></a>
   <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
@@ -12,6 +12,13 @@
 </p>
 
 <h1 align="center">FoxxyCode Agent</h1>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/foxxy-agent-logo-dark.svg" />
+    <img src=".github/foxxy-agent-logo.svg" alt="FoxxyCode Agent" width="240" />
+  </picture>
+</p>
 
 <p align="center">
   <strong>Run a full general purpose agent from one static Go binary.</strong><br />
@@ -599,6 +606,14 @@ LLM   Tools    Skills    MCP
 ```
 
 See [Architecture docs](docs/contributing/architecture.md) for full details.
+
+## Upstream 1.2.46–1.2.54 capabilities
+
+- Immutable downloadable files and inline image previews through `share_file`.
+- History state dots, persistent collapsed groups, richer subagent cards and workspace controls.
+- Session-scoped MCP management, explicit background activation and recovery from removed worktrees.
+- Provider proxy authentication, repaired outbound tool-call pairing and Anthropic history fixes.
+- Vendored Crossreview 2.0 with independent reviewers and trusted project rosters.
 
 ## Documentation
 

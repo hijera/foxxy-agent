@@ -16,6 +16,7 @@ than pointing at a directory that does not exist.
 | Skill | What it does |
 |-------|--------------|
 | **`/configure-foxxycode`** | Changes FoxxyCode's own configuration when you ask: settings, providers, models, logging, permissions, MCP servers and skills. Verifies the upstream source, stages uci-style edits with the typed `config_get` / `config_set` tools, and commits only after you confirm, so `config_commit` applies and hot-reloads them in one step; `config_rollback` returns to the pre-commit snapshot. Never echoes secrets. |
+| **`/crossreview`** | Sends one review brief to a quorum of reviewers that stay blind to each other - external console code agents (Claude Code, Codex, FoxxyCode, Cursor Agent, Devin, OpenCode, Gemini CLI, Qwen Code, Kimi, Koda) and internal `explore` children - through the bundled `crossreview` coordinator, which collects every answer, verifies each finding against the code and decides alone what to fix. The first run (and `/crossreview:setup` later) detects the installed CLIs, asks which agents and which of their models to use, and keeps the roster either for the project in `.foxxycode/crossreview.json` or for all projects in `${FOXXYCODE_HOME}/crossreview.json`, where earlier versions kept it too. The same skill installs in other agents from [EvilFreelancer/crossreview](https://github.com/EvilFreelancer/crossreview). |
 | **`/rpa-init`** | Warms up context on a repository: reads the code, the documentation and the test code, sets up the dev environment the project documents, runs the tests, and writes a short report. Needs no brief. |
 | **`/rpa-feat`** | Adds a feature strictly by BDD: plan, failing tests, implementation, green tests, the full suite, documentation and examples, the linter at the end. Needs a description of what to build. |
 | **`/rpa-bugfix`** | Fixes a bug reproduction-test first, then the fix, then the full suite, then a short report. Needs the bug: expected against actual, and how to reproduce it. |
@@ -42,12 +43,14 @@ every skill you had deleted. Replacing a skill renames the old copy aside and th
 place; a process killed between the two leaves a backup and no skill, and the next run puts it back.
 
 A home FoxxyCode cannot write to - a read-only image, a locked-down account - is not an error: the
-copies inside the binary answer instead, read-only, and only a skill whose `references/` it needs
-notices the difference. A delivered skill you deleted is not among them: the receipt says it was
+copies inside the binary answer instead, read-only, and only a skill that needs the files beside
+its `SKILL.md` (`references/`, or the `scripts/` of `crossreview`) notices the difference. A delivered skill you deleted is not among them: the receipt says it was
 handed over, so the binary does not offer it again as one you cannot delete.
 
-The `rpa-*` skills live in their own repositories and are vendored into `internal/skills/bundled/`
-by **`make skills-vendor`**; `scripts/bundled-skills.json` says where each one comes from.
+`crossreview` and the `rpa-*` skills live in their own repositories, so the same skill works in
+Claude Code, Codex or Cursor, and are vendored into `internal/skills/bundled/` (their `SKILL.md`,
+`references/` and `scripts/`) by **`make skills-vendor`**; `scripts/bundled-skills.json` says where
+each one comes from.
 
 ### The marketplace that comes with it
 
@@ -538,6 +541,8 @@ On each `session/prompt` the agent:
 4. Looks for `/name` invocations in the text the user typed and **appends each matched skill's body to the user message**, as a `<foxxycode_attachment path="skill:name" kind="skill">` element after the typed text. The message goes into **session history with the body in it**, so later turns replay the same bytes: the provider's cached prefix holds, and the model keeps the instructions it was given until a compaction folds the message into its summary ([Mentions and the prompt cache](mentions.md#mentions-and-the-prompt-cache)). The transcript shows the message as typed, because the web UI drops `kind="skill"` elements, and so does the history replay a reopened console or an ACP editor receives. A follow-up queued during a turn gets its skill bodies the same way.
 
 A body the model loads itself with the `load_skill` tool (offered while `skills.auto_discovery` is on) comes back as the result of that call and stays in session history like any other tool result.
+
+Either way, a skill that is a folder on disk arrives headed by one line, `Skill directory: <path>`, the folder its `SKILL.md` was read from. A skill names its own files - `scripts/`, `references/` - by relative path, and without the line a model has to search the disk for them. A skill of the standard delivery that is read out of the binary (when `skills.dirs` does not list `${FOXXYCODE_HOME}/skills`) is pointed at the copy the delivery wrote there; with no such copy on disk there is no line.
 
 ACP clients receive `available_commands_update` after `session/new` and `session/load`. The HTTP UI queries `GET /foxxycode/slash-commands` for autocomplete.
 

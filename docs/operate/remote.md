@@ -20,13 +20,16 @@ With `--remote` the local process keeps no session store, runs no scheduler and 
 - a bare **`host:port`**, which gets `http://` in front;
 - a full **`http://` or `https://` URL**, optionally with a path prefix.
 
-The address must be a bare origin: a query string, a fragment or user credentials in the URL are refused. Named remotes hold a name and a URL only:
+The address must be a bare origin: a query string, a fragment or user credentials in the URL are refused. A named remote holds a name, a URL and, when you choose to keep it there, the token to present:
 
 ```yaml
 httpserver:
   remotes:
     - name: nas02
       url: "https://nas02.example:12345"
+    - name: office-relay
+      url: "http://relay.lan:12346"
+      token: "${FOXXYCODE_RELAY_TOKEN}"   # optional, see The token below
 ```
 
 ```bash
@@ -35,7 +38,7 @@ foxxycode --remote 192.168.1.20:12345    # bare host:port, plain http
 foxxycode acp --remote https://nas02.example:12345
 ```
 
-The same `remotes` list is what a server offers in its web UI's environment menu, so the entry does double duty: put it in the config of the machine you type on.
+The same `remotes` list is what a server offers in its web UI's environment menu, so the entry does double duty: put it in the config of the machine you type on. A swarm relay is listed the same way; the menu recognises it and lists the agents behind it ([The environment chip](#the-environment-chip)).
 
 ## The token
 
@@ -43,7 +46,13 @@ On the server, authentication is off until a token is set. `httpserver.auth_toke
 
 A token is what an API client presents. A browser has no field to type one into, which is why a token alone leaves the web UI showing `Unauthorized (401)`; the sign-in form below is the browser's half of the same gate.
 
-On the client, the token comes from `--remote-token` or, when the flag is absent, from `FOXXYCODE_REMOTE_TOKEN`. It is deliberately never read from `config.yaml`, which is why `httpserver.remotes` has no token field. The web UI takes the token in its **+ Add remote...** form and keeps it in the browser only (`localStorage`, per remote).
+On the client, the token is the first of:
+
+- `--remote-token`;
+- the `token` of the `httpserver.remotes` entry the target belongs to: the entry named, the entry whose address it is, or a relay entry the target is a node mount of (`<relay>/swarm/nodes/<name>`, which takes the relay's client token);
+- `FOXXYCODE_REMOTE_TOKEN`.
+
+The entry's token wins over the variable because it is bound to one destination and the variable to none. It is optional, and keeping it in the file is a choice with a cost: every browser that reads this server's configuration (`GET /foxxycode/config`) receives it, as it receives a provider's `api_key`, and so does anyone who can read the file. Write it as a `${ENV}` reference so the secret itself lives in `.env`. Without it, the web UI takes the token in its **Connect to…** form and keeps it in the browser only (`localStorage`, per remote), and the console reads the flag or the variable.
 
 `foxxycode serve` has no TLS of its own, so a token sent to a non-loopback `http://` address travels in clear; the console and `foxxycode acp` print a warning when that is about to happen. Put a TLS-terminating reverse proxy in front of the server, or reach it through an SSH tunnel, which keeps the address on loopback:
 
@@ -98,13 +107,27 @@ httpserver:
       url: "https://box.example:12345"
 ```
 
-With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-FoxxyCode-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /foxxycode/sessions/{id}/composer-stream` and `GET /foxxycode/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication--cors).
+With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-FoxxyCode-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. A swarm relay has CORS of its own, `swarm.cors`, with the same two keys: a page served elsewhere that talks to a relay needs its origin there, and a node behind the relay is answered by the relay's CORS, never by the node's. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /foxxycode/sessions/{id}/composer-stream` and `GET /foxxycode/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication--cors).
 
 ## The environment chip
 
-The chip sits in the composer's workspace row, next to the folder, branch and worktree chips, and reads **Local** or the name of the active remote. Its menu has an **Environment** section with Local and a **Remote** section with the server's configured `remotes` plus **+ Add remote...** (name, URL, token). Choosing an entry connects at once and reloads the page, so the session list, the models and the defaults are re-read from the chosen backend; the SPA shell always comes from the local origin, so **Local** stays reachable from the chip even when the remote is down.
+The chip sits in the composer's workspace row, next to the folder, branch and worktree chips, and reads **Local** or the name of the active remote. Its menu has an **Environment** section with Local and a **Remote** section with the server's configured `remotes` plus **Connect to…** (name, URL, token). The list is read from the page's own server when the menu opens and again whenever that server's configuration is replaced, so a remote added by a settings save or the agent's `config_commit` shows up without reloading the page. An entry without a `name` is shown by the name the remote reports - a relay's name, which is its host name unless `swarm.name` sets one, or an agent's host name - with its address beside it, and by its address alone when it reports nothing. Choosing an entry connects at once and starts the app over on it, so the session list, the models and the defaults are re-read from the chosen backend: between two remotes in place, without reloading the page, and to or from Local with a reload. Choosing the entry the page is already on reads everything again, which is the way back after that remote was down; the SPA shell always comes from the local origin, so **Local** stays reachable from the chip even when the remote is down.
 
-Each remote shows a status dot probed on menu open with a cross-origin `GET /v1/models`: green when reachable and authorised, red when unreachable, blocked by CORS or unauthorised, amber while probing. The active environment is probed again on load, every 30 seconds and on window focus; when it fails, a banner offers **Switch to Local** rather than leaving an empty screen. The choice and the per-remote tokens live in the browser (`foxxycode_env`, `foxxycode_env_tokens`) and are never written to the server's config; folder recents are kept per environment.
+![The environment menu with a relay, its agents, and the remotes that cannot be used yet](../assets/env-menu-states-dark-1280.png)
+
+*A relay with its agents listed under it, a relay that wants its token, one that CORS keeps from the page, and one that does not answer*
+
+Each remote is asked on menu open whether it can be used, and a dot says the answer: green when it answers and accepts the token, red when it does not, amber while it is being asked. A red one says why on a line under it:
+
+- **does not answer**: nothing is listening at that address, or the address is wrong;
+- **refuses the token**: an agent wants its `httpserver.auth_token`, a relay its client token (`swarm.auth_token`); for a remote without a token in the configuration, **Enter token** opens the connect form filled in for it;
+- **blocked by CORS**: something answers, but the browser keeps the answer from this page, which is what CORS off (or this origin missing from it) looks like from a browser. The line names this page's origin and the key to add it to: `swarm.cors.allowed_origins` on a relay, `httpserver.cors.allowed_origins` on a foxxycode serve.
+
+A relay is recognised by its public `GET /swarm/info`: it serves no `/v1` of its own, so its model catalog is not what is asked. Its token is checked on `GET /swarm/nodes`, and once it is accepted the menu lists the agents behind it, every hop deep, so a node is one click away rather than behind the relay's map ([Swarm, The UI](swarm.md#the-ui)).
+
+The active environment is asked the same way on load, every 30 seconds and on window focus; when it cannot be used, a banner says which of the three it is, names the setting that fixes it, and offers **Switch to Local** rather than leaving an empty screen. The choice and the per-remote tokens typed into the form live in the browser (`foxxycode_env`, `foxxycode_env_tokens`); a token that comes from the configuration is not copied there. Folder recents are kept per environment, and so is the screen each environment was left on: switching back to Local returns to the conversation you left it in, and a remote opens where you left it or at its home.
+
+![The active relay refuses its token and the banner names swarm.auth_token](../assets/remote/remote-token-banner-dark-1280.png)
 
 ## What runs where
 
@@ -126,7 +149,7 @@ Trust decisions are the server's too. A project MCP server, hooks file or subage
 - A permission mode a remote client switches (`/permissions`, `--permission-mode`, the dialog's session switch) applies to the server's session for every client of it, and lives in the server's memory: a restart of `foxxycode serve` returns the session to `tools.permission_mode`.
 - A dropped connection leaves the server turn, its children and any open prompt running; `/resume` shows the outcome once the turn ends, and an answer to a prompt the server has already withdrawn is ignored. Quitting the console mid-turn waits briefly for the cancel to reach the server.
 - A session is one turn at a time: a second client prompting the same session gets `409` while the first turn holds the lock.
-- The web UI reaches a remote only when that server lists the UI's origin in `cors.allowed_origins`; a red dot with a correct token usually means CORS.
+- The web UI reaches a remote only when that server lists the UI's origin in `cors.allowed_origins` (`swarm.cors.allowed_origins` on a relay); the menu says so on the remote's line when that is what stands in the way.
 
 ## Checking a remote from the command line
 
@@ -135,7 +158,7 @@ foxxycode --dry-run --remote nas02
 curl -sS -H "Authorization: Bearer $FOXXYCODE_REMOTE_TOKEN" https://nas02.example:12345/v1/models
 ```
 
-`--dry-run` (on the console and on `foxxycode acp`) runs the config check and then probes what the file points at, the `--remote` target included, and exits with status 1 when a probe fails; the `curl` line is the same request the UI's status dot makes. Server-side, `foxxycode serve --dry-run` reports the listen address it would bind and whether a port is already taken. See [foxxycode serve and the daemon](serve.md).
+`--dry-run` (on the console and on `foxxycode acp`) runs the config check and then probes what the file points at, the `--remote` target included, and exits with status 1 when a probe fails. Each configured remote is probed with the token of its entry; a relay is recognised as one, and a `--remote` that points at a relay's root is refused with the mounts of its agents to use instead (`<relay>/swarm/nodes/<name>`), since a relay drives nothing itself. The `curl` line is the first request the UI's status dot makes of an agent. Server-side, `foxxycode serve --dry-run` reports the listen address it would bind and whether a port is already taken. See [foxxycode serve and the daemon](serve.md).
 
 ## History
 

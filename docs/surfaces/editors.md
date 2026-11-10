@@ -19,6 +19,12 @@ In IntelliJ, **Suggest Code at Caret** is available from the editor context menu
 
 The panel talks to its own loopback server, so it shares sessions with the console and the browser through the home directory, not through the network. Build and packaging are in [editors/intellij/README.md](../../editors/intellij/README.md) and [editors/vscode/README.md](../../editors/vscode/README.md); how the JCEF panel hosts the SPA is in [Embedding the UI in IntelliJ](../contributing/intellij-embedding.md).
 
+In IntelliJ, **Settings → Tools → FoxxyCode → Stop the process when the FoxxyCode tab is closed** optionally stops the backend when its tool window is closed or hidden. It is off by default. When enabled, closing also interrupts running turns and background tasks; reopening the panel starts the backend again. Saved sessions stay on disk. The setting takes effect on the next close and is shared across projects. Explicitly requesting an inline code suggestion can still start the backend while the panel is hidden.
+
+![The optional process shutdown checkbox in IntelliJ settings](../assets/editors/intellij-stop-on-tab-close-disabled-dark-1280.png)
+
+*The process shutdown option is off by default in Settings → Tools → FoxxyCode.*
+
 ## ACP
 
 FoxxyCode is an ACP server. `foxxycode acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over its own stdin and stdout, so an editor, a plugin or a script that implements the client side of ACP starts the binary and gets the same agent as the console and the web UI: the same modes and models, the same permission policy, the same skills, and the same session bundles under `$FOXXYCODE_HOME`. Nothing in FoxxyCode is editor-specific - Zed, VS Code and a Python harness connect the same way.
@@ -125,7 +131,7 @@ The only requirement is that the processes agree on the home: an editor started 
 foxxycode acp --remote nas02 --remote-token "$FOXXYCODE_REMOTE_TOKEN"
 ```
 
-With `--remote` the process keeps no store, runs no scheduler and no agent loop: every session call is proxied to a remote `foxxycode serve`, its streamed answer is translated back into ACP updates, and permission and question prompts are answered through the server's REST routes. The target is a configured remote name, a `host:port` or an `http(s)://` URL; the token comes from `--remote-token` or `FOXXYCODE_REMOTE_TOKEN` and is never read from `config.yaml`. Sessions persist on the server only, `--session-id` still names the bundle to reopen there, and the model selector lists the server's catalog. An editor entry for a remote server is the same entry with the two flags appended to `args`. Details, the token and CORS: [Remote mode](../operate/remote.md).
+With `--remote` the process keeps no store, runs no scheduler and no agent loop: every session call is proxied to a remote `foxxycode serve`, its streamed answer is translated back into ACP updates, and permission and question prompts are answered through the server's REST routes. The target is a configured remote name, a `host:port` or an `http(s)://` URL; the token comes from `--remote-token`, the `token` of the matching `httpserver.remotes` entry or `FOXXYCODE_REMOTE_TOKEN`, in that order. Sessions persist on the server only, `--session-id` still names the bundle to reopen there, and the model selector lists the server's catalog. An editor entry for a remote server is the same entry with the two flags appended to `args`. Details, the token and CORS: [Remote mode](../operate/remote.md).
 
 ## Troubleshooting
 

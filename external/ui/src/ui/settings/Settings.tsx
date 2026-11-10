@@ -168,6 +168,11 @@ export function Settings(props: {
   sessionsScope?: SessionsProjectScope | undefined;
   /** Reports labels edited here, so the drawer behind the panel agrees. */
   onSessionTagsChanged?: ((id: string, tags: string[]) => void) | undefined;
+  /**
+   * The page is on a swarm relay: its settings are the relay's deployment and
+   * its log, and there is no Sessions tab (issue #401).
+   */
+  relay?: boolean;
 }) {
   const { t, locale } = useT();
   // The schema and the config the app keeps for every open of the drawer
@@ -268,9 +273,10 @@ export function Settings(props: {
     props.initialSection ?? null,
   );
 
+  const relay = props.relay === true;
   const sections = useMemo(
-    () => deriveSettingsSections(schema),
-    [schema, locale],
+    () => deriveSettingsSections(schema, { relay }),
+    [schema, locale, relay],
   );
   // A tab the address names that is not among the tabs yet: the schema that
   // describes it is on its way. It shows as a skeleton rather than as another

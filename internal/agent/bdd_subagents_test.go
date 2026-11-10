@@ -381,8 +381,13 @@ type subagentsFeatureState struct {
 	mu             sync.Mutex
 	parentProvider *scriptedProvider
 	childProviders map[string]*scriptedProvider
-	childSteps     func() []scriptStep
-	release        chan struct{}
+	// childProvidersByName indexes child providers by subagent name, and
+	// childStepsByName scripts one child by name - a coordinator scenario
+	// needs the coordinator to delegate while the grandchild only answers.
+	childProvidersByName map[string]*scriptedProvider
+	childStepsByName     map[string]func() []scriptStep
+	childSteps           func() []scriptStep
+	release              chan struct{}
 	// childFail is handed to every child provider: which of its calls lose
 	// the connection. childOutage is the switch of a provider that is down.
 	childFail   func(call int) (partial string, err error)
@@ -420,6 +425,8 @@ func (s *subagentsFeatureState) reset() error {
 	s.mcpServers = nil
 	s.parentProvider = nil
 	s.childProviders = map[string]*scriptedProvider{}
+	s.childProvidersByName = map[string]*scriptedProvider{}
+	s.childStepsByName = nil
 	s.childSteps = nil
 	s.childFail = nil
 	s.childOutage.Store(false)
@@ -459,6 +466,25 @@ func (s *subagentsFeatureState) writeDefinition(name, extra string) error {
 
 func (s *subagentsFeatureState) workspaceDefinition(name string) error {
 	return s.writeDefinition(name, "")
+}
+
+// writeUserDefinition drops a definition into the agent home: user scope
+// needs no trust receipt, and it is the scope a spawns allowlist works in.
+func (s *subagentsFeatureState) writeUserDefinition(name, extra string) error {
+	dir := filepath.Join(s.home, "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s that reports what it did.\n%s---\nYou are the bdd subagent %s. Do exactly what the prompt says.\n", name, name, extra, name)
+	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+func (s *subagentsFeatureState) userScopeDefinition(name string) error {
+	return s.writeUserDefinition(name, "")
+}
+
+func (s *subagentsFeatureState) userScopeDefinitionSpawning(name, allow string) error {
+	return s.writeUserDefinition(name, "spawns: ["+allow+"]\n")
 }
 
 func (s *subagentsFeatureState) workspaceDefinitionWithPermission(name, mode string) error {
@@ -513,7 +539,16 @@ func (s *subagentsFeatureState) providerFor(st *session.State) llm.Provider {
 			return p
 		}
 		p := &scriptedProvider{fail: s.childFail}
-		if s.childSteps != nil {
+		name := ""
+		if meta := st.Subagent(); meta != nil {
+			name = meta.Name
+		}
+		if name != "" {
+			s.childProvidersByName[name] = p
+		}
+		if fn := s.childStepsByName[name]; fn != nil {
+			p.steps = fn()
+		} else if s.childSteps != nil {
 			p.steps = s.childSteps()
 		}
 		s.childProviders[st.ID] = p
@@ -712,6 +747,65 @@ func (s *subagentsFeatureState) spawnWith(agent string, background bool) error {
 	}
 	s.spawnResults = append(s.spawnResults, res)
 	s.noteLastAgentTask()
+	return nil
+}
+
+// spawnDelegating scripts the named child to spawn a grandchild before it
+// answers: the coordinator scenario of a spawns allowlist.
+func (s *subagentsFeatureState) spawnDelegating(agent, child, answer string) error {
+	s.mu.Lock()
+	s.childStepsByName = map[string]func() []scriptStep{
+		agent: func() []scriptStep {
+			return []scriptStep{
+				toolStep(spawnCall("call_nested", child, false)),
+				answerStep(answer),
+			}
+		},
+		child: func() []scriptStep {
+			return []scriptStep{answerStep("REPORT: " + child + " done")}
+		},
+	}
+	s.mu.Unlock()
+	return s.spawnWith(agent, false)
+}
+
+func (s *subagentsFeatureState) childProviderByName(name string) *scriptedProvider {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.childProvidersByName[name]
+}
+
+func (s *subagentsFeatureState) childRanAs(name string) error {
+	p := s.childProviderByName(name)
+	if p == nil || !p.wasCalled() {
+		return fmt.Errorf("no child ran as subagent %q", name)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childNotOfferedSpawnByName(name string) error {
+	p := s.childProviderByName(name)
+	if p == nil {
+		return fmt.Errorf("no child ran as subagent %q", name)
+	}
+	if p.everOffered("spawn_agent") {
+		return fmt.Errorf("subagent %q was offered spawn_agent", name)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) delegationRefusedByAllowlist(child, agent string) error {
+	p := s.childProviderByName(agent)
+	if p == nil {
+		return fmt.Errorf("subagent %q never ran", agent)
+	}
+	res, ok := p.toolResultFor("call_nested")
+	if !ok {
+		return fmt.Errorf("subagent %q made no nested spawn call", agent)
+	}
+	if !strings.Contains(res, "spawns allowlist") || !strings.Contains(res, child) {
+		return fmt.Errorf("the refusal does not name the allowlist and %q: %q", child, res)
+	}
 	return nil
 }
 
@@ -1668,6 +1762,14 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the child session transcript keeps "([^"]*)" and ends with "([^"]*)"$`, s.childTranscriptKeepsAndEndsWith)
 	sc.Step(`^the child session transcript holds the message "([^"]*)" and ends with "([^"]*)"$`, s.childTranscriptHoldsMessageAndEndsWith)
 	sc.Step(`^the parent session ran (\d+) subagent runs? on (\d+) child sessions?$`, s.parentRanSubagentRuns)
+
+	// features/subagents_crossreview.feature
+	sc.Step(`^the user scope holds a subagent definition "([^"]*)"$`, s.userScopeDefinition)
+	sc.Step(`^the user scope holds a subagent definition "([^"]*)" that may spawn "([^"]*)"$`, s.userScopeDefinitionSpawning)
+	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and it delegates to "([^"]*)" before answering "([^"]*)"$`, s.spawnDelegating)
+	sc.Step(`^a child session ran as subagent "([^"]*)"$`, s.childRanAs)
+	sc.Step(`^the "([^"]*)" child was not offered the spawn_agent tool$`, s.childNotOfferedSpawnByName)
+	sc.Step(`^the delegation to "([^"]*)" inside "([^"]*)" was refused naming the spawns allowlist$`, s.delegationRefusedByAllowlist)
 }
 
 func TestSubagentsFeature(t *testing.T) {
@@ -1676,7 +1778,7 @@ func TestSubagentsFeature(t *testing.T) {
 		ScenarioInitializer: initializeSubagentsScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/subagents.feature", "../../features/subagents_reconnect.feature"},
+			Paths:    []string{"../../features/subagents.feature", "../../features/subagents_reconnect.feature", "../../features/subagents_crossreview.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

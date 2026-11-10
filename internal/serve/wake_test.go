@@ -134,7 +134,8 @@ func TestRuntimeRunsAnUnclaimedWakeItselfAndRefusesWhatNobodyCanApprove(t *testi
 		turns <- seen{wake: st.TakeTurnWake(), approved: res}
 		return string(acp.StopReasonEndTurn), nil
 	}
-	rt := &Runtime{cfg: cfg, Log: slog.Default(), Store: store}
+	rt := &Runtime{Log: slog.Default(), Store: store}
+	rt.live.replace(cfg)
 	rt.Mgr = session.NewManager(cfg, &defaultSender{live: rt.Cfg}, runner, slog.Default(), root, store)
 	res, err := rt.Mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
 	if err != nil {

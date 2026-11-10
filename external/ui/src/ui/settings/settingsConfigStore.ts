@@ -10,11 +10,13 @@
 // stream (an event may have been missed while it was down), reads it again in the
 // background (noteSettingsConfigReloaded, called from App.tsx).
 //
-// Changing the environment reloads the page, so a copy never outlives the server
-// it came from.
+// A copy never outlives the server it came from: changing the environment
+// reloads the page, or, between two remotes, forgets the copy
+// (onEnvironmentSwitch).
 
 import type { JsonSchema } from "./SchemaForm";
 import { translate } from "../i18n/i18n";
+import { onEnvironmentSwitch } from "../env/remoteEnv";
 
 export type SettingsConfigCopy = {
   schema: JsonSchema | null;
@@ -64,14 +66,21 @@ function publish(next: SettingsConfigCopy): void {
   listeners.forEach((cb) => cb());
 }
 
-/** resetSettingsConfigForTests forgets the copy and every read on its way. */
-export function resetSettingsConfigForTests(): void {
+/** forgetSettingsConfig drops the copy and every read on its way. */
+function forgetSettingsConfig(): void {
   generation++;
   firstRead = null;
   issued = 0;
   applied = 0;
   failedAfter = 0;
   publish(empty);
+}
+
+onEnvironmentSwitch(forgetSettingsConfig);
+
+/** resetSettingsConfigForTests forgets the copy and every read on its way. */
+export function resetSettingsConfigForTests(): void {
+  forgetSettingsConfig();
 }
 
 async function readJSON<T>(

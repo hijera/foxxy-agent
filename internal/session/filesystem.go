@@ -14,6 +14,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
@@ -26,6 +27,7 @@ const (
 	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
+	sessionWriteLockFile = ".foxxycode-session.lock"
 	todosDirName         = "todos"
 	todosArchiveName     = "archive"
 	activeTodoFile       = "active.md"
@@ -196,6 +198,24 @@ func (f *FileStore) pathMutex(path string) *sync.Mutex {
 	return m
 }
 
+// lockSessionBundle serializes all session metadata/history writers in this
+// process and across processes. The lock file is separate from the files it
+// protects because Save writes more than one file as one logical update.
+func (f *FileStore) lockSessionBundle(dir string) (func(), error) {
+	path := filepath.Join(dir, sessionWriteLockFile)
+	mu := f.pathMutex(path)
+	mu.Lock()
+	unlockFile, err := platform.LockFile(path)
+	if err != nil {
+		mu.Unlock()
+		return nil, err
+	}
+	return func() {
+		unlockFile()
+		mu.Unlock()
+	}, nil
+}
+
 // SessionPath returns the directory for a session id: Root/<id> for a session
 // somebody started themselves, and the nested bundle under its parent for one
 // a spawn_agent call started.
@@ -337,6 +357,14 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	// the sessions root for an id another process has already stored inside a
 	// parent. It runs once per session, not once per request.
 	dir = f.sessionPath(sessionID, true)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return dir, err
+	}
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return dir, err
+	}
+	defer unlock()
 	return dir, f.ensureLayoutAt(sessionID, dir)
 }
 
@@ -416,6 +444,13 @@ type SessionMeta struct {
 	// moment it was started is not recoverable, so it stays empty rather than
 	// being invented from a later write.
 	CreatedAt string `json:"createdAt,omitempty"`
+	// MessageCount and the file identity beside it let a History listing use the
+	// transcript size without opening it. Nil values mean a bundle written by an
+	// older build (or an interrupted write), so callers must treat the count as
+	// unknown until they inspect messages.json.
+	MessageCount    *int   `json:"messageCount,omitempty"`
+	MessagesSize    *int64 `json:"messagesSize,omitempty"`
+	MessagesModTime *int64 `json:"messagesModTime,omitempty"`
 	// SchedulerRun marks the session of a scheduler job: the parent every run
 	// of that job is a child of, hidden from the working list and never
 	// prompted. SchedulerJobID names the job; on a run bundle (a child, see
@@ -443,6 +478,8 @@ type SessionMeta struct {
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
 	ReadActivitySeq uint64 `json:"readActivitySeq,omitempty"`
+	// LastErrorSeq records the activity generation of the latest real failure.
+	LastErrorSeq uint64 `json:"lastErrorSeq,omitempty"`
 	// PermissionMode records the mode a subagent child ran with, narrowed from
 	// its parent's: part of the child's record, never read back. An ordinary
 	// session's override is not written - it lasts as long as the process and
@@ -495,6 +532,36 @@ type LoadedSnapshot struct {
 	PermissionCommands  []string
 	PermissionWriteKeys []string
 	PermissionHTTPKeys  []string
+}
+
+// messageCountMatches reports whether metadata describes the current
+// messages.json. Size and mtime are recorded only after the transcript reaches
+// disk, so any mismatch is deliberately unknown rather than an estimate.
+func (m SessionMeta) messageCountMatches(path string) (int, bool) {
+	if m.MessageCount == nil || m.MessagesSize == nil || m.MessagesModTime == nil {
+		return 0, false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() != *m.MessagesSize || info.ModTime().UnixNano() != *m.MessagesModTime {
+		return 0, false
+	}
+	return *m.MessageCount, true
+}
+
+// setMessageCountMetadata records a count only when the transcript that owns
+// it can be identified on disk. The zero value is intentionally unknown.
+func (m *SessionMeta) setMessageCountMetadata(path string, count int) {
+	info, err := os.Stat(path)
+	if err != nil {
+		m.MessageCount = nil
+		m.MessagesSize = nil
+		m.MessagesModTime = nil
+		return
+	}
+	size, modTime := info.Size(), info.ModTime().UnixNano()
+	m.MessageCount = &count
+	m.MessagesSize = &size
+	m.MessagesModTime = &modTime
 }
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
@@ -628,16 +695,77 @@ func (f *FileStore) readMetaAt(dir string) (SessionMeta, error) {
 	return meta, nil
 }
 
-// ReadDiskActivity returns activitySeq and readActivitySeq from session.json only.
-func (f *FileStore) ReadDiskActivity(sessionID string) (activitySeq, readActivitySeq uint64, err error) {
+// ReadDiskActivity returns activity counters from session.json only.
+func (f *FileStore) ReadDiskActivity(sessionID string) (activitySeq, readActivitySeq, lastErrorSeq uint64, err error) {
 	if f == nil || f.Root == "" {
-		return 0, 0, nil
+		return 0, 0, 0, nil
 	}
 	meta, err := f.ReadMeta(sessionID)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
-	return meta.ActivitySeq, meta.ReadActivitySeq, nil
+	return meta.ActivitySeq, meta.ReadActivitySeq, meta.LastErrorSeq, nil
+}
+
+// mergeActivityMeta keeps the newest activity generation and read cursor when
+// a stale State saves after another writer. lastErrorSeq belongs to the state
+// with the newest activity generation; equal generations retain a non-zero
+// error marker rather than allowing a stale success snapshot to clear it.
+func mergeActivityMeta(meta *SessionMeta, activitySeq, readActivitySeq, lastErrorSeq uint64) {
+	if meta.ActivitySeq > activitySeq {
+		activitySeq = meta.ActivitySeq
+		lastErrorSeq = meta.LastErrorSeq
+	} else if meta.ActivitySeq == activitySeq && meta.LastErrorSeq > lastErrorSeq {
+		lastErrorSeq = meta.LastErrorSeq
+	}
+	if meta.ReadActivitySeq > readActivitySeq {
+		readActivitySeq = meta.ReadActivitySeq
+	}
+	if readActivitySeq > activitySeq {
+		readActivitySeq = activitySeq
+	}
+	meta.ActivitySeq = activitySeq
+	meta.ReadActivitySeq = readActivitySeq
+	meta.LastErrorSeq = lastErrorSeq
+}
+
+// MarkSessionActivityRead advances the persisted read cursor to the current
+// activity generation. An optional live state lets the HTTP path merge a turn
+// that finished in memory after the disk snapshot was read, rather than
+// returning or persisting that older snapshot.
+func (f *FileStore) MarkSessionActivityRead(sessionID string, live ...*State) (activitySeq, readActivitySeq, lastErrorSeq uint64, err error) {
+	if f == nil || f.Root == "" {
+		return 0, 0, 0, nil
+	}
+	dir := f.SessionPath(sessionID)
+	path := filepath.Join(dir, sessionMetaFile)
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer unlock()
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return 0, 0, 0, fmt.Errorf("session.json: %w", err)
+	}
+	if len(live) > 0 && live[0] != nil {
+		mergeActivityMeta(
+			&meta,
+			live[0].GetActivitySeq(),
+			live[0].GetReadActivitySeq(),
+			live[0].GetLastErrorSeq(),
+		)
+	}
+	meta.ReadActivitySeq = meta.ActivitySeq
+	if err := writeJSONAtomic(path, meta); err != nil {
+		return 0, 0, 0, err
+	}
+	return meta.ActivitySeq, meta.ReadActivitySeq, meta.LastErrorSeq, nil
 }
 
 // SessionListEntry describes one row for CLI or session/list (subset of ACP SessionInfo).
@@ -663,6 +791,10 @@ type SessionListEntry struct {
 	PinnedAt string
 	// PinnedRank is the place the operator dragged this pin to; 0 = never placed.
 	PinnedRank int
+	// MessageCount counts the persisted transcript rows of every role when
+	// metadata identifies the current messages.json. Call EnrichMessageCounts
+	// before a caller needs an exact count for a legacy or stale bundle.
+	MessageCount int
 	// SubagentRun marks a session another session spawned, and the three
 	// fields below name the run. They come off the same session.json the row
 	// was built from, so a client that shows children pays no second read.
@@ -670,6 +802,12 @@ type SessionListEntry struct {
 	ParentSessionID string
 	SubagentName    string
 	SubagentTaskID  string
+
+	// bundleDir and messageCountKnown stay private so callers retain the small,
+	// stable list row while the store can enrich a page without rediscovering a
+	// nested child bundle.
+	bundleDir         string
+	messageCountKnown bool
 }
 
 // ListOptions selects which persisted sessions ListSnapshotsWith returns.
@@ -724,9 +862,15 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 			continue
 		}
 		dir := filepath.Join(f.Root, ent.Name())
-		out = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		out, err = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		if err != nil {
+			return nil, err
+		}
 		if opts.IncludeSubagents {
-			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
+			out, err = f.appendChildRows(out, dir, cwdFilter, opts, 0)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -801,66 +945,138 @@ func (f *FileStore) MessageCount(sessionID string) (int, error) {
 	return 0, nil
 }
 
-// appendBundleRow reads one bundle's session.json and adds its row when opts
-// admit it. Only session.json: a full snapshot would parse every stored
-// transcript, turning the panel's first paint into a scan of the whole
-// session history (TestListSnapshotsDoesNotReadTranscripts).
-func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
-	meta, err := f.readMetaAt(dir)
+// appendBundleRow reads one bundle's metadata and adds its row when opts admit
+// it. It deliberately does not open messages.json: default History needs no
+// transcript fields, and archive filters must exclude a row before a large or
+// damaged transcript can affect the scan.
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) ([]SessionListEntry, error) {
+	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
-		return out
+		// A busy file is not evidence that the session disappeared. Returning a
+		// successful partial list would erase its row from an open History.
+		if isRetryableFileLockError(err) {
+			return nil, fmt.Errorf("list session %s: %w", id, err)
+		}
+		return out, nil
+	}
+	if recovered, ok := RecoverManagedWorktreeCWD(meta.CWD); ok {
+		meta.CWD = recovered
 	}
 	if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
-		return out
+		return out, nil
 	}
 	if !opts.IncludeSubagents && meta.IsSubagentRun() {
-		return out
+		return out, nil
 	}
 	if cwdFilter != "" && !matchesWorkspace(cwdFilter, meta.CWD) {
-		return out
+		return out, nil
 	}
 	if !opts.Archived.Keeps(meta.Archived) {
-		return out
+		return out, nil
 	}
 	if !opts.Origin.Keeps(meta.Origin) {
-		return out
+		return out, nil
 	}
+	messageCount, known := meta.messageCountMatches(filepath.Join(dir, messagesFile))
 	row := SessionListEntry{
-		SessionID:       meta.ID,
-		CWD:             meta.CWD,
-		Title:           meta.Title,
-		UpdatedAt:       meta.UpdatedAt,
-		CreatedAt:       meta.CreatedAt,
-		Model:           meta.SelectedModelID,
-		Tags:            NormalizeTags(meta.Tags),
-		Archived:        meta.Archived,
-		ArchivedAt:      meta.ArchivedAt,
-		Origin:          meta.Origin,
-		Pinned:          meta.Pinned,
-		PinnedAt:        meta.PinnedAt,
-		PinnedRank:      meta.PinnedRank,
-		SubagentRun:     meta.SubagentRun,
-		ParentSessionID: meta.ParentSessionID,
-		SubagentName:    meta.SubagentName,
-		SubagentTaskID:  meta.SubagentTaskID,
+		SessionID:         meta.ID,
+		CWD:               meta.CWD,
+		Title:             meta.Title,
+		UpdatedAt:         meta.UpdatedAt,
+		CreatedAt:         meta.CreatedAt,
+		Model:             meta.SelectedModelID,
+		Tags:              NormalizeTags(meta.Tags),
+		Archived:          meta.Archived,
+		ArchivedAt:        meta.ArchivedAt,
+		Origin:            meta.Origin,
+		Pinned:            meta.Pinned,
+		PinnedAt:          meta.PinnedAt,
+		PinnedRank:        meta.PinnedRank,
+		MessageCount:      messageCount,
+		SubagentRun:       meta.SubagentRun,
+		ParentSessionID:   meta.ParentSessionID,
+		SubagentName:      meta.SubagentName,
+		SubagentTaskID:    meta.SubagentTaskID,
+		bundleDir:         dir,
+		messageCountKnown: known,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
-		return out
+		return out, nil
 	}
-	return append(out, row)
+	return append(out, row), nil
+}
+
+// readListMetaAt reads the durable metadata necessary to list a bundle. A
+// child directory is authoritative evidence that the row is a subagent run,
+// matching ReadSnapshot's protection for a child whose first save was
+// interrupted.
+func (f *FileStore) readListMetaAt(dir, sessionID string) (SessionMeta, error) {
+	b, err := readFileWithRetry(filepath.Join(dir, sessionMetaFile))
+	if err != nil {
+		return SessionMeta{}, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
+	}
+	if parent, ok := f.childBundleParent(dir); ok {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = parent
+		}
+	}
+	return meta, nil
+}
+
+// EnrichMessageCounts decodes transcripts only for rows whose persisted count
+// metadata is absent or no longer identifies messages.json. It is intended for
+// count-dependent requests after filtering and paging, not default History.
+func (f *FileStore) EnrichMessageCounts(rows []SessionListEntry) {
+	for i := range rows {
+		if rows[i].messageCountKnown {
+			continue
+		}
+		dir := rows[i].bundleDir
+		if dir == "" {
+			dir = f.SessionPath(rows[i].SessionID)
+		}
+		rows[i].MessageCount = f.messageCountAt(dir)
+		rows[i].messageCountKnown = true
+	}
+}
+
+// messageCountAt keeps the historical list behavior for a missing or corrupt
+// transcript: its count is zero, not a listing failure.
+func (f *FileStore) messageCountAt(dir string) int {
+	b, err := readFileWithRetry(filepath.Join(dir, messagesFile))
+	if err != nil {
+		return 0
+	}
+	var wrap messagesFileData
+	if err := json.Unmarshal(b, &wrap); err != nil {
+		return 0
+	}
+	return len(wrap.Messages)
 }
 
 // appendChildRows adds the sessions nested inside dir, and their own children,
 // depth first.
-func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter string, opts ListOptions, depth int) []SessionListEntry {
+func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter string, opts ListOptions, depth int) ([]SessionListEntry, error) {
 	if depth >= maxChildNesting {
-		return out
+		return out, nil
 	}
 	for _, child := range f.childBundleDirs(dir) {
-		out = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
-		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
+		var err error
+		out, err = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		if err != nil {
+			return nil, err
+		}
+		out, err = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return out
+	return out, nil
 }
 
 // FirstUserMessageContent returns trimmed content of the first message with role user
@@ -938,6 +1154,10 @@ func sameSessionMetaContents(a, b SessionMeta) bool {
 	a.CreatedAt, b.CreatedAt = "", ""
 	a.ActivitySeq, b.ActivitySeq = 0, 0
 	a.ReadActivitySeq, b.ReadActivitySeq = 0, 0
+	a.LastErrorSeq, b.LastErrorSeq = 0, 0
+	a.MessageCount, b.MessageCount = nil, nil
+	a.MessagesSize, b.MessagesSize = nil, nil
+	a.MessagesModTime, b.MessagesModTime = nil, nil
 	return reflect.DeepEqual(a, b)
 }
 
@@ -953,13 +1173,18 @@ func (f *FileStore) Save(state *State) error {
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	msgPath := filepath.Join(dir, messagesFile)
 
-	// The lock comes before the snapshot, not after. Two saves of one session
-	// overlap, and a snapshot taken outside it can be written after a newer one
-	// has already landed - putting an older history on disk and leaving the
-	// cache describing it, which the next append would then splice onto.
+	// Keep the messages mutex as the first in-process gate: besides protecting
+	// the cache, existing callers use it to hold a save before its state
+	// snapshot is taken. The bundle lock then extends that critical section to
+	// metadata writers and other processes.
 	msgMu := f.pathMutex(msgPath)
 	msgMu.Lock()
 	defer msgMu.Unlock()
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	// A state another one took over (a resumed child replacing the copy a
 	// surface loaded) owns nothing on disk any more. Checked under the lock
@@ -981,6 +1206,12 @@ func (f *FileStore) Save(state *State) error {
 
 	newActivitySeq := state.GetActivitySeq()
 	newReadSeq := state.GetReadActivitySeq()
+	newLastErrorSeq := state.GetLastErrorSeq()
+	activityMeta := prevMeta
+	mergeActivityMeta(&activityMeta, newActivitySeq, newReadSeq, newLastErrorSeq)
+	newActivitySeq = activityMeta.ActivitySeq
+	newReadSeq = activityMeta.ReadActivitySeq
+	newLastErrorSeq = activityMeta.LastErrorSeq
 	// The counters only grow. Another process over the same bundle may have
 	// moved them on since this State read them, and writing the older value
 	// back would mark its turn as never having happened.
@@ -1062,7 +1293,7 @@ func (f *FileStore) Save(state *State) error {
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
-		CWD:               state.CWD,
+		CWD:               state.CWDForPersist(),
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
@@ -1108,6 +1339,7 @@ func (f *FileStore) Save(state *State) error {
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
+	meta.LastErrorSeq = newLastErrorSeq
 	if state.IsSubagentRun() {
 		meta.PermissionMode = state.GetPermissionMode()
 	}
@@ -1118,7 +1350,7 @@ func (f *FileStore) Save(state *State) error {
 	if messagesUnchanged && metaExisted {
 		if saved, ok := state.lastPersistedMeta(); ok {
 			skipMeta = sameSessionMetaContents(meta, saved) &&
-				newActivitySeq == prevMeta.ActivitySeq && newReadSeq == prevMeta.ReadActivitySeq
+				newActivitySeq == prevMeta.ActivitySeq && newReadSeq == prevMeta.ReadActivitySeq && newLastErrorSeq == prevMeta.LastErrorSeq
 		}
 	}
 	// The stamp stands only when this save puts nothing new anywhere - not the
@@ -1141,6 +1373,9 @@ func (f *FileStore) Save(state *State) error {
 	sameMeta.Archived, sameMeta.ArchivedAt = prevMeta.Archived, prevMeta.ArchivedAt
 	sameMeta.Pinned, sameMeta.PinnedAt = prevMeta.Pinned, prevMeta.PinnedAt
 	sameMeta.PinnedRank = prevMeta.PinnedRank
+	sameMeta.MessageCount = prevMeta.MessageCount
+	sameMeta.MessagesSize = prevMeta.MessagesSize
+	sameMeta.MessagesModTime = prevMeta.MessagesModTime
 	preserveUpdatedAt := messagesUnchanged && metaExisted && reflect.DeepEqual(sameMeta, prevMeta)
 
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
@@ -1156,12 +1391,6 @@ func (f *FileStore) Save(state *State) error {
 	}
 	meta.UpdatedAt, meta.CreatedAt = updatedAt, createdAt
 
-	if !skipMeta {
-		if err := writeJSONAtomic(metaPath, meta); err != nil {
-			return err
-		}
-		state.recordPersistedMeta(meta)
-	}
 	switch {
 	case pending != nil:
 		if err := writeBytesAtomic(msgPath, pending); err != nil {
@@ -1179,6 +1408,20 @@ func (f *FileStore) Save(state *State) error {
 		moved := *cached
 		moved.rev, moved.editRev, moved.count = msgRev, msgEditRev, len(msgs)
 		f.rememberMessages(msgPath, &moved)
+	}
+	// Write the transcript before metadata that identifies it. A crash or write
+	// failure between the two leaves no trusted count rather than a count for
+	// bytes that never reached messages.json.
+	if stale {
+		meta.MessageCount, meta.MessagesSize, meta.MessagesModTime = prevMeta.MessageCount, prevMeta.MessagesSize, prevMeta.MessagesModTime
+	} else {
+		meta.setMessageCountMetadata(msgPath, len(msgs))
+	}
+	if !skipMeta {
+		if err := writeJSONAtomic(metaPath, meta); err != nil {
+			return err
+		}
+		state.recordPersistedMeta(meta)
 	}
 	// A stale State may still have changed a sidecar in this process: the HTTP
 	// plan endpoint, a UI notice or an approval saves outside the turn lock.
@@ -1230,7 +1473,7 @@ func (f *FileStore) Save(state *State) error {
 	return nil
 }
 
-// PatchSessionMetaActivitySync writes only activitySeq and readActivitySeq into session.json,
+// PatchSessionMetaActivitySync writes only activity counters into session.json,
 // preserving updatedAt and all other meta fields. It does not write messages.json.
 func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 	if f == nil || st == nil || st.superseded.Load() {
@@ -1242,11 +1485,13 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 	}
 	path := filepath.Join(dir, sessionMetaFile)
 
-	// Serialize the whole read-modify-write against concurrent patchers of the
-	// same file (e.g. markActivityRead from parallel UI tabs).
-	mu := f.pathMutex(path)
-	mu.Lock()
-	defer mu.Unlock()
+	// Serialize the whole read-modify-write against Save and other metadata
+	// patchers, including writers in another process.
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	// Again under the lock: a state superseded while it waited here must not
 	// put its older activity counters over the new owner's.
 	if st.superseded.Load() {
@@ -1261,8 +1506,7 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 	if err := json.Unmarshal(b, &meta); err != nil {
 		return fmt.Errorf("session.json: %w", err)
 	}
-	meta.ActivitySeq = st.GetActivitySeq()
-	meta.ReadActivitySeq = st.GetReadActivitySeq()
+	meta.ReadActivitySeq = meta.ActivitySeq
 	return writeJSONAtomic(path, meta)
 }
 

@@ -43,16 +43,18 @@ func (s *cliTUIState) waitFooterPermission(want string) error {
 	}
 }
 
+// operatorSwitchesPermissionMode types the command and waits for the footer:
+// the operator's own change leaves no line in the transcript.
 func (s *cliTUIState) operatorSwitchesPermissionMode(mode string) error {
 	s.typeText("/permissions " + mode)
 	s.press("\r")
-	return s.waitScreen("Permission mode: "+mode, 3*time.Second)
+	return s.waitFooterPermission(mode)
 }
 
 func (s *cliTUIState) operatorArmsModel(model string, turns int) error {
 	s.typeText(fmt.Sprintf("/model %s --count=%d", model, turns))
 	s.press("\r")
-	return s.waitScreen(fmt.Sprintf("Model: %s for the next %d turns", model, turns), 3*time.Second)
+	return s.waitScreen(fmt.Sprintf("next %d turns: model %s", turns, model), 3*time.Second)
 }
 
 // footerShowsNoOverrides waits for the line of turn overrides to leave the

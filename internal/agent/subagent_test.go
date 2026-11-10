@@ -1163,6 +1163,20 @@ func (r *subagentRig) approvedDefinition(name, extra string) {
 	r.approve(name)
 }
 
+// userDefinition writes a definition into the agent home: user scope needs no
+// trust receipt, and only builtin and user scope honour a spawns allowlist.
+func (r *subagentRig) userDefinition(name, extra string) {
+	r.t.Helper()
+	dir := filepath.Join(r.home, "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		r.t.Fatal(err)
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: Unit helper %s.\n%s---\nYou are the unit subagent %s.\n", name, name, extra, name)
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
 func (r *subagentRig) agentTasks() []bgtask.Snapshot {
 	var out []bgtask.Snapshot
 	for _, s := range bgtask.Default().List(r.parent.ID) {
@@ -1485,6 +1499,142 @@ func TestSpawnSubagentDepthGateRemovesSpawnAgentAtTheLimit(t *testing.T) {
 	}
 	if len(nested) != 1 || nested[0].Status != bgtask.StatusSucceeded || nested[0].Agent == nil || nested[0].Agent.SessionID != leaf.ID {
 		t.Fatalf("nested tasks = %+v", nested)
+	}
+}
+
+// toolResultFor finds the result the scripted provider saw for one tool call,
+// so a refused call's own error text can be asserted.
+func (p *scriptedProvider) toolResultFor(callID string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, req := range p.requests {
+		for _, m := range req {
+			if m.Role == llm.RoleTool && m.ToolCallID == callID {
+				return m.Content, true
+			}
+		}
+	}
+	return "", false
+}
+
+// A definition that declares spawns delegates exactly one generation past
+// subagents.max_depth, only to the names on the list, and the deeper
+// children never get spawn_agent.
+func TestSpawnAllowlistExtendsOneLevelPastTheDepthCap(t *testing.T) {
+	rig := newSubagentRig(t, nil) // max_depth 1: the coordinator sits at the cap
+	rig.userDefinition("coordinator", "spawns: [reviewer]\n")
+	rig.userDefinition("reviewer", "")
+	rig.userDefinition("other", "")
+	rig.setChildProvider(func(st *session.State) llm.Provider {
+		if st.Subagent() != nil && st.Subagent().Name == "coordinator" {
+			return scripted(
+				toolStep(spawnCall("call-other", "other", false)),
+				toolStep(spawnCall("call-rev", "reviewer", false)),
+				answerStep("REPORT: quorum merged"),
+			)
+		}
+		return scripted(answerStep("REPORT: reviewer done"))
+	})
+
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("coordinator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, res); !strings.Contains(env.Body, "quorum merged") {
+		t.Fatalf("coordinator report = %q", env.Body)
+	}
+
+	coord := rig.childByDepth(1)
+	if coord == nil || coord.Subagent().Name != "coordinator" {
+		t.Fatal("the coordinator child did not run")
+	}
+	if got := coord.Subagent().Spawns; len(got) != 1 || got[0] != "reviewer" {
+		t.Fatalf("coordinator meta spawns = %v", got)
+	}
+	if !rig.childProviderOf(coord).everOffered(tools.ToolSpawnAgent) {
+		t.Fatal("a coordinator at the depth cap keeps spawn_agent through its allowlist")
+	}
+	if prompt, ok := rig.childProviderOf(coord).firstSystemPrompt(); ok {
+		if !strings.Contains(prompt, "reviewer") {
+			t.Error("the coordinator's catalog does not list its allowlisted reviewer")
+		}
+		if strings.Contains(prompt, "Unit helper other") {
+			t.Error("the coordinator's catalog lists a name outside its allowlist")
+		}
+	}
+
+	// The allowlisted reviewer ran one level past the cap...
+	reviewer := rig.childByDepth(2)
+	if reviewer == nil || reviewer.Subagent().Name != "reviewer" {
+		t.Fatal("the allowlisted reviewer did not spawn")
+	}
+	// ...and a child past the cap never gets spawn_agent itself.
+	if rig.childProviderOf(reviewer).everOffered(tools.ToolSpawnAgent) {
+		t.Fatal("a child past the depth cap was offered spawn_agent")
+	}
+
+	// The name outside the list was refused, naming the allowlist.
+	if res, ok := rig.childProviderOf(coord).toolResultFor("call-other"); !ok ||
+		!strings.Contains(res, "spawns allowlist") {
+		t.Fatalf("refusal for a non-allowlisted spawn = %q (found %v)", res, ok)
+	}
+}
+
+// A project-scope spawns declaration is parsed and shown in the catalog but
+// must not widen the depth guard.
+func TestSpawnsOnAProjectDefinitionIsIgnored(t *testing.T) {
+	rig := newSubagentRig(t, nil) // max_depth 1
+	rig.approvedDefinition("coordinator", "spawns: [reviewer]\n")
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
+
+	if _, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("coordinator")); err != nil {
+		t.Fatal(err)
+	}
+	coord := rig.childByDepth(1)
+	if got := coord.Subagent().Spawns; len(got) != 0 {
+		t.Fatalf("a project definition's spawns reached the session meta: %v", got)
+	}
+	if rig.childProviderOf(coord).everOffered(tools.ToolSpawnAgent) {
+		t.Fatal("a project-scope spawns declaration handed a capped child spawn_agent")
+	}
+	for _, st := range rig.childStates() {
+		if st.Subagent() != nil && st.Subagent().Depth == 2 {
+			t.Fatal("a coordinator whose spawns was ignored still spawned")
+		}
+	}
+}
+
+// The allowlist restricts the names a coordinator may delegate to at any
+// depth, not only at the boundary.
+func TestSpawnAllowlistRestrictsBelowTheCap(t *testing.T) {
+	two := 2
+	rig := newSubagentRig(t, func(cfg *config.Config) { cfg.Subagents.MaxDepth = &two })
+	rig.userDefinition("coordinator", "spawns: [reviewer]\n")
+	rig.userDefinition("reviewer", "")
+	rig.userDefinition("other", "")
+	rig.setChildProvider(func(st *session.State) llm.Provider {
+		if st.Subagent() != nil && st.Subagent().Name == "coordinator" {
+			return scripted(
+				toolStep(spawnCall("call-other", "other", false)),
+				answerStep("REPORT: coordinator done"),
+			)
+		}
+		return scripted(answerStep("REPORT: leaf"))
+	})
+
+	if _, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("coordinator")); err != nil {
+		t.Fatal(err)
+	}
+	coord := rig.childByDepth(1)
+	if res, ok := rig.childProviderOf(coord).toolResultFor("call-other"); !ok ||
+		!strings.Contains(res, "spawns allowlist") {
+		t.Fatalf("below the cap the allowlist still restricts: %q (found %v)", res, ok)
+	}
+	for _, st := range rig.childStates() {
+		if st.Subagent() != nil && st.Subagent().Depth == 2 {
+			t.Fatal("a non-allowlisted spawn below the cap still ran")
+		}
 	}
 }
 

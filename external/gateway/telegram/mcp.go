@@ -19,7 +19,7 @@ const callbackActionMCP = "mcp"
 // from no rows reaches Telegram as {"inline_keyboard":null}, which it refuses,
 // and the chat would get nothing.
 func (b *Bot) mcpMenu(ctx context.Context) (string, *tgbotapi.InlineKeyboardMarkup, error) {
-	rows, err := mcp.ListStatus(ctx, b.runner.Cfg(), b.cwd, b.log)
+	rows, err := b.mcpRows(ctx)
 	if err != nil {
 		return "", nil, err
 	}
@@ -47,6 +47,19 @@ func (b *Bot) mcpMenu(ctx context.Context) (string, *tgbotapi.InlineKeyboardMark
 	}
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons...)
 	return strings.Join(lines, "\n"), &keyboard, nil
+}
+
+// mcpRows lists the servers of the bot's workspace. The session manager lists
+// them over its shared servers, so a server the process runs already is not
+// started a second time to be listed; a runner without that falls back to a
+// probe of its own.
+func (b *Bot) mcpRows(ctx context.Context) ([]mcp.ServerStatus, error) {
+	if lister, ok := b.runner.(interface {
+		MCPServers(ctx context.Context, cwd string) ([]mcp.ServerStatus, error)
+	}); ok {
+		return lister.MCPServers(ctx, b.cwd)
+	}
+	return mcp.ListStatus(ctx, b.runner.Cfg(), b.cwd, nil, b.log)
 }
 
 // mcpMenuLine is one server of the menu: name, status, tool count. A trust

@@ -30,6 +30,11 @@ func permissionRequired(registryRequires bool, tc llm.ToolCall, env *tools.Env, 
 		if env.PermissionMode == config.PermModeBypass {
 			return false
 		}
+		// A grant or an allowlist entry approves the command, not the directory
+		// it runs in: a cwd outside the workspace always asks.
+		if permission.RunCommandCWDOutside(env.CWD, tc.InputJSON) {
+			return true
+		}
 		cmd := permission.ExtractRunCommand(tc.InputJSON)
 		return !permission.CommandAllowedWithSession(env, sessCmdGrants, cmd)
 	case tc.Name == toolweb.ToolHTTPRequest:

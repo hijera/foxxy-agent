@@ -34,6 +34,9 @@ export type SubagentCatalogEntry = {
   timeout_seconds?: number;
   max_turns?: number;
   background?: boolean;
+  /** Spawn allowlist; project-scope declarations are ignored by the runtime. */
+  spawns?: string[];
+  /** Size of the role body; the body itself is never served. */
   role_bytes?: number;
 };
 
@@ -114,6 +117,9 @@ export function subagentApprovalFacts(entry: SubagentCatalogEntry): SubagentFact
       labelKey: "settings.subagents.fact.background",
       valueKey: "settings.subagents.fact.backgroundAlways",
     });
+  }
+  if (entry.spawns && entry.spawns.length > 0) {
+    facts.push({ labelKey: "settings.subagents.fact.spawns", value: entry.spawns.join(", ") });
   }
   if (entry.role_bytes) {
     facts.push({

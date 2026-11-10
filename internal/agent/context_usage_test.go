@@ -85,11 +85,11 @@ func TestBuildSystemPromptExcludesFoldedTurnsFromConversation(t *testing.T) {
 	if b == nil {
 		t.Fatal("expected a context breakdown")
 	}
-	wantConversation := session.EstimateTokens(conversationText(a.llmVisibleMessages()))
+	wantConversation := conversationTokens(a.llmVisibleMessages(), a.modelReadsImages())
 	if b.Conversation != wantConversation {
 		t.Fatalf("conversation tokens = %d, want %d", b.Conversation, wantConversation)
 	}
-	full := session.EstimateTokens(conversationText(st.GetMessages()))
+	full := conversationTokens(st.GetMessages(), a.modelReadsImages())
 	if b.Conversation >= full {
 		t.Fatalf("conversation tokens %d still count the folded turns (full transcript = %d)", b.Conversation, full)
 	}

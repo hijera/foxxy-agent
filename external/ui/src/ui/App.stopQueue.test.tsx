@@ -1532,13 +1532,13 @@ test("a hung Stop times out, keeps the turn watched and becomes retryable", asyn
 // said why, and then a reload of the transcript wiped the notice, the
 // optimistic bubble, the text and the pictures together.
 describe("a send the server never took keeps the prompt and its images", () => {
-  const images = () =>
+  const images = (type = "image/png") =>
     ["one.png", "two.png", "three.png"].map(
       (name) => new File([new Uint8Array([137, 80, 78, 71])], name, {
-        type: "image/png",
+        type,
       }),
     );
-  async function composeWithImages(text: string) {
+  async function composeWithImages(text: string, type = "image/png") {
     document.cookie = "foxxycode_llm_model=test-model; Path=/";
     const models = backend.override;
     backend.override = (r) =>
@@ -1552,7 +1552,7 @@ describe("a send the server never took keeps the prompt and its images", () => {
       expect(screen.getByTestId("composer-attach-btn")).toBeInTheDocument(),
     );
     fireEvent.change(screen.getByTestId("composer-file-input"), {
-      target: { files: images() },
+      target: { files: images(type) },
     });
     fireEvent.change(composer(), { target: { value: text } });
     await waitFor(() =>
@@ -1569,6 +1569,24 @@ describe("a send the server never took keeps the prompt and its images", () => {
   }
   afterEach(() => {
     document.cookie = "foxxycode_llm_model=; Path=/; Max-Age=0";
+  });
+
+  test("queues multiple MIME-less pasted screenshots as image data URLs", async () => {
+    backend.activity.set(A, true);
+    await composeWithImages("Queue these screenshots", "");
+
+    fireEvent.click(screen.getByRole("button", { name: "Queue this message" }));
+    await waitFor(() =>
+      expect(backend.count(`/foxxycode/sessions/${A}/queue`, "POST")).toBe(1),
+    );
+    const request = backend.requests.find(
+      (r) => r.path === `/foxxycode/sessions/${A}/queue` && r.method === "POST",
+    )!;
+    const body = JSON.parse(String(request.init.body));
+    expect(body.inline_files).toHaveLength(3);
+    expect(body.inline_files.every((file: { data_url: string }) =>
+      file.data_url.startsWith("data:image/png;base64,"),
+    )).toBe(true);
   });
 
   test("a connection lost on the way keeps the reason on screen", async () => {

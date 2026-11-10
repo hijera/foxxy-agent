@@ -23,7 +23,23 @@ import {
  */
 
 vi.mock("./chat/ChatScreen", () => ({
-  ChatScreen: () => <div data-testid="chat-screen-stub" />,
+  ChatScreen: (props: {
+    backgroundTasksOpen?: boolean;
+    onOpenBackgroundTasks?: () => void;
+  }) => (
+    <div data-testid="chat-screen-stub">
+      <button
+        type="button"
+        data-testid="open-tasks"
+        onClick={() => props.onOpenBackgroundTasks?.()}
+      >
+        Open tasks
+      </button>
+      <output data-testid="chat-tasks-open">
+        {String(props.backgroundTasksOpen === true)}
+      </output>
+    </div>
+  ),
 }));
 
 const SID = "sess_a";
@@ -82,7 +98,7 @@ const scheduler = {
   dir: "/tmp/jobs",
   timeout: "30m",
   max_queue: 4,
-  runs_active: 0,
+  runs_active: 3,
   retain_sessions: 10,
 };
 
@@ -117,14 +133,14 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       registry_warming: false,
     });
   }
-  if (path === "/foxxycode/scheduler/jobs") return json({ scheduler, jobs: [job] });
   if (path.startsWith("/foxxycode/scheduler/jobs/nightly")) return json(job);
+  if (path.startsWith("/foxxycode/scheduler/jobs")) return json({ scheduler, jobs: [job] });
   if (path === "/foxxycode/docs") return json(docsContents);
   if (path.startsWith("/foxxycode/docs/page")) return json(docsPage);
   if (path === "/foxxycode/config/schema") return json(configSchema);
   if (path === "/foxxycode/config") return json({ models: [{ model: "fake/alpha" }] });
   if (path.startsWith("/foxxycode/sessions?")) {
-    return json({ sessions: [{ id: SID, title: "A chat" }] });
+    return json({ active_count: 2, sessions: [{ id: SID, title: "A chat" }] });
   }
   if (path.startsWith(`/foxxycode/sessions/${SID}/messages`)) {
     return json({ session_id: SID, messages: [] });
@@ -245,6 +261,54 @@ test("on the stacked shell Escape takes Settings back to its tiles first, then c
   await backInChat("settings-screen");
 });
 
+test("on desktop Tasks stays open across rail screens and uses local panel state", async () => {
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toBe(`#/s/${SID}`);
+
+  for (const [trigger, panel] of [
+    ["nav-history", "sessions"],
+    ["nav-settings", "settings-screen"],
+    ["nav-scheduler", "scheduler-drawer"],
+    ["nav-docs", "docs-view"],
+  ] as const) {
+    fireEvent.click(await screen.findByTestId(trigger));
+    await screen.findByTestId(panel);
+    expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  }
+
+  fireEvent.click(screen.getByTestId("bgtasks-panel-close"));
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(window.location.hash).toMatch(/^#\/docs/);
+  expect(window.location.hash).not.toContain("/tasks");
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toMatch(/^#\/docs/);
+  expect(window.location.hash).not.toContain("/tasks");
+});
+
+test("on the stacked shell a rail screen closes the full-screen Tasks panel", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === shellStackMaxWidthMediaQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toBe(`#/s/${SID}/tasks`);
+
+  fireEvent.click(await screen.findByTestId("nav-history"));
+  await screen.findByTestId("sessions");
+  expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
+});
+
 test("an Escape the documentation search takes clears it and leaves the reader open", async () => {
   mountInChat();
   fireEvent.click(await screen.findByTestId("nav-docs"));
@@ -329,4 +393,33 @@ test("on a relay the swarm is home: Escape leaves it, and closes what opened ove
   await waitFor(() => expect(screen.queryByTestId("settings-screen")).toBeNull());
   expect(screen.getByTestId("swarm-view")).toBeTruthy();
   expect(window.location.hash).toBe("");
+});
+
+// On a relay the map is home: its entry in the rail stays lit while the map is
+// on screen, and the brand, which starts a new chat on an agent, leads there
+// too - a relay has no chat to start (issue #401).
+test("on a relay the Swarm entry stays lit, and the brand leads to the map", async () => {
+  relay = true;
+  history.replaceState(null, "", "/");
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await screen.findByTestId("swarm-view");
+  await waitFor(() =>
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+  );
+  // The page is the relay's own, which has no documentation to read.
+  await waitFor(() => expect(screen.queryByTestId("nav-docs")).toBeNull());
+  fireEvent.click(await screen.findByTestId("nav-settings"));
+  await screen.findByTestId("settings-screen");
+  await waitFor(() =>
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "false"),
+  );
+  fireEvent.click(screen.getByTestId("nav-home"));
+  await screen.findByTestId("swarm-view");
+  await waitFor(() =>
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+  );
 });

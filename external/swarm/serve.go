@@ -32,4 +32,10 @@ type Options struct {
 	// ExtraAuthTokens are client credentials supplied out of band
 	// (--swarm-auth-token, FOXXYCODE_SWARM_TOKEN).
 	ExtraAuthTokens []string
+	// Live returns the configuration running now, and Install puts one that was
+	// just saved from the relay's settings page in place. Both are the
+	// runtime's: the save reaches the supervisor, which rebuilds the relay on
+	// it. Without them the relay serves no settings page.
+	Live    func() *config.Config
+	Install func(*config.Config) error
 }

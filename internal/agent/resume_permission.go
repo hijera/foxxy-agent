@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -17,6 +19,30 @@ import (
 	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
+var errStalePermission = errors.New("permission is stale")
+
+type stalePermissionError struct {
+	call llm.ToolCall
+}
+
+func (e *stalePermissionError) Error() string {
+	return fmt.Sprintf("%s: tool call %s follows a newer message", errStalePermission, e.call.ID)
+}
+
+func (e *stalePermissionError) Unwrap() error { return errStalePermission }
+
+// answeredToolCallError reports a resume asked for a call that already carries
+// its own result in the transcript (a refusal written when the turn was
+// cancelled, a repaired sibling, an execution that finished). The call has an
+// outcome, so only the persisted gate is left to lift - nothing may run.
+type answeredToolCallError struct {
+	call llm.ToolCall
+}
+
+func (e *answeredToolCallError) Error() string {
+	return fmt.Sprintf("tool call %s already has a result", e.call.ID)
+}
+
 // ResumeAfterPermission executes a tool call that was approved via POST /permission after the HTTP
 // stream ended or the server restarted, then continues the ReAct loop from persisted messages.
 func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, perm *acp.PermissionResult) (string, error) {
@@ -27,18 +53,30 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if perm == nil {
 		return "", fmt.Errorf("permission result is nil")
 	}
+	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	tc, err := a.findPendingToolCall(toolCallID)
 	if err != nil {
-		// The gate is over - most often the prompt timed out and the turn moved
-		// on. Drop the persisted record so a stale one from before bridge.go
-		// learned to clear it does not keep being resurrected.
-		if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" {
-			_ = session.ClearPendingPermission(sd)
+		var staleErr *stalePermissionError
+		if errors.As(err, &staleErr) {
+			settled, settleErr := settleStalePermission(sd, toolCallID, staleErr.call)
+			if settled {
+				a.sendStalePermissionUpdate(toolCallID)
+			}
+			if settleErr != nil {
+				return string(acp.StopReasonCancelled), settleErr
+			}
+			return string(acp.StopReasonCancelled), nil
+		}
+		var answeredErr *answeredToolCallError
+		if errors.As(err, &answeredErr) {
+			// The call was resolved without this resume; the gate file is
+			// residue that would resurrect the answered card after a reload.
+			clearMatchingPendingPermission(sd, toolCallID)
+			return string(acp.StopReasonCancelled), nil
 		}
 		return "", err
 	}
 	mode := a.state.EffectiveMode()
-	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
 	if !permission.Approved(perm) {
 		// A refusal needs nothing from the bundle: the gate is cleared and
@@ -57,6 +95,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 			_ = session.WriteToolCallResult(sd, tc.ID, toolResultMsg.Content)
 			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
 		}
+		a.closeUnexecutedPermissionBatch(toolCallID)
 		return a.continueReAct(ctx, mode, toolEnv)
 	}
 	// The history holds the arguments the model produced; the bundle holds
@@ -97,7 +136,91 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
 	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), !askAgain, 0)
 	a.state.AddMessage(a.callResultMessage(tc, result, execErr, callRules))
+	a.closeUnexecutedPermissionBatch(toolCallID)
 	return a.continueReAct(ctx, mode, toolEnv)
+}
+
+// closeUnexecutedPermissionBatch records cancelled results for calls paired
+// with a permission-resumed call. A permission reply approves or refuses one
+// call, not its siblings; continuing without closing them would send an
+// incomplete assistant batch back to a provider.
+func (a *Agent) closeUnexecutedPermissionBatch(toolCallID string) {
+	msgs := a.state.GetMessages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		assistant := msgs[i]
+		if assistant.Role != llm.RoleAssistant || len(assistant.ToolCalls) == 0 {
+			continue
+		}
+
+		containsTarget := false
+		for _, tc := range assistant.ToolCalls {
+			if tc.ID == toolCallID {
+				containsTarget = true
+				break
+			}
+		}
+		if !containsTarget {
+			continue
+		}
+
+		batchEnd := i + 1
+		answered := make(map[string]struct{})
+		for ; batchEnd < len(msgs); batchEnd++ {
+			if !isLLMHistoryMessage(msgs[batchEnd]) {
+				continue
+			}
+			if msgs[batchEnd].Role != llm.RoleTool {
+				break
+			}
+			j := batchEnd
+			answered[msgs[j].ToolCallID] = struct{}{}
+		}
+		for j := batchEnd; j < len(msgs); j++ {
+			if !isLLMHistoryMessage(msgs[j]) {
+				continue
+			}
+			if msgs[j].Role == llm.RoleTool {
+				// A late real result wins over a synthetic cancellation. Leave its
+				// ordering untouched for the send-boundary validator to diagnose.
+				answered[msgs[j].ToolCallID] = struct{}{}
+			}
+		}
+		targetIndex := -1
+		for j, call := range assistant.ToolCalls {
+			if call.ID == toolCallID {
+				targetIndex = j
+				break
+			}
+		}
+		if targetIndex < 0 {
+			return
+		}
+		seen := make(map[string]struct{})
+		var siblings []llm.ToolCall
+		for j, tc := range assistant.ToolCalls {
+			// Calls before the resumed target are not known to be unstarted:
+			// they may have run before the permission gate was reached. Only the
+			// later suffix is definitely skipped.
+			if j <= targetIndex {
+				continue
+			}
+			if strings.TrimSpace(tc.ID) == "" || tc.ID == toolCallID {
+				continue
+			}
+			if _, exists := answered[tc.ID]; exists {
+				continue
+			}
+			if _, duplicate := seen[tc.ID]; duplicate {
+				continue
+			}
+			seen[tc.ID] = struct{}{}
+			siblings = append(siblings, tc)
+		}
+		if len(siblings) > 0 {
+			a.recordSkippedToolCalls(&msgs, siblings, permissionBatchSkippedResult)
+		}
+		return
+	}
 }
 
 // httpPromptMoved reports whether the http_request prompt persisted for tc
@@ -124,32 +247,105 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 	msgs := a.state.GetMessages()
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
-		if m.Role == llm.RoleTool && strings.TrimSpace(m.ToolCallID) == toolCallID {
-			return llm.ToolCall{}, fmt.Errorf("tool call %s already has a result", toolCallID)
-		}
-	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
 		if m.Role != llm.RoleAssistant || len(m.ToolCalls) == 0 {
 			continue
 		}
-		for _, tc := range m.ToolCalls {
-			if strings.TrimSpace(tc.ID) != toolCallID {
+		var pending *llm.ToolCall
+		for _, candidate := range m.ToolCalls {
+			if strings.TrimSpace(candidate.ID) == toolCallID {
+				call := candidate
+				pending = &call
+				break
+			}
+
+		}
+		if pending == nil {
+			continue
+		}
+		if args := strings.TrimSpace(pending.InputJSON); args != "" && !json.Valid([]byte(args)) {
+			return llm.ToolCall{}, fmt.Errorf("tool call %s has incomplete arguments (the response was cut off before it finished writing them); ask again instead of resuming it", toolCallID)
+		}
+		// Only a result inside this batch's contiguous tool chain answers the
+		// call: a same-ID result after an intervening message belongs to a
+		// different occurrence or is misplaced, and never makes this one
+		// answered.
+		j := i + 1
+		for ; j < len(msgs); j++ {
+			if !isLLMHistoryMessage(msgs[j]) {
 				continue
 			}
-			// A session written before partial persists stopped carrying tool calls
-			// can hold one whose arguments were cut mid-write. The SPA restores a
-			// permission prompt for it, so approving would run the tool on truncated
-			// input; refuse with something the operator can act on instead of a
-			// per-tool unmarshal error.
-			if args := strings.TrimSpace(tc.InputJSON); args != "" && !json.Valid([]byte(args)) {
-				return llm.ToolCall{}, fmt.Errorf(
-					"tool call %s has incomplete arguments (the response was cut off before it finished writing them); ask again instead of resuming it", toolCallID)
+			if msgs[j].Role != llm.RoleTool {
+				break
 			}
-			return tc, nil
+			if strings.TrimSpace(msgs[j].ToolCallID) == toolCallID {
+				return llm.ToolCall{}, &answeredToolCallError{call: *pending}
+			}
 		}
+		if j < len(msgs) {
+			return llm.ToolCall{}, &stalePermissionError{call: *pending}
+		}
+		return *pending, nil
 	}
 	return llm.ToolCall{}, fmt.Errorf("tool call %s not found in session history", toolCallID)
+}
+
+// clearMatchingPendingPermission lifts the persisted gate only when it names
+// this call: a gate belonging to a different pending call must survive.
+func clearMatchingPendingPermission(sessionDir, toolCallID string) {
+	rec, err := session.ReadPendingPermission(sessionDir)
+	if err != nil || rec == nil {
+		return
+	}
+	if strings.TrimSpace(rec.ToolCall.ToolCallID) != toolCallID {
+		return
+	}
+	_ = session.ClearPendingPermission(sessionDir)
+}
+
+func settleStalePermission(sessionDir, toolCallID string, call llm.ToolCall) (bool, error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return false, nil
+	}
+	rec, err := session.ReadPendingPermission(sessionDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read stale permission %s: %w", toolCallID, err)
+	}
+	if rec == nil || strings.TrimSpace(rec.ToolCall.ToolCallID) != toolCallID {
+		return false, nil
+	}
+	name := strings.TrimSpace(call.Name)
+	if name == "" {
+		name = strings.TrimSpace(rec.ToolName)
+	}
+	kind := ""
+	if name != "" {
+		kind = toolKind(name)
+	}
+	if err := session.MarkToolCallFinished(sessionDir, toolCallID, name, kind, "cancelled"); err != nil {
+		return false, fmt.Errorf("record stale permission %s: %w", toolCallID, err)
+	}
+	if err := session.ClearPendingPermission(sessionDir); err != nil {
+		return false, fmt.Errorf("clear stale permission %s: %w", toolCallID, err)
+	}
+	return true, nil
+}
+
+func (a *Agent) sendStalePermissionUpdate(toolCallID string) {
+	if a.server == nil {
+		return
+	}
+	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.ToolCallStatusUpdate{
+		SessionUpdate: acp.UpdateTypeToolCallUpdate,
+		ToolCallID:    toolCallID,
+		Status:        "cancelled",
+		Content: []acp.ToolCallResultItem{{
+			Type:    "content",
+			Content: acp.ContentBlock{Type: "text", Text: "not executed: the permission became stale after a newer message"},
+		}},
+	})
 }
 
 func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
@@ -186,6 +382,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		ImageRefusal:      a.toolImageRefusal,
 	}
 	httpRequestEnv(env, a.cfg)
+	a.wireWorkspaceTool(env)
 	a.applySubagentEnv(env, mode)
 	a.wireFileEditHook(env)
 	if a.subagent == nil && a.settings() != nil {

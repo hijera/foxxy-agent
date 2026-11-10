@@ -58,6 +58,11 @@ Feature: foxxycode serve runs the subsystems the config enables
     Then the "gateway" subsystem is stopped
     And the "httpserver" subsystem keeps running
 
+  Scenario: a surface turned on again starts from the configuration that turned it on
+    Given a running runtime with the httpserver and the telegram gateway enabled
+    When the httpserver is turned off and back on at port 23456 through the configuration
+    Then the "httpserver" subsystem is started from a configuration with port 23456
+
   Scenario: the last running surface is not turned off underneath the operator
     Given a running runtime with only the httpserver enabled
     When the httpserver is disabled through the configuration

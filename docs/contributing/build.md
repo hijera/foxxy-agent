@@ -4,13 +4,13 @@ This page is the detailed reference for local builds. For a short version, see [
 
 ## Prerequisites
 
-- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.25**).
+- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.26**).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
 - **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
+- **`golangci-lint` v2.x** (built with Go **1.26** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
 - **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../../scripts/build.py)); stdlib only, no `pip` packages.
 
 ## Interactive build wizard
@@ -796,6 +796,16 @@ Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memor
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ```
+
+## AppSec scan
+
+**`make security`** runs the project's security gate over the checkout — trivy
+(dependency vulnerabilities, secrets; misconfig report-only) and semgrep (SAST)
+— with the same versions and thresholds the
+[**Security scan**](../../.github/workflows/security.yaml) workflow uses on
+pull requests. **`make sec-report`** scans without failing on findings. Reports
+land in **`dist/security/`**. Runner, gate knobs and triage:
+[AppSec scanning](security-scanning.md).
 
 ## **`go install` from upstream**
 

@@ -27,6 +27,9 @@ const (
 	OriginConfig  = "config"  // config.yaml (edited via the config API, not here)
 	OriginHome    = "home"    // <home>/mcp.json (global, Cursor-style)
 	OriginProject = "project" // <cwd>/.foxxycode/mcp.json (project-local)
+	// OriginClient marks a declaration an ACP client sent with session/new or
+	// session/load: no file owns it and no trust gate decides on it.
+	OriginClient = "client"
 )
 
 // ManagedServer is one merged server definition with its scope and origin.
@@ -58,27 +61,36 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 // call, hence the deduplication: a single malformed file would fill the log.
 var mcpJSONLoadErrors sync.Map // path -> last error string
 
+// loadMCPJSONTolerant reads one mcp.json, logging and skipping a broken file.
+func loadMCPJSONTolerant(path string, log *slog.Logger) []config.MCPServerConfig {
+	servers, err := config.LoadMCPJSONServers(path)
+	if err != nil {
+		if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
+			mcpJSONLoadErrors.Store(path, err.Error())
+			if log != nil {
+				log.Warn("failed to load mcp.json", "path", path, "error", err)
+			}
+		}
+		return nil
+	}
+	mcpJSONLoadErrors.Delete(path)
+	return servers
+}
+
+// GlobalServers lists the servers of the global configuration - config.yaml
+// merged with <home>/mcp.json - with no workspace's project file over them.
+// A broken <home>/mcp.json is logged and skipped, as at session start.
+func GlobalServers(cfg *config.Config, log *slog.Logger) []ManagedServer {
+	return mergeManaged(cfg.MCPServers, loadMCPJSONTolerant(config.GlobalMCPJSONPath(cfg.Paths.Home), log), nil)
+}
+
 // ListManagedServersTolerant is ListManagedServers with a broken mcp.json
 // logged and skipped instead of failing the whole list. Session bootstrap
 // uses it so one unreadable file cannot stop a session from starting.
 func ListManagedServersTolerant(cfg *config.Config, cwd string, log *slog.Logger) []ManagedServer {
-	load := func(path string) []config.MCPServerConfig {
-		servers, err := config.LoadMCPJSONServers(path)
-		if err != nil {
-			if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
-				mcpJSONLoadErrors.Store(path, err.Error())
-				if log != nil {
-					log.Warn("failed to load mcp.json", "path", path, "error", err)
-				}
-			}
-			return nil
-		}
-		mcpJSONLoadErrors.Delete(path)
-		return servers
-	}
 	merged := mergeManaged(cfg.MCPServers,
-		load(config.GlobalMCPJSONPath(cfg.Paths.Home)),
-		load(config.MCPJSONPath(cwd)))
+		loadMCPJSONTolerant(config.GlobalMCPJSONPath(cfg.Paths.Home), log),
+		loadMCPJSONTolerant(config.MCPJSONPath(cwd), log))
 	servers, err := applyProjectSwitches(cfg.Paths.Home, cwd, merged)
 	if err != nil {
 		// The operator's switches for the project servers cannot be read, so
@@ -272,22 +284,23 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 // lives next to the other MCP switches so the management surface owns every
 // MCP decision, instead of splitting one server list across two settings tabs.
 func SetProjectTrust(cfg *config.Config, policy string) error {
-	next := config.MCP{ProjectTrust: policy}
-	if err := next.Validate(); err != nil {
+	check := config.MCP{ProjectTrust: policy}
+	if err := check.Validate(); err != nil {
 		return err
 	}
 	// Same read-modify-write discipline as mutateGlobalServer: apply the trust
 	// change to a fresh on-disk config under the lock, then mirror it back.
+	// Only the policy moves; the other mcp settings stay as the file has them.
 	return config.WithConfigFileLock(func() error {
 		fresh, err := freshGlobalConfig(cfg)
 		if err != nil {
 			return err
 		}
-		fresh.MCP = next
+		fresh.MCP.ProjectTrust = check.ProjectTrust
 		if err := persistConfigYAML(fresh); err != nil {
 			return err
 		}
-		cfg.MCP = next
+		cfg.MCP.ProjectTrust = check.ProjectTrust
 		return nil
 	})
 }

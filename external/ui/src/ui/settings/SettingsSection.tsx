@@ -174,6 +174,9 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
         providerName={providerName}
         hasExplicitKey={hasExplicitKey}
         apiBase={apiBase}
+        {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+          ? { proxy: String(ctx.parentObj?.proxy ?? "") }
+          : {})}
       />
     </>
   );
@@ -226,7 +229,14 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         ctx.parentObj?.name === undefined || ctx.parentObj.name === null
           ? ""
           : String(ctx.parentObj.name);
-      return <CodexAuthField providerName={providerName} />;
+      return (
+        <CodexAuthField
+          providerName={providerName}
+          {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+            ? { proxy: String(ctx.parentObj?.proxy ?? "") }
+            : {})}
+        />
+      );
     }
   }
   return neuralDeepAPIBaseOverride(ctx);
@@ -380,7 +390,7 @@ export function SettingsSection(props: {
   // persist into config.yaml / .foxxycode/mcp.json immediately, so it does not
   // edit the settings document at all.
   if (section.kind === "mcp") {
-    return <MCPSection />;
+    return <MCPSection {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})} />;
   }
 
   // Subagents edits the config section like any object tab, and additionally

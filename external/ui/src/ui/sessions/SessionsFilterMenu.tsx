@@ -15,9 +15,10 @@ import {
 } from "./sessionQuery";
 import { Chevron } from "../components/Chevron";
 
-/** One environment the History can be pointed at: this server, or a remote. */
+/** One origin filter or server switch offered by History's Environment menu. */
 export type SessionsEnvironmentOption = {
-  /** Stable id for the row; the remote URL, or "local". */
+  kind: "origin" | "switch";
+  /** Stable id for the row; an origin id or the remote URL. */
   key: string;
   label: string;
   active: boolean;
@@ -33,11 +34,13 @@ const HISTORY_SORT_KEYS: readonly SessionSortKey[] = [
 
 /** One choice inside a section. */
 type MenuOption = {
+  kind?: "origin" | "switch";
   key: string;
   label: string;
   active: boolean;
   testId: string;
   onPick: () => void;
+  startsGroup?: boolean;
 };
 
 /** One row of the menu: a question, the answer in force, and the choices. */
@@ -152,19 +155,34 @@ export function SessionsFilterMenu(props: {
     },
   ];
   if (environments.length > 1) {
+    const activeOrigin = environments.find(
+      (environment) => environment.kind === "origin" && environment.active,
+    );
+    const activeSwitch = environments.find(
+      (environment) => environment.kind === "switch" && environment.active,
+    );
+    const firstSwitch = environments.find(
+      (environment) => environment.kind === "switch",
+    );
+    const originIsDefault = activeOrigin?.key === "all";
+    const value = activeSwitch
+      ? originIsDefault || !activeOrigin
+        ? activeSwitch.label
+        : `${activeSwitch.label} · ${activeOrigin.label}`
+      : activeOrigin?.label ?? "";
     sections.push({
       key: "environment",
       label: t("sessions.filter.environment"),
-      value: environments.find((e) => e.active)?.label ?? "",
-      // The first row is the one that narrows nothing, and the list is built
-      // with it first, so "default" is "the active row is that one".
-      isDefault: environments.findIndex((e) => e.active) === 0,
+      value,
+      isDefault: !activeSwitch && originIsDefault,
       options: environments.map((env) => ({
+        kind: env.kind,
         key: env.key,
         label: env.label,
         active: env.active,
         testId: `sessions-filter-env-${env.key}`,
         onPick: pick(env.onPick),
+        startsGroup: env === firstSwitch,
       })),
     });
   }
@@ -262,9 +280,13 @@ export function SessionsFilterMenu(props: {
                     <button
                       key={option.key}
                       type="button"
-                      className="sessions-filter-item"
-                      role="menuitemradio"
-                      aria-checked={option.active}
+                      className={`sessions-filter-item${option.startsGroup ? " starts-group" : ""}`}
+                      role={option.kind === "switch" ? "menuitem" : "menuitemradio"}
+                      {...(option.kind === "switch"
+                        ? option.active
+                          ? { "aria-current": "true" as const }
+                          : {}
+                        : { "aria-checked": option.active })}
                       data-testid={option.testId}
                       onClick={option.onPick}
                     >

@@ -76,8 +76,10 @@ func (h *Handler) QueueModePreference() (session.QueueMode, error) {
 
 // ApplySessionSettings changes the remote session's settings through PATCH
 // /foxxycode/sessions/{id}, the setter the server's browser uses, and mirrors
-// the snapshot it answers with. The notice arrives on the events stream
-// (event: session_settings), like a change any other client makes.
+// the snapshot it answers with. The snapshot arrives on the events stream
+// too (event: session_settings), like a change any other client makes, and
+// like every change the operator makes it carries no notice: the footer
+// shows it.
 //
 // The server pins a session on its first prompt. Until then there is nothing
 // to patch: the change is mirrored here and held, and it rides in at the
@@ -132,7 +134,6 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 			_ = sender.SendSessionUpdate(sid, acp.SessionSettingsUpdate{
 				SessionUpdate: acp.UpdateTypeSessionSettings,
 				Settings:      snap,
-				Notice:        session.SettingsChangeNotice(ch) + " (from the first message)",
 				Source:        "remote",
 			})
 		}

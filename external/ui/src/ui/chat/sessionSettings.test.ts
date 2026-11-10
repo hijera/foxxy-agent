@@ -31,13 +31,13 @@ test("both frame shapes carry the snapshot: the events stream and the turn strea
       object: "foxxycode.session_settings",
       sessionId: "sess_a",
       settings: snapshot,
-      notice: "Permission mode: bypass for this session",
-      source: "permission_dialog",
+      notice: "Model: fake/b for this session",
+      source: "model",
     }),
   );
   expect(fromEvents?.sessionId).toBe("sess_a");
   expect(fromEvents?.settings.permissionMode).toBe("bypass");
-  expect(fromEvents?.notice).toContain("bypass");
+  expect(fromEvents?.notice).toContain("fake/b");
   // The turn stream carries the ACP update: the session id sits in the snapshot.
   const fromTurn = sessionSettingsEventOf(
     JSON.stringify({ sessionUpdate: "session_settings", settings: snapshot }),
