@@ -15,6 +15,11 @@
 - Whole tool calls survive a cut without an automatic replay replacing them, even when the model has not written any answer text yet.
 - A cut answer keeps its completed last line. Closing Markdown alone no longer preserves an unfinished line, preventing duplicated prefixes when the model restarts it.
 
+## 0.3.44 — 2026-11-10
+
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
+
 ## 0.3.41 — 2026-11-01
 
 **File actions and filters.** Reveal on server uses the Windows Shell API instead of launching a hidden Explorer process, including paths with spaces and Unicode. Copying names and paths also works when the embedded browser denies Clipboard API access. File-card actions are no longer clipped by the card and close with Escape or a second click. The project-only choice and collapsed groups survive IDE restarts that change the panel's port. Reopening a loaded chat also recovers a removed worktree without restarting the IDE.
