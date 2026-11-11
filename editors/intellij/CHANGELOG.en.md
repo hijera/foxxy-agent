@@ -9,8 +9,6 @@
 
 ## Unreleased — 2026-11-11
 
-**Reopening the panel.** After stopping the process on tab close, opening FoxxyCode restores the chat. The panel no longer stays blank after restarting its backend.
-
 **Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors.
 
 **Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
