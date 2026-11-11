@@ -683,7 +683,7 @@ YAML split:
 
 ### Provider proxy
 
-`providers[].proxy` selects the route for every request made by a provider row: completions, model lists, account usage and sign-in.
+**`providers[].proxy`** picks the route of every request a provider row makes: its completions, model list, account usage, OAuth/device sign-in and token refresh, and sign-out revoke.
 
 - Empty or `inherit` follows `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, or the operating system proxy when no environment proxy is configured. Loopback stays direct.
 - `none` connects directly, ignoring environment and system proxy settings.
@@ -765,4 +765,5 @@ Select `foxxycode` to send
 `Foxxycode/<running version>`, using `dev` in an unstamped build. It applies to
 completion requests and model listing, including the unsaved provider preview.
 Other provider types ignore this setting. In Settings, open an OpenAI-compatible
-or Anthropic-compatible provider and choose **User-Agent**; save the provider to apply it to new calls.
+or Anthropic-compatible provider, expand **Advanced settings** and choose
+**User-Agent**; save the provider to apply it to new calls.

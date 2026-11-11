@@ -166,8 +166,28 @@ try {
         );
       });
 
-      const got = await probe(page);
       const at = `${ENGINE} ${lang} ${width}px`;
+      const noticeCount = await page.locator(".msg-system-details").count();
+      check(`${at} the stand mounts error and info notices`, noticeCount >= 2, `${noticeCount} notices`);
+      await page.evaluate(() => {
+        for (const details of document.querySelectorAll(".msg-system-details")) details.open = false;
+      });
+      const collapsed = await probe(page);
+      if (collapsed.error) {
+        check(`${at} collapsed notices are measurable`, false, collapsed.error);
+      } else {
+        check(`${at} collapsed notices do not scroll the page sideways`, collapsed.pageOverflow <= 0, `${collapsed.pageOverflow}px`);
+        check(
+          `${at} collapsed notices stay inside the transcript`,
+          collapsed.offenders.length === 0,
+          collapsed.offenders.join(", "),
+        );
+      }
+      await page.evaluate(() => {
+        for (const details of document.querySelectorAll(".msg-system-details")) details.open = true;
+      });
+
+      const got = await probe(page);
       if (got.error) {
         check(`${at} the stand is measurable`, false, got.error);
         await page.close();

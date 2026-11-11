@@ -12187,3 +12187,302 @@ ports:
     Adapted to FoxxyCode branding, asynchronous MCP startup, trust gates, fork retry/continuation policies, localization,
     both compaction engines, SVN and Chromium 104. Scope and validation: docs/plans/upstream-1.2.45-port.md.'
   remaining: []
+- upstream_sha: a58e5a4a308554d42d92c465ef906a5c23ae5ec9
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: d41cad8a80e07d06c8d529813ba73df8c601e44d
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []
+- upstream_sha: 0591a4fdee953abbaa1659b9bc048fb77e33ab51
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 55a83457b4586ee097956b294c333011e514355d
+  status: skipped
+  fork_commits: []
+  reason: Deployment-contract document was explicitly reverted within this upstream
+    range; no net file change.
+  remaining: []
+- upstream_sha: edc8fe522fdf3f307312540f474510c4ba0dacf9
+  status: skipped
+  fork_commits: []
+  reason: Deployment-contract document was explicitly reverted within this upstream
+    range; no net file change.
+  remaining: []
+- upstream_sha: 1e832e22d3b73daf24b76a9ac58704ffb508b6e6
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 7813ac049377ecdfaf094086bee3a90500b13c46
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported the merge-specific resolutions as part of the complete 1.2.46-1.2.54
+    net range; reconciled with fork invariants. See docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 1a95b048da111dcc8c67c658055bf5a6a157efed
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 052dc2e79dfdb7474aabbe60e652221057fc860e
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: d38927f621f3599297d8b600df50ed3e8dc94cd4
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []
+- upstream_sha: 16d222b32d654a6d6d38b9f5df459b2bc3b7eaf2
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: a55997520c559db1c2d97afed3e182e932ecfc9f
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported the merge-specific resolutions as part of the complete 1.2.46-1.2.54
+    net range; reconciled with fork invariants. See docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 6fefd7d4768c445002504f4c46bfbaad2db85d01
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: f7f052de65c594b333c8e82f045785d18ad85d79
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported the merge-specific resolutions as part of the complete 1.2.46-1.2.54
+    net range; reconciled with fork invariants. See docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 19aacbeff076c1564294a4acac70113effa8f3eb
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 9efa1e054d802f0a86e7b8d3b98260a5aadf7987
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: fca16922013f3d86a9e6be1aac7b87e8cc779b05
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 31a17b608f1cfbc3e09400e62659a11fe1f93b19
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []
+- upstream_sha: 64c84f211a1cb2be76278be0a4169cfe2860cbe9
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 704bc817ed8cd985e6a1536a4ff8fff0b273287d
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []
+- upstream_sha: b6ca17cc1687bf573cdf1e0cc137d6fcc51501de
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 2cf073560fb36df2a6407a44aafbd83e760a57f7
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 0d9c13eedeaf4a9653be727e6d9360e9cd4a1893
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: d66d91c4e4a29e40244c4479897bbe19afcd7f6d
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 1693ec97e7a8d99f9b02b49a6da83bf28342021e
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 0809b241635e4a752d4c2474be3d08411d525fb6
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: f6beb66ca280cf67cc13c84ee5dbecbfa419596d
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 2b04dc66c9cb6175a5796fb791359a7cee46e74f
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 28aa8ecfda5ff082d01bddb2be06964127520d53
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 127c2c3ddef3edf1e832c9550a62828198cb47e5
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 2720e1793751b8faf2e1a420ceb9cad3ee88b952
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: f8dd3a617ee5345d85b7ec1e271bdc67fb17b08f
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: e8bcc7a352dbda03baa46d58205f3b175c90ff49
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 36bae146f5dd11848c163b839b0d3d182486cd9a
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 89cbbadb47b1a5e08e8fefc8b74be3053fe1fcb6
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: bca1b35003334ac1fa8775d41d7e3e80ee1a8e7c
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: 0c51b9a9511f76c3ea40fd9531ff1d4370adb2a2
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []
+- upstream_sha: 2c5e4e91f3895d42be94f7616b80cb77e3fa05f5
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []
+- upstream_sha: 2b68e1c7fea87240223b3df0a3b3ca1b57948639
+  status: adapted
+  fork_commits:
+  - bec3e5a72da91a0c6c6206edea27484f946c675a
+  reason: Ported in the complete 1.2.46-1.2.54 net range, adapting branding, trust-gated
+    asynchronous MCP, fork state/prompt invariants and centered composer/footer; see
+    docs/plans/upstream-1.2.54-port.md.
+  remaining: []
+- upstream_sha: cc012f2b890a5a271b40dd15566a43b922669ce3
+  status: skipped
+  fork_commits: []
+  reason: Integration merge; all constituent changes are included in the complete
+    1.2.46-1.2.54 net port.
+  remaining: []

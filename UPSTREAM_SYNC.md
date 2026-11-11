@@ -8,6 +8,16 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.54 — 2026-11-01
+
+Checkpoint: `cc012f2b890a5a271b40dd15566a43b922669ce3` (tag `1.2.54`), following `bd28a329b9bbc53874556403bb2fd00f3f01c483` (`1.2.45`). Implementation: `bec3e5a72da91a0c6c6206edea27484f946c675a`. All 40 commits are accounted for: 31 adapted records (including three merge-specific resolutions), seven redundant integration merges and the reverted model-check document pair. No remaining work in this range.
+
+- Ported disconnected-client permission/question waits, contiguous tool-call pairing and permission-resume closure, provider proxy authentication, Anthropic history projection, History state dots and counts, workspace-local MCP management and activation, deleted-worktree recovery, shared-file cards and previews, subagent/Tasks controls, folder/branch filters and fenced-code input, and Crossreview 2.0.
+- Owner decisions: follow upstream roster priority and approved custom reviewer commands, warm MCP on chat activation through the fork's asynchronous trust gate, recover removed managed worktrees, retain the 25 MiB file / 100 MiB session / no-child-sharing limits, and preserve the centered empty-chat composer and footer.
+- Preserved every registered divergence, both compaction engines and Summary, retry/continuation budgets, cross-process state, shared encoding, export formats, SVN, localization, send shortcuts and Chromium 104. The fork's export projection strips UI-only file placement tags while keeping Markdown indentation, user-authored text and the saved chat intact. Scope: `docs/plans/upstream-1.2.54-port.md`.
+- Validation passed: complete shipped-tag `make test` (3,245 SPA tests), full non-UI `make test-race` with no races, host/Windows lint, Windows cross-build/vet, prompt-cache, fork guards, focused export race scenarios, schema synchronization, documentation checks and Crossreview vendor reproducibility. Real Chromium layout/overflow/chevron and Chromium/WebKit folder scrolling passed. The 3,306-message transcript harness passed direct, two-browser and swarm cases with CPU throttling four and budget scale two.
+- Evidence is published in the `screenshots` branch under `upstream-1.2.54/round-1/` and `round-2/` (commits `03fe31d8` and `c8bf2c64`); documentation references its own lean set of real captures. Native Windows execution and graphical file-manager integration remain platform/CI coverage; the local Linux stand is headless.
+
 ## Sync through upstream 1.2.45 — 2026-10-29
 
 Checkpoint: `bd28a329b9bbc53874556403bb2fd00f3f01c483` (tag `1.2.45`), following `419c6930450a0e3107021ad7ad0b858542d0245b` (`1.2.35`). Implementation: `eee87dce32159afe3d7ce906ced3e04c7e4df74a`. All 77 commits are accounted for in `ports.yaml`: 70 adapted records and seven redundant integration merges.

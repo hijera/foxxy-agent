@@ -241,12 +241,16 @@ export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
+  /** Currently active sessions across History's normal eligible listing. */
+  historyActiveCount?: number;
   /** When false, hide History: a relay holds no sessions of its own. */
   showHistory?: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
   onOpenScheduler: () => void;
   schedulerOpen: boolean;
+  /** Currently active scheduler runs from the scheduler jobs aggregate. */
+  schedulerActiveCount?: number;
   /** When false, hide Swarm (the environment is not a relay). */
   showSwarm?: boolean;
   onOpenSwarm?: () => void;
@@ -260,7 +264,7 @@ export function NavRail(props: {
   railLabelsWide: boolean;
   onToggleRailLabels: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   // The sign-in state is read here rather than threaded down from the gate: the
   // rail is the one place in the app that is always on screen, which is where a
   // "you are signed in as ..., and here is the way out" belongs.
@@ -291,6 +295,14 @@ export function NavRail(props: {
   const showScheduler = props.showScheduler !== false;
   // A relay shows the fleet; an ordinary agent has none to show.
   const showSwarm = props.showSwarm === true;
+  const historyActiveCount = Math.max(0, props.historyActiveCount ?? 0);
+  const schedulerActiveCount = Math.max(0, props.schedulerActiveCount ?? 0);
+  const historyAriaLabel = historyActiveCount > 0
+    ? `${t("nav.history")}, ${tp("nav.activeSessions", historyActiveCount)}`
+    : t("nav.history");
+  const schedulerAriaLabel = schedulerActiveCount > 0
+    ? `${t("nav.schedulerAriaLabel")}, ${tp("nav.activeRuns", schedulerActiveCount)}`
+    : t("nav.schedulerAriaLabel");
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const signedIn = auth.loginRequired && auth.authenticated;
   // Below 1200px the rail is a top bar; on a phone it folds what does not fit
@@ -493,7 +505,7 @@ export function NavRail(props: {
               <a
                 href={appNavHrefHistory()}
                 className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
-                aria-label={t("nav.history")}
+                aria-label={historyAriaLabel}
                 aria-pressed={props.historyOpen}
                 data-testid="nav-history"
                 onClick={(ev) =>
@@ -501,9 +513,16 @@ export function NavRail(props: {
                 }
               >
                 <IconBook className="rail-svg rail-nav-hit-svg" />
-                {pillWide ? (
-                  <span className="rail-nav-label">{t("nav.history")}</span>
+                {historyActiveCount > 0 ? (
+                  <span
+                    className="rail-active-count"
+                    data-testid="nav-history-active-count"
+                    aria-hidden
+                  >
+                    {historyActiveCount}
+                  </span>
                 ) : null}
+                {pillWide ? <span className="rail-nav-label">{t("nav.history")}</span> : null}
               </a>
               {!pillWide && !props.historyOpen ? (
                 <span className="rail-tip" role="tooltip">
@@ -518,7 +537,7 @@ export function NavRail(props: {
               <a
                 href={appNavHrefScheduler()}
                 className={`${navBtnCls} ${props.schedulerOpen ? "is-active" : ""}`}
-                aria-label={t("nav.schedulerAriaLabel")}
+                aria-label={schedulerAriaLabel}
                 aria-pressed={props.schedulerOpen}
                 data-testid="nav-scheduler"
                 onClick={(ev) =>
@@ -526,9 +545,16 @@ export function NavRail(props: {
                 }
               >
                 <IconScheduler className="rail-svg rail-nav-hit-svg" />
-                {pillWide ? (
-                  <span className="rail-nav-label">{t("nav.scheduler")}</span>
+                {schedulerActiveCount > 0 ? (
+                  <span
+                    className="rail-active-count"
+                    data-testid="nav-scheduler-active-count"
+                    aria-hidden
+                  >
+                    {schedulerActiveCount}
+                  </span>
                 ) : null}
+                {pillWide ? <span className="rail-nav-label">{t("nav.scheduler")}</span> : null}
               </a>
               {!pillWide && !props.schedulerOpen ? (
                 <span className="rail-tip" role="tooltip">
@@ -685,6 +711,7 @@ export function NavRail(props: {
                           href={appNavHrefScheduler()}
                           className={`rail-more-item ${props.schedulerOpen ? "is-active" : ""}`}
                           data-testid="nav-more-scheduler"
+                          aria-label={schedulerAriaLabel}
                           onClick={(ev) => {
                             setMoreOpen(false);
                             sameTabInAppNavClick(ev, props.onOpenScheduler);
@@ -692,6 +719,15 @@ export function NavRail(props: {
                         >
                           <IconScheduler className="rail-svg" />
                           <span>{t("nav.scheduler")}</span>
+                          {schedulerActiveCount > 0 ? (
+                            <span
+                              className="rail-more-active-count"
+                              data-testid="nav-more-scheduler-active-count"
+                              aria-hidden
+                            >
+                              {schedulerActiveCount}
+                            </span>
+                          ) : null}
                         </a>
                       );
                     }

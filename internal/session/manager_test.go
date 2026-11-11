@@ -639,6 +639,77 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 	}
 }
 
+func TestHandleSessionPromptRunnerFailurePersistsActivityError(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	wantErr := errors.New("runner failed")
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", wantErr
+	}
+	mgr := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "fail"}},
+	}); !errors.Is(err, wantErr) {
+		t.Fatalf("prompt error = %v, want %v", err, wantErr)
+	}
+	state := mgr.SessionByID(res.SessionID)
+	if state.GetActivitySeq() != 1 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("failure counters = activity=%d lastError=%d, want 1 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+	snap, err := store.ReadSnapshot(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 1 || snap.Meta.LastErrorSeq != 1 {
+		t.Fatalf("persisted failure counters = activity=%d lastError=%d, want 1 and 1", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+}
+
+func TestSequentialStaleManagersAllocateDistinctActivityGenerations(t *testing.T) {
+	root := t.TempDir()
+	storeA := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	storeB := &session.FileStore{Root: storeA.Root}
+	mgrA := session.NewManager(testConfig(), noopSender{}, noopRunner, slog.Default(), "/tmp", storeA)
+	mgrB := session.NewManager(testConfig(), noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", errors.New("manager B failed")
+	}, slog.Default(), "/tmp", storeB)
+	ctx := context.Background()
+	created, err := mgrA.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgrB.EnsureHTTPSession(ctx, created.SessionID, "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mgrA.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: created.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "first"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgrB.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: created.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "second"}},
+	}); err == nil || err.Error() != "manager B failed" {
+		t.Fatalf("manager B prompt error = %v, want manager B failed", err)
+	}
+
+	snap, err := storeA.ReadSnapshot(created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 2 || snap.Meta.LastErrorSeq != 2 {
+		t.Fatalf("activity metadata = activity %d, lastError %d; want 2, 2", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+}
+
 func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	cfg := testConfig()
 	blockStarted := make(chan struct{})
@@ -654,6 +725,8 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := res.SessionID
+	state := mgr.SessionByID(id)
+	state.RestoreActivityFromSnapshot(1, 0, 1)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -679,6 +752,9 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 	if out.StopReason != acp.StopReasonCancelled {
 		t.Fatalf("stop reason %q want %q", out.StopReason, acp.StopReasonCancelled)
+	}
+	if state.GetActivitySeq() != 2 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("cancellation counters = activity=%d lastError=%d, want 2 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
 	}
 }
 
@@ -1182,6 +1258,9 @@ func TestSetSessionWorkspaceReconnectsProjectMCPAndPreservesClientServers(t *tes
 
 	if err := m.SetSessionWorkspace(context.Background(), st, beta); err != nil {
 		t.Fatalf("SetSessionWorkspace: %v", err)
+	}
+	if err := m.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatal(err)
 	}
 	assertMCPClientNames(t, st, "beta-project", "client-supplied")
 	if got := mcpClientByName(t, st, "client-supplied"); got != clientSupplied {

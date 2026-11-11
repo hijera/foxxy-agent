@@ -62,11 +62,19 @@ func TestProviderUserAgentFeature(t *testing.T) {
 				if _, err = p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hello"}}, nil, func(StreamChunk) {}); err != nil {
 					return err
 				}
+				in.DisableStream = true
+				p, err = NewProvider(in)
+				if err != nil {
+					return err
+				}
+				if _, err = p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hello"}}, nil); err != nil {
+					return err
+				}
 				_, err = ListModels(context.Background(), in)
 				return err
 			})
 			sc.Step(`^all requests identify the client as "([^"]*)"$`, func(prefix string) error {
-				if len(seen) != 3 {
+				if len(seen) != 4 {
 					return fmt.Errorf("got %d requests", len(seen))
 				}
 				for _, value := range seen {

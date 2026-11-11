@@ -394,6 +394,7 @@ test.each([
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
   fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
   const field = screen.getByLabelText("User-Agent");
+  expect(field.closest("fieldset")?.textContent).toContain("Advanced settings");
   expect(field).toHaveValue(`${label} (default)`);
   fireEvent.focus(field);
   fireEvent.mouseDown(

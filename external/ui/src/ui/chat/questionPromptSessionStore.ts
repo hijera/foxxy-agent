@@ -10,6 +10,12 @@ export type StoredQuestionPromptRecord = {
   resolved?: QuestionResolvedState | undefined;
 };
 
+export function hasUnresolvedQuestionPrompt(
+  items: readonly TranscriptItem[],
+): boolean {
+  return items.some((item) => item.type === "question_prompt" && !item.resolved);
+}
+
 function storageKey(sessionId: string): string {
   return `${STORAGE_PREFIX}${sessionId.trim()}`;
 }

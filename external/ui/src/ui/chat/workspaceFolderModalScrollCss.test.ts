@@ -33,7 +33,7 @@ test("folder list may shrink so the dialog never clips its own chrome", () => {
   const list = block(".workspace-modal-list");
   expect(list).toMatch(/min-height:\s*0\b/);
   expect(list).not.toMatch(/min-height:\s*[1-9]/);
-  expect(list).toMatch(/flex:\s*1\s+1\s+auto/);
+  expect(list).toMatch(/flex:\s*1\s+1\s+120px/);
   expect(list).toMatch(/overflow-y:\s*auto/);
 });
 
@@ -42,8 +42,9 @@ test("folder list may shrink so the dialog never clips its own chrome", () => {
 // the cap and therefore yields on a short window instead of overflowing.
 test("dialog carries the roomy-body floor, clamped by the same viewport unit", () => {
   const modal = block(".workspace-modal");
-  expect(modal).toMatch(/min-height:\s*min\(262px,\s*60vh\)/);
-  expect(modal).toMatch(/min-height:\s*min\(262px,\s*60dvh\)/);
+  expect(modal).toMatch(/width:\s*min\(720px,/);
+  expect(modal).toMatch(/min-height:\s*min\(520px,\s*80vh\)/);
+  expect(modal).toMatch(/min-height:\s*min\(520px,\s*80dvh\)/);
 });
 
 // Only the list may give up height; the head, the path row and the actions row
@@ -63,8 +64,8 @@ test("dialog chrome rows are flex: none so only the list yields", () => {
 // as the fallback for engines without dvh.
 test("dialog height cap is expressed in dvh with a vh fallback", () => {
   const modal = block(".workspace-modal");
-  expect(modal).toMatch(/max-height:\s*min\(60vh,\s*520px\)/);
-  expect(modal).toMatch(/max-height:\s*min\(60dvh,\s*520px\)/);
+  expect(modal).toMatch(/max-height:\s*min\(80vh,\s*760px\)/);
+  expect(modal).toMatch(/max-height:\s*min\(80dvh,\s*760px\)/);
 });
 
 // A wheel gesture that reaches the end of the list used to chain into the page
@@ -86,4 +87,29 @@ test("folder list styles its scrollbar like the other scrollable lists", () => {
   );
   expect(css).toMatch(/\.workspace-modal-list::-webkit-scrollbar\s*\{/);
   expect(css).toMatch(/\.workspace-modal-list::-webkit-scrollbar-thumb\s*\{/);
+});
+
+test("short listings keep a stable list area while modal chrome stays separated", () => {
+  const list = block(".workspace-modal-list");
+  expect(list).toMatch(/flex:\s*1\s+1\s+120px/);
+  expect(list).toMatch(/min-height:\s*0\b/);
+  expect(block(".workspace-modal-head")).toMatch(
+    /border-bottom:\s*1px solid/,
+  );
+  expect(block(".workspace-modal-actions")).toMatch(
+    /border-top:\s*1px solid/,
+  );
+});
+
+test("hidden and symlink folders retain clear, compact row treatments", () => {
+  const css = cssText();
+  expect(css).toMatch(/\.workspace-modal-row--hidden\s*\{[^}]*opacity:\s*0\.6/);
+  expect(css).toMatch(/\.workspace-modal-row-target\s*\{/);
+});
+
+test("stacked shells give the folder modal the available full height", () => {
+  const css = cssText();
+  expect(css).toMatch(
+    /@media \(max-width: 1199px\)[\s\S]*\.workspace-modal\s*\{[^}]*height:\s*calc\(100dvh - var\(--foxxycode-mobile-top-inset,\s*0px\) - 28px\)/,
+  );
 });

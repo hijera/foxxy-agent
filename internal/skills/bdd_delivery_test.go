@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -95,6 +96,36 @@ func (s *deliveryState) carriesReferences(name string) error {
 	}
 	if len(entries) == 0 {
 		return fmt.Errorf("skill %q has an empty references directory", name)
+	}
+	return nil
+}
+
+// carriesScripts: a skill that ships a helper (crossreview's scripts/) has it
+// written next to its SKILL.md, executable where modes exist, because the
+// skill tells the model to run it from there.
+func (s *deliveryState) carriesScripts(name string) error {
+	dir := filepath.Join(s.managedDir(), name, "scripts")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("skill %q has no scripts on disk: %w", name, err)
+	}
+	runnable := 0
+	for _, e := range entries {
+		ext := filepath.Ext(e.Name())
+		if ext != ".py" && ext != ".sh" {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
+			return fmt.Errorf("skill %q: %s is not executable (%v)", name, e.Name(), info.Mode())
+		}
+		runnable++
+	}
+	if runnable == 0 {
+		return fmt.Errorf("skill %q has no runnable script in %s", name, dir)
 	}
 	return nil
 }
@@ -205,6 +236,7 @@ func initializeDeliveryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the home skills directory carries "([^"]*)"$`, s.carries)
 	sc.Step(`^the home skills directory does not carry "([^"]*)"$`, s.doesNotCarry)
 	sc.Step(`^the skill "([^"]*)" carries its references on disk$`, s.carriesReferences)
+	sc.Step(`^the skill "([^"]*)" carries its runnable scripts on disk$`, s.carriesScripts)
 	sc.Step(`^the skill catalogue offers "([^"]*)"$`, s.catalogueOffers)
 	sc.Step(`^the skill catalogue does not offer "([^"]*)"$`, s.catalogueDoesNotOffer)
 	sc.Step(`^the configured skill sources contain "([^"]*)"$`, s.sourcesContain)

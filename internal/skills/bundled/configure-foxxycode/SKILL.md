@@ -123,4 +123,4 @@ Select `foxxycode` to send
 `Foxxycode/<running version>`, using `dev` in an unstamped build. It applies to
 completion requests and model listing, including the unsaved provider preview.
 Other provider types ignore this setting. In Settings, open an OpenAI-compatible
-or Anthropic-compatible provider and choose **User-Agent**. For example, stage `set providers[name=myapi].user_agent=foxxycode` and follow the confirmation and commit flow above.
+or Anthropic-compatible provider, expand **Advanced settings** and choose **User-Agent**. For example, stage `set providers[name=myapi].user_agent=foxxycode` and follow the confirmation and commit flow above.

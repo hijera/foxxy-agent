@@ -76,9 +76,9 @@ func (p *openAIProvider) CompleteRaw(ctx context.Context, prompt string) (*Respo
 	}, nil
 }
 
-func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent ...string) *openAIProvider {
+func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent string) *openAIProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
-	if len(userAgent) > 0 && userAgent[0] == "foxxycode" {
+	if userAgent == "foxxycode" {
 		opts = append(opts, option.WithHeader("User-Agent", "Foxxycode/"+version.Get()))
 	}
 	if apiKey != "" {

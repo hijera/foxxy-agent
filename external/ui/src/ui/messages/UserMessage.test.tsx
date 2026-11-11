@@ -61,6 +61,26 @@ test("copy sends raw user text not display-only slash chip source", () => {
   expect(writeText).toHaveBeenCalledWith("hi /demo there");
 });
 
+test("skill and workspace mention tokens copy their literal text on click", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+    writable: true,
+  });
+  render(
+    <UserMessage
+      content="run /rpa-gen-rules with @docs/plan.md"
+      knownSkillNames={new Set(["rpa-gen-rules"])}
+    />,
+  );
+
+  await fireEvent.click(screen.getByTestId("user-token-skill-rpa-gen-rules"));
+  expect(writeText).toHaveBeenLastCalledWith("/rpa-gen-rules");
+  await fireEvent.click(screen.getByTestId("user-token-mention-docs_plan_md"));
+  expect(writeText).toHaveBeenLastCalledWith("@docs/plan.md");
+});
+
 test("edit button is absent when onEdit is not provided", () => {
   render(<UserMessage content="hello" />);
   expect(screen.queryByTestId("user-message-edit")).toBeNull();

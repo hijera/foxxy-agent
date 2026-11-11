@@ -7,12 +7,20 @@ Feature: Project-local skills follow the session workspace
   Background:
     Given skills are configured under "${CWD}/.agents/skills"
     And a project folder "app" with a local skill "deploy-app"
+    And a project folder "ops" with a local skill "deploy-ops"
     And a running foxxycode HTTP server started outside the project
 
   Scenario: Slash commands of a session anchored on the project list its local skill
     Given a session anchored on the project folder "app"
     When I list slash commands for that session
     Then the slash commands include "deploy-app"
+
+  Scenario: Switching workspace immediately replaces the session local skills
+    Given a session anchored on the project folder "app"
+    When I switch that session workspace to the project folder "ops"
+    And I list slash commands for that session
+    Then the slash commands include "deploy-ops"
+    And the slash commands do not include "deploy-app"
 
   Scenario: Slash commands without a session use the server default workspace
     When I list slash commands without a session

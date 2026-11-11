@@ -46,7 +46,10 @@ type Message struct {
 	// supported for RoleUser; ignored on other roles and by providers that do
 	// not support vision.
 	ImageParts []ImagePart `json:"image_parts,omitempty"`
-	Reasoning  string      `json:"reasoning,omitempty"`
+	// Artifacts are downloadable session-owned files published by a completed
+	// share_file call. They are metadata only and never provider prompt content.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+	Reasoning string     `json:"reasoning,omitempty"`
 	// ReasoningSignature is the provider signature for the reasoning block (Anthropic extended
 	// thinking). It is replayed unmodified with the exact Reasoning text on later requests when
 	// thinking is enabled and the turn has tool calls; otherwise the Anthropic API rejects it.
@@ -84,6 +87,15 @@ type Message struct {
 	// finished notify_on_finish task started a turn with (excluded from what
 	// the provider is sent; the Content still is).
 	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
+}
+
+type Artifact struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	SHA256             string `json:"sha256"`
+	Size               int64  `json:"size"`
+	SourcePath         string `json:"source_path,omitempty"`
+	SourceRelativePath string `json:"source_relative_path,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -311,7 +323,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		ap.tempSet = p.TemperatureSet
 		inner = ap
 	case "neuraldeep":
-		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, "").withTuning(p)
 		op.tempSet = p.TemperatureSet
 		inner = op
 	case "codex":

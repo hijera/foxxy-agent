@@ -12,7 +12,7 @@ import (
 func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
-	p := newOpenAIProvider("gpt-5", "", "", nil, 1024, 0.5, "high")
+	p := newOpenAIProvider("gpt-5", "", "", nil, 1024, 0.5, "high", "")
 	params := p.buildParams(msgs, nil, true)
 	if params.ReasoningEffort != openai.ReasoningEffort("high") {
 		t.Errorf("reasoning_effort = %q, want high", params.ReasoningEffort)
@@ -29,7 +29,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	}
 
 	// Empty reasoning effort is omitted; non-reasoning models keep max_tokens + temperature.
-	none := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0.5, "")
+	none := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0.5, "", "")
 	npar := none.buildParams(msgs, nil, true)
 	if npar.ReasoningEffort != "" {
 		t.Errorf("reasoning_effort = %q, want empty", npar.ReasoningEffort)
@@ -48,7 +48,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
-	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
+	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium", "")
 	qpar := qwen.buildParams(msgs, nil, true)
 	if qpar.ReasoningEffort != openai.ReasoningEffort("medium") {
 		t.Errorf("reasoning_effort = %q, want medium", qpar.ReasoningEffort)
@@ -66,7 +66,7 @@ func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 
 	// gpt-oss maps to reasoning_effort only; chat_template_kwargs is a Qwen
 	// chat-template switch and must not leak to other model families.
-	oss := newOpenAIProvider("gpt-oss-120b", "", "", nil, 1024, 0.5, "high")
+	oss := newOpenAIProvider("gpt-oss-120b", "", "", nil, 1024, 0.5, "high", "")
 	obar, err := json.Marshal(oss.buildParams(msgs, nil, true))
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 	}
 
 	// Qwen without a reasoning level keeps the plain chat path (no effort, no kwargs).
-	plain := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "")
+	plain := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "", "")
 	ppar := plain.buildParams(msgs, nil, true)
 	if ppar.ReasoningEffort != "" {
 		t.Errorf("reasoning_effort = %q, want empty", ppar.ReasoningEffort)
@@ -97,7 +97,7 @@ func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 }
 
 func TestAnthropicBuildParamsThinking(t *testing.T) {
-	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "high", "")
 	params := p.buildParams("", nil, nil)
 
 	if params.Thinking.OfEnabled == nil {
@@ -113,7 +113,7 @@ func TestAnthropicBuildParamsThinking(t *testing.T) {
 }
 
 func TestAnthropicBuildParamsNoThinkingKeepsTemperature(t *testing.T) {
-	p := newAnthropicProvider("claude-3-5-sonnet", "", "", nil, 8192, 0.7, "")
+	p := newAnthropicProvider("claude-3-5-sonnet", "", "", nil, 8192, 0.7, "", "")
 	params := p.buildParams("", nil, nil)
 	if params.Thinking.OfEnabled != nil {
 		t.Error("thinking must be disabled when no reasoning level set")
@@ -126,7 +126,7 @@ func TestAnthropicBuildParamsNoThinkingKeepsTemperature(t *testing.T) {
 func TestAnthropicReplaysSignedThinkingBlockBeforeToolUse(t *testing.T) {
 	// Extended thinking + tool use requires the signed thinking block to be replayed
 	// first, with the exact reasoning text, or the Anthropic API rejects the turn.
-	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "high", "")
 	msgs := []Message{
 		{
 			Role:               RoleAssistant,
@@ -136,7 +136,10 @@ func TestAnthropicReplaysSignedThinkingBlockBeforeToolUse(t *testing.T) {
 			ToolCalls:          []ToolCall{{ID: "t1", Name: "read", InputJSON: "{}"}},
 		},
 	}
-	_, conv := p.splitMessages(msgs)
+	_, conv, err := p.splitMessages(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	b, err := json.Marshal(conv)
 	if err != nil {
 		t.Fatal(err)
@@ -160,11 +163,14 @@ func TestAnthropicReplaysSignedThinkingBlockBeforeToolUse(t *testing.T) {
 
 func TestAnthropicOmitsThinkingBlockWhenDisabled(t *testing.T) {
 	// With no reasoning level, the stored signature must NOT be replayed (thinking off).
-	p := newAnthropicProvider("claude-3-5-sonnet", "", "", nil, 8192, 0.7, "")
+	p := newAnthropicProvider("claude-3-5-sonnet", "", "", nil, 8192, 0.7, "", "")
 	msgs := []Message{
 		{Role: RoleAssistant, Content: "hi", Reasoning: "x", ReasoningSignature: "sig", ToolCalls: []ToolCall{{ID: "t1", Name: "read", InputJSON: "{}"}}},
 	}
-	_, conv := p.splitMessages(msgs)
+	_, conv, err := p.splitMessages(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	b, _ := json.Marshal(conv)
 	if strings.Contains(string(b), `"type":"thinking"`) {
 		t.Errorf("thinking block must be omitted when thinking disabled: %s", string(b))
@@ -172,7 +178,7 @@ func TestAnthropicOmitsThinkingBlockWhenDisabled(t *testing.T) {
 }
 
 func TestAnthropicParseResponseCapturesThinking(t *testing.T) {
-	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0, "high", "")
 	var resp anthropic.Message
 	raw := `{"content":[{"type":"thinking","thinking":"because","signature":"sig-xyz"},{"type":"text","text":"answer"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2}}`
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
@@ -192,7 +198,7 @@ func TestAnthropicParseResponseCapturesThinking(t *testing.T) {
 
 func TestAnthropicThinkingBudgetBumpsMaxTokens(t *testing.T) {
 	// Tiny max_tokens still yields a valid budget < max_tokens after bump.
-	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 512, 0, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 512, 0, "high", "")
 	params := p.buildParams("", nil, nil)
 	if params.Thinking.OfEnabled == nil {
 		t.Fatal("expected thinking enabled")
@@ -212,7 +218,7 @@ func TestOpenAIReplaysReasoningOnAPlainAssistantMessage(t *testing.T) {
 		{Role: RoleUser, Content: "fix the constants"},
 		{Role: RoleAssistant, Content: "", Reasoning: "The constant names are wrong."},
 	}
-	p := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
+	p := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium", "")
 	b, err := json.Marshal(p.buildParams(msgs, nil, true))
 	if err != nil {
 		t.Fatal(err)
@@ -241,21 +247,21 @@ func TestOpenAIReplaysReasoningOnAPlainAssistantMessage(t *testing.T) {
 func TestBuildParamsSendsARequestedZeroTemperature(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
-	configured := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "")
+	configured := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "", "")
 	if configured.buildParams(msgs, nil, true).Temperature.Valid() {
 		t.Error("openai: an unconfigured temperature must stay off the request")
 	}
-	requested := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "")
+	requested := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "", "")
 	requested.tempSet = true
 	if got := requested.buildParams(msgs, nil, true).Temperature; !got.Valid() || got.Value != 0 {
 		t.Errorf("openai: requested temperature 0 = %+v, want an explicit 0", got)
 	}
 
-	anthConfigured := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "")
+	anthConfigured := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "", "")
 	if anthConfigured.buildParams("", nil, nil).Temperature.Valid() {
 		t.Error("anthropic: an unconfigured temperature must stay off the request")
 	}
-	anthRequested := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "")
+	anthRequested := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "", "")
 	anthRequested.tempSet = true
 	if got := anthRequested.buildParams("", nil, nil).Temperature; !got.Valid() || got.Value != 0 {
 		t.Errorf("anthropic: requested temperature 0 = %+v, want an explicit 0", got)
@@ -306,13 +312,13 @@ func TestRequestOptionsValidateAndApply(t *testing.T) {
 func TestBuildParamsSendsARequestedTemperatureNextToReasoning(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
-	oai := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.6, "high")
+	oai := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.6, "high", "")
 	oai.tempSet = true
 	if got := oai.buildParams(msgs, nil, true).Temperature; !got.Valid() || got.Value != 0.6 {
 		t.Errorf("openai: requested temperature next to reasoning = %+v, want 0.6", got)
 	}
 
-	anth := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 1, "high")
+	anth := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 1, "high", "")
 	anth.tempSet = true
 	params := anth.buildParams("", nil, nil)
 	if params.Thinking.OfEnabled == nil {
@@ -356,7 +362,7 @@ func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
 func TestBuildParamsReasoningOff(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
-	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "off")
+	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "off", "")
 	qpar := qwen.buildParams(msgs, nil, true)
 	if qpar.ReasoningEffort != "" {
 		t.Errorf("qwen off: reasoning_effort = %q, want empty", qpar.ReasoningEffort)
@@ -372,7 +378,7 @@ func TestBuildParamsReasoningOff(t *testing.T) {
 		t.Errorf("qwen off must turn thinking off in the template: %s", qb)
 	}
 
-	gpt := newOpenAIProvider("gpt-5.1", "", "", nil, 1024, 0.5, "off")
+	gpt := newOpenAIProvider("gpt-5.1", "", "", nil, 1024, 0.5, "off", "")
 	gb, err := json.Marshal(gpt.buildParams(msgs, nil, true))
 	if err != nil {
 		t.Fatal(err)
@@ -384,7 +390,7 @@ func TestBuildParamsReasoningOff(t *testing.T) {
 		t.Errorf("chat_template_kwargs must not leak to non-qwen models: %s", gb)
 	}
 
-	claude := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "off")
+	claude := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "off", "")
 	if params := claude.buildParams("", nil, nil); params.Thinking.OfEnabled != nil {
 		t.Error("anthropic off must not enable thinking")
 	}

@@ -2,6 +2,12 @@
 
 The built-in `/export` command writes the current conversation to a file inside the session workspace. It runs the way `/compact` and `/plugin` do: deterministically, without a model turn, on every prompt surface (the console TUI, ACP editors, the web UI composer, `POST /v1/responses`). The command follows qwen-code's `/export`; the trimming options follow the export dialog of OpenCode-based tools such as Kilo Code.
 
+
+Shared-file placement tags are UI metadata and are omitted from exported assistant
+text in every format. The surrounding answer and persisted chat remain intact;
+shared-file bytes stay in the session artifact store rather than being embedded
+as document attachments.
+
 ## Usage
 
 ```text

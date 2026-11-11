@@ -8,13 +8,25 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-05
+## Unreleased — 2026-11-10
 
 **Choose the compatible provider client identity.**
 OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
 
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
 
-## 0.3.40 — 2026-10-30
+## 0.3.41 — 2026-11-01
+
+**File actions and filters.** Reveal on server uses the Windows Shell API instead of launching a hidden Explorer process, including paths with spaces and Unicode. Copying names and paths also works when the embedded browser denies Clipboard API access. File-card actions are no longer clipped by the card and close with Escape or a second click. The project-only choice and collapsed groups survive IDE restarts that change the panel's port. Reopening a loaded chat also recovers a removed worktree without restarting the IDE.
+
+**Chat history.** A saved archive filter is visible above the list and can be reset with Show active chats. An empty archive no longer looks like lost history. The filter button stays beside search in a narrow panel again. A temporary metadata lock on Windows reports a read error and preserves the previous rows.
+
+**Shared files and chat state.** The agent can publish completed files inline with its answer, with downloads, image previews and source-file actions. History distinguishes unseen errors, acknowledged errors and waits for user input; collapsed groups retain their state. Internal file placement markers stay out of exported text.
+
+**Workspaces and independent review.** MCP Settings follows the selected chat's workspace, connections start in the background when the chat opens, and sessions from removed worktrees recover to the main checkout. Folder and branch search, subagent cards and Tasks are improved. Crossreview 2.0 supports independent reviewers and trusted project rosters. Provider proxy authentication, Anthropic history and permission-resumed tool-call pairing are fixed.
+
+## 0.3.39 — 2026-10-30
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 
