@@ -310,17 +310,17 @@ func legacyMCPValue(raw, home string) string {
 }
 
 // rewriteConfigKeepingBackup writes next over the config, keeping the old
-// bytes as <config>.bak-<time> with the config's own permissions.
+// bytes as <config>.bak-<time>. The config may hold provider keys, so the
+// rewritten file and its backup are owner-readable whatever mode the file
+// arrived with - the same policy as AtomicWriteConfigYAML and WriteBackup:
+// a migration never leaves a secret, or a copy of it, readable by anyone
+// else. A config saved world-readable gets tightened, not preserved.
 func rewriteConfigKeepingBackup(path string, old, next []byte) error {
-	perm := os.FileMode(0o600)
-	if st, err := os.Stat(path); err == nil {
-		perm = st.Mode().Perm()
-	}
 	backup := fmt.Sprintf("%s.bak-%s", path, time.Now().Format("20060102-150405.000000000"))
-	if err := os.WriteFile(backup, old, perm); err != nil {
+	if err := os.WriteFile(backup, old, 0o600); err != nil {
 		return fmt.Errorf("backup %s: %w", backup, err)
 	}
-	return atomicWriteFile(path, next, perm)
+	return atomicWriteFile(path, next, 0o600)
 }
 
 // cutKeyBlocks cuts mapping keys out of raw YAML text, each with its block

@@ -234,8 +234,12 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
+// Declarations may carry credentials in env and headers, so the directory
+// holding them is created owner-only: 0600 files in a 0755 directory still
+// tell another local user which servers this machine talks to. An existing
+// directory keeps its own mode; MkdirAll never changes it.
 func writeMCPJSONFileEntries(path string, entries map[string]MCPJSONServer) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
 	data, err := json.MarshalIndent(mcpJSONFile{MCPServers: entries}, "", "  ")

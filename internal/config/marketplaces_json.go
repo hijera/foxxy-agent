@@ -67,9 +67,12 @@ func ReadMarketplacesFile(path string) (MarketplacesFile, error) {
 	return file, nil
 }
 
-// WriteMarketplacesFile replaces a declaration file in one rename.
+// WriteMarketplacesFile replaces a declaration file in one rename. The
+// directory is created owner-only, matching the 0600 file: which marketplaces
+// a machine syncs from is not something other local users read off the tree.
+// An existing directory keeps its own mode; MkdirAll never changes it.
 func WriteMarketplacesFile(path string, file MarketplacesFile) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
 	data, err := json.MarshalIndent(file, "", "  ")

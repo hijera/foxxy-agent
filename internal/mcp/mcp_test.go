@@ -461,6 +461,11 @@ func TestRedactValues(t *testing.T) {
 			`exit status 1`, `exit status <redacted>`},
 		{"short replacements neither corrupt numbers nor reprocess themselves",
 			`http 401: d d`, `http 401: <redacted> <redacted>`},
+		{"a server that logs the credential it refused in another case",
+			`jsonrpc error -32000: TOKEN=TOK-ENV-LITERAL rejected`,
+			`jsonrpc error -32000: TOKEN=<redacted> rejected`},
+		{"an uppercased short token is still taken out as a whole",
+			`sse connect: invalid token ABC123`, `sse connect: invalid token <redacted>`},
 		{"nothing to redact", "", ""},
 	}
 	for _, tc := range cases {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
@@ -79,24 +80,26 @@ func RedactValues(srv config.MCPServerConfig, cwd, msg string) string {
 	// Longest first, so a value is never cut by a shorter one inside it.
 	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
 	for _, s := range secrets {
-		if len(s) >= redactMinLength {
-			msg = strings.ReplaceAll(msg, s, config.RedactedValue)
-			continue
-		}
-		// A short value is replaced only as a token: DEBUG=1 must not turn
-		// HTTP 401 into 40<redacted>, but an echoed one-character value still leaks.
-		msg = replaceShortSecret(msg, s)
+		msg = replaceSecret(msg, s)
 	}
 	return msg
 }
 
-func replaceShortSecret(msg, secret string) string {
+// replaceSecret takes one secret out of a message. A value at or above
+// redactMinLength goes wherever it appears; a shorter one only as a whole
+// token: DEBUG=1 must not turn HTTP 401 into 40<redacted>, yet an echoed
+// one-character value still leaks. Matching folds ASCII letters, since a
+// server logging the credential it refused may print it in any case, and a
+// case-sensitive pass would let such an echo through unchanged. Bytes
+// outside ASCII match as written.
+func replaceSecret(msg, secret string) string {
 	var b strings.Builder
 	for i := 0; i < len(msg); {
 		end := i + len(secret)
-		if end <= len(msg) && strings.HasPrefix(msg[i:], secret) &&
-			(i == 0 || !secretTokenByte(msg[i-1])) &&
-			(end == len(msg) || !secretTokenByte(msg[end])) {
+		if end <= len(msg) && secretAt(msg, i, secret) &&
+			(len(secret) >= redactMinLength ||
+				(i == 0 || !secretTokenByte(msg[i-1])) &&
+					(end == len(msg) || !secretTokenByte(msg[end]))) {
 			b.WriteString(config.RedactedValue)
 			i = end
 			continue
@@ -105,6 +108,30 @@ func replaceShortSecret(msg, secret string) string {
 		i++
 	}
 	return b.String()
+}
+
+// secretAt reports whether secret starts at msg[i], comparing ASCII letters
+// case-insensitively.
+func secretAt(msg string, i int, secret string) bool {
+	if i+len(secret) > len(msg) {
+		return false
+	}
+	for j := 0; j < len(secret); j++ {
+		m, s := msg[i+j], secret[j]
+		if m != s && !foldASCIIEqual(m, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// foldASCIIEqual reports whether two bytes are the same ASCII letter in a
+// different case. Anything else, non-ASCII included, is equal only as it is.
+func foldASCIIEqual(a, b byte) bool {
+	if a > unicode.MaxASCII || b > unicode.MaxASCII {
+		return false
+	}
+	return unicode.ToLower(rune(a)) == unicode.ToLower(rune(b))
 }
 
 func secretTokenByte(b byte) bool {
