@@ -185,9 +185,18 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
         FoxxyCodeAutocompleteService.getInstance(project).stop()
         FoxxyCodeIdeDiffService.getInstance(project).stop()
         currentUrl = null
+        releaseBrowser()
+    }
+
+    /** A detached JCEF component can lose its native browser even while its wrapper is alive. */
+    private fun releaseBrowser() {
         markPageNavigating()
-        // Release the page's HTTP streams and timers while retaining the reusable browser.
-        if (!disposed) browser?.loadURL("about:blank")
+        val previous = browser ?: return
+        browser = null
+        localeQuery = null
+        dropQuery = null
+        fileDropTargets.remove(previous.component)
+        Disposer.dispose(previous)
     }
 
     private fun loadUrl(url: String) {
@@ -252,7 +261,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.
             it.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
-                    if (frame?.isMain == true && frame.url == currentUrl) {
+                    if (browser === it && frame?.isMain == true && frame.url == currentUrl) {
                         injectBootstrap()
                         injectLocaleBridge()
                         injectDropBridge()
@@ -267,7 +276,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
         markPageNavigating()
         b.loadURL(finalUrl)
         setCenter(b.component)
-        installFileDropTarget(b.component)
+        installFileDropTarget(b.component, b)
         panelMode = PanelMode.BROWSER
     }
 
@@ -295,7 +304,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
      * where they actually land — as HTML5 drops in the SPA, see the document-level drop
      * listener in `Composer.tsx`. Both paths end at the same `@`-mention.
      */
-    private fun installFileDropTarget(component: JComponent) {
+    private fun installFileDropTarget(component: JComponent, lifetime: Disposable = this) {
         if (!fileDropTargets.add(component)) return
         val where = component.javaClass.simpleName
         LOG.info("FoxxyCode DnD: drop target installed on $where")
@@ -322,7 +331,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
                     requestInsertFileMentions(rels)
                 },
             )
-            .setDisposableParent(this)
+            .setDisposableParent(lifetime)
             .install()
     }
 
@@ -586,6 +595,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
 
     /** Show a localized status message; [key] is a FoxxyCodeBundle key. */
     private fun showStatusMessage(key: String, vararg params: Any) {
+        releaseBrowser()
         panelMode = PanelMode.MESSAGE
         statusMessageKey = key
         statusMessageParams = params

@@ -21,6 +21,8 @@ The panel talks to its own loopback server, so it shares sessions with the conso
 
 In IntelliJ, **Settings → Tools → FoxxyCode → Stop the process when the FoxxyCode tab is closed** optionally stops the backend when its tool window is closed or hidden. It is off by default. When enabled, closing also interrupts running turns and background tasks; reopening the panel starts the backend again. Saved sessions stay on disk. The setting takes effect on the next close and is shared across projects. Explicitly requesting an inline code suggestion can still start the backend while the panel is hidden.
 
+When the backend stops or restarts, the plugin releases its browser and creates a fresh one once the server is ready. Reopening the panel restores the rendered chat, not just the backend process; the same applies to a restart from the toolbar. File mentions queued while the panel starts are retained.
+
 ![The optional process shutdown checkbox in IntelliJ settings](../assets/editors/intellij-stop-on-tab-close-disabled-dark-1280.png)
 
 *The process shutdown option is off by default in Settings → Tools → FoxxyCode.*
