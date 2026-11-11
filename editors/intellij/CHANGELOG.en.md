@@ -7,18 +7,25 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-07
+## Unreleased — 2026-11-11
 
 **Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors.
-
-- Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
-- **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
 
 **Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
 
 **History and Tasks.** Selecting another chat in History keeps the desktop Tasks panel open. The folder browser fits a phone better, with New folder and Show hidden in its footer.
 
 **Agent loop protection.** Turns default to 165 steps; explicit `max_turns: 0` disables the cap. Repeated calls are detected sooner while identical calls within one response still execute. AGENTS.md and DESIGN.md from the agent home, project and nested folders are read independently of template settings.
+
+## 0.3.44 — 2026-11-10
+
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
+
+## 0.3.43 — 2026-11-07
+
+- Added **Stop the process when the FoxxyCode tab is closed** in Settings → Tools → FoxxyCode. When enabled, closing or hiding the panel stops the backend and its running tasks; reopening starts it again. Saved sessions remain. The option is off by default.
+- **Add to FoxxyCode** preserves the file mention when reopening a stopped panel and waits for the composer to become ready.
 
 ## 0.3.41 — 2026-11-01
 

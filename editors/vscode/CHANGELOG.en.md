@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-06
+## Unreleased — 2026-11-11
 
 **Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors.
 
@@ -17,6 +17,11 @@
 **History and Tasks.** Selecting another chat in History keeps the desktop Tasks panel open. The folder browser fits a phone better, with New folder and Show hidden in its footer.
 
 **Agent loop protection.** Turns default to 165 steps; explicit `max_turns: 0` disables the cap. Repeated calls are detected sooner while identical calls within one response still execute. AGENTS.md and DESIGN.md from the agent home, project and nested folders are read independently of template settings.
+
+## 0.3.44 — 2026-11-10
+
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
 
 ## 0.3.41 — 2026-11-01
 

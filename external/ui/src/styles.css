@@ -3472,10 +3472,16 @@ a.rail-brand {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 .msg-system {
   align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: rgba(40, 18, 18, 0.55);
   border: 1px solid rgba(255, 120, 120, 0.25);
   margin-bottom: 2px;
@@ -3512,6 +3518,8 @@ a.rail-brand {
 .msg-system-details {
   margin: 0;
   padding-inline: 0;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Closed <details> must not reserve space for the body in any engine. */
@@ -3538,6 +3546,7 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   padding-left: 18px;
 }
@@ -3581,8 +3590,11 @@ a.rail-brand {
 
 .msg-system-body {
   margin: 8px 0 0;
+  max-width: 100%;
+  box-sizing: border-box;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.45;
