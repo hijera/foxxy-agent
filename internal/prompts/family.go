@@ -27,6 +27,8 @@ func Family(providerType, modelID string) string {
 	// serves and the moonshotai/ vendor namespace; must win over p == "openai".
 	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
 		return "kimi"
+	case strings.Contains(m, "deepseek") || p == "deepseek":
+		return "deepseek"
 	case strings.Contains(m, "claude") || p == "anthropic":
 		return "anthropic"
 	case isOpenAIModel(m) || p == "openai":

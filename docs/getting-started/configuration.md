@@ -295,9 +295,11 @@ prompts:
   #                           (openai/gpt-4o -> openai-gpt-4o), then the provider-neutral
   #                           API-model slug (local/gpt-oss-20b -> gpt-oss-20b)
   #   <mode>.<family>.md      per-family (anthropic, openai, gemini, gpt-oss, qwen,
-  #                           gemma, kimi, neuraldeep); family defaults are built in.
+  #                           gemma, kimi, deepseek, neuraldeep); family defaults are built in.
   #                           Kimi and Moonshot model IDs select the kimi family through
   #                           both NeuralDeep and OpenAI-compatible providers.
+  #                           DeepSeek model IDs select the deepseek family through
+  #                           NeuralDeep and OpenAI-compatible providers.
   #                           Prompt selection does not imply reasoning support:
   #                           Kimi-K2-Instruct (including -0905) and moonshot-v1
   #                           use Kimi guidance without auto-detected reasoning levels

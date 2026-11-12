@@ -651,7 +651,7 @@ func mustWrite(t *testing.T, path, content string) {
 // knownFamilies lists every prompt family with a notes_<family>.md fragment.
 // Shared by the family render tests below so a new family is added once and
 // covered by all of them; keep it in sync with prompts.Family.
-var knownFamilies = []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "neuraldeep"}
+var knownFamilies = []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "deepseek", "neuraldeep"}
 
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
