@@ -39,4 +39,3 @@ Optional domains that ship their own LLM-callable tools (not the main **`interna
 
 @README.md
 @docs/contributing/architecture.md
-@core-modules.md

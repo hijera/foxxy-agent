@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check android check-android bench-cli-startup bench-cli-startup-real security sec-trivy sec-semgrep sec-report
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check android check-android bench-cli-startup bench-cli-startup-real security sec-trivy sec-semgrep sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -8,8 +8,9 @@
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
-#     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
-#     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
+#     gateway.telegram  Telegram bot gateway only (foxxycode serve; see external/gateway/)
+#     gateway.pachca  Pachca bot gateway only (foxxycode serve; see external/gateway/pachca/)
+#     gateway         all messenger gateways: Telegram and Pachca (superset of both)
 #     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
 #     swarm           stateless relay that aggregates nodes (`foxxycode serve`; see external/swarm/)
 #     desktop         Windows WebView2 desktop shell (foxxycode desktop; combine with http ui)
@@ -264,6 +265,11 @@ skills-vendor:
 skills-vendor-check:
 	scripts/vendor-bundled-skills.sh --check
 
+# Test every repository adapter that attaches Cursor rules to another host.
+test-agent-rules:
+	python -m unittest -v scripts/test_agent_rule_adapters.py
+	$(MAKE) test-opencode-rules
+
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:
 	node --test .opencode/tests/project-rules.test.js
@@ -331,17 +337,24 @@ TEST_TAG_SETS := \
 	http,scheduler,memory \
 	http,scheduler,ui \
 	http,scheduler,ui,memory \
+	http,scheduler,ui,memory,cli \
+	gateway.telegram \
+	gateway.pachca \
+	gateway \
+	http,scheduler,ui,memory,cli,gateway \
+	http,scheduler,ui,memory,cli,swarm \
 	$(FULL_TAGS_CSV)
 
 # Express run: the whole tree once, with every optional module compiled in.
 # ui-test is the SPA suite (vitest); it rides along because the express run is
 # the one gate a change is expected to pass before it leaves this machine.
-test: test-opencode-rules ui-build ui-test
+test: test-agent-rules ui-build ui-test
 	go test -tags=$(FULL_TAGS_CSV) ./...
 
-# Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run it
-# locally only when a build-tag boundary moved and one combination is not enough.
-test-matrix: test-opencode-rules ui-build
+# Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
+# it locally only when a build-tag boundary moved and one combination is not
+# enough.
+test-matrix: test-agent-rules ui-build ui-test
 	go test ./...
 	@set -e; for tags in $(TEST_TAG_SETS); do \
 		echo "go test -tags=$$tags ./..."; \

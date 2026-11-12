@@ -81,6 +81,10 @@ type Server struct {
 	// than to a configuration, so saving settings from the page - which reloads
 	// the config but keeps this process - never signs anybody out.
 	sessions *webauth.SessionStore
+	// tgSessions holds the browsers a Telegram admin opened as the bot's Mini
+	// App (auth_telegram.go), and tgReplay the launches already used.
+	tgSessions *webauth.SessionStore
+	tgReplay   webauth.ReplayGuard
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
 	// trustLoopback makes a direct loopback client pass the sign-in form; only
@@ -202,6 +206,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		streamTickets:        newStreamTicketStore(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
+		tgSessions:           webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
@@ -459,7 +464,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: s.contextWindowFor(cfg, mid),
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  cfg.ReasoningLevelsFor(ent),
+				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
 			})

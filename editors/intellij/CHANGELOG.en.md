@@ -18,6 +18,9 @@ Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespac
 OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
 
 ## 0.3.45 — 2026-11-12
+**Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
+
+**Reasoning settings and group permissions.** Off appears in the reasoning selector only when explicitly enabled per model through `allow_reasoning_off`, rather than inferred from its name. Non-admin group members can only chat: model, mode, `/resume`, configuration and privileged tools are unavailable to them.
 
 **MCP startup diagnostics.** Connection errors mask configured credentials in backend logs and session notices, including tokens echoed in another letter case. HTTP status codes remain readable, and timeout/retry handling is preserved.
 

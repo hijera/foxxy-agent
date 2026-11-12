@@ -1,12 +1,12 @@
 # Kimi Code hooks for project rules
 
-This page is for contributors running Kimi Code against this repository. It is the Kimi Code counterpart of [Codex hooks](codex-hooks.md) and [ZCode hooks](zcode-hooks.md): all three deliver the same `.cursor/rules/*.mdc` files through the client's lifecycle hooks.
+This page is for contributors running Kimi Code against this repository. It is the Kimi Code counterpart of [Codex hooks](codex-hooks.md) and [ZCode hooks](zcode-hooks.md): all four deliver the same `.cursor/rules/*.mdc` files through the client's lifecycle hooks.
 
 ## Why a hook is needed
 
 Kimi Code reads the repository's `AGENTS.md`, but it does not interpret the `globs` and `alwaysApply` fields in `.cursor/rules/*.mdc`. Asking the model to open the relevant rule before every edit is advisory and can be skipped.
 
-`.kimi-code/hooks/attach_rules.py` reads that frontmatter directly and injects the rule bodies as hook context. `.cursor/rules/` remains the single source of truth; adding or changing a rule needs no hook wiring.
+`.kimi-code/hooks/attach_rules.py` reads that frontmatter directly and injects the rule bodies as hook context. The adapter reads the Cursor representation directly; adding or changing a rule needs no hook wiring. Cursor and Claude Code keep paired native representations rather than either becoming a universal policy owner.
 
 ## What fires when
 
@@ -29,7 +29,7 @@ The command invokes `python`, not `python3`, because Windows may resolve `python
 
 - **Glob matching is hand-rolled.** `**/` means zero or more directories, `*` stays inside one path segment, and a bare `**` spans anything. Thus `external/httpserver/**/*.go` matches both `external/httpserver/server.go` and deeper files.
 - **Paths are normalised before matching.** Absolute paths inside the checkout become repo-relative; absolute paths outside it are ignored.
-- **Each rule is injected at most once per session.** State is a JSON file under `<tempdir>/kimi-code-foxxycode-rules/<session_id>.json`, so repeated edits do not resend the same rule. A new or resumed `SessionStart` reseeds the state with the always-on rules.
+- **Each rule is injected at most once per session.** State is a JSON file under `<tempdir>/kimi-code-attach-rules-<repository-hash>/<session_id>.json`, so clones and repeated edits do not resend the same rule. `resume` preserves scoped dedupe; `startup`, `compact` and `clear` reset it to the always-on set. Delivery is serialized with a per-session lock and atomic state replacement, and rule ids are persisted only after context output succeeds.
 - **It fails open.** Malformed JSON, an unreadable rule, or an unwritable state directory produces no blocking response. The hook is an instruction-delivery mechanism, not a security boundary.
 
 ## Verifying and debugging
@@ -37,6 +37,7 @@ The command invokes `python`, not `python3`, because Windows may resolve `python
 The unit suite uses temporary rule and state directories and needs no Kimi Code session, provider, or third-party Python package:
 
 ```bash
+make test-agent-rules
 python -m unittest discover -s .kimi-code/tests -v
 ```
 
@@ -47,7 +48,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"kimi-probe","source":"star
 echo '{"hook_event_name":"PreToolUse","session_id":"kimi-edit-probe","tool_name":"Edit","tool_input":{"path":"external/httpserver/server.go"}}' | python .kimi-code/hooks/attach_rules.py
 ```
 
-A successful match prints a JSON object containing `hookSpecificOutput.additionalContext`. Empty output with exit code 0 means no glob matched, the rule was already sent in that session, or the input was not understood. Use a fresh session id for another probe, set `KIMI_CODE_RULES_STATE_DIR` to a throwaway directory, or remove `<tempdir>/kimi-code-foxxycode-rules` to clear dedup state. `KIMI_CODE_RULES_DIR` can point at a fixture rule tree for isolated tests.
+A successful match prints a JSON object containing `hookSpecificOutput.additionalContext`. Empty output with exit code 0 means no glob matched, the rule was already sent in that session, or the input was not understood. Use a fresh session id for another probe, set `KIMI_CODE_RULES_STATE_DIR` to a throwaway directory, or remove `<tempdir>/kimi-code-attach-rules-*` to clear dedup state. `KIMI_CODE_RULES_DIR` can point at a fixture rule tree for isolated tests.
 
 After changing the user-level config, verify in a **new** Kimi Code session rather than assuming an existing session has reloaded its hooks.
 

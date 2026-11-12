@@ -8491,7 +8491,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 12px;
 }
 
+/* A <fieldset> defaults to a min-content inline size, so nested frames - a
+   per-chat override inside a bot's block - added up past a phone's panel and
+   scrolled it sideways. Every settings frame may shrink to its column. */
 .settings-fieldset {
+  min-inline-size: 0;
   border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: var(--foxxycode-glass-panel-radius);
   padding: 12px 14px 14px;

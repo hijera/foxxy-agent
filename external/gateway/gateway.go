@@ -1,7 +1,8 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 // Package gateway provides a pluggable messenger gateway for FoxxyCode Agent.
-// Build with -tags gateway (all adapters) or -tags gateway.telegram (Telegram only).
+// Build with -tags gateway (all adapters), or -tags gateway.telegram /
+// -tags gateway.pachca for one adapter.
 package gateway
 
 import "context"

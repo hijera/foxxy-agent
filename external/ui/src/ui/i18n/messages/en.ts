@@ -70,6 +70,13 @@ export const messagesEn: Record<string, string> = {
     "Sign-in is switched on but no account is configured. Run `foxxycode serve set-password` on the server.",
   "auth.signIn.crossSite": "That request did not come from this page.",
   "auth.signIn.failed": "Sign-in failed ({status}).",
+  "auth.signIn.notKept":
+    "The server accepted the sign-in, but this browser did not keep it in this frame, because the page is embedded in another site such as Telegram Web.",
+  "auth.signIn.openInTab": "Open FoxxyCode in a tab of its own",
+  "auth.signIn.telegramNotAdmin":
+    "Only the bot's admins can open FoxxyCode from Telegram.",
+  "auth.signIn.telegramRetry":
+    "Telegram's sign-in did not go through. Close the Mini App and open it again.",
   "auth.signOut.action": "Sign out",
   "auth.signOut.tooltipUser": "Sign out ({user})",
 
@@ -1693,7 +1700,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.logger.label": "Logger",
   "settings.section.logger.desc": "Level, outputs, rotation",
   "settings.section.gateways.label": "Gateways",
-  "settings.section.gateways.desc": "Telegram bot",
+  "settings.section.gateways.desc": "Telegram and Pachca bots",
   "settings.group.agent.turn": "Model and turns",
   "settings.group.agent.retries": "Retries",
   "settings.group.agent.timeouts": "Stream timeouts",

@@ -119,6 +119,13 @@ func TestUISchemaModelHasReasoningFields(t *testing.T) {
 	if _, ok := mprops["reasoning_default"].(map[string]interface{}); !ok {
 		t.Fatal("expected reasoning_default in model schema")
 	}
+	off, ok := mprops["allow_reasoning_off"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected allow_reasoning_off in model schema")
+	}
+	if off["type"] != "boolean" || off["default"] != false {
+		t.Fatalf("allow_reasoning_off schema = %#v, want boolean default false", off)
+	}
 }
 
 func TestConfigJSONRoundTripAndYAML(t *testing.T) {

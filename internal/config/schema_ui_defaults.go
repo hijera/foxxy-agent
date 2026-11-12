@@ -183,6 +183,13 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 				DefaultAccess:    string(AccessAll),
 				DefaultIsolation: string(IsolationIndividual),
 			},
+			Pachca: PachcaGatewayJSON{
+				Enabled:             false,
+				Token:               "${PACHCA_BOT_TOKEN}",
+				PollIntervalSeconds: PachcaPollIntervalDefault,
+				DefaultAccess:       string(AccessAll),
+				DefaultIsolation:    string(IsolationIndividual),
+			},
 		},
 		UI: UIJSON{SendMode: UISendModeEnter},
 		Browser: BrowserJSON{

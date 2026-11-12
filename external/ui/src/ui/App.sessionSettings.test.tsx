@@ -39,6 +39,7 @@ const S_TURN_OVERRIDE = "sess_turn_override";
 let sessions: Record<string, StoredSession>;
 let version: number;
 let posted: Array<{ metadata?: Record<string, string> }>;
+let newChatModelOffersOff: boolean;
 
 function resetSessions() {
   sessions = {
@@ -57,8 +58,9 @@ function resetSessions() {
       overrides: [{ setting: "model", value: BETA, turnsLeft: 0, active: true }],
     },
   };
-  version = 10;
-  posted = [];
+	version = 10;
+	posted = [];
+	newChatModelOffersOff = false;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -114,7 +116,12 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
       data: [
         { id: "agent", owned_by: "foxxycode", max_context_tokens: 128000 },
         // Levels configured, no default named; off is not a menu level.
-        { id: ALPHA, owned_by: "fake", max_context_tokens: 128000, reasoning_levels: LEVELS },
+        {
+          id: ALPHA,
+          owned_by: "fake",
+          max_context_tokens: 128000,
+          reasoning_levels: newChatModelOffersOff ? [...LEVELS, "off"] : LEVELS,
+        },
         { id: BETA, owned_by: "fake", max_context_tokens: 128000, reasoning_levels: LEVELS },
       ],
     });
@@ -252,6 +259,14 @@ test("a level picked on the start page stays out of a session with no level of i
   // Medium is what the chip resolves for a session with no level of its own:
   // shown, never sent, so nothing pins the session to a level nobody chose.
   expect((await send("next")).reasoning).toBeUndefined();
+});
+
+test("a new chat offers off only when its model listing explicitly includes it", async () => {
+  newChatModelOffersOff = true;
+  await mountHome();
+
+  fireEvent.click(reasoningChip());
+  expect(await screen.findByRole("menuitem", { name: "Off" })).toBeInTheDocument();
 });
 
 test("a level picked in a session with none of its own is sent as its own", async () => {

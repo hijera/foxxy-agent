@@ -384,8 +384,50 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 
 Footer links
 
+- **Top bar.** The brand drops its second word and shows **FoxxyCode** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History** and **Swarm** always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
+- **Composer, context row.** The environment, folder, branch and worktree chips sit in their own strip, **`.composer-context-scroll`**, which is **`display: contents`** on wider shells (the row wraps as it always did) and a one-line strip scrolling sideways on a phone. The improve-prompt button stays outside the strip, at the end of the row.
+- **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
+- **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
+- **Transcript.** On the stacked shell the transcript is the page, so a row wider than it scrolled the whole page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
+- **Settings.** The section tiles keep two columns, and a section's name wraps to two lines instead of ending in an ellipsis: a phone has no hover, so a name cut short was out of reach behind its tooltip.
+- **Text fields** are at least **16px** on a phone and on any touch-only device (**`(any-hover: none) and (any-pointer: coarse)`**): iOS Safari zooms the page into a smaller field on focus and does not zoom back. The composer and its highlight mirror change together, since the mirror has to keep the textarea's metrics.
+- The viewport meta carries **`interactive-widget=resizes-content`**, so Android browsers shrink the layout when the on-screen keyboard opens and the docked composer stays above it. A browser that ignores it (iOS Safari) shrinks only the visual viewport; the docked block is then lifted by what the keyboard covers (**`--foxxycode-keyboard-inset`**, measured from **`visualViewport`**).
+- **No keyboard by itself.** Opening the start screen or a chat, or closing History, does not focus the composer on a phone or a tablet (a touch-only device), since a focused field opens the on-screen keyboard; it comes when you tap the field. A desktop window, narrow or not, keeps the focus.
+
+Check it live at **360**, **375**, **393** and **430px** on the start screen and in a chat, with the menus closed and with History open: **`document.documentElement.scrollWidth`** equals **`clientWidth`**, the **Send** button's rect intersects no **`.composer-tab`**, and the brand's rect intersects no icon of the top bar. At **600**, **834** and **1280px** the layout is the tablet's and the desktop's. The transcript is measured at every width of the grid by **`npm run check:overflow`** (see **Checking the transcript at every width of the grid** below). The CSS contract is pinned by **`phoneLayoutCss.test.ts`**, **`transcriptWrapCss.test.ts`** and **`layoutGridCss.test.ts`**, which fails on a width the stylesheet asks about that the grid does not list; the scenarios are **`features/web_ui_phone.feature`**.
+
+Telegram Mini App (issue [#320](https://github.com/hijera/foxxy-agent/issues/320))
+
+![A conversation in the Telegram Mini App, half open, with the mode sheet over the docked composer](../assets/web-ui/telegram-mini-app-mode-dark-390.png)
+
+*A conversation in a half-open Mini App: the mode sheet and the composer stay in the part Telegram shows.*
+
+![The start screen in a Mini App opened from Telegram's light theme: Telegram's header and the web UI both light](../assets/web-ui/telegram-mini-app-start-light-390.png)
+
+*Opened from Telegram's light theme with no theme picked in FoxxyCode: the web UI follows it, and so does Telegram's header.*
+
+A Telegram bot can open the web UI as its Mini App, from its menu button, from a `web_app` button or from a link. The Telegram gateway sets this up when `gateways.telegram.mini_app.url` names the web UI's public https address ([Mini App](gateway.md#mini-app) on the gateway page); you can also point a menu button at the web UI by hand in @BotFather. Inside Telegram the web UI changes in the ways below, and an ordinary browser sees none of them.
+
+- **No script from telegram.org.** The web UI speaks Telegram's [web events](https://core.telegram.org/api/web-events) itself (`ui/telegram/bridge.ts`): through the `TelegramWebviewProxy` the mobile and desktop apps inject, or with the parent frame of Telegram Web, whose messages it sends to the parent's origin and takes from the parent at that origin only. `index.html` loads nothing from another origin, so a network that blocks telegram.org slows nobody's page.
+- **Launch parameters.** Telegram puts them into the address (`#tgWebAppData=...&tgWebAppVersion=...`). The web UI reads them before anything else runs (`ui/telegram/launch.ts`), keeps them in the tab's `sessionStorage`, so a reload inside Telegram stays a Mini App, and takes them out of the address, so the router sees its own route and a link copied from the page does not carry the signed launch data. `?session=<id>`, the link the bot's `/app` gives, opens that conversation in a Mini App and in a plain browser alike. The launch data signs in only a user in the bot's `admins` list through `POST /foxxycode/auth/telegram`; other browser sign-in rules are unchanged.
+- **The window.** The web UI expands the Mini App to full height, turns off the vertical swipe that would fold it while you scroll the transcript (Telegram's header still folds it), and gives Telegram's header, background and bottom bar the colours of the theme, again whenever the theme changes. Until you pick a theme in **Settings → Appearance**, it follows Telegram's light or dark one.
+- **Back.** Telegram's back button works as **Escape**: it closes the menu, sheet, dialog or screen on top, and in a conversation with nothing open it goes to the start screen. It never skips a question the agent asked you. On the start screen with nothing open Telegram shows **Close**, and Android's back key closes the Mini App.
+- **A half-open window.** Telegram can show only the top part of a Mini App. The docked composer, the menus and pickers (bottom sheets, as everywhere on a phone), the confirmation dialog and the image viewer rise into the part Telegram shows, by the part it hides or by an on-screen keyboard, whichever is more, and the transcript's newest message stays above the composer. History, Settings and the other drawers keep their place, with their head and close button in sight. In fullscreen the top bar keeps clear of the status bar and of Telegram's own buttons.
+- **Telegram Web.** web.telegram.org runs a Mini App in a frame of another site, where the browser does not keep the sign-in cookie. After a sign-in the server accepted and the browser dropped, the sign-in screen says so and links to FoxxyCode in a tab of its own. The mobile and desktop apps give a Mini App a window of its own, where sign-in works as in a browser.
+
+The module is `external/ui/src/ui/telegram/` with its own stylesheet, `telegram.css`; the scenarios are `features/web_ui_telegram_mini_app.feature`. To see it with no Telegram and no phone, open it from the offline stand: [Debugging against a fake Bot API](gateway.md#debugging-against-a-fake-bot-api) shows the stand by hand, and `npm run check:telegram` drives it end to end (*Checking the Telegram Mini App* below).
+
+Footer links
+
 - The Settings footer carries **API docs** (`/docs/`) and **Website** (`https://hijera.github.io/foxxy-agent/`), both in a **new tab** (`rel=noopener`).
 - In the editor plugins a new tab is not an option: the IntelliJ panel hands the link to the system browser, and in VS Code the SPA posts it to the extension, which opens it with `vscode.env.openExternal` (`external/ui/src/ui/embedExternalLinks.ts`).
+
+Header links
+
+- GitHub link to `https://github.com/hijera/foxxy-agent` (**new tab**, `rel=noopener`).
+- API docs link to `/docs/` (**new tab**, `rel=noopener`).
+- The version of the server the page is talking to, on the right (**`GET /foxxycode/info`**): a release reads **`v1.2.36`** and links to its notes on GitHub, a build between releases is shown as it is. In a remote environment or inside a node reached through a relay it is that server's version, not the page's.
+- The three sit in the footer of the start screen (**GitHub** | **API docs** | **v1.2.36**, **`chat/HeroFooter.tsx`**) and are gone once a chat is open; the nav rail carries none of them.
 
 Narrow-rail tooltips (desktop)
 
@@ -445,7 +487,7 @@ Session title
 *The reasoning level dropdown in the composer, levels fetched from the provider*
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
-- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** (the snapshot's **`reasoningChoices`** name **`off`** where the provider has the switch), and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
+- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** when its logical model enabled **`allow_reasoning_off: true`**, and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
 ### Session settings: permission chip, turn overrides, live mirror
@@ -1736,6 +1778,19 @@ FOXXYCODE_BIN=build/foxxycode npm --prefix external/ui run check:queue
 ```
 
 **`FOXXYCODE_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`FOXXYCODE_BROWSER_PATH`** points at an installed Chromium, **`FOXXYCODE_PORT_BASE`** moves its four ports and **`FOXXYCODE_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
+
+### Checking the Telegram Mini App
+
+`npm run check:telegram` (`external/ui/scripts/telegram-mini-app-check.mjs`) opens the web UI as a Telegram Mini App with no Telegram. It starts `cmd/tgfake` with its scripted model and a real `foxxycode serve` whose bot talks to the stand, and drives the stand's chat page, which opens the bot's `/app` button in its phone frame. It checks the menu button and `/app`; what the Mini App asks of the client (expand, swipes off, the header colour, ready last); an address free of the launch data; the half-open window, entered while the transcript is parked at its newest message (the composer and that message in sight, nothing wider than the page, the chat title still sticky); the mode sheet and the start screen's context sheet inside the visible part; Back; Telegram's light theme; and the sign-in note in a cross-site frame (the stand's page on `localhost`, the web UI on `127.0.0.1`).
+
+```bash
+make build TAGS="http ui gateway"
+cd external/ui
+npm i --no-save playwright && npx playwright install chromium   # once
+FOXXYCODE_BIN=../../build/foxxycode npm run check:telegram
+```
+
+`FOXXYCODE_BROWSER_PATH` points at an installed Chromium instead of Playwright's download, `FOXXYCODE_SCENARIOS` runs some of `bot`, `open`, `half`, `sheets`, `theme` and `signin`, `FOXXYCODE_SCREENSHOTS` writes the captures this page and the gateway page show, and `FOXXYCODE_E2E_KEEP=1` leaves the stand running for a look.
 
 ### Checking the transcript at every width of the grid
 

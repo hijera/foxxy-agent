@@ -1,6 +1,11 @@
 ---
 description: Every provider request follows providers[].proxy
-globs: internal/llm/**/*.go, external/httpserver/*auth*_http.go, cmd/foxxycode/codex.go, cmd/foxxycode/devin.go, cmd/foxxycode/providers.go
+globs:
+  - internal/llm/**/*.go
+  - external/httpserver/*auth*_http.go
+  - cmd/foxxycode/codex.go
+  - cmd/foxxycode/devin.go
+  - cmd/foxxycode/providers.go
 alwaysApply: false
 ---
 # Provider transport and proxy boundary
