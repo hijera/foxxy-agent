@@ -10,6 +10,11 @@
 
 ## Unreleased — 2026-11-12
 
+**Choose the compatible provider client identity.**
+OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
+
+## 0.3.45 — 2026-11-12
+
 **MCP startup diagnostics.** Connection errors mask configured credentials in backend logs and session notices, including tokens echoed in another letter case. HTTP status codes remain readable, and timeout/retry handling is preserved.
 
 **Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors. Aliases of the `skills` section preserve its sources; quoted `<<` keys do not activate nested servers or sources.

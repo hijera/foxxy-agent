@@ -746,3 +746,16 @@ Provider account usage sources are `neuraldeep`, `codex` and `devin`. `usage_lim
 `mcp.idle_timeout_seconds` defaults to 300; 0 stops an unheld server immediately. Long-running surfaces keep global servers alive until process exit. Project and `${CWD}` declarations share a connection only within their canonical workspace.
 
 `httpserver.remotes[]` may specify `name`, `url` and an optional `token`, usually `${ENV}`. The configuration API returns that token to browsers; the console uses it unless `--remote-token` overrides it. A relay exposes only its `swarm` and `logger` settings and uses `swarm.cors` for browser origins.
+
+### Compatible provider client identity
+
+For OpenAI-compatible and Anthropic-compatible providers, omit
+`providers[].user_agent` or leave it empty to keep the provider SDK identity
+(`OpenAI/Go` or `Anthropic/Go`). The explicit `openai` and `anthropic` values also
+keep the current protocol's SDK identity, including after switching provider type.
+Select `foxxycode` to send
+`Foxxycode/<running version>`, using `dev` in an unstamped build. It applies to
+completion requests and model listing, including the unsaved provider preview.
+Other provider types ignore this setting. In Settings, open an OpenAI-compatible
+or Anthropic-compatible provider, expand **Advanced settings** and choose
+**User-Agent**; save the provider to apply it to new calls.

@@ -1,5 +1,8 @@
 /** Russian UI strings for the FoxxyCode SPA. */
 export const messagesRu: Record<string, string> = {
+  "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
+  "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
+  "settings.userAgent.foxxycode": "Foxxycode/версия",
   "messages.svn.card": "Операция Subversion",
   "messages.svn.paths": "Пути",
   "messages.svn.target": "Объект",

@@ -36,7 +36,7 @@ func (s *anthropicEmptyAssistantState) givenConversation() error {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
 	}))
-	s.provider = newAnthropicProvider("test-model", "key", s.server.URL, nil, 8192, 0, "high")
+	s.provider = newAnthropicProvider("test-model", "key", s.server.URL, nil, 8192, 0, "high", "")
 	return nil
 }
 
