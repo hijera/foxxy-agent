@@ -668,7 +668,7 @@ func TestStripContextBlocksIgnoresTagsInsideCDATA(t *testing.T) {
 // TestListSnapshotsMatchesWorkspaceSpelledDifferently covers the ACP
 // session/list filter: the console stores the logical $PWD spelling of a
 // symlinked checkout while an editor sends the physical one, and both name the
-// same folder (coddy-project/coddy-agent VS Code "sees no sessions" report).
+// same folder (upstream VS Code "sees no sessions" report).
 func TestListSnapshotsMatchesWorkspaceSpelledDifferently(t *testing.T) {
 	root := t.TempDir()
 	real := filepath.Join(root, "real", "project")
@@ -886,6 +886,135 @@ func TestMessageCountReadsTheStoredTranscript(t *testing.T) {
 				t.Fatalf("count = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestListSnapshotsUsesMatchingPersistedMessageCount(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_count_metadata_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: t.TempDir(), Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "ask"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	msgPath := filepath.Join(dir, messagesFile)
+	info, err := os.Stat(msgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := fs.ReadMeta(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.MessageCount == nil || meta.MessagesSize == nil || meta.MessagesModTime == nil {
+		t.Fatalf("save did not record transcript metadata: %+v", meta)
+	}
+	// Keep the recorded identity while making the file unparsable. A metadata
+	// listing must use the matching count and not open this transcript.
+	if err := os.WriteFile(msgPath, bytes.Repeat([]byte("{"), int(info.Size())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(msgPath, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].MessageCount != 2 {
+		t.Fatalf("metadata listing = %+v, want one two-message row", rows)
+	}
+}
+
+func TestEnrichMessageCountsFallsBackForLegacyOrStaleMetadata(t *testing.T) {
+	fs, st := savedState(t, "sess_count_fallback", 3)
+	meta, err := fs.ReadMeta(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.MessageCount = nil
+	meta.MessagesSize = nil
+	meta.MessagesModTime = nil
+	if err := writeJSONAtomic(filepath.Join(st.SessionDir, sessionMetaFile), meta); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].MessageCount != 0 {
+		t.Fatalf("legacy metadata listing = %+v, want unknown zero count", rows)
+	}
+	fs.EnrichMessageCounts(rows)
+	if rows[0].MessageCount != 3 {
+		t.Fatalf("enriched count = %d, want 3", rows[0].MessageCount)
+	}
+}
+
+func TestListSnapshotsMetadataIncludesChildBundles(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	parentID, childID := "sess_count_parent", "sess_count_child"
+	parentDir, err := fs.EnsureLayout(parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := &State{ID: parentID, CWD: "/tmp", Mode: ModeAgent, SessionDir: parentDir}
+	parent.AddMessage(llm.Message{Role: llm.RoleUser, Content: "parent"})
+	if err := fs.Save(parent); err != nil {
+		t.Fatal(err)
+	}
+	childDir, err := fs.EnsureChildLayout(parentID, childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := &State{ID: childID, CWD: "/tmp", Mode: ModeAgent, SessionDir: childDir}
+	child.AddMessage(llm.Message{Role: llm.RoleUser, Content: "child question"})
+	child.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "child answer"})
+	if err := fs.Save(child); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{IncludeSubagents: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.SessionID == childID {
+			if !row.SubagentRun || row.ParentSessionID != parentID || row.MessageCount != 2 {
+				t.Fatalf("child metadata row = %+v", row)
+			}
+			return
+		}
+	}
+	t.Fatalf("child %q missing from %+v", childID, rows)
+}
+
+func TestDefaultListSkipsArchivedCorruptTranscriptBeforeReadingIt(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	storeTaggedSession(t, fs, "sess_visible", "Visible", nil, false)
+	storeTaggedSession(t, fs, "sess_archived", "Archived", nil, true)
+	// This is intentionally both large and corrupt. Default History must apply
+	// its archive filter from session.json before any transcript operation.
+	archivedPath := filepath.Join(fs.SessionPath("sess_archived"), messagesFile)
+	if err := os.WriteFile(archivedPath, bytes.Repeat([]byte("{"), 2<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].SessionID != "sess_visible" {
+		t.Fatalf("default list = %+v, want visible session only", rows)
 	}
 }
 
@@ -1195,7 +1324,7 @@ func TestForgettingASessionDropsItsRememberedHistory(t *testing.T) {
 		t.Fatal("a save left nothing remembered to splice onto")
 	}
 
-	m := NewManager(reloadTestConfig(), nil, nil, slog.Default(), "", fs)
+	m := NewManager(reloadTestConfig(t), nil, nil, slog.Default(), "", fs)
 	m.mu.Lock()
 	m.sessions[st.ID] = st
 	m.mu.Unlock()
@@ -1224,7 +1353,7 @@ func TestForgettingASessionDropsItsRememberedHistory(t *testing.T) {
 func TestDeletingASessionTreeDropsItsRememberedHistory(t *testing.T) {
 	fs, st := savedState(t, "sess_deleted", 3)
 	msgPath := filepath.Join(st.SessionDir, messagesFile)
-	m := NewManager(reloadTestConfig(), nil, nil, slog.Default(), "", fs)
+	m := NewManager(reloadTestConfig(t), nil, nil, slog.Default(), "", fs)
 	if err := m.DeleteSessionTree(st.ID, nil); err != nil {
 		t.Fatal(err)
 	}

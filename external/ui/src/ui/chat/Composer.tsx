@@ -1,4 +1,5 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
+import { normalizeClipboardImageFile } from "./clipboardImageFile";
 import {
   useCallback,
   useEffect,
@@ -42,6 +43,7 @@ import { parseDroppedPaths } from "../skills/parseDroppedPaths";
 import { subscribeFileMention } from "../skills/fileMentionBus";
 import {
   draftExtendsFailedSlashPrefix,
+  inMarkdownFenceBeforeCaret,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import {
@@ -99,6 +101,25 @@ import {
   onSendModeChange,
   DEFAULT_SEND_MODE,
 } from "../i18n/sendModeConfig";
+import { applyWorkspaceQuery, workspaceScope } from "./workspaceScope";
+
+function expandCodeFenceAtCaret(
+  value: string,
+  start: number,
+  end: number,
+): { text: string; caret: number } | null {
+  if (start !== end) return null;
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  const lineEndAt = value.indexOf("\n", start);
+  const lineEnd = lineEndAt < 0 ? value.length : lineEndAt;
+  const line = value.slice(lineStart, lineEnd);
+  if (line.trim() !== "```") return null;
+  const indent = line.match(/^[ \t]*/)?.[0] ?? "";
+  return {
+    text: `${value.slice(0, lineEnd)}\n\n${indent}\`\`\`${value.slice(lineEnd)}`,
+    caret: lineEnd + 1,
+  };
+}
 
 /** Extension for a clipboard image, so a pasted file gets a usable name. */
 function imageExtFromMime(mime: string): string {
@@ -133,7 +154,9 @@ function renamePastedImages(files: File[], seq: { n: number }): File[] {
   return files.map((f) => {
     seq.n += 1;
     const ext = imageExtFromMime(f.type);
-    return new File([f], `pasted-${seq.n}.${ext}`, { type: f.type });
+    // The same inference the send path applies: a clipboard that omitted the
+    // MIME type still gets a live chip preview from the deterministic name.
+    return normalizeClipboardImageFile(new File([f], `pasted-${seq.n}.${ext}`, { type: f.type }));
   });
 }
 
@@ -428,6 +451,13 @@ export function Composer(props: {
   onCancelQueued?: (id: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
   workspaceCtx?: WorkspaceContext | null;
+  /**
+   * The folder the chat runs in: the session's workspace, or before the first
+   * message the folder picked on the start screen. Sent as cwd with every
+   * cwd-scoped request (slash commands, mentions, the file a mention names),
+   * next to the session header, so a new chat lists what its folder holds.
+   */
+  workspacePath?: string;
   worktreePref?: boolean;
   svnFolderPref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
@@ -1024,13 +1054,10 @@ export function Composer(props: {
       if (prefix) {
         sp.set("prefix", prefix);
       }
-      const headers: Record<string, string> = {};
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-FoxxyCode-Session-ID"] = sid;
-      }
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      applyWorkspaceQuery(sp, scope);
       const res = await fetch(`/foxxycode/slash-commands?${sp.toString()}`, {
-        headers,
+        headers: scope.headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -1050,7 +1077,7 @@ export function Composer(props: {
       }
       return body;
     },
-    [props.sessionId, props.onDocsCommand, props.onMCPCommand, t],
+    [props.sessionId, props.workspacePath, props.onDocsCommand, props.onMCPCommand, t],
   );
 
   const fetchMentions = useCallback(
@@ -1062,20 +1089,17 @@ export function Composer(props: {
       if (refresh) {
         sp.set("refresh", "1");
       }
-      const headers: Record<string, string> = {};
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-FoxxyCode-Session-ID"] = sid;
-      }
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      applyWorkspaceQuery(sp, scope);
       const res = await fetch(`/foxxycode/mentions?${sp.toString()}`, {
-        headers,
+        headers: scope.headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       return (await res.json()) as MentionSearchBody;
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   /** Clears the range panel; the composer text is left exactly as typed. */
@@ -1087,13 +1111,26 @@ export function Composer(props: {
     setAtRangeFile(null);
   }, []);
 
-  // A session switch changes the workspace behind every path: drop the loaded
-  // preview and any read still in flight, so the panel never shows another
-  // session's file. The next keystroke in the suffix fetches afresh.
+  // A session switch, or another folder picked before the session exists,
+  // changes the workspace behind every path and every skill: drop the loaded
+  // preview, the open pickers and any answer still in flight, so nothing of the
+  // previous workspace is shown. A prefix that matched nothing there may match
+  // here, so the remembered no-match is forgotten too. The next keystroke
+  // fetches afresh.
   useEffect(() => {
     closeAtRangePicker();
     setAtRangeSuppressed(null);
-  }, [props.sessionId, closeAtRangePicker]);
+    slashFetchGenRef.current++;
+    atFetchGenRef.current++;
+    setSlashOpen(false);
+    setSlashReplace(null);
+    setSlashNoMatch(null);
+    setSlashLoading(false);
+    setAtOpen(false);
+    setAtReplace(null);
+    setAtNoMatch(null);
+    setAtLoading(false);
+  }, [props.sessionId, props.workspacePath, closeAtRangePicker]);
 
   /**
    * Loads the mentioned file once per path. A path that does not resolve simply
@@ -1109,13 +1146,10 @@ export function Composer(props: {
       const gen = ++atRangeFetchGenRef.current;
       try {
         const sp = new URLSearchParams({ path_rel: pathRel });
-        const headers: Record<string, string> = {};
-        const sid = (props.sessionId || "").trim();
-        if (sid) {
-          headers["X-FoxxyCode-Session-ID"] = sid;
-        }
+        const scope = workspaceScope(props.sessionId, props.workspacePath);
+        applyWorkspaceQuery(sp, scope);
         const res = await fetch(`/foxxycode/workspace/file?${sp.toString()}`, {
-          headers,
+          headers: scope.headers,
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -1140,7 +1174,7 @@ export function Composer(props: {
         }
       }
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   const enhancePrompt = useCallback(async () => {
@@ -1587,7 +1621,7 @@ export function Composer(props: {
   useEffect(() => {
     mentionCheckGenRef.current++;
     setMentionMarks(new Map());
-  }, [props.sessionId]);
+  }, [props.sessionId, props.workspacePath]);
   useEffect(() => {
     const text = props.value;
     const gen = ++mentionCheckGenRef.current;
@@ -1595,16 +1629,11 @@ export function Composer(props: {
       return;
     }
     const timer = window.setTimeout(() => {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-FoxxyCode-Session-ID"] = sid;
-      }
-      fetch("/foxxycode/mentions/check", {
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      const query = applyWorkspaceQuery(new URLSearchParams(), scope).toString();
+      fetch(`/foxxycode/mentions/check${query ? `?${query}` : ""}`, {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json", ...scope.headers },
         body: JSON.stringify({ text }),
       })
         .then(async (res) => {
@@ -1633,9 +1662,10 @@ export function Composer(props: {
         });
     }, MENTION_CHECK_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [props.value, props.sessionId]);
+  }, [props.value, props.sessionId, props.workspacePath]);
 
   const maskComposerText = props.value.length > 0;
+  const codeFenceEditing = inMarkdownFenceBeforeCaret(props.value, caretPos);
   const composerSegments = useMemo(
     () =>
       segmentComposerMirrorSpans(
@@ -2916,7 +2946,7 @@ export function Composer(props: {
                   : t("composer.attachUnsupportedModel");
                 return (
                   <AttachedFileChip
-                    key={idx}
+                    key={`${f.name}:${f.size}:${f.lastModified}:${idx}`}
                     file={f}
                     disabled={!attachmentSendingEnabled}
                     tip={tip}
@@ -2949,7 +2979,7 @@ export function Composer(props: {
             }
             ref={composerFieldWrapRef}
           >
-            <div className="composer-stack">
+            <div className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}>
               {maskComposerText ? (
                 <div className="composer-mirror" aria-hidden="true">
                   <div
@@ -3247,7 +3277,9 @@ export function Composer(props: {
                     const el = ev.currentTarget;
                     const start = el.selectionStart ?? props.value.length;
                     const end = el.selectionEnd ?? start;
-                    const next = insertNewline(props.value, start, end);
+                    const next =
+                      expandCodeFenceAtCaret(props.value, start, end) ??
+                      insertNewline(props.value, start, end);
                     setCaretPos(next.caret);
                     preEnhanceRef.current = null;
                     setEnhanceErr(null);

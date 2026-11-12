@@ -37,7 +37,7 @@ test("completed without a measured duration shows no duration", () => {
 
 test("in_progress before the clock starts reads the same way", () => {
   const { container } = render(<ThinkingMessage status="in_progress" content="x" />);
-  expect(container.querySelector(".thinking-dur")?.textContent).toBe("0ms");
+  expect(container.querySelector(".thinking-dur")).toBeNull();
 });
 
 test("in_progress shows thinking ellipsis and elapsed from startedAtMs", () => {

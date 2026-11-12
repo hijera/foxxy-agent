@@ -15,6 +15,38 @@ pipes and CI keep the usage contract), explicitly `foxxycode cli [flags]`, or wi
 flag-style shortcuts routed to the console: `foxxycode -c` continues the latest
 session in this folder and `foxxycode -p "..."` runs one non-interactive prompt
 (`foxxycode -p -` and `foxxycode -i FILE` read it from stdin or from a file).
+Startup runs before the terminal enters raw mode: the config, the session
+store, the skills and the rule folders, then the first frame. The skills are
+read from their folders only, never from the marketplaces of
+`marketplaces.json`, so hundreds of installed skills cost a fraction of a
+second and a marketplace that does not answer costs nothing ([Skills](../features/skills.md#when-skills-are-read)).
+The configured MCP servers are **not** on that path, whatever starts them - a
+program the config names, an npm package run through `npx`, a remote server
+over streamable HTTP or SSE: they connect in the background once the console
+has drawn, for a new session and for one resumed with `foxxycode -c` or
+`/resume` alike, all at once and each under a 20-second bound, and the
+footer counts them (`MCP 2/5`) until every one has answered. A prompt sent
+before that waits for its tool list on the status line (`Connecting MCP
+servers`), and Escape ends the wait like any other step. A server that fails
+or that the trust gate holds is said once as a row of the visible transcript,
+with what to do about it. A server that did not answer in time is tried
+once more at the next prompt - the first start of an `npx` package can
+outlast the bound while the package installs - and one that failed
+otherwise, or twice, is not dialed again until its switch in `/mcp`, a
+reload or a new session. Resuming a
+session restores its current MCP notices after the transcript is cleared.
+The servers of the global configuration start with the console, before its first
+session asks for them, and stay up for the whole run, so `/new` and `/resume` find
+them connected instead of starting them again; a project server is one process for
+the sessions of its workspace ([MCP](../features/mcp.md#shared-servers)).
+Nothing reads the workspace tree: nested `AGENTS.md` files are read on demand, from the folders
+a tool enters (`docs/features/rules.md`), so a console opened in a home
+directory (a macOS `~/Library` alone runs to hundreds of thousands of
+entries) draws its frame at once instead of looking hung. The git branch in
+the footer is read with a three-second bound for the same reason. A first
+ctrl+c during startup cancels it; a second one ends the process the default
+way instead of being swallowed.
+
 Quitting the console (double ctrl+c, ctrl+d, `/quit`) prints a resume hint
 after the terminal is restored:
 
@@ -73,9 +105,14 @@ Top to bottom:
 
 - **Header**: `foxxycode` (bold accent) + dim version; a dim hint line
   (`escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more`);
-  a dim welcome line; `[Context]` (the files `instructions.files` names) and
+  a dim welcome line; `[Context]` (the documents the session's prompt carries:
+  your and the workspace's `AGENTS.md` and `DESIGN.md` that exist, then the
+  files `instructions.files` adds, each once) and
   `[Skills]` (the loaded skills, the bundled ones first).
-  `ctrl+o` expands the full hint list and adds `[Rules]` and `[MCP]` sections.
+  `ctrl+o` expands the full hint list and adds `[Rules]` and `[MCP]` sections;
+  `[MCP]` names the servers a session of this workspace starts: the enabled ones
+  of `~/.foxxycode/mcp.json` and of the project's `.foxxycode/mcp.json` that the trust
+  gate lets run.
 - **Transcript**: user messages in full-width background boxes; assistant
   markdown (headings, bold/italic, inline code, ``` fences with borders,
   `│ ` quotes, lists, box-drawing tables, OSC 8 links); italic gray thinking
@@ -370,7 +407,9 @@ offers the staged config tools (`config_get`, `config_set`,
 **Agent self-configuration** in `docs/reference/config.md`), and a commit or
 rollback hot-reloads the running console, so the model catalog (`ctrl+l`,
 `ctrl+p`), the footer, and the header's `[Context]`, `[Skills]`, `[Rules]`,
-and `[MCP]` sections follow the new file without a restart. `-p/--prompt`
+and `[MCP]` sections follow the new file without a restart. MCP servers are
+not in that file: the console watches `~/.foxxycode/mcp.json` and an edit of it
+reaches the session within a couple of seconds ([MCP](../features/mcp.md#edits-made-outside-foxxycode)). `-p/--prompt`
 offers the same tools; under `--remote` the server owns the reload.
 
 | Key | Action |
@@ -864,8 +903,8 @@ and types `@ment` against a provider that is never asked anything.
   server that never answers (`sleep 600`) and checks that the first frame
   still comes within seconds, with `MCP 0/1` in the footer, and that the
   console still leaves through double ctrl+c; a third one adds 300 installed
-  skills and a `skills.sources` entry that accepts connections and never
-  answers (issue #319), and checks that the first frame comes within two
+  skills and a source in `marketplaces.json` that accepts connections and
+  never answers (issue #319), and checks that the first frame comes within two
   seconds, that a typed key is echoed and that the source was never
   contacted. Those two are the startup bounds CI enforces. The performance of the startup itself is
   measured, not gated: `make bench-cli-startup` times the first frame and a

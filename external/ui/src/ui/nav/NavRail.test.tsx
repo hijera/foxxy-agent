@@ -101,6 +101,61 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
   );
 });
 
+test("nav shows localized active counts on History and Scheduler icons", () => {
+  render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      historyActiveCount={2}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      schedulerActiveCount={3}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+
+  expect(screen.getByTestId("nav-history-active-count")).toHaveTextContent("2");
+  expect(screen.getByTestId("nav-scheduler-active-count")).toHaveTextContent("3");
+  expect(screen.getByTestId("nav-history")).toHaveAccessibleName(
+    "History, 2 active sessions",
+  );
+  expect(screen.getByTestId("nav-scheduler")).toHaveAccessibleName(
+    "Scheduler jobs, 3 active runs",
+  );
+});
+
+test("wide rail keeps active counts over the History and Scheduler icons", () => {
+  render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      historyActiveCount={2}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      schedulerActiveCount={3}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail
+      railLabelsWide
+      onToggleRailLabels={() => {}}
+    />,
+  );
+
+  const historyCount = screen.getByTestId("nav-history-active-count");
+  expect(historyCount).not.toHaveClass("rail-active-count--inline");
+  expect(screen.getByTestId("nav-history").children[1]).toBe(historyCount);
+
+  const schedulerCount = screen.getByTestId("nav-scheduler-active-count");
+  expect(schedulerCount).not.toHaveClass("rail-active-count--inline");
+  expect(screen.getByTestId("nav-scheduler").children[1]).toBe(schedulerCount);
+});
+
 test("the rail no longer carries a Tasks entry", () => {
   render(
     <NavRail
@@ -312,6 +367,16 @@ describe("NavRail on a phone: the More menu", () => {
         e.getAttribute("data-testid"),
       ),
     ).toEqual(["nav-more-docs", "nav-more-scheduler", "nav-more-settings"]);
+  });
+
+  it("keeps the Scheduler active count when Scheduler is folded into More", () => {
+    stubLayout({ stacked: true, pill: 140 });
+    render(<NavRail {...base} schedulerActiveCount={2} onOpenDocs={() => {}} />);
+    fireEvent.click(screen.getByTestId("nav-more"));
+    expect(screen.getByTestId("nav-more-scheduler-active-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("nav-more-scheduler")).toHaveAccessibleName(
+      "Scheduler jobs, 2 active runs",
+    );
   });
 
   it("picking a folded item opens it and closes the menu", () => {

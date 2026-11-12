@@ -33,6 +33,7 @@ const bddLoopedThought = "I should re-check the validation rules once more, then
 // it stops on ctx and returns what it produced together with context.Canceled),
 // then answers normally so recovery after a nudge is observable.
 type bddLoopProvider struct {
+	batchCount int
 	// channel selects which streamed channel degenerates.
 	channel loopAbortChannel
 	// toolCall, when set, is requested on every turn instead of streaming text.
@@ -64,6 +65,18 @@ func (p *bddLoopProvider) Complete(context.Context, []llm.Message, []llm.ToolDef
 func (p *bddLoopProvider) Stream(ctx context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+	if p.batchCount > 0 {
+		if p.calls > 1 {
+			onChunk(llm.StreamChunk{TextDelta: p.realAnswer})
+			return &llm.Response{Content: p.realAnswer, StopReason: "end_turn"}, nil
+		}
+		calls := make([]llm.ToolCall, p.batchCount)
+		for i := range calls {
+			calls[i] = llm.ToolCall{ID: fmt.Sprintf("call_batch_%d", i), Name: "glob", InputJSON: `{"pattern":"*.go"}`}
+			onChunk(llm.StreamChunk{ToolCall: &calls[i]})
+		}
+		return &llm.Response{ToolCalls: calls, StopReason: "tool_use"}, nil
+	}
 
 	if len(p.rotating) > 0 && len(defs) == 0 {
 		// The guard withheld the tools: there is nothing left to do but answer.
@@ -213,6 +226,29 @@ func (s *loopGuardFeatureState) buildAgent() {
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
 		return s.provider, nil
 	}
+}
+
+func (s *loopGuardFeatureState) modelRequestsIdenticalBatch() error {
+	s.provider = &bddLoopProvider{batchCount: 4, realAnswer: "All four independent calls completed."}
+	s.buildAgent()
+	return nil
+}
+
+func (s *loopGuardFeatureState) identicalBatchExecuted() error {
+	executed := 0
+	for _, message := range s.st.GetMessages() {
+		if message.Role != llm.RoleTool {
+			continue
+		}
+		if message.Content == toolLoopNudge || message.Content == toolQuarantinedResult || message.Content == toolCycleNudge {
+			return fmt.Errorf("an intentional call was blocked: %s", message.Content)
+		}
+		executed++
+	}
+	if executed != 4 {
+		return fmt.Errorf("executed %d batch calls, want 4", executed)
+	}
+	return nil
 }
 
 func (s *loopGuardFeatureState) modelRepeatsSentenceThenAnswers() error {
@@ -467,6 +503,8 @@ func initializeLoopGuardScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a foxxycode agent with the loop guard enabled$`, s.agentWithLoopGuard)
+	sc.Step(`^a model that requests four identical tool calls in one response, then answers$`, s.modelRequestsIdenticalBatch)
+	sc.Step(`^all four calls of the response are executed without a loop correction$`, s.identicalBatchExecuted)
 	sc.Step(`^a model that repeats the same sentence forever, then answers normally$`, s.modelRepeatsSentenceThenAnswers)
 	sc.Step(`^a model that repeats the same thought forever with no answer text, then answers normally$`, s.modelRepeatsThoughtThenAnswers)
 	sc.Step(`^a model that always requests the same tool call with the same arguments$`, s.modelAlwaysRequestsTheSameToolCall)

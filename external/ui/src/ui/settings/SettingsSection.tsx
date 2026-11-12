@@ -10,6 +10,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { ModelField } from "./ModelField";
+import { Combobox } from "./Combobox";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
 import type { ProviderRow } from "./useProviderModels";
@@ -174,6 +175,9 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
         providerName={providerName}
         hasExplicitKey={hasExplicitKey}
         apiBase={apiBase}
+        {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+          ? { proxy: String(ctx.parentObj?.proxy ?? "") }
+          : {})}
       />
     </>
   );
@@ -217,6 +221,37 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
   ) {
     return false;
   }
+  if (ctx.path === "user_agent") {
+    if (providerType !== "openai" && providerType !== "anthropic") return false;
+    return (
+      <div className="settings-row">
+        <FieldLabel
+          label={tSchemaText(ctx.schema.title)}
+          description={tSchemaText(ctx.schema.description)}
+        />
+        <Combobox
+          value={ctx.value === "foxxycode" ? "foxxycode" : providerType}
+          ariaLabel={tSchemaText(ctx.schema.title)}
+          showOptionLabel
+          options={[
+            {
+              value: providerType,
+              label: translate(
+                providerType === "anthropic"
+                  ? "settings.userAgent.anthropic"
+                  : "settings.userAgent.openai",
+              ),
+            },
+            {
+              value: "foxxycode",
+              label: translate("settings.userAgent.foxxycode"),
+            },
+          ]}
+          onChange={ctx.onChange}
+        />
+      </div>
+    );
+  }
   if (providerType === "codex") {
     if (ctx.path === "api_key" || ctx.path === "api_key_command") {
       return false;
@@ -226,7 +261,14 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         ctx.parentObj?.name === undefined || ctx.parentObj.name === null
           ? ""
           : String(ctx.parentObj.name);
-      return <CodexAuthField providerName={providerName} />;
+      return (
+        <CodexAuthField
+          providerName={providerName}
+          {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+            ? { proxy: String(ctx.parentObj?.proxy ?? "") }
+            : {})}
+        />
+      );
     }
   }
   return neuralDeepAPIBaseOverride(ctx);
@@ -372,20 +414,24 @@ export function SettingsSection(props: {
         schema={sub}
         value={asObject(doc.skills)}
         onChange={(v) => setKey("skills", v)}
+        workspacePath={props.workspacePath}
+        {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})}
       />
     );
   }
 
-  // The MCP tab is API-driven (/foxxycode/mcp*): toggles and project entries
-  // persist into config.yaml / .foxxycode/mcp.json immediately, so it does not
-  // edit the settings document at all.
+  // The MCP tab is API-driven (/foxxycode/mcp*): servers and their switches live
+  // in the two mcp.json files (project switches in mcp-overrides.json) and
+  // apply at once, so it does not edit the settings document at all.
   if (section.kind === "mcp") {
-    return <MCPSection />;
+    return <MCPSection {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})} />;
   }
 
-  // Subagents edits the config section like any object tab, and additionally
-  // lists the definitions of the viewed session's workspace so a project-scope
-  // one can be approved here instead of from a terminal.
+  // Subagents edits its config section like any object tab, and additionally
+  // lists the definitions of the viewed session's workspace: under ask a
+  // project-scope one carries the shield that approves it for that
+  // workspace (POST /foxxycode/subagents/{name}/trust), as foxxycode agents trust
+  // does in a terminal.
   if (section.kind === "subagents") {
     const sub = props_.subagents;
     if (!sub) {
@@ -546,7 +592,7 @@ export function SettingsSection(props: {
                 {
                   id: "advanced",
                   legend: t("settings.providers.group.advanced"),
-                  paths: ["api_key_command", "proxy", "timeout_ms"],
+                  paths: ["user_agent", "api_key_command", "proxy", "timeout_ms"],
                   collapsible: true,
                 },
               ]

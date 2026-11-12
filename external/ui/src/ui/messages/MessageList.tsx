@@ -41,6 +41,8 @@ import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 import { opensTurn } from "../chat/backgroundWake";
+import { artifactMarkerIds, artifactMarkersForAssistant } from "../chat/inlineArtifacts";
+import type { ToolArtifact } from "../chat/toolArtifacts";
 
 /**
  * The turn's clock and tokens for the live line: what the server reported, and until it
@@ -96,12 +98,12 @@ export function MessageList(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  onOpenBackgroundTask?: (taskId: string) => void;
-  onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace of this session; a refused spawn offers its approval for it. */
   workspacePath?: string | undefined;
   /** Opens the child transcript behind a spawn_agent row. */
   onOpenSubagentTranscript?: (sessionId: string) => void;
+  /** Opens a child transcript in the current SPA shell. */
+  onOpenSession?: (sessionId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
@@ -111,6 +113,8 @@ export function MessageList(props: {
   runningTasks?: number;
   /** Opens the Tasks panel from the live line's running-tasks segment. */
   onOpenTasks?: () => void;
+  /** Inserts an artifact source mention into the active composer. */
+  onMentionArtifact?: (path: string) => void;
 }) {
   // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
   const tailTasks =
@@ -227,11 +231,38 @@ export function MessageList(props: {
     renderStart === 0 && renderEnd === props.items.length
       ? props.items
       : props.items.slice(renderStart, renderEnd);
+  // Artifact markers are computed once per transcript revision, and only for
+  // the rows that carry a marker at all. A marker-free row keeps `undefined`
+  // (the prop is optional), so the memoized AssistantMessage rows hold their
+  // prop identity across streaming deltas; handing every row a fresh Map per
+  // render defeated React.memo and re-parsed every answer on each token.
+  const artifactsByRowId = useMemo(() => {
+    const byId = new Map<string, ReadonlyMap<string, ToolArtifact>>();
+    props.items.forEach((item, index) => {
+      if (
+        item.type === "assistant_message" &&
+        item.content.includes("<foxxycode_file")
+      ) {
+        byId.set(item.id, artifactMarkersForAssistant(props.items, index));
+      }
+    });
+    return byId;
+  }, [props.items]);
+
+  const inlineArtifactIds = useMemo(() => {
+    const ids = new Set<string>();
+    props.items.forEach((item) => {
+      if (item.type !== "assistant_message") return;
+      const markers = artifactsByRowId.get(item.id);
+      if (!markers) return;
+      for (const id of artifactMarkerIds(item.content, markers)) ids.add(id);
+    });
+    return ids;
+  }, [props.items, artifactsByRowId]);
 
   return (
     <>
-      {rendered.map((it, sliceIdx) => {
-        const idx = renderStart + sliceIdx;
+      {rendered.map((it) => {
         if (it.type === "user_message") {
           const myIdx = userMsgIndexById.get(it.id);
           // A missing index must not fall back to 0: a rewind names the first
@@ -291,11 +322,14 @@ export function MessageList(props: {
           if (!it.content.trim()) {
             return null;
           }
+          const rowArtifacts = artifactsByRowId.get(it.id);
           return (
             <AssistantMessage
               key={it.id}
               rowId={it.id}
               content={it.content}
+              {...(rowArtifacts ? { artifacts: rowArtifacts } : {})}
+              {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
               showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
@@ -414,11 +448,8 @@ export function MessageList(props: {
             {...(rowBackgroundTask && props.backgroundNowMs !== undefined
               ? { backgroundNowMs: props.backgroundNowMs }
               : {})}
-            {...(props.onOpenBackgroundTask
-              ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
-              : {})}
-            {...(props.onStopBackgroundTask
-              ? { onStopBackgroundTask: props.onStopBackgroundTask }
+            {...(props.onOpenSession
+              ? { onOpenSession: props.onOpenSession }
               : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
@@ -434,6 +465,8 @@ export function MessageList(props: {
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
+            {...(it.artifacts !== undefined ? { artifacts: it.artifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)) } : {})}
+            {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

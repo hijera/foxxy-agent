@@ -1,0 +1,527 @@
+package config
+
+import (
+	"bytes"
+	"fmt"
+	"log/slog"
+	"os"
+	"reflect"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Keys that left config.yaml move on load into the files that hold them now,
+// so an old config keeps working after an update without anyone editing it.
+// The move runs under the config file lock and only when it can take it: a
+// load inside a config transaction (which holds the lock) leaves it for the
+// next load. The key's block is cut out of the text; the rest of the file
+// stays byte for byte, and the old file is kept beside it as
+// <config>.bak-<time>.
+
+// legacyMove is one key that left config.yaml: where it sits in the file and
+// how its value is carried into the file that holds it now. move reports
+// what it moved and what the target had already, for the log line.
+type legacyMove struct {
+	path  string
+	key   *yaml.Node
+	value *yaml.Node
+	move  func(value *yaml.Node) (moved, kept []string, err error)
+}
+
+// migrateLegacyKeys moves the keys that left config.yaml: the old top-level
+// mcp_servers into <home>/mcp.json, every value meaning what it meant in
+// config.yaml (legacyMCPValue: an environment reference stays one, which
+// mcp.json resolves when the server starts), a name the file declares
+// already left alone; and skills.sources into the sources of
+// <home>/marketplaces.json, a source the file has already (in any case) and
+// the system source not repeated. A move that cannot write its target leaves
+// its key where it is; the others go ahead, in one rewrite of config.yaml
+// with one backup of the old file.
+func migrateLegacyKeys(paths Paths, data []byte) []byte {
+	if strings.TrimSpace(paths.ConfigPath) == "" {
+		return data
+	}
+	originalData := data
+	data = decodeUTF16Config(data)
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return data
+	}
+	root := doc.Content[0]
+	var moves []legacyMove
+	if k, v := mappingEntryEffective(root, "mcp_servers"); k != nil {
+		moves = append(moves, legacyMove{path: "mcp_servers", key: k, value: v,
+			move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacyMCPServers(paths, v) }})
+	}
+	if _, skills := mappingEntryEffective(root, "skills"); skills != nil {
+		if k, v := mappingEntryEffective(skills, "sources"); k != nil {
+			moves = append(moves, legacyMove{path: "skills.sources", key: k, value: v,
+				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacySkillSources(paths, v) }})
+		}
+	}
+	if len(moves) == 0 {
+		return data
+	}
+	if paths.ConfigFromWorkspace {
+		// A config.yaml found in the workspace may have come with a checkout:
+		// moving its servers or sources into the home files would make them
+		// the operator's own, ungated in every workspace. It is read as it is.
+		for _, m := range moves {
+			slog.Default().Warn("config: the workspace's config.yaml, read because the FoxxyCode home has none, still has a key that left config.yaml; it is not used and not moved out of a file that may have come with a checkout", "key", m.path, "config", paths.ConfigPath, "home", paths.Home)
+		}
+		return data
+	}
+	if !configPathWriteMu.TryLock() {
+		return data
+	}
+	defer configPathWriteMu.Unlock()
+	// Loading reads before taking the write lock. A settings transaction may
+	// have saved a newer file in between; never migrate or rewrite that older
+	// snapshot. Load the current text and leave its migration for the next load.
+	current, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		slog.Default().Warn("config: cannot recheck legacy keys before migration", "path", paths.ConfigPath, "error", err)
+		return data
+	}
+	if !bytes.Equal(current, originalData) {
+		slog.Default().Warn("config: file changed before migration; loading the newer text", "path", paths.ConfigPath)
+		return decodeUTF16Config(current)
+	}
+
+	log := slog.Default()
+	var done []legacyMove
+	for _, m := range moves {
+		moved, kept, err := m.move(m.value)
+		if err != nil {
+			log.Warn("config: a key that left config.yaml could not be moved; left in place and not used", "key", m.path, "path", paths.ConfigPath, "error", err)
+			continue
+		}
+		log.Info("config: moved a key out of config.yaml", "key", m.path, "moved", moved, "already_there", kept, "config", paths.ConfigPath)
+		// The cut is by lines. A key inside a flow-style mapping, or a flow
+		// value whose closing bracket shares the key's indentation, is not a
+		// block of lines: cutting it would take its neighbours along or leave
+		// a bracket behind. What it held is moved all the same (a repeat is
+		// kept as it is the next time); the key stays for the operator.
+		if !cutKeepsTheRest(data, cutKeyBlocks(data, root, m.key), root, [][]string{strings.Split(m.path, ".")}, m.key) {
+			log.Warn("config: moved a key out of config.yaml but it cannot be cut out of the file without touching its neighbours; delete it by hand", "key", m.path, "config", paths.ConfigPath)
+			continue
+		}
+		done = append(done, m)
+	}
+	if len(done) == 0 {
+		return data
+	}
+	// Every block is measured on the text as it was read and all are cut in
+	// one pass, so no cut is measured on lines another one moved.
+	keys := make([]*yaml.Node, 0, len(done))
+	cut := make([][]string, 0, len(done))
+	for _, m := range done {
+		keys = append(keys, m.key)
+		cut = append(cut, strings.Split(m.path, "."))
+	}
+	next := cutKeyBlocks(data, root, keys...)
+	if !cutKeepsTheRest(data, next, root, cut, keys...) {
+		log.Warn("config: keys moved but config.yaml would not read the same without them; left as it is", "config", paths.ConfigPath)
+		return data
+	}
+	if err := rewriteConfigKeepingBackup(paths.ConfigPath, originalData, next); err != nil {
+		log.Warn("config: keys moved but config.yaml could not be rewritten; they are ignored", "path", paths.ConfigPath, "error", err)
+		return data
+	}
+	return next
+}
+
+// cutKeepsTheRest reports whether next, data with the keys at paths cut out
+// of its text, reads as exactly the document data reads as without them. The
+// declaration nodes locate those keys inside an anchor as well as at the root:
+// a merged declaration lives in both views of the document. A mapping left
+// without keys reads as an empty one either way.
+func cutKeepsTheRest(data, next []byte, root *yaml.Node, paths [][]string, declarations ...*yaml.Node) bool {
+	var want, got any
+	if yaml.Unmarshal(data, &want) != nil || yaml.Unmarshal(next, &got) != nil {
+		return false
+	}
+	for _, path := range paths {
+		dropYAMLPath(want, path)
+	}
+	for _, key := range declarations {
+		dropYAMLDeclaration(want, root, key)
+	}
+	return reflect.DeepEqual(emptyMapsAsNil(want), emptyMapsAsNil(got))
+}
+
+// dropYAMLPath deletes the key path names from a decoded document.
+func dropYAMLPath(doc any, path []string) {
+	m, ok := doc.(map[string]any)
+	if !ok || len(path) == 0 {
+		return
+	}
+	if len(path) == 1 {
+		delete(m, path[0])
+		return
+	}
+	dropYAMLPath(m[path[0]], path[1:])
+}
+
+// dropYAMLDeclaration removes from the decoded document the mapping key that
+// key names in the syntax tree, wherever an anchor declares it.
+func dropYAMLDeclaration(doc any, root, key *yaml.Node) {
+	path, ok := yamlKeyPath(root, key, nil)
+	if !ok {
+		return
+	}
+	for i := 0; i+1 < len(path); i++ {
+		switch step := path[i].(type) {
+		case string:
+			m, ok := doc.(map[string]any)
+			if !ok {
+				return
+			}
+			doc = m[step]
+		case int:
+			items, ok := doc.([]any)
+			if !ok || step < 0 || step >= len(items) {
+				return
+			}
+			doc = items[step]
+		}
+	}
+	name, ok := path[len(path)-1].(string)
+	if !ok {
+		return
+	}
+	if m, ok := doc.(map[string]any); ok {
+		delete(m, name)
+	}
+}
+
+// yamlKeyPath returns the mapping keys and sequence indices that reach key in
+// the syntax tree. The last step is the declaration's own mapping key.
+func yamlKeyPath(n, key *yaml.Node, prefix []any) ([]any, bool) {
+	if n == nil {
+		return nil, false
+	}
+	switch n.Kind {
+	case yaml.DocumentNode:
+		for _, child := range n.Content {
+			if path, ok := yamlKeyPath(child, key, prefix); ok {
+				return path, true
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			if k == key {
+				return append(prefix, k.Value), true
+			}
+			if path, ok := yamlKeyPath(v, key, append(prefix, k.Value)); ok {
+				return path, true
+			}
+		}
+	case yaml.SequenceNode:
+		for i, child := range n.Content {
+			if path, ok := yamlKeyPath(child, key, append(prefix, i)); ok {
+				return path, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// emptyMapsAsNil makes a mapping with no keys and an empty value the same,
+// as `skills:` left with nothing under it reads as null.
+func emptyMapsAsNil(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		if len(t) == 0 {
+			return nil
+		}
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			out[k] = emptyMapsAsNil(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, val := range t {
+			out[i] = emptyMapsAsNil(val)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// mappingEntry finds key in a mapping node, returning its key and value nodes.
+func mappingEntry(m *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i], m.Content[i+1]
+		}
+	}
+	return nil, nil
+}
+
+// mappingEntryEffective finds key where the YAML merge keys make it effective,
+// returning the node that declares it so the migration can cut that declaration.
+// A direct key wins over an inherited one; entries of a merge sequence keep
+// YAML's first-one-wins order.
+func mappingEntryEffective(m *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
+	seen := map[*yaml.Node]bool{}
+	var find func(*yaml.Node) (*yaml.Node, *yaml.Node)
+	find = func(m *yaml.Node) (*yaml.Node, *yaml.Node) {
+		m = resolveAlias(m)
+		if m == nil || m.Kind != yaml.MappingNode || seen[m] {
+			return nil, nil
+		}
+		seen[m] = true
+		if k, v := mappingEntry(m, key); k != nil {
+			return k, v
+		}
+		for i := 0; i+1 < len(m.Content); i += 2 {
+			if m.Content[i].Value != "<<" || m.Content[i].ShortTag() != "!!merge" {
+				continue
+			}
+			merged := resolveAlias(m.Content[i+1])
+			if merged == nil {
+				continue
+			}
+			if merged.Kind == yaml.SequenceNode {
+				for _, item := range merged.Content {
+					if k, v := find(item); k != nil {
+						return k, v
+					}
+				}
+				continue
+			}
+			if k, v := find(merged); k != nil {
+				return k, v
+			}
+		}
+		return nil, nil
+	}
+	return find(m)
+}
+
+// moveLegacyMCPServers writes the servers of an old mcp_servers list into
+// <home>/mcp.json, leaving a name the file declares already alone.
+func moveLegacyMCPServers(paths Paths, value *yaml.Node) (moved, kept []string, err error) {
+	var servers []MCPServerConfig
+	if err := value.Decode(&servers); err != nil {
+		return nil, nil, fmt.Errorf("mcp_servers does not read as a list of servers: %w", err)
+	}
+	if len(servers) == 0 {
+		return nil, nil, nil
+	}
+	target := GlobalMCPJSONPath(paths.Home)
+	entries, err := ReadMCPJSONFile(target)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, srv := range servers {
+		name := strings.TrimSpace(srv.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := entries[name]; ok {
+			kept = append(kept, name)
+			continue
+		}
+		entries[name] = legacyMCPServerToJSON(srv, paths.Home)
+		moved = append(moved, name)
+	}
+	if len(moved) > 0 {
+		if err := writeMCPJSONFileEntries(target, entries); err != nil {
+			return nil, nil, err
+		}
+	}
+	return moved, kept, nil
+}
+
+// moveLegacySkillSources appends the sources of an old skills.sources list to
+// the sources of <home>/marketplaces.json. A source the file has already, in
+// any case, and the system source, which is in effect without any file, are
+// not repeated.
+func moveLegacySkillSources(paths Paths, value *yaml.Node) (moved, kept []string, err error) {
+	var sources []string
+	if err := value.Decode(&sources); err != nil {
+		return nil, nil, fmt.Errorf("skills.sources does not read as a list of sources: %w", err)
+	}
+	target := GlobalMarketplacesPath(paths.Home)
+	file, err := ReadMarketplacesFile(target)
+	if err != nil {
+		return nil, nil, err
+	}
+	known := map[string]bool{strings.ToLower(SystemSkillsSource): true}
+	for _, s := range file.Sources {
+		known[strings.ToLower(strings.TrimSpace(s))] = true
+	}
+	for _, raw := range sources {
+		// The new JSON file holds literal addresses; preserve what the old
+		// YAML loader resolved, including escaped dollars and the home path.
+		s := strings.TrimSpace(expandConfigText(raw, paths))
+		if s == "" {
+			continue
+		}
+		if known[strings.ToLower(s)] {
+			kept = append(kept, raw)
+			continue
+		}
+		known[strings.ToLower(s)] = true
+		file.Sources = append(file.Sources, s)
+		// Log the original spelling, not a credential resolved from the environment.
+		moved = append(moved, raw)
+	}
+	if len(moved) > 0 {
+		if err := WriteMarketplacesFile(target, file); err != nil {
+			return nil, nil, err
+		}
+	}
+	return moved, kept, nil
+}
+
+// legacyMCPServerToJSON is the mcp.json entry of a declaration read from the
+// raw text of config.yaml, every value carried over by legacyMCPValue.
+func legacyMCPServerToJSON(s MCPServerConfig, home string) MCPJSONServer {
+	value := func(v string) string { return legacyMCPValue(v, home) }
+	s.Command, s.URL = value(s.Command), value(s.URL)
+	s.Args = append([]string(nil), s.Args...)
+	for i := range s.Args {
+		s.Args[i] = value(s.Args[i])
+	}
+	s.Env = append([]EnvVarConfig(nil), s.Env...)
+	for i := range s.Env {
+		s.Env[i].Value = value(s.Env[i].Value)
+	}
+	s.Headers = append([]HTTPHeaderConfig(nil), s.Headers...)
+	for i := range s.Headers {
+		s.Headers[i].Value = value(s.Headers[i].Value)
+	}
+	return MCPJSONFromServer(s)
+}
+
+// legacyMCPValue rewrites one value as config.yaml wrote it into the
+// mcp.json spelling that starts the server with the same value
+// (ExpandMCPValue): config.yaml expanded $NAME and ${NAME} from the
+// environment when it loaded, read "$$" as a literal "$" and put the home in
+// for ${FOXXYCODE_HOME}. A reference stays a reference, so a secret kept in the
+// environment is not written into the file; the home is written out.
+func legacyMCPValue(raw, home string) string {
+	s := strings.ReplaceAll(raw, "$$", escapedDollarSentinel)
+	s = strings.ReplaceAll(s, "${FOXXYCODE_HOME}", yamlSafePath(home))
+	s = strings.ReplaceAll(s, sessionCWDPlaceholder, sessionCWDSentinel)
+	s = os.Expand(s, func(name string) string { return "${" + name + "}" })
+	s = strings.ReplaceAll(s, sessionCWDSentinel, sessionCWDPlaceholder)
+	// A literal "$" before a brace would read as a reference in mcp.json,
+	// where "$${" is the escape for it.
+	s = strings.ReplaceAll(s, escapedDollarSentinel+"{", "$${")
+	return strings.ReplaceAll(s, escapedDollarSentinel, "$")
+}
+
+// rewriteConfigKeepingBackup writes next over the config, keeping the old
+// bytes as <config>.bak-<time>. The config may hold provider keys, so the
+// rewritten file and its backup are owner-readable whatever mode the file
+// arrived with - the same policy as AtomicWriteConfigYAML and WriteBackup:
+// a migration never leaves a secret, or a copy of it, readable by anyone
+// else. A config saved world-readable gets tightened, not preserved.
+func rewriteConfigKeepingBackup(path string, old, next []byte) error {
+	backup := fmt.Sprintf("%s.bak-%s", path, time.Now().Format("20060102-150405.000000000"))
+	if err := os.WriteFile(backup, old, 0o600); err != nil {
+		return fmt.Errorf("backup %s: %w", backup, err)
+	}
+	return atomicWriteFile(path, next, 0o600)
+}
+
+// cutKeyBlocks cuts mapping keys out of raw YAML text, each with its block
+// (keyBlock), measured on raw itself: root is raw's parsed document.
+func cutKeyBlocks(raw []byte, root *yaml.Node, keys ...*yaml.Node) []byte {
+	lines := strings.SplitAfter(string(raw), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	drop := make([]bool, len(lines))
+	for _, key := range keys {
+		start, end, ok := keyBlock(lines, root, key)
+		if !ok {
+			continue
+		}
+		for i := start; i < end; i++ {
+			drop[i] = true
+		}
+	}
+	var b strings.Builder
+	for i, line := range lines {
+		if !drop[i] {
+			b.WriteString(line)
+		}
+	}
+	return []byte(b.String())
+}
+
+// keyBlock is the range of lines [start, end) one mapping key takes: the
+// comment lines right above it at its indentation (its description; not the
+// schema modeline), its line, and everything up to the next key the parser
+// placed at its indentation or left of it, less the blank lines and the
+// comment lines at that key's indentation that come right before it (the
+// next key's description). Ending at the next key rather than at the first
+// line that looks shallower keeps a comment at column 0 between list items,
+// a sequence written without indentation and a closing bracket at the key's
+// indentation inside the block.
+func keyBlock(lines []string, root, key *yaml.Node) (int, int, bool) {
+	start := key.Line - 1
+	col := key.Column - 1
+	if start < 0 || start >= len(lines) {
+		return 0, 0, false
+	}
+	end, nextCol := len(lines), -1
+	walkYAMLKeys(root, func(k *yaml.Node) {
+		if k.Line > key.Line && k.Column <= key.Column && k.Line-1 < end {
+			end, nextCol = k.Line-1, k.Column-1
+		}
+	})
+	for end > start+1 {
+		prev := strings.TrimRight(lines[end-1], "\r\n")
+		indent := len(prev) - len(strings.TrimLeft(prev, " "))
+		if strings.TrimSpace(prev) == "" || (nextCol >= 0 && indent == nextCol && strings.HasPrefix(prev[indent:], "#")) {
+			end--
+			continue
+		}
+		break
+	}
+	for start > 0 {
+		prev := strings.TrimRight(lines[start-1], "\r\n")
+		indent := len(prev) - len(strings.TrimLeft(prev, " "))
+		rest := prev[indent:]
+		if indent != col || !strings.HasPrefix(rest, "#") || strings.Contains(rest, "yaml-language-server") {
+			break
+		}
+		start--
+	}
+	// A blank line on both sides of the cut would leave two in a row: the
+	// sections around it keep one between them, and the file does not end on
+	// a blank line it did not end on before.
+	blank := func(i int) bool { return strings.TrimSpace(lines[i]) == "" }
+	if start > 0 && blank(start-1) && (end == len(lines) || blank(end)) {
+		start--
+	}
+	return start, end, true
+}
+
+// walkYAMLKeys calls fn for every mapping key of the tree under n.
+func walkYAMLKeys(n *yaml.Node, fn func(*yaml.Node)) {
+	if n == nil {
+		return
+	}
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			fn(n.Content[i])
+			walkYAMLKeys(n.Content[i+1], fn)
+		}
+		return
+	}
+	for _, c := range n.Content {
+		walkYAMLKeys(c, fn)
+	}
+}

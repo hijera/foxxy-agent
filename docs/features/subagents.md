@@ -18,13 +18,15 @@ Operator hooks (`docs/features/hooks.md`) follow the agent into its children. `S
 
 ### Directories and precedence
 
-Definitions are searched in the directories of `subagents.dirs`, lowest priority first; a later directory replaces an earlier one **by name**. The default list:
+Definitions are searched in four default directories, always read, lowest priority first, and then in the extra directories of `subagents.dirs`; a later directory replaces an earlier one **by name**:
 
-1. `${FOXXYCODE_HOME}/agents` - user scope, the operator's own files;
-2. `${CWD}/.claude/agents` - project scope, read for compatibility (same frontmatter shape, Claude Code's files load unchanged);
-3. `${CWD}/.foxxycode/agents` - project scope.
+1. `${HOME}/.agents/agents` - user scope, the folder other agents share in the user's home;
+2. `${CWD}/.agents/agents` - project scope, the shared folder of the workspace;
+3. `${FOXXYCODE_HOME}/agents` - user scope, the operator's own FoxxyCode files;
+4. `${CWD}/.foxxycode/agents` - project scope, the workspace's FoxxyCode files;
+5. every entry of `subagents.dirs`, in order, after the defaults and winning a name over them (empty by default).
 
-`${FOXXYCODE_HOME}`, `${CWD}` and a leading `~` expand; a relative entry is resolved against the session cwd. Three built-ins sit below every directory, so a user file with the same name replaces a built-in.
+The chain is the same as the skills' ([Skills](skills.md#directory-layout)): Claude Code's `.claude/agents` is not read unless `subagents.dirs` names it (`"${CWD}/.claude/agents"`; its frontmatter loads unchanged). A directory named twice is read once, at its last place. `${HOME}`, `${FOXXYCODE_HOME}`, `${CWD}` and a leading `~` expand; a relative entry is resolved against the session cwd. Three built-ins sit below every directory, so a user file with the same name replaces a built-in.
 
 Scope is decided on **canonical paths**: the expanded directory and the session cwd both go through the same normalisation the MCP trust store uses (absolute, symlinks resolved, cleaned). A directory at or under the canonical cwd is **project scope** and follows `subagents.project_trust` (below); everything else is **user scope**. A workspace reached through a symlink therefore still owns its `.foxxycode/agents`.
 
@@ -80,7 +82,7 @@ Three definitions ship embedded so delegation works before the operator writes a
 
 - **`general`** - a general-purpose worker with the **parent's tool set** (no `tools` restriction of its own), for multi-step tasks, research, or independent units of work that can run in parallel. Its role tells it to read before changing anything, keep edits minimal, verify when the task calls for it, never retry a permission the operator did not grant, and report what it did and what the parent must still decide.
 - **`explore`** - a read-only explorer for locating files, symbols and usages and gathering evidence before changes are proposed. Its tool list is exactly `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `load_skill`, `foxxycode_docs_search`, `foxxycode_docs_read`, `background_list`, `background_output`, `background_wait`: no `run_command`, no writes, no MCP tools. Plan mode alone would not be read-only (it still offers the shell), which is why the list is spelled out. Because nothing in that set is an MCP tool, an `explore` child never dials an MCP server.
-- **`crossreview`** - a `hidden` orchestrator that fans a code review out to external code-agent CLIs (`run_command` background tasks) and internal `explore` children, then merges the findings into one verdict. It is the reason `spawns` exists: its definition declares `spawns: [explore]`, so it keeps `spawn_agent` at the depth cap and delegates to exactly that one reviewer kind. A session reaches it through the bundled `/crossreview` skill, which handles detection, the agent and model questions and the reviewer roster.
+- **`crossreview`** - a `hidden` orchestrator that sends one review brief to external code-agent CLIs (`run_command` background tasks) and internal `explore` children, keeps them blind to each other, waits for every answer, verifies each finding against the code and decides alone what to fix, what is not worth fixing and what to reject; its report is the final word the parent relays. It is the reason `spawns` exists: its definition declares `spawns: [explore]`, so it keeps `spawn_agent` at the depth cap and delegates to exactly that one reviewer kind. A session reaches it through the bundled `/crossreview` skill, which handles detection, the agent and model questions, the reviewer roster and the brief.
 
 ## Scopes and project trust
 
@@ -112,10 +114,13 @@ Rewriting an approved file changes its digest and the receipt stops matching, so
 Approval surfaces:
 
 - **CLI**: `foxxycode agents list [--cwd DIR]` prints the workspace, the effective policy and the catalog with scope, trust state and flags, followed by a hint when project definitions await approval; `foxxycode agents trust <name> [--cwd DIR]` prints the effective declaration first (file, model, mode, permission mode, tool lists, digest, receipt path) and then records a receipt for the file as it is on disk right now; `foxxycode agents untrust <name> [--cwd DIR]` withdraws it. A built-in or user-scope name needs no approval and the command says so. `--cwd` defaults to the process working directory, resolved like `foxxycode mcp`.
-- **HTTP** (`foxxycode http`): `GET /foxxycode/subagents?cwd=<dir>` returns the catalog; `POST /foxxycode/subagents/{name}/trust` and `POST /foxxycode/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the cwd a new session would get - the current project when one is set, else the server's own working directory - because that is the cwd `spawn_agent` decides trust against. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin`, `hidden`, and the bounds the definition declares (`tools`, `disallowed_tools`, `permission_mode`, `timeout_seconds`, `max_turns`, `background`, `spawns`, `role_bytes`) so an approval surface can show what it is approving. The role body itself is never served. Details in `docs/reference/http-api.md`.
-- **Settings → Subagents** (the web UI, and therefore the IntelliJ and VS Code panels, which embed it): the `subagents` config section as a form, plus the catalog of the viewed session's workspace. A project-scope row under `ask` carries a shield button that writes or withdraws the receipt at once, and exposes the declaration behind a chevron beside its name; the approval notice also shows the bounds it would cover - file, digest, model, mode, permission mode, tool lists, timeout, turn cap, whether it always runs detached, and the size of its role body. An unapproved row shows its name only: the description is where a hostile checkout would put instructions, so it is withheld here exactly as it is withheld from the model's prompt. The tab asks about the session's workspace (`SubagentsSection.tsx`, `subagentsApi.ts`), and the resolved workspace is printed above the list so the bucket a receipt lands in is visible.
-- **In the chat**: when the model's `spawn_agent` call is refused, the failed tool row carries an approval notice with an **Approve** button. It never parses the refusal text - the trigger is a failed call named `spawn_agent`, the agent name comes from the call's own JSON arguments, and whether that definition is really awaiting approval is decided by re-reading the catalog (`spawnAgentApproval.ts`, `SubagentApprovalNotice.tsx`). Approving does not retry the spawn: the user is told to ask again, so nothing starts on their behalf.
-- **Policy**: a checkout you already trust can run its definitions without receipts by setting `subagents.project_trust: allow`, in `config.yaml`, under **Settings → Subagents** in the web UI (the `subagents` config section: policy and pool bounds), or through the bundled `configure-foxxycode` skill, which documents the key so the agent can stage `set subagents.project_trust=allow` and commit it through the ordinary permission-gated config commit. The policy is part of the config document and applies when the form is saved; approving one definition is a receipt rather than configuration and takes effect at once - the tab says so.
+- **HTTP** (`foxxycode http`): `GET /foxxycode/subagents?cwd=<dir>` returns the catalog; `POST /foxxycode/subagents/{name}/trust` and `POST /foxxycode/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the cwd a new session would get (the current project, else the server's working directory); a trust body may add the `digest` the catalog showed, and a file rewritten since is refused with 409 rather than approved unseen. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin`, `hidden`, and the bounds the definition declares (`tools`, `disallowed_tools`, `permission_mode`, `timeout_seconds`, `max_turns`, `background`, `spawns`, and `role_bytes`, the size of its role body) so a client can show what a definition declares. A bound the file does not declare is absent, which means it inherits; the role body itself is never served. Errors are `{"error":{"message"}}` JSON. Details in `docs/reference/http-api.md`.
+- **Settings → Subagents** in the web UI lists definitions and approves them. The tab opens with the `subagents.enable` switch, then **Definition directories** and the rest of the `subagents` config form in its own **Subagent settings** block, and below them the catalog of the workspace of the session on screen (`spawn_agent` resolves definitions against the session's own cwd, so that is the workspace listed). Each definition shows its name, a scope badge, its description as plain text and its file; the chevron in front of the name folds open what the definition declares: the model, mode, permission mode, tool lists, timeout, turn cap, whether it always runs detached and the size of its instructions (a bound the file leaves out reads as inherited). Under `ask` a project definition carries the shield of the MCP tab: clicking it records the receipt for the file the row showed (its digest goes with the request, so a file rewritten in between is refused), and clicking it again withdraws the receipt. One still awaiting a receipt also carries an amber **needs approval** badge whose tooltip names the shield and `foxxycode agents trust <name>`.
+- **Policy**: a checkout you already trust can run its definitions without receipts by setting `subagents.project_trust: allow`, in `config.yaml`, under **Settings → Subagents** in the web UI (the `subagents` config section: policy and pool bounds), or through the bundled `configure-foxxycode` skill, which documents the key so the agent can stage `set subagents.project_trust=allow` and commit it through the ordinary permission-gated config commit. The policy applies when the form is saved.
+
+![Settings, Subagents tab: the definitions of the session workspace, one awaiting approval with its shield](../assets/subagents/settings-subagents-catalog-dark-1280.png)
+
+*Settings, Subagents tab: the definitions of the session workspace, one awaiting approval, with the shield that approves it*
 
 ## The `spawn_agent` tool
 
@@ -316,7 +321,7 @@ The runtime starts one child of its own: with `memory.enable` on, every user tur
 
 Subagents live where the session manager lives. With the console or `foxxycode acp` in `--remote` mode (`docs/surfaces/console.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `foxxycode http` host:
 
-- definitions are read from the **server's** `subagents.dirs` (`${FOXXYCODE_HOME}/agents` of the server home and the `.claude/agents` / `.foxxycode/agents` of the session's cwd on the server);
+- definitions are read from the **server's** folders (the server user's `~/.agents/agents`, `${FOXXYCODE_HOME}/agents` of the server home, the `.agents/agents` and `.foxxycode/agents` of the session's cwd on the server, then its `subagents.dirs`);
 - a project definition is approved **on the server**: `foxxycode agents trust <name> --cwd <workspace>` on that host, or `POST /foxxycode/subagents/{name}/trust` with the bearer token. The local `foxxycode agents` subcommands read and write the local home only and know nothing about `--remote`;
 - a child's permission prompts travel the same way as the parent's: the relay forwards them under the parent session, the HTTP bridge emits the `permission` SSE event (even when the server itself runs with `tools.permission_mode: bypass`, because the child's own mode is what decides), the remote console or ACP client shows the prompt with the `[subagent <name>]` prefix and answers it over `POST /foxxycode/sessions/{parent}/permission`;
 - a **detached** child that asks after its spawning turn ended reaches the remote console too: the server announces the prompt on `GET /foxxycode/events`, and the console opens the modal for the sessions it opened and answers with `POST /foxxycode/sessions/{child}/permission`. The same prompt waits in the parent chat of the SPA served by that host, and in the Telegram chat when the session is one; the first answer wins. The remote ACP client does not show it, and until somebody answers the run waits up to its hard timeout;
@@ -342,10 +347,7 @@ All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is
 ```yaml
 subagents:
   enable: true
-  dirs:
-    - "${FOXXYCODE_HOME}/agents"
-    - "${CWD}/.claude/agents"
-    - "${CWD}/.foxxycode/agents"
+  dirs: []                    # extra folders after the four defaults, e.g. "${CWD}/.claude/agents"
   project_trust: ask          # ask | allow | deny
   max_concurrent: 4           # child runs in flight across the whole process
   max_depth: 1                # 1: children cannot spawn; 0: nobody spawns
@@ -390,3 +392,5 @@ The Subagents tab is shown under [Scopes and project trust](#scopes-and-project-
 ## Recovery budget
 
 Subagents and scheduled jobs use `agent.llm_continue_background_max` (default **5**) and `agent.llm_continue_background_delays_ms` (default **[5000, 20000, 80000, 120000, 120000]**). The final delay repeats. These continuations do not consume `max_turns`; `agent.llm_continue: false` disables them. Memory subagents retain the ordinary continuation budget (default **3**).
+
+Project definitions awaiting approval show their declared bounds and file digest while their authored description remains hidden until approval.

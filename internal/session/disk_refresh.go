@@ -272,10 +272,7 @@ func (m *Manager) refreshFromDiskIfChanged(st *State) {
 	} else {
 		restorePersistedNonMessageFields(st, snap)
 	}
-	st.mu.Lock()
-	st.activitySeq = max(st.activitySeq, snap.Meta.ActivitySeq)
-	st.readActivitySeq = max(st.readActivitySeq, snap.Meta.ReadActivitySeq)
-	st.mu.Unlock()
+	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq, snap.Meta.LastErrorSeq)
 	st.stampCurrentDisk(file, metaFile)
 	restoreContextBreakdown(st)
 	m.sendContextUsageUpdate(st.ID, st)

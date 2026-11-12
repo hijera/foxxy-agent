@@ -1,6 +1,6 @@
 import { useState } from "react";
-import markDark from "../../../docs/assets/foxxycode-logo-mark.svg";
-import markLight from "../../../docs/assets/foxxycode-logo-mark-light.svg";
+import markDark from "../../../.github/foxxy-agent-logo-dark.svg";
+import markLight from "../../../.github/foxxy-agent-logo.svg";
 import { usePrefs, type Lang } from "../app/prefs";
 import { format, links, pages, release } from "../app/data";
 import { GitHubIcon, MenuIcon, MoonIcon, SunIcon } from "./Icons";
@@ -11,8 +11,8 @@ export function Logo() {
   const { m } = usePrefs();
   return (
     <a className="brand" href={pages.home} aria-label={m.nav.home}>
-      <img className="brand-mark brand-mark--dark" src={markDark} alt="" width="30" height="30" />
-      <img className="brand-mark brand-mark--light" src={markLight} alt="" width="30" height="30" />
+      <img className="brand-mark brand-mark--dark" src={markDark} alt="" width="30" height="38" />
+      <img className="brand-mark brand-mark--light" src={markLight} alt="" width="30" height="38" />
       <span className="brand-name">FoxxyCode</span>
     </a>
   );

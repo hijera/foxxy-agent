@@ -1,4 +1,9 @@
 import {
+  chatWorkspacePath,
+  withWorkspaceQuery,
+  workspaceScope,
+} from "./chat/workspaceScope";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,6 +16,7 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
 import type { QueuedMessage, QueueMode } from "./chat/Composer";
+import { normalizeClipboardImageFile } from "./chat/clipboardImageFile";
 import { fileFromDataUrl } from "./chat/dataUrlFile";
 import {
   contextUsagePercent,
@@ -128,6 +134,7 @@ import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   loadQuestionPromptRecords,
+  hasUnresolvedQuestionPrompt,
   mergeStoredQuestionPromptsIntoTranscript,
   patchQuestionToolArgsFromPromptRecords,
   upsertQuestionPromptRecord,
@@ -136,6 +143,7 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
+import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import {
   connectLocal,
   connectSwarmNode,
@@ -211,6 +219,10 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
+import {
+  reconcilePermissionPendingSessionIds,
+  reconcileQuestionPendingSessionIds,
+} from "./sessions/sessionRowActivity";
 import { useConfirm } from "./components/useConfirm";
 import { composerAutoFocusAllowed } from "./chat/composerFocus";
 import type { SessionRow } from "./sessions/types";
@@ -329,6 +341,7 @@ import { t, tp } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
+import { MCP_SECTION_ID } from "./settings/settingsSections";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-FoxxyCode-Session-ID";
@@ -443,6 +456,7 @@ type SessionsPage = {
   sessions: SessionRow[];
   nextCursor?: string | null;
   hasMore?: boolean;
+  active_count?: number;
 };
 
 function newId(prefix: string): string {
@@ -467,6 +481,13 @@ function filenameFromDisposition(header: string | null): string | null {
   } catch {
     return m[1];
   }
+}
+
+function isStackedShell(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(shellStackMaxWidthMediaQuery).matches
+  );
 }
 
 export function App() {
@@ -499,6 +520,7 @@ export function App() {
     Math.floor(Math.random() * HERO_ACCENT_VERBS.length),
   );
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [historyActiveCount, setHistoryActiveCount] = useState(0);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -544,6 +566,31 @@ export function App() {
     worktree?: boolean;
     vcs?: "git" | "svn";
   } | null>(null);
+  // The folder of pendingWorkspaceRef as state, set the moment it is picked:
+  // what a new chat lists and highlights (skills, mentions, subagents) follows
+  // the pick at once, never a preview answer that may still be in flight.
+  const [pendingWorkspacePath, setPendingWorkspacePath] = useState("");
+  const setPendingWorkspace = useCallback(
+    (next: {
+      path?: string;
+      branch?: string;
+      worktree?: boolean;
+      vcs?: "git" | "svn";
+    } | null) => {
+      pendingWorkspaceRef.current = next;
+      setPendingWorkspacePath(next?.path ?? "");
+    },
+    [],
+  );
+  // Every answer that sets workspaceCtx takes a ticket; only the latest one
+  // applies, so a slow preview of a folder picked earlier never paints over
+  // the folder picked after it.
+  const workspaceCtxGenRef = useRef(0);
+  const chatWorkspace = chatWorkspacePath(
+    sessionId,
+    pendingWorkspacePath,
+    workspaceCtx?.path,
+  );
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -733,6 +780,8 @@ export function App() {
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
   const streamGenerationBySidRef = useRef(new Map<string, number>());
+
+  const activatedMCPSelectionsRef = useRef(new Set<string>());
   const relayAttachPendingRef = useRef(new Set<string>());
   const stopPendingBySidRef = useRef(
     new Map<string, { superseded: boolean }>(),
@@ -791,6 +840,7 @@ export function App() {
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
+    questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
     ready: () => void;
   }>({
@@ -801,6 +851,7 @@ export function App() {
     messageQueue: () => {},
     sessionSettings: () => {},
     subagentPermission: () => {},
+    questionPending: () => {},
     sessionRewound: () => {},
     ready: () => {},
   });
@@ -1370,9 +1421,8 @@ export function App() {
   const [tasksOpen, setTasksOpen] = useState(
     () => initialRoute.branch === "session" && initialRoute.tasksOpen,
   );
-  // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
-  // row, a link that names a task). Which cards are open otherwise is the panel's own
-  // business and is not part of the address.
+  // A card the shell asks the Tasks panel to open from a task-targeted link. Which
+  // cards are open otherwise is the panel's own business and is not part of the address.
   //
   // The pointer names its chat and is good for one use. Every session numbers its
   // tasks from bg_1 and the panel unmounts with the drawer, so a pointer that outlived
@@ -2128,12 +2178,16 @@ export function App() {
 
   const refreshWorkspaceContext = useCallback(
     async (sid: string) => {
+      const gen = ++workspaceCtxGenRef.current;
       try {
         const res = await fetch("/foxxycode/workspace/context", {
           headers: sid ? { [HDR]: sid } : {},
         });
         if (res.ok) {
           const ctx = (await res.json()) as WorkspaceContext;
+          if (gen !== workspaceCtxGenRef.current) {
+            return;
+          }
           setWorkspaceCtx(ctx);
           // Host fact, not a workspace one: the tool cards name the interpreter.
           // An answer from the environment the app was switched away from is
@@ -2149,8 +2203,9 @@ export function App() {
     [isAppEnvironment],
   );
 
-  // Load the workspace context whenever the viewed session changes; a fresh
-  // home/draft view also drops stale pre-session workspace choices.
+  // Load the workspace context whenever the viewed session changes. A pending
+  // home workspace is already being previewed and must survive the route
+  // change so the next chat starts where the user left off.
   //
   // A folder picked from a History heading is applied here rather than where it
   // was picked: leaving a conversation is asynchronous, and a workspace change
@@ -2158,15 +2213,23 @@ export function App() {
   // It replaces the default probe rather than running beside it - two context
   // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
-    pendingWorkspaceRef.current = null;
     const wanted = newChatWorkspaceRef.current;
     if (newChatWorkspaceIsReady(wanted, sessionId)) {
       newChatWorkspaceRef.current = null;
       void switchWorkspace({ path: String(wanted?.path ?? "") });
       return;
     }
+    if (!sessionId && pendingWorkspaceRef.current?.path) {
+      return;
+    }
+    setPendingWorkspace(null);
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
+  }, [
+    sessionId,
+    refreshWorkspaceContext,
+    newChatWorkspaceEpoch,
+    setPendingWorkspace,
+  ]);
 
   // Host project root, once. Without a session header the endpoint reports the
   // server's own cwd, which is the project an editor plugin launched it for.
@@ -2214,17 +2277,21 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
-      pendingWorkspaceRef.current = {
+      setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
-      };
+      });
       if (payload.path) {
+        const gen = ++workspaceCtxGenRef.current;
         try {
           const res = await fetch(
             "/foxxycode/workspace/context?path=" + encodeURIComponent(payload.path),
           );
           if (res.ok) {
-            setWorkspaceCtx((await res.json()) as WorkspaceContext);
+            const ctx = (await res.json()) as WorkspaceContext;
+            if (gen === workspaceCtxGenRef.current) {
+              setWorkspaceCtx(ctx);
+            }
           }
         } catch {
           // ignore
@@ -2260,7 +2327,11 @@ export function App() {
         },
       );
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
       } else {
         await refreshWorkspaceContext(sid);
       }
@@ -2273,21 +2344,38 @@ export function App() {
   // right before the first send.
   async function applyPendingWorkspace(sid: string) {
     const pending = pendingWorkspaceRef.current;
-    pendingWorkspaceRef.current = null;
     if (!pending || (!pending.path && !pending.branch)) {
+      setPendingWorkspace(null);
       return;
     }
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
+      // The answer is the new session's workspace context: taking it here
+      // keeps the chips and everything scoped by chatWorkspace on the picked
+      // folder from the moment the pending pick is cleared, instead of on a
+      // preview that may not have answered yet.
+      const applied = async (res: Response) => {
+        if (!res.ok) {
+          return;
+        }
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
+      };
       if (pending.path) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
-        });
+          }),
+        );
       }
       if (pending.branch) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({
@@ -2295,10 +2383,15 @@ export function App() {
               worktree: Boolean(pending.worktree),
               vcs: pending.vcs ?? "git",
             }),
-        });
+          }),
+        );
       }
     } catch {
       // ignore: the session still starts in the default workspace
+    } finally {
+      // Cleared once the session holds the pick, so the folder the chat is
+      // scoped to never falls back to a stale preview in between.
+      setPendingWorkspace(null);
     }
   }
 
@@ -2439,7 +2532,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2453,7 +2546,9 @@ export function App() {
       void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(p.tasksOpen);
+      setTasksOpen((wasOpen) =>
+        p.tasksOpen || (!isStackedShell() && wasOpen),
+      );
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2469,7 +2564,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -2489,7 +2584,7 @@ export function App() {
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       return;
     }
     if (p.branch === "swarm") {
@@ -2497,7 +2592,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2508,7 +2603,7 @@ export function App() {
       setSettingsItem(p.item);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2534,7 +2629,7 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -2549,18 +2644,23 @@ export function App() {
   }, [schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
-    (id: string, opts?: { historySidebar?: boolean }) => {
+    (id: string, opts?: { historySidebar?: boolean; tasksOpen?: boolean }) => {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      const keepTasksOpen = opts?.tasksOpen === true;
+      setTasksOpen(keepTasksOpen);
       viewedSessionIdRef.current = id.trim();
       // Opening a session restores its stored selection once. What was applied
       // or picked for the session being left belongs to that one and must not
       // decide this one's.
       appliedSelectionSidRef.current = "";
       userTouchedSelectionSidRef.current = "";
-      setSessionHashInLocation(id, opts);
+      if (keepTasksOpen) {
+        setSessionTasksHash(id, null, opts);
+      } else {
+        setSessionHashInLocation(id, opts);
+      }
       setSessionId(id);
       void markFoxxyCodeSessionActivityRead(id);
     },
@@ -2608,7 +2708,11 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    // On desktop Tasks is the side panel of the chat on screen, not a screen of
+    // the rail: the backdrop that takes History down after a pick there leaves
+    // it open on the chat picked. The stacked shell shows it full screen, so
+    // there the backdrop closes it with the rest.
+    if (isStackedShell()) setTasksOpen(false);
     setDocsRoute(null);
     // The chat's address that follows does not take the swarm screen down by
     // itself (applyLocationHash leaves it on a session), so it goes here.
@@ -2741,17 +2845,42 @@ export function App() {
     recordLastProjectSession(sid);
   }, [sessionId]);
 
+  // The known skill names describe the workspace of the chat: the session's
+  // own, or before the first message the folder picked on the start screen.
+  // They are asked again for every other folder and every other session, and
+  // an answer for a scope left since is thrown away. The names held are
+  // dropped at once unless the chat stays in the same folder on its way from
+  // no session to its first one (the first send of a new chat), so a skill of
+  // another workspace is never highlighted while the next answer is on its way
+  // and a new chat does not blank its own chips.
+  const knownSkillsGenRef = useRef(0);
+  const knownSkillsScopeRef = useRef({ sid: "", path: "" });
   useEffect(() => {
+    const gen = ++knownSkillsGenRef.current;
+    const sid = sessionId.trim();
+    const held = knownSkillsScopeRef.current;
+    knownSkillsScopeRef.current = { sid, path: chatWorkspace };
+    const keep =
+      held.path === chatWorkspace && (held.sid === sid || held.sid === "");
+    if (!keep) {
+      setKnownSkillNames((prev) => (prev.size === 0 ? prev : new Set()));
+    }
+    const scope = workspaceScope(sid, chatWorkspace);
     void (async () => {
       const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
-        "/foxxycode/slash-commands?page=1&page_size=200",
+        withWorkspaceQuery("/foxxycode/slash-commands?page=1&page_size=200", scope),
+        { headers: scope.headers },
       );
+      if (gen !== knownSkillsGenRef.current) {
+        return;
+      }
       if (res.ok && res.data?.items) {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-    // Slash commands are derived from skills.dirs, so a config swap moves them too.
-  }, [configEpoch]);
+    // Slash commands are derived from skills.dirs, so a config swap moves them
+    // too.
+  }, [configEpoch, chatWorkspace, sessionId]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -3214,6 +3343,9 @@ export function App() {
         return null;
       }
       setSessionsError(null);
+      if (typeof res.data.active_count === "number") {
+        setHistoryActiveCount(res.data.active_count);
+      }
       // A listing issued before an archive this tab made had settled still
       // lists the row as it was, and counts it in the offset it hands back.
       const next = overlayArchiveMoves(
@@ -3300,20 +3432,33 @@ export function App() {
   }, [headers, configEpoch]);
 
   useEffect(() => {
-    const ids = new Set(permissionPendingSessionIdsFromStorage());
-    for (const row of sessions) {
-      if (row.permissionPending) {
-        ids.add(row.id);
-      }
-    }
     const sid = sessionId.trim();
-    if (
-      sid &&
-      items.some((x) => x.type === "permission_prompt" && !x.resolved)
-    ) {
-      ids.add(sid);
-    }
-    setPermissionPendingSids(ids);
+    const viewedPromptPending =
+      sid !== "" &&
+      items.some((x) => x.type === "permission_prompt" && !x.resolved);
+    setPermissionPendingSids((prev) =>
+      reconcilePermissionPendingSessionIds(
+        sessions,
+        prev,
+        sid,
+        viewedPromptPending,
+      ),
+    );
+  }, [sessions, items, sessionId]);
+
+  useEffect(() => {
+    const sid = sessionId.trim();
+    const viewedPromptPending =
+      sid !== "" &&
+      items.some((x) => x.type === "question_prompt" && !x.resolved);
+    setQuestionPendingSids((prev) =>
+      reconcileQuestionPendingSessionIds(
+        sessions,
+        prev,
+        sid,
+        viewedPromptPending,
+      ),
+    );
   }, [sessions, items, sessionId]);
 
   // /foxxycode/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
@@ -3484,6 +3629,15 @@ export function App() {
           : {}),
       });
     const issuedAt = Date.now();
+    const activateMCP =
+      request.kind === "tail" &&
+      sid === sessionId &&
+      !activatedMCPSelectionsRef.current.has(sid);
+    if (activateMCP) activatedMCPSelectionsRef.current.add(sid);
+    const pageQuery = transcriptPageQuery(request);
+    const activationQuery = activateMCP
+      ? `${pageQuery}${pageQuery ? "&" : "?"}activate_mcp=1`
+      : pageQuery;
     const res = await fetchJSON<{
       window?: unknown;
       messages: Array<any>;
@@ -3508,7 +3662,7 @@ export function App() {
         createdAt?: string;
       }>;
     }>(
-      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery(request)}`,
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${activationQuery}`,
       {
         headers: sid === sessionId ? headers : { [HDR]: sid },
       },
@@ -3653,11 +3807,11 @@ export function App() {
       next,
       localForMerge,
     );
-    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
       mergedTranscript,
       localForMerge,
     );
+    revokeSupersededUserMessagePreviews(mergedBase, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
     merged = mergePermissionPromptsIntoTranscript(
       merged,
@@ -3695,15 +3849,25 @@ export function App() {
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
     if (canApplySnapshot()) {
-      setPermissionPendingSids((prev) => {
-        const next = new Set(prev);
-        if (hasPendingPermission) {
-          next.add(sid);
-        } else {
-          next.delete(sid);
-        }
-        return next;
-      });
+    setPermissionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingPermission) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
+    const hasPendingQuestion = hasUnresolvedQuestionPrompt(applied);
+    setQuestionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingQuestion) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
     }
     const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
       if (serverOnly && typeof snapshotRev === "number") {
@@ -3959,7 +4123,14 @@ export function App() {
     }
     setSessionLoading(true);
     setActiveDraftId("");
-    openSessionFromRoute(id, { historySidebar: keepHistoryOpen });
+    const keepTasksOpen =
+      tasksOpen &&
+      sessionsOpen &&
+      !window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+    openSessionFromRoute(id, {
+      historySidebar: keepHistoryOpen,
+      tasksOpen: keepTasksOpen,
+    });
     if (itemsRef.current.length > 0) {
       setSessionFadingOut(true);
       fadeOutTimerRef.current = setTimeout(() => {
@@ -3984,6 +4155,9 @@ export function App() {
 
   function goHome() {
     persistComposerDraftBeforeLeave();
+    if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
+      setPendingWorkspace({ path: workspaceCtx.path });
+    }
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -4879,6 +5053,7 @@ export function App() {
         void refreshBackgroundTasks({ silent: true });
       }
     },
+    questionPending: () => { void loadSessionsList(true); },
     sessionRewound: (sid: string) => {
       const key = sid.trim();
       if (!key) return;
@@ -4898,6 +5073,7 @@ export function App() {
       void loadMessages(key, { freshLoad: true });
     },
     ready: () => {
+      void loadSessionsList(true);
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       noteSettingsConfigReloaded();
@@ -4926,6 +5102,7 @@ export function App() {
         serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
+      onQuestionPending: (sid) => serverEventHandlersRef.current.questionPending(sid),
       onSessionRewound: (sid) => serverEventHandlersRef.current.sessionRewound(sid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
@@ -5394,12 +5571,18 @@ export function App() {
     // new chat's workspace, the file read) loses nothing either.
     let restoreKey = "";
     let userItemId = "";
+    // Blob URLs the optimistic bubble's thumbnails live on. When the send is
+    // never admitted the bubble goes away without the transcript merge that
+    // would have revoked them, so giveBack returns them here.
+    let optimisticBlobUrls: string[] = [];
     const giveBack = () => {
       const key = restoreKey || sessionId.trim();
       if (userItemId)
         applyStreamItemsForSession(key, (prev) =>
           prev.filter((it) => it.id !== userItemId),
         );
+      for (const url of optimisticBlobUrls) URL.revokeObjectURL(url);
+      optimisticBlobUrls = [];
       if (
         !opts?.restoreOnRefusal ||
         (key && viewedSessionIdRef.current.trim() !== key)
@@ -5493,16 +5676,19 @@ export function App() {
       }
 
       const hdrs = sid ? { [HDR]: sid } : {};
+      const optimisticFiles =
+        opts?.files && opts.files.length > 0
+          ? optimisticUserFiles(opts.files)
+          : [];
+      optimisticBlobUrls = optimisticFiles
+        .map((f) => f.previewUrl)
+        .filter((url): url is string => typeof url === "string" && url.startsWith("blob:"));
       const userItem: TranscriptItem = {
         id: newId("u"),
         type: "user_message",
         content: text,
         createdAtUtc: new Date().toISOString(),
-        ...(opts?.files && opts.files.length > 0
-          ? {
-              files: optimisticUserFiles(opts.files),
-            }
-          : {}),
+        ...(optimisticFiles.length > 0 ? { files: optimisticFiles } : {}),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
@@ -5599,7 +5785,7 @@ export function App() {
                     };
                     resolve(null);
                   };
-                  reader.readAsDataURL(f);
+                  reader.readAsDataURL(normalizeClipboardImageFile(f));
                 },
               ),
           ),
@@ -6570,7 +6756,7 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
@@ -6586,13 +6772,18 @@ export function App() {
     setSchedulerEditor(null);
     setSettingsRoute(false);
     setTasksOpen(true);
-    setSessionTasksHash(sid);
+    if (isStackedShell()) {
+      setSessionTasksHash(sid);
+    }
   }, [sessionId]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
+    if (!isStackedShell()) {
+      return;
+    }
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -6608,20 +6799,6 @@ export function App() {
       );
     }
   }, [sessionId, sessionsOpen]);
-
-  // "Open in Tasks" on a transcript row: the panel opens with that task's card open.
-  const openBackgroundTask = useCallback(
-    (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      setTasksOpen(true);
-      focusBackgroundTask(sid, taskId);
-      setSessionTasksHash(sid);
-    },
-    [sessionId, focusBackgroundTask],
-  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -6841,7 +7018,7 @@ export function App() {
   const openSwarmFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsRoute(false);
     window.location.hash = appNavHrefSwarm();
@@ -6855,7 +7032,7 @@ export function App() {
       }
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       setSettingsRoute(false);
       window.location.hash = appNavHrefDocs(slug, anchor);
@@ -6951,7 +7128,7 @@ export function App() {
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -6994,7 +7171,7 @@ export function App() {
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSettingsRoute(false);
     setSwarmRoute(false);
     setSessionsOpen(true);
@@ -7203,10 +7380,6 @@ export function App() {
       setEditingFiles(parseSessionAssetFiles(content));
     },
   );
-  const handleStopBackgroundTask = useStableHandler((id: string) => {
-    void stopBackgroundTaskById(id);
-  });
-
   /**
    * Queue the draft for the turn that is running instead of refusing it.
    *
@@ -7258,7 +7431,7 @@ export function App() {
           const reader = new FileReader();
           reader.onload = () => resolve({ name: file.name, data_url: reader.result as string });
           reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(normalizeClipboardImageFile(file));
         })));
         const res = await fetch(
           `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
@@ -7471,10 +7644,12 @@ export function App() {
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
+        historyActiveCount={historyActiveCount}
         showHistory={!atSwarmRoot}
         showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        schedulerActiveCount={schedulerInfo?.runs_active ?? 0}
         showSwarm={isSwarmEnv}
         onOpenSwarm={openSwarmFromNav}
         // On a relay the map is the home screen, so its entry stays lit while
@@ -7662,11 +7837,14 @@ export function App() {
               // is the one the tab must ask about. Falls back to the host
               // project root, which is the cwd an editor plugin launched the
               // server for.
-              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
               initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               sessionsScope={sessionsScopeForSettings}
+              // spawn_agent resolves definitions against the session's own
+              // cwd: the viewed session's workspace (or the folder a new chat
+              // picked) is the one the Subagents and Skills tabs list.
+              workspacePath={chatWorkspace || undefined}
               onSessionTagsChanged={(id: string, tags: string[]) =>
                 setSessions((prev) =>
                   prev.map((s) => (s.id === id ? { ...s, tags } : s)),
@@ -7713,8 +7891,6 @@ export function App() {
             }}
             backgroundTasksByToolCallId={backgroundTasksByToolCallId}
             backgroundNowMs={backgroundNowMs}
-            onOpenBackgroundTask={openBackgroundTask}
-            onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
             sessionArchived={viewedArchived}
             unarchiving={unarchiving}
@@ -7725,6 +7901,7 @@ export function App() {
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
+            chatWorkspacePath={chatWorkspace}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}
             workspaceLocked={items.length > 0}
@@ -7763,7 +7940,10 @@ export function App() {
             contextBreakdown={contextBreakdown}
             compactionSettings={{
               ...compactionSettings,
-              enabled: compactionSettings.enabled && !subagentTranscript && !viewedArchived,
+              enabled:
+                compactionSettings.enabled &&
+                !subagentTranscript &&
+                !viewedArchived,
             }}
             onContextCompacted={() => {
               const sid = sessionId.trim();
@@ -7797,6 +7977,14 @@ export function App() {
             }
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
+            onMentionArtifact={(path: string) =>
+              setDraft((current) => {
+                // The mention grammar needs a quoted path when it carries
+                // whitespace, exactly like the composer's own picker.
+                const mention = /\s/.test(path) ? `@"${path}"` : `@${path}`;
+                return `${current}${current.trim() ? " " : ""}${mention}`;
+              })
+            }
             generating={generating}
             turnActive={turnActivity.get(sessionId)}
             onContextRingOpen={() => {
@@ -7891,7 +8079,7 @@ export function App() {
               setSchedulerEditor(null);
               setTasksOpen(false);
               setSessionsOpen(false);
-              setSettingsSectionHash("mcp_servers");
+              setSettingsSectionHash(MCP_SECTION_ID);
             }}
             attachedFiles={composerFiles}
             onAttachedFilesChange={setComposerFiles}

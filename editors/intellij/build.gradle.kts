@@ -213,6 +213,7 @@ val foxxycodeBuildTasks = buildTargets.associateWith { t ->
         inputs.dir(foxxycodeDir.dir("cmd"))
         inputs.dir(foxxycodeDir.dir("internal"))
         inputs.dir(foxxycodeDir.dir("external"))
+        inputs.dir(foxxycodeDir.dir("docs"))
         inputs.file(foxxycodeDir.file("go.mod"))
         outputs.file(outFile)
     }
@@ -578,6 +579,7 @@ tasks {
         useJUnit()
         systemProperty("robot-server.url", "http://127.0.0.1:$robotServerPort")
         systemProperty("foxxycode.cef.debug.url", "http://127.0.0.1:$cefDebugPort")
+        systemProperty("foxxycode.uitest.home", layout.buildDirectory.dir("uitest-foxxycode-home").get().asFile.absolutePath)
         jvmArgs(remoteRobotJvmArgs)
         stripIntellijPlatformJvmArguments()
         // Nothing here is up-to-date-able: the IDE it talks to is outside Gradle's model.

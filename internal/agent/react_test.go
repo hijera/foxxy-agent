@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -317,6 +319,7 @@ func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) 
 			},
 		},
 	}
+	st.Messages[1].ToolCalls = append(st.Messages[1].ToolCalls, llm.ToolCall{ID: "call_sibling", Name: "run_command", InputJSON: `{"command":"printf SIBLING_MUST_NOT_RUN"}`})
 	provider := &resumePermissionProvider{t: t}
 	ag := NewAgent(&config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
@@ -355,29 +358,406 @@ func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) 
 	if toolMsg.Content != "permission denied by user" {
 		t.Fatalf("tool result %q", toolMsg.Content)
 	}
+	var siblingMsg *llm.Message
+	for i := range st.GetMessages() {
+		m := st.GetMessages()[i]
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_sibling" {
+			siblingMsg = &m
+			break
+		}
+	}
+	if siblingMsg == nil || siblingMsg.Content != permissionBatchSkippedResult {
+		t.Fatalf("missing or incorrect sibling result: %+v", siblingMsg)
+	}
 	if len(provider.seen) == 0 {
 		t.Fatal("provider was not called to continue after rejected permission")
 	}
-	last := lastHistoryMessage(provider.seen)
-	if last.Role != llm.RoleTool || last.ToolCallID != "call_blocked" || last.Content != "permission denied by user" {
-		t.Fatalf("provider did not receive denied tool result as latest message: %+v", last)
+	var sawBlocked, sawSibling bool
+	for _, msg := range provider.seen {
+		if msg.Role != llm.RoleTool {
+			continue
+		}
+		if msg.ToolCallID == "call_blocked" && msg.Content == "permission denied by user" {
+			sawBlocked = true
+		}
+		if msg.ToolCallID == "call_sibling" && msg.Content == permissionBatchSkippedResult {
+			sawSibling = true
+		}
+	}
+	if !sawBlocked || !sawSibling {
+		t.Fatalf("provider did not receive both closed batch results: %+v", provider.seen)
 	}
 	if got := st.GetMessages()[len(st.GetMessages())-1]; got.Role != llm.RoleAssistant || got.Content != "continued" {
 		t.Fatalf("missing continuation assistant message: %+v", got)
 	}
 }
 
-// lastHistoryMessage is the newest message of a request that is part of the
-// replayed conversation: the turn context block trails it and belongs to no
-// transcript (turn_context.go).
-func lastHistoryMessage(msgs []llm.Message) llm.Message {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if strings.Contains(msgs[i].Content, turnContextOpenTag) {
-			continue
-		}
-		return msgs[i]
+func TestFindPendingToolCallSelectsNewerCallAfterReusedCompletedID(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "read", InputJSON: `{"path":"old.txt"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "call_a", Content: "old result"},
+		{Role: llm.RoleUser, Content: "continue"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "run_command", InputJSON: `{"command":"echo newer"}`}}},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got, err := ag.findPendingToolCall("call_a")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return llm.Message{}
+	if got.Name != "run_command" || got.InputJSON != `{"command":"echo newer"}` {
+		t.Fatalf("selected tool call = %+v, want newer pending call", got)
+	}
+}
+
+func TestFindPendingToolCallKeepsSiblingResultBatchLocal(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_target", Name: "read"},
+			{ID: "call_sibling", Name: "write"},
+		}},
+		{Role: llm.RoleTool, ToolCallID: "call_sibling", Content: "done"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got, err := ag.findPendingToolCall("call_target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "call_target" {
+		t.Fatalf("selected tool call = %+v, want pending target", got)
+	}
+}
+
+func TestFindPendingToolCallIgnoresPlanDocumentRows(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_target", Name: "run_command"},
+			{ID: "call_plan", Name: "plan_write"},
+		}},
+		{Role: llm.RoleAssistant, PlanDocument: &llm.PlanDocumentSnapshot{Slug: "plan"}},
+		{Role: llm.RoleTool, ToolCallID: "call_plan", Content: "saved"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got, err := ag.findPendingToolCall("call_target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "call_target" {
+		t.Fatalf("selected tool call = %+v, want pending target", got)
+	}
+}
+
+func TestFindPendingToolCallRejectsNewestAnsweredOccurrence(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "read"}}},
+		{Role: llm.RoleUser, Content: "next"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "run_command"}}},
+		{Role: llm.RoleTool, ToolCallID: "call_a", Content: "new result"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	if _, err := ag.findPendingToolCall("call_a"); err == nil || !strings.Contains(err.Error(), "already has a result") {
+		t.Fatalf("findPendingToolCall error = %v, want already-answered error", err)
+	}
+}
+
+// A same-ID result that is not part of the call's own batch chain - it follows
+// an intervening message - belongs to a different occurrence or is misplaced.
+// It never makes this call answered; the call is stale.
+func TestFindPendingToolCallStaleWhenResultFollowsInterveningMessage(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "run_command"}}},
+		{Role: llm.RoleUser, Content: "newer user message"},
+		{Role: llm.RoleTool, ToolCallID: "call_a", Content: "late result"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	_, err := ag.findPendingToolCall("call_a")
+	var staleErr *stalePermissionError
+	if !errors.As(err, &staleErr) {
+		t.Fatalf("findPendingToolCall error = %v, want stale permission", err)
+	}
+}
+
+// A call whose result is already on record - a refusal the interrupted turn
+// wrote, a repaired sibling - has an outcome; answering its leftover gate must
+// only lift the gate, never run the tool.
+func TestResumeAfterPermissionClearsGateForAnsweredCall(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_answered_permission",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run the command"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+				ID:        "call_answered",
+				Name:      "run_command",
+				InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+			}}},
+			{Role: llm.RoleTool, ToolCallID: "call_answered", Content: "not executed: the turn was interrupted before this tool call ran"},
+		},
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_answered", Status: "pending"},
+	}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
+	before := st.GetMessages()
+	provider := &pairingProvider{legacy: true}
+	ag := newPairingAgent(provider, st, resumePermissionSender{})
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_answered", &acp.PermissionResult{
+		Outcome:  "selected",
+		OptionID: "allow",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonCancelled) {
+		t.Fatalf("stop reason %q, want cancelled", stop)
+	}
+	if session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("the gate of an already answered call was not lifted")
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider received %d requests for an answered call", provider.calls)
+	}
+	if got := st.GetMessages(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("resume of an answered call changed history: got=%+v want=%+v", got, before)
+	}
+}
+
+// An answered call lifts only the gate that names it: a gate persisted for a
+// different call keeps waiting for its own answer.
+func TestResumeAfterPermissionAnsweredCallKeepsAnotherGate(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_answered_mismatch",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_answered", Name: "read"}}},
+			{Role: llm.RoleTool, ToolCallID: "call_answered", Content: "done"},
+		},
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_other", Status: "pending"},
+	}, "write", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	ag := newPairingAgent(&pairingProvider{legacy: true}, st, resumePermissionSender{})
+
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_answered", &acp.PermissionResult{
+		Outcome:  "selected",
+		OptionID: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("an answered call lifted a gate belonging to call_other")
+	}
+}
+
+// A bare plan-document row between a call and its result is UI-only and out of
+// the pairing analysis: the batch's contiguous result chain stays whole, no
+// synthetic result is inserted.
+func TestBuildMessagesIgnoresPlanDocumentRowsInPairing(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleUser, Content: "write a plan"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_plan", Name: "plan_write"},
+			{ID: "call_read", Name: "read"},
+		}},
+		{Role: llm.RoleAssistant, PlanDocument: &llm.PlanDocumentSnapshot{Slug: "plan"}},
+		{Role: llm.RoleTool, ToolCallID: "call_plan", Content: "saved"},
+		{Role: llm.RoleTool, ToolCallID: "call_read", Content: "content"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got := ag.buildMessages("sys")
+	if len(got) != 5 {
+		t.Fatalf("buildMessages = %d messages, want system + 4 with no synthetic: %+v", len(got), got)
+	}
+	for i, m := range got {
+		if strings.Contains(m.Content, "no result was recorded") || strings.Contains(m.Content, "not executed") {
+			t.Fatalf("a synthetic result was inserted at %d: %+v", i, m)
+		}
+	}
+}
+
+func TestResumeAfterPermissionSettlesStaleAllowAndRejectWithoutRunning(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome string
+		option  string
+	}{
+		{name: "allow", outcome: "selected", option: "allow"},
+		{name: "reject", outcome: "cancelled", option: "reject"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionDir := t.TempDir()
+			st := &session.State{
+				ID:         "sess_stale_permission",
+				CWD:        t.TempDir(),
+				Mode:       session.ModeAgent,
+				SessionDir: sessionDir,
+				Messages: []llm.Message{
+					{Role: llm.RoleUser, Content: "run the command"},
+					{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+						ID:        "call_stale",
+						Name:      "run_command",
+						InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+					}}},
+					{Role: llm.RoleUser, Content: "newer user message"},
+				},
+			}
+			if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+				SessionID: st.ID,
+				ToolCall:  acp.PermissionToolCall{ToolCallID: "call_stale", Status: "pending"},
+			}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+				t.Fatal(err)
+			}
+			before := st.GetMessages()
+			ag := newPairingAgent(&pairingProvider{legacy: true}, st, resumePermissionSender{})
+
+			stop, err := ag.ResumeAfterPermission(context.Background(), "call_stale", &acp.PermissionResult{
+				Outcome:  tc.outcome,
+				OptionID: tc.option,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stop != string(acp.StopReasonCancelled) {
+				t.Fatalf("stop reason %q, want cancelled", stop)
+			}
+			if session.PendingPermissionHeld(sessionDir) {
+				t.Fatal("stale permission gate was not cleared")
+			}
+			meta, err := session.ReadToolCallMeta(sessionDir, "call_stale")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if meta.Status != "cancelled" || meta.Name != "run_command" {
+				t.Fatalf("stale tool metadata = %+v, want cancelled run_command", meta)
+			}
+			if got := st.GetMessages(); !reflect.DeepEqual(got, before) {
+				t.Fatalf("stale resume changed history: got=%+v want=%+v", got, before)
+			}
+		})
+	}
+}
+
+func TestResumeAfterPermissionStaleDoesNotClearAnotherGate(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_stale_mismatch",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_stale", Name: "run_command"}}},
+			{Role: llm.RoleUser, Content: "newer user message"},
+		},
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_other", Status: "pending"},
+	}, "run_command", `{"command":"printf OTHER"}`); err != nil {
+		t.Fatal(err)
+	}
+	ag := newPairingAgent(&pairingProvider{legacy: true}, st, resumePermissionSender{})
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_stale", &acp.PermissionResult{
+		Outcome:  "selected",
+		OptionID: "allow",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonCancelled) {
+		t.Fatalf("stop reason %q, want cancelled", stop)
+	}
+	pending, err := session.ReadPendingPermission(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.ToolCall.ToolCallID != "call_other" {
+		t.Fatalf("pending gate changed to %+v, want call_other", pending.ToolCall)
+	}
+}
+
+func TestSettleStalePermissionKeepsGateWhenMetadataFails(t *testing.T) {
+	sessionDir := t.TempDir()
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: "sess_stale_metadata_failure",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_stale", Status: "pending"},
+	}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the gate when the separate tool metadata store is unavailable so a
+	// later resume can retry the bookkeeping.
+	if err := os.WriteFile(filepath.Join(sessionDir, "tool_calls"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := settleStalePermission(sessionDir, "call_stale", llm.ToolCall{
+		ID:   "call_stale",
+		Name: "run_command",
+	})
+	if settled {
+		t.Fatal("stale permission was reported as settled despite metadata failure")
+	}
+	if err == nil {
+		t.Fatal("metadata write failure was swallowed")
+	}
+	if !session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("stale permission gate was cleared despite metadata failure")
+	}
+}
+
+func TestSettleStalePermissionFinalizesMetadataWithoutToolName(t *testing.T) {
+	sessionDir := t.TempDir()
+	if err := session.MarkToolCallStarted(sessionDir, "call_stale", "", "run_command", "pending"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: "sess_stale_empty_name",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_stale", Status: "pending"},
+	}, "", `{}`); err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := settleStalePermission(sessionDir, "call_stale", llm.ToolCall{ID: "call_stale"})
+	if err != nil || !settled {
+		t.Fatalf("stale permission cleanup = settled %v, err %v", settled, err)
+	}
+	if session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("stale permission gate remained after metadata was finalized")
+	}
+	meta, err := session.ReadToolCallMeta(sessionDir, "call_stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Status != "cancelled" || meta.Kind != "run_command" {
+		t.Fatalf("metadata = %+v, want cancelled status with preserved run_command kind", meta)
+	}
+}
+
+func TestSettleStalePermissionWithoutSessionDirectoryDoesNotReportSettled(t *testing.T) {
+	settled, err := settleStalePermission("", "call_stale", llm.ToolCall{ID: "call_stale", Name: "run_command"})
+	if err != nil {
+		t.Fatalf("settle stale permission error = %v, want nil for an unavailable persisted gate", err)
+	}
+	if settled {
+		t.Fatal("stale permission without a persisted session directory was reported as settled")
+	}
 }
 
 // --- system_prompt.go: context breakdown -----------------------------------
@@ -742,7 +1122,7 @@ func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 		Description: "find skills",
 		Content:     body,
 	}
-	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk})
+	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk}, "")
 	if len(blocks) != 1 || blocks[0].Resource == nil || blocks[0].Resource.Text != body ||
 		blocks[0].Resource.URI != "skill:find-skills" || blocks[0].Resource.Mention.Kind != mention.KindSkill {
 		t.Fatalf("expected one skill attachment carrying the body, got %+v", blocks)
@@ -753,6 +1133,45 @@ func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 	}
 	if got := mention.ForDisplay(msg); got != "/find-skills search pdf" {
 		t.Fatalf("the transcript shows the message as typed, got %q", got)
+	}
+}
+
+// A skill that is a folder on disk names its own files (scripts/,
+// references/) by relative path, so the model is told where that folder is,
+// with the body it invoked or loaded. A skill read out of the binary has no
+// folder to name.
+func TestSkillBodyNamesTheSkillDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "crossreview")
+	onDisk := &skills.Skill{Name: "crossreview", FilePath: filepath.Join(dir, "SKILL.md"), Content: "Run scripts/x.py.\n"}
+	blocks := invokedSkillBlocks("/crossreview now", []*skills.Skill{onDisk}, "")
+	want := "Skill directory: " + dir + "\n\nRun scripts/x.py."
+	if len(blocks) != 1 || blocks[0].Resource.Text != want {
+		t.Fatalf("attachment text = %+v, want %q", blocks, want)
+	}
+	if got := skillBodyForModel(onDisk, ""); got != want {
+		t.Fatalf("load_skill body = %q, want %q", got, want)
+	}
+	flat := &skills.Skill{Name: "notes", FilePath: filepath.Join(t.TempDir(), "notes.md"), Content: "body"}
+	if got := skillBodyForModel(flat, ""); got != "body" {
+		t.Fatalf("a single-file skill is not a folder of its own, got %q", got)
+	}
+
+	// Served out of the binary: the delivered copy in the managed directory is
+	// named when it is on disk, and nothing is named when it is not.
+	embedded := &skills.Skill{Name: "crossreview", FilePath: "bundled/crossreview/SKILL.md", Content: "body"}
+	managed := t.TempDir()
+	if got := skillBodyForModel(embedded, managed); got != "body" {
+		t.Fatalf("no delivered copy, nothing to name, got %q", got)
+	}
+	if err := os.MkdirAll(filepath.Join(managed, "crossreview"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "crossreview", "SKILL.md"), []byte("---\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want = "Skill directory: " + filepath.Join(managed, "crossreview") + "\n\nbody"
+	if got := skillBodyForModel(embedded, managed); got != want {
+		t.Fatalf("delivered copy = %q, want %q", got, want)
 	}
 }
 
@@ -801,7 +1220,7 @@ func TestInvokedSkillBlocks_noSkillMatch(t *testing.T) {
 		FilePath: filepath.Join("skills", "other", "SKILL.md"),
 		Content:  "other body",
 	}
-	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}); len(blocks) != 0 {
+	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}, ""); len(blocks) != 0 {
 		t.Fatalf("expected nothing when no skill matches; got %+v", blocks)
 	}
 }
@@ -812,7 +1231,7 @@ func TestInvokedSkillBlocks_noSlashCommand(t *testing.T) {
 		FilePath: filepath.Join("skills", "find-skills", "SKILL.md"),
 		Content:  "body",
 	}
-	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}); len(blocks) != 0 {
+	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}, ""); len(blocks) != 0 {
 		t.Fatalf("expected nothing without a slash command; got %+v", blocks)
 	}
 }
@@ -2891,5 +3310,193 @@ func TestSpawnAgentRefusesAModelTheConfigDoesNotKnow(t *testing.T) {
 	}
 	if !strings.Contains(result, `unknown model "fake/nope"`) {
 		t.Fatalf("spawn_agent result = %q, want the unknown model named", result)
+	}
+}
+
+type cancelToolBatchProvider struct {
+	cancel    context.CancelFunc
+	mode      string
+	emptyArgs bool
+}
+
+func (p *cancelToolBatchProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, fmt.Errorf("Complete must not be used")
+}
+
+func (p *cancelToolBatchProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	calls := []llm.ToolCall{
+		{ID: "cancel-1", Name: "run_command", InputJSON: `{"command":"printf FIRST"}`},
+		{ID: "cancel-2", Name: "run_command", InputJSON: `{"command":"printf SECOND"}`},
+	}
+	if p.emptyArgs {
+		for i := range calls {
+			calls[i].Name = "background_list"
+			calls[i].InputJSON = ""
+		}
+	}
+	for _, call := range calls {
+		onChunk(llm.StreamChunk{ToolCall: &call})
+	}
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if p.mode == "partial" {
+		return &llm.Response{ToolCalls: calls, StopReason: "tool_use"}, context.Canceled
+	}
+	return &llm.Response{ToolCalls: calls, StopReason: "tool_use"}, nil
+}
+
+func TestBuildMessagesRepairsMissingToolResultsWithoutChangingStoredHistory(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_pairing_repair",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "continue"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "missing-1", Name: "read"}}},
+		},
+	}
+	var logs bytes.Buffer
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, slog.New(slog.NewTextHandler(&logs, nil)))
+
+	first := ag.buildMessages("system")
+	second := ag.buildMessages("system")
+	if len(first) != len(second) || !reflect.DeepEqual(first, second) {
+		t.Fatalf("repair is not stable: first=%+v second=%+v", first, second)
+	}
+	if len(first) != 4 || first[2].Role != llm.RoleAssistant || len(first[2].ToolCalls) != 1 {
+		t.Fatalf("assistant tool call was not preserved in outbound history: %+v", first)
+	}
+	if first[3].Role != llm.RoleTool || first[3].ToolCallID != "missing-1" || first[3].Content != "no result was recorded: the call may or may not have run; check the current state before running it again" {
+		t.Fatalf("unexpected synthetic result: %+v", first[3])
+	}
+	if first[3].CreatedAt != "" {
+		t.Fatalf("outbound synthetic result gained a timestamp: %+v", first[3])
+	}
+	if len(session.ValidateToolPairing(st.GetMessages())) == 0 {
+		t.Fatal("stored history was unexpectedly rewritten by outbound repair")
+	}
+	if !strings.Contains(logs.String(), "sess_pairing_repair") {
+		t.Fatalf("pairing diagnostics did not name the session: %s", logs.String())
+	}
+}
+
+func TestBuildMessagesStripsFoxxyCodeFileMarkersFromProviderHistory(t *testing.T) {
+	st := &session.State{ID: "sess_file_markers", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Here is the report.\n\n<foxxycode_file id=\"verified\"/>\n<foxxycode_file id=\"hallucinated\"/>"})
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got := ag.buildMessages("system")
+	if len(got) != 2 {
+		t.Fatalf("messages = %#v", got)
+	}
+	if strings.Contains(got[1].Content, "<foxxycode_file") {
+		t.Fatalf("provider history leaked file marker: %q", got[1].Content)
+	}
+	if !strings.Contains(got[1].Content, "Here is the report.") {
+		t.Fatalf("provider history lost answer text: %q", got[1].Content)
+	}
+}
+
+func TestRunCancelsUnstartedToolBatchWithStableResults(t *testing.T) {
+	st := &session.State{ID: "sess_cancel_batch", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	provider := &cancelToolBatchProvider{cancel: cancel}
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "run both"}})
+	if err != nil || stop != string(acp.StopReasonCancelled) {
+		t.Fatalf("run = %q, %v; want cancelled", stop, err)
+	}
+	msgs := st.GetMessages()
+	if len(msgs) < 4 || msgs[len(msgs)-2].Role != llm.RoleTool || msgs[len(msgs)-1].Role != llm.RoleTool {
+		t.Fatalf("unstarted calls were not recorded as results: %+v", msgs)
+	}
+	if msgs[len(msgs)-2].Content != toolCallInterruptedResult || msgs[len(msgs)-1].Content != toolCallInterruptedResult {
+		t.Fatalf("unstable or incorrect cancellation results: %+v", msgs[len(msgs)-2:])
+	}
+}
+
+func TestPartialStreamClosesToolCallsWhilePreservingAssistantMessage(t *testing.T) {
+	for _, emptyArgs := range []bool{false, true} {
+		t.Run(fmt.Sprint("emptyArgs=", emptyArgs), func(t *testing.T) {
+			st := &session.State{ID: "sess_partial_batch", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+			cfg := &config.Config{
+				Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+				Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+				Agent:     config.Agent{Model: "fake/model"},
+			}
+			ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			provider := &cancelToolBatchProvider{cancel: cancel, mode: "partial", emptyArgs: emptyArgs}
+			ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+			stop, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "start"}})
+			if err != nil || stop != string(acp.StopReasonCancelled) {
+				t.Fatalf("run = %q, %v; want cancelled", stop, err)
+			}
+			msgs := st.GetMessages()
+			if len(msgs) != 4 || msgs[1].Role != llm.RoleAssistant || len(msgs[1].ToolCalls) != 2 {
+				t.Fatalf("partial assistant tool calls were not preserved: %+v", msgs)
+			}
+			if msgs[2].Content != toolCallInterruptedResult || msgs[3].Content != toolCallInterruptedResult {
+				t.Fatalf("partial calls were not closed with stable results: %+v", msgs)
+			}
+		})
+	}
+}
+
+func TestCloseUnexecutedPermissionBatchDoesNotMoveLateTargetResult(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_resume_late_target",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_target", Name: "run_command"},
+					{ID: "call_sibling", Name: "run_command"},
+				},
+			},
+			{Role: llm.RoleUser, Content: "continue"},
+			{Role: llm.RoleTool, ToolCallID: "call_target", Content: "real result"},
+		},
+	}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	before := st.GetMessages()
+	ag.closeUnexecutedPermissionBatch("call_target")
+
+	msgs := st.GetMessages()
+	if len(msgs) != 4 {
+		t.Fatalf("history has %d messages, want original messages plus one skipped sibling: %+v", len(msgs), msgs)
+	}
+	if !reflect.DeepEqual(msgs[:len(before)], before) {
+		t.Fatalf("late result handling rewrote existing history: got=%+v want prefix=%+v", msgs, before)
+	}
+	if msgs[3].Role != llm.RoleTool || msgs[3].ToolCallID != "call_sibling" || msgs[3].Content != permissionBatchSkippedResult {
+		t.Fatalf("later sibling was not skipped: %+v", msgs[3])
+	}
+	var targetResults int
+	for _, msg := range msgs {
+		if msg.Role == llm.RoleTool && msg.ToolCallID == "call_target" {
+			targetResults++
+		}
+	}
+	if targetResults != 1 {
+		t.Fatalf("target result appears %d times, want exactly once without moving it: %+v", targetResults, msgs)
+	}
+	if issues := session.ValidateToolPairing(msgs); len(issues) == 0 {
+		t.Fatalf("late result should remain visible as malformed pairing: %+v", msgs)
 	}
 }

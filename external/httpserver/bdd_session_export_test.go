@@ -169,6 +169,50 @@ func (s *sessionExportFeatureState) seedChat() error {
 	return nil
 }
 
+func (s *sessionExportFeatureState) seedSharedFileCard() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(s.root, "report.md"), []byte("A report."), 0o600); err != nil {
+		return err
+	}
+	a, err := session.CaptureArtifact(st.GetPersistedSessionDir(), st.GetCWD(), "report.md")
+	if err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "share-export", Name: "share_file", InputJSON: `{"path":"report.md"}`}}})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "share-export", Content: "Shared report.md", Artifacts: []llm.Artifact{{ID: a.ID, Name: a.Name, SHA256: a.SHA256, Size: a.Size}}})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: exportAssistantAnswer})
+	messages := st.GetMessages()
+	if !strings.Contains(messages[len(messages)-1].Content, "<foxxycode_file") {
+		return fmt.Errorf("fixture has no inline file placement")
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) hidesFilePlacementMarkers() error {
+	if s.respStatus != http.StatusOK {
+		return fmt.Errorf("export status = %d", s.respStatus)
+	}
+	if !bytes.Contains(s.respBody, []byte(exportAssistantAnswer)) {
+		return fmt.Errorf("export lost the answer text")
+	}
+	if bytes.Contains(s.respBody, []byte("foxxycode_file")) {
+		return fmt.Errorf("export leaked a UI-only file placement marker")
+	}
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	messages := st.GetMessages()
+	if !strings.Contains(messages[len(messages)-1].Content, "<foxxycode_file") {
+		return fmt.Errorf("export changed the persisted chat")
+	}
+	return nil
+}
+
 // seedUserOnly leaves the transcript without any assistant answer, which is the
 // state in which the panel hides the export action.
 func (s *sessionExportFeatureState) seedUserOnly() error {
@@ -985,6 +1029,8 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running foxxycode HTTP server$`, s.startServer)
 	sc.Step(`^a chat with a user question and an assistant answer$`, s.seedChat)
+	sc.Step(`^a chat whose answer includes a shared file card$`, s.seedSharedFileCard)
+	sc.Step(`^the export keeps the answer without file placement markers$`, s.hidesFilePlacementMarkers)
 	sc.Step(`^a chat with only a user question$`, s.seedUserOnly)
 	sc.Step(`^a chat with an uploaded picture and a picture returned by a tool$`, s.seedPictures)
 	sc.Step(`^the illustrated chat is exported as (\w+) through (download|file)$`, s.exportIllustrated)
