@@ -10,6 +10,11 @@
 
 ## Unreleased — 2026-11-12
 
+**Guidance for Kimi models.**
+Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.
+
+## 0.3.46 — 2026-11-12
+
 **Choose the compatible provider client identity.**
 OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
 
@@ -51,6 +56,7 @@ Long errors and model or mode change notices no longer overflow the chat: collap
 - Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
 - Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
+
 
 ## 0.3.38 — 2026-10-26
 
