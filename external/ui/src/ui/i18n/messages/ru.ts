@@ -864,6 +864,7 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "обращается к",
   "settings.mcp.trust.fact.env": "окружение",
   "settings.mcp.trust.fact.headers": "заголовки",
+  "settings.mcp.trust.fact.reads": "читает",
   "settings.mcp.trust.fact.tls": "tls",
   "settings.mcp.trust.factValue.insecure": "проверка сертификата отключена",
   "settings.mcp.insecureTls.label": "Игнорировать проверку SSL",
@@ -1570,7 +1571,7 @@ export const messagesRu: Record<string, string> = {
   // Настройки -> Субагенты: каталог определений
   "subagents.catalog.legend": "Определения",
   "subagents.catalog.description":
-    'Все определения, которые может запустить сессия этого рабочего пространства: встроенные, ваши файлы в ~/.foxxycode/agents и файлы проекта в .foxxycode/agents или .claude/agents. При значении "ask" одобрите проектный файл здесь или командой foxxycode agents trust <name>.',
+    "Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.foxxycode/agents и файлы .agents/agents и .foxxycode/agents, пришедшие вместе с чекаутом. При значении \"ask\" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой foxxycode agents trust <name> на машине, где работает foxxycode. Изменённый одобренный файл потребует одобрения снова.",
   "subagents.catalog.workspace": "Рабочее пространство",
   "subagents.catalog.loading": "Загрузка определений…",
   "subagents.catalog.empty":
@@ -1584,7 +1585,7 @@ export const messagesRu: Record<string, string> = {
   "subagents.badge.hidden": "скрытый",
   "subagents.badge.needsApproval": "нужно одобрение",
   "subagents.badge.needsApprovalTitle":
-    "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства: foxxycode agents trust {name}",
+    "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства щитом или командой foxxycode agents trust {name}",
   "subagents.fact.file": "файл",
   "subagents.fact.model": "модель",
   "subagents.fact.modelInherits": "модель родителя",
@@ -2093,9 +2094,72 @@ export const messagesRu: Record<string, string> = {
   "mcp.switch.disabledTitle": "Отключён — нажмите, чтобы включить",
   "mcp.switch.disableAria": "Отключить MCP-сервер {name}",
   "mcp.switch.enableAria": "Включить MCP-сервер {name}",
-  "mcp.discovery.description": "Проектный ./.foxxycode/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме «Спрашивать» его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из config.yaml и ~/.foxxycode/mcp.json — ваши и никогда не блокируются.",
+  "mcp.discovery.description":
+    "Проектный ./.foxxycode/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме \"Спрашивать\" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.foxxycode/mcp.json ваши и никогда не блокируются.",
   "messages.spawnAgentPrompt": "Промпт агента",
   "messages.spawnAgentTimeout": "Таймаут {seconds} с",
   "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
   "workspace.noBranches": "Веток нет",
+  "mcp.error.saveChanged":
+    "Запись изменилась в файле после открытия редактора. Закройте его и откройте запись снова, чтобы увидеть, что в ней сейчас.",
+  "mcp.edit.title": "Изменить запись ({origin})",
+  "mcp.edit.aria": "Изменить {name}",
+  "mcp.delete.title": "Удалить из {origin}",
+  "mcp.delete.aria": "Удалить {name}",
+  "mcp.editor.valuesHint":
+    "Значения env и заголовков не показываются. {placeholder} оставляет сохранённое значение, новое значение заменяет его, а убранный ключ удаляется из записи.",
+  "subagents.trust.approveTitle": "Разрешить запуск {name} в этом рабочем пространстве",
+  "subagents.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
+  "subagents.trust.approveAria": "Одобрить субагента {name}",
+  "subagents.trust.withdrawAria": "Отозвать одобрение субагента {name}",
+  "subagents.error.trust": "Не удалось изменить одобрение {name}.",
+  "skills.error.sync": "Не удалось синхронизировать",
+  "skills.error.install": "Не удалось установить {name}",
+  "skills.trust.legend": "Обнаружение маркетплейсов",
+  "skills.trust.description":
+    "Проектный .foxxycode/marketplaces.json приходит вместе с чекаутом, поэтому то, что синхронизация установит в ~/.foxxycode/skills, выбирает репозиторий, а не вы. При значении ask его записи не синхронизируются и не предлагаются к установке, пока вы не одобрите каждую для этого рабочего пространства (щит в списке ниже); изменение одобренной записи снова потребует одобрения. Записи, которые вы добавляете в проект здесь, одобряются самим фактом записи, а ~/.foxxycode/marketplaces.json ваш и никогда не блокируется. Сохраняется вместе с остальными настройками.",
+  "skills.sources.legend": "Маркетплейсы",
+  "skills.sources.add": "Добавить",
+  "skills.sources.addAria": "Источник для добавления",
+  "skills.sources.scopeAria": "Где объявить",
+  "skills.sources.scope.global": "Ваш (~/.foxxycode)",
+  "skills.sources.scope.local": "Этот проект",
+  "skills.sources.syncAll": "Синхронизировать все",
+  "skills.sources.syncAllTitle": "Получить все действующие источники и маркетплейсы",
+  "skills.sources.completed": "Готово",
+  "skills.sources.syncedTitle": "Синхронизировано",
+  "skills.sources.syncTitle": "Синхронизировать {source}",
+  "skills.sources.heldSyncTitle": "Сначала одобрите его для этого рабочего пространства",
+  "skills.sources.deniedSyncTitle":
+    "Маркетплейсы проектов выключены настройкой skills.project_trust: deny",
+  "skills.sources.scope.noSessionTitle":
+    "Чтобы объявить маркетплейс для проекта, отправьте первое сообщение чата в этом проекте; до этого запись добавляется к вашим",
+  "skills.sources.syncAria": "Синхронизировать этот маркетплейс",
+  "skills.sources.removeTitle": "Удалить из {path}",
+  "skills.sources.systemTitle":
+    "Встроен в FoxxyCode, всегда действует, всегда доверенный и не удаляется",
+  "skills.sources.removeAria": "Удалить маркетплейс",
+  "skills.sources.kind.source": "все плагины",
+  "skills.sources.kind.marketplace": "каталог",
+  "skills.sources.origin.system": "встроенный",
+  "skills.sources.origin.home": "ваш",
+  "skills.sources.origin.project": "из проекта",
+  "skills.sources.trust.systemAria": "{source} встроен в FoxxyCode и всегда доверенный",
+  "skills.sources.trust.approveTitle": "Разрешить синхронизацию {source} в этом рабочем пространстве",
+  "skills.sources.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
+  "skills.sources.trust.approveAria": "Одобрить {source} для этого рабочего пространства",
+  "skills.sources.trust.withdrawAria": "Отозвать одобрение {source}",
+  "skills.sources.note.held":
+    "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не синхронизируется, пока вы не одобрите её щитом для этого рабочего пространства.",
+  "skills.sources.note.denied":
+    "Маркетплейсы проекта отключены настройкой skills.project_trust со значением deny.",
+  "skills.sources.error.load": "Не удалось загрузить маркетплейсы.",
+  "skills.sources.error.add": "Не удалось добавить {source}.",
+  "skills.sources.error.remove": "Не удалось удалить {source}.",
+  "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
+  "skills.sources.description":
+    "Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (foxxycode plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.foxxycode/marketplaces.json, записи проекта в его .foxxycode/marketplaces.json, который приходит вместе с чекаутом, и при значении \"ask\" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.foxxycode/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.",
+  "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
 };

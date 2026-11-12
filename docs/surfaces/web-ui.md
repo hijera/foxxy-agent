@@ -289,7 +289,7 @@ atomic: editing a provider or model list saves that entire list.
 
 *Hovering the (i) beside a field's name shows what the field means, above it and over the page.*
 
-- A settings form shows the names of its fields and the controls, nothing else. What a field means is behind the **(i)** right after its name: hover it (or reach it with Tab) and the description appears above it; on a touch screen tap it. Moving away, Escape, a tap elsewhere or scrolling the form closes it. Fieldsets (the provider **Models** list, **Remote skill sources**, **MCP discovery**, the Subagents **Definitions**, the object and list blocks of the generated forms) carry their description the same way, beside the legend.
+- A settings form shows the names of its fields and the controls, nothing else. What a field means is behind the **(i)** right after its name: hover it (or reach it with Tab) and the description appears above it; on a touch screen tap it. Moving away, Escape, a tap elsewhere or scrolling the form closes it. Fieldsets (the provider **Models** list, the Skills **Marketplaces**, **MCP discovery**, the Subagents **Definitions**, the object and list blocks of the generated forms) carry their description the same way, beside the legend.
 - The tip is drawn over the whole page, not inside the settings panel, so it is never clipped by the panel and never adds a scrollbar to it. Text that reports a state (a fetch result, a sign-in code, a warning about a stored value) stays in the form under its control.
 - Automated checks: **`FieldHint.test.tsx`**. Live check: hover an (i) at **1280px** and tap one at **390px**; the tip is a child of `<body>`, sits 8px above the (i) and centred on it, and `.settings-scroll` keeps `scrollWidth` equal to `clientWidth`.
 
@@ -479,7 +479,6 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
 - **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
 - **Mobile sheet** — on narrow/mobile shells (the **`max-width: 1199px`** shell-stack breakpoint) the **Mode** / **Model** / **Reasoning** menus open as a **full-width bottom sheet** over a dimmed scrim — the same pattern as the slash (**`/`**) and **`@`** pickers — instead of a cramped anchored dropdown. The filter and grouping still apply inside the sheet. Desktop keeps the anchored dropdown.
-
 ### Per-session reasoning level
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / gpt-oss / qwen3 / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
@@ -489,21 +488,44 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ### Per-session workspace (folder / branch / worktree / svn chips)
 
+![The Open folder dialog with New folder and Show hidden on the left of the footer](../assets/ui-folder-picker/folder-picker-after-dark-1280.png)
+
+*The folder browser fits the available screen height and keeps its footer visible.*
+
+![Creating a folder without scrolling the name row away](../assets/ui-folder-picker/folder-picker-new-row-dark-1280.png)
+
+*The new-folder name row stays above the scrolling directory list.*
+
+![The Open folder dialog on a phone, opened where History opens](../assets/ui-folder-picker/folder-picker-phone-dark-390.png)
+
+*The Open folder dialog on a phone, opened where History opens*
+
 - A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN chip** plus its **branch-folder checkbox**.
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
+- **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/foxxycode/slash-commands`**, **`/foxxycode/mentions`**, **`POST /foxxycode/mentions/check`**, **`/foxxycode/workspace/file`**) carries **`cwd=<folder>`** next to **`X-FoxxyCode-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.foxxycode/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder; Skills also sends it with marketplace sync, install and update, so those actions never fall back to the server default after a folder was picked.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
-- **New folder** (footer, left of **Cancel** / **Open**) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
+- **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
+- **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
+- **New folder** (the square **+** at the left of the footer, on the colours of the Scheduler's add button, with the **Show hidden** switch right after it; **Cancel** / **Open** sit on the right) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
 - **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /foxxycode/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, slash commands, configured MCP servers (re-dialed for the new workspace through its trust gate, the old workspace's closed) and the SessionStart hook context re-derive from the new cwd.
 - **Branch chip** opens the branch list (current first, marked selected) with a local filter for long lists. Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, or a dedicated feature worktree under **`<repo>/.foxxycode/worktrees/<branch>/`** when the checkbox is on. Worktree creation fetches `origin`, starts a new branch from the fresh `origin/HEAD` default and refuses the default branch or one tracking it. Without the checkbox, selecting a branch already checked out in another worktree jumps there (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **SVN chip** (**`composer-svn-chip`**) renders next to the git chip whenever **`is_svn_repo`** is true. Git and Subversion are detected independently, so a branch folder checked out from SVN that also holds a git repository shows both chips and each switches only its own VCS. The chip label is the svn branch (**`trunk`**, **`branches/<name>`**), with URL and revision in the tooltip; the menu lists the current branch first, then **`trunk`**, then the rest. Picking one posts **`{"branch", "worktree": <checkbox>, "vcs": "svn"}`**.
 - **SVN branch-folder checkbox** (**`composer-svn-folder-checkbox`**) replaces the worktree idea for Subversion, which has none: off switches the working copy in place (**`svn switch`**), on checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** (reusing an existing checkout) and moves the session there — the branch-folder workflow.
 - With **`vcs.svn.enable: false`** or no svn client installed, **`is_svn_repo`** is false and neither svn chip renders.
-- **Pre-session (draft/home)**: Returning home retains the selected chat's folder for the next conversation.  picks are stored client-side, previewed via **`GET /foxxycode/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
+- **Pre-session (draft/home)**: Returning home retains the selected chat's folder for the next conversation. Folder and branch picks are stored client-side, previewed via **`GET /foxxycode/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
 - Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** and **`features/svn_workspace.feature`** (godog).
 ## Session list
+
+On desktop, selecting a conversation or closing History through its backdrop keeps
+an open Tasks panel visible. On narrow screens, closing the full-screen overlay
+also closes Tasks so the conversation can use the available space.
+
+![History alongside an open Tasks panel](../assets/session-history/history-tasks-dark-1280.png)
+
+*History and Tasks can stay open together on desktop.*
 
 The selected archive status survives reloads and IDE restarts. A status other
 than **Active** is shown above the list with **Show active chats** to reset it.
@@ -1121,11 +1143,13 @@ Automated checks:
 
 ### Subagent definitions
 
-**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /foxxycode/subagents` for the workspace of the session on screen (`workspaceCtx.path` from `App.tsx`; without one the server answers for its default workspace), with that workspace printed above the list.
+**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /foxxycode/subagents` for the workspace of the chat on screen (`chatWorkspacePath` from `App.tsx`: the session's folder, or the folder picked before the first message; without one the server answers for its default workspace). The tab does not print that path.
 
 - Each row reuses the MCP list chrome: the name, a scope badge (`built in` / `yours` / `from the project`), `hidden`, the description as plain text and the file.
-- A project definition awaiting a receipt under `project_trust: ask` carries an amber `needs approval` badge and an approval control. Its description stays hidden until approval. The control calls `POST /foxxycode/subagents/{name}/trust` for the workspace on screen; an approved project definition can also be untrusted here.
-- **Declared bounds** (`subagentDeclaredFacts` in `settings/subagentCatalog.ts`) show model, mode, permissions, tools, denies, timeout, max turns, detached execution and instructions size. The approval note also shows the definition's digest, so the operator can see what the receipt binds to. Long paths and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
+- Under `project_trust: ask` a project definition carries the shield of the MCP tab (`subagent-trust-<name>`): amber while it is not approved, plain once it is. Clicking it approves the file for that workspace with `POST /foxxycode/subagents/{name}/trust`, naming the `digest` the row showed, so a file the checkout rewrote since is refused (409) and the error is shown above the list; clicking an approved one withdraws the receipt. The list is read again after either. A definition still awaiting a receipt also carries an amber `needs approval` badge whose tooltip names the shield and `foxxycode agents trust <name>`. Built-in and user definitions, and every definition under `allow` or `deny`, have no shield.
+- **Declared bounds**, collapsed on every row (`subagentApprovalFacts` in `settings/subagentCatalog.ts`): model, mode, permissions, tools, denies, timeout, max turns, runs detached and instructions size, with every undeclared bound shown as inherited. Long paths and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
+
+An unapproved project definition keeps its authored description hidden until approval.
 
 ![Settings Subagents catalog](../assets/subagents/settings-subagents-catalog-dark-1280.png)
 
@@ -1141,7 +1165,7 @@ Automated checks:
 
 - **external/ui/src/ui/settings/subagentCatalog.test.ts** (inherited and declared facts, formatting, scope badge keys)
 - **external/ui/src/ui/settings/subagentsApi.test.ts** (workspace in the query, normalised catalog, server error messages, offline)
-- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows with scope, description and file, no control on any row, the passive needs-approval badge, declared bounds behind a disclosure, failed load, Russian copy)
+- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows with scope, description and file, the shield of a project definition under ask approving the file with the digest shown and withdrawing the receipt, a refused approval, no shield under allow or deny nor on a built-in or user definition, the needs-approval badge, declared bounds behind a disclosure, failed load, Russian copy)
 - **external/ui/src/ui/settings/subagentsCatalogCss.test.ts** (the catalog cannot outgrow the panel, facts label column, amber badge)
 - **external/ui/src/ui/settings/SettingsSection.test.tsx** (the subagents kind keeps its form and asks about the session workspace)
 - **external/ui/src/ui/chat/SubagentPermissionCard.test.tsx** (answered against the child session, only waiting tasks and oldest first, nothing while none waits, title prefix, Russian copy)
@@ -1355,10 +1379,10 @@ File API
 Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
 section kind `mcp`; visual contract in `DESIGN.md`):
 
-- `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
-  + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
-  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
+- `GET /foxxycode/mcp` backs the list: merged global `~/.foxxycode/mcp.json` + project
+  `./.foxxycode/mcp.json` servers (config.yaml declares none), each with `source`
+  (`global` / `local` scope badge), `origin` (`home` / `project`) and
+  `source_path` (the real file, which is what the badge tooltip names), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`),
@@ -1382,7 +1406,8 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   `source_path` it was declared in plus the declaration the approval covers
   (`.mcp-trust-facts`, from `declarationFacts` in `mcpServerJson.ts`):
   transport, `runs` (command + args) or `contacts` (url), the **names** of the
-  env vars and headers, and the workspace. Values are never rendered. The shield
+  env vars and headers, the variables of the FoxxyCode process its values read
+  (`reads`, from the row's `reads`), and the workspace. Values are never rendered. The shield
   renders **only under `ask`** (`showsTrustControl` in `mcpServerJson.ts`):
   `allow` starts every project server anyway and `deny` starts none, so there is
   no per-server decision left to offer. Such a row is not probed, so it lists no
@@ -1400,9 +1425,16 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 - Expanding a row lists tools with per-tool switches
   (`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
   locked while the server is disabled.
-- Edit and Delete are locked for `readonly` (config.yaml) rows; mcp.json rows
-  of both scopes stay editable. Delete calls `DELETE /foxxycode/mcp/{name}`, Edit
+- Every row is editable, both scopes. Delete calls `DELETE /foxxycode/mcp/{name}`, Edit
   opens the JSON editor card inline with the scope pinned to the owning file.
+- The list carries no env or header value, only `<redacted>` in its place, so the
+  editor of a row starts from the placeholders and says under the JSON what they do
+  (`mcp-editor-values-hint`): one left as it is keeps the stored value, a new value
+  replaces it, a removed key is deleted. Save sends the row's `fingerprint`
+  (`PUT /foxxycode/mcp/{name}?scope=…&fingerprint=…`); when the file holds another
+  declaration by then the server answers `409`, the card stays open with
+  `mcp.error.saveChanged` and the list is read again, and the entry has to be
+  reopened to be edited.
 - Add server opens the editor prefilled with a Cursor-style entry template and
   a Local/Global scope picker (default Local); Save issues
   `PUT /foxxycode/mcp/{name}?scope=local|global` after client-side validation
@@ -1424,6 +1456,55 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 - List refreshes never unmount the list (initial-load-only placeholder), so the
   drawer scroll position is preserved.
 - The tab does not participate in the settings document Save all flow.
+
+## Skill marketplaces (Settings tab)
+
+**Settings > Skills** keeps its form (auto-discovery, `skills.dirs`, and `skills.project_trust` in a
+**Marketplace discovery** fieldset of its own, saved with the rest of the settings) and the installed
+skills, and between them a **Marketplaces** fieldset (`MarketplacesEditor.tsx`, helpers in
+`settings/marketplaces.ts`). Like the MCP tab it is API-driven and never part of the settings
+document: what it lists is declared in `~/.foxxycode/marketplaces.json`, the project's
+`.foxxycode/marketplaces.json` and FoxxyCode itself, read through `GET /foxxycode/skills/sources` for the session
+on screen (`X-FoxxyCode-Session-ID`), and every action applies at once.
+
+- One row per entry, in the order the entries take effect: the key (a marketplace's name, a source's
+  address), a kind badge (**all plugins** for a source, **catalog** for a marketplace, whose address
+  sits under the name) and an origin badge (**built in**, **yours**, **from the project**) whose
+  tooltip names the declaring file.
+- The built-in `EvilFreelancer/rpa-skills` carries a shield that cannot be clicked (always trusted)
+  and a disabled delete button; it syncs like any row.
+- Under `skills.project_trust: ask` a project row carries the MCP shield: amber while the entry
+  waits for approval, plain once approved. Clicking it posts `POST /foxxycode/skills/sources/trust` with
+  the row's `fingerprint` (an entry the checkout rewrote since is refused with 409 and the message is
+  shown above the list), or `untrust` for an approved one; the list is read again after either. A
+  row still waiting is dimmed, says which file declares it and that it is not synced until approved,
+  and its **Sync** button is disabled. Under `deny` its note says the policy switched it off and
+  there is no shield; under `allow` project rows are in effect and have none either.
+- **Sync** on a row is `POST /foxxycode/skills/sync?source=<key>`, **Sync all** `POST /foxxycode/skills/sync`;
+  both refresh the installed list and flash a check mark, and a refresh that fails says so and leaves
+  the buttons usable. The Sync of a held row is disabled, its title asks for the approval first,
+  or under `deny` names the policy. Delete is `DELETE /foxxycode/skills/sources?source=<key>&origin=<row origin>`: it
+  edits the file of that row only, so removing your entry never touches the project's checked-in copy.
+- The add field declares a source (installed whole) with `POST /foxxycode/skills/sources`, in your file
+  or, with **This project**, in the project's, which approves it for that workspace as it is written.
+  **This project** is available once the chat has a session: before its first message the server
+  would take its own default folder, not the one on screen, so the picker stays on your file.
+- A chat kept as a draft in the browser has no session on the server: the list and its actions then
+  send no `X-FoxxyCode-Session-ID` and answer for the server's default workspace (the MCP tab does the
+  same). A save of the settings reads the list again, so the rows follow a changed
+  `skills.project_trust`; the Subagents catalog does the same for `subagents.project_trust`.
+- The install search (`GET /foxxycode/skills/available`), the update check (`GET /foxxycode/skills/updates`)
+  and **Update** go to the same session, so a project marketplace approved there is offered and one
+  held there is neither checked nor updated from.
+- On a phone the row's controls wrap under the key and the add field takes the full width.
+
+![Settings, Skills: the marketplaces list](../assets/skills/skills-marketplaces-dark-1280.png)
+
+Automated checks:
+
+- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled sync and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope, remove by key, sync of one and of all, Russian copy)
+- **external/httpserver/server_test.go** (`TestFoxxyCodeSkillsSourcesSyncDelete`, `TestFoxxyCodeSkillsNewRoutesEdgeCases`: the routes, the scopes, 409 on a rewritten entry, 400 on syncing a held one)
+- **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then syncs into the FoxxyCode home)
 
 ## Swarm screen
 

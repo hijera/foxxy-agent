@@ -233,9 +233,17 @@ func (s *mcpE2EState) startServer() error {
 	s.beta = &fakeBetaMCPHandler{token: e2eBetaToken}
 	s.betaTS = httptest.NewServer(s.beta)
 
-	// alpha comes from config.yaml (its token travels via per-server env, not
-	// the process env, proving the Env plumbing); beta lives in the project
-	// .foxxycode/mcp.json so the management API can toggle its tools mid-session.
+	// alpha comes from <home>/mcp.json (its token travels via per-server env,
+	// not the process env, proving the Env plumbing); beta lives in the
+	// project .foxxycode/mcp.json so the management API can toggle its tools
+	// mid-session.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), "alpha", config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestHelperMCPServerHTTP"},
+		Env:     map[string]string{"GO_WANT_MCP_HELPER": "1", "MCP_HELPER_TOKEN": e2eAlphaToken},
+	}); err != nil {
+		return err
+	}
 	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), "beta",
 		config.MCPJSONServer{Type: "http", URL: s.betaTS.URL}); err != nil {
 		return err
@@ -249,17 +257,6 @@ func (s *mcpE2EState) startServer() error {
 		// FoxxyCode's background title pass reuses the scripted provider and would
 		// look like a second MCP tool call. This feature isolates the user turn.
 		Title: config.TitleConfig{Enabled: &titleEnabled},
-		MCPServers: []config.MCPServerConfig{
-			{
-				Name:    "alpha",
-				Command: os.Args[0],
-				Args:    []string{"-test.run=TestHelperMCPServerHTTP"},
-				Env: []config.EnvVarConfig{
-					{Name: "GO_WANT_MCP_HELPER", Value: "1"},
-					{Name: "MCP_HELPER_TOKEN", Value: e2eAlphaToken},
-				},
-			},
-		},
 	}
 
 	// This scenario is about tool routing, not workspace trust: stand in for

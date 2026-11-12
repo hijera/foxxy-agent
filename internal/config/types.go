@@ -13,7 +13,6 @@ type Config struct {
 	Instructions Instructions       `yaml:"instructions"`
 	Skills       Skills             `yaml:"skills"`
 	Rules        Rules              `yaml:"rules"`
-	MCPServers   []MCPServerConfig  `yaml:"mcp_servers"`
 	MCP          MCP                `yaml:"mcp"`
 	Tools        Tools              `yaml:"tools"`
 	Subagents    Subagents          `yaml:"subagents"`

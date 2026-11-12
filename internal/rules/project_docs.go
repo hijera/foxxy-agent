@@ -20,31 +20,93 @@ type ProjectDoc struct {
 // DESIGN.md.
 var preambleFiles = []string{"AGENTS.md", "DESIGN.md"}
 
-// LoadProjectDocs reads the preamble documents of two directories: the agent
-// home first, so what the person running foxxycode wants is read before what the
-// checkout says about itself, then the session workspace. Whichever of the two
-// files is there is read; nothing configures either pair - the file being
-// there is the switch. The {{.Rules}} block is the one place these files enter
+// Standing is what the system prompt of a session carries for one rules
+// generation besides the rules: the AGENTS.md and DESIGN.md of the agent home
+// and of the session folder (Docs, the first two layers: the operator's pair
+// first, so what the person running foxxycode wants is read before what the
+// checkout says about itself; nothing configures either pair, the file being
+// there is the switch), then the files the
+// operator listed in instructions.files (User), and the key (DocKey) of every
+// file that entered one of the two (Keys). A document already in the prompt is
+// not sent again: a later layer, a repeated entry of the list, or a nested
+// document a tool call or a mention brings in (the third layer) that Keys
+// already holds is left out.
+type Standing struct {
+	Docs []ProjectDoc
+	User []ProjectDoc
+	Keys map[string]bool
+}
+
+// LoadStanding reads the first two layers and then the user files, in that
+// order, each file at most once: the first occurrence wins, since its text is
+// already in the prompt above anything that would repeat it. userPaths are the
+// absolute paths of the instructions.files entries, resolved by the caller;
+// "" is skipped. A file that is absent or holds nothing enters nothing and
+// takes no key, so it is still read when it appears later in the session. The {{.Rules}} block is the one place these files enter
 // the prompt: the nested AGENTS.md chain starts below the root
 // (AgentsForPaths), and the instruction files - whose default entries are the
 // same two names - skip whatever the block carries.
-func LoadProjectDocs(home, cwd string) []ProjectDoc {
-	var out []ProjectDoc
+func LoadStanding(home, cwd string, userPaths []string) Standing {
+	st := Standing{Keys: map[string]bool{}}
+	take := func(path string) (ProjectDoc, bool) {
+		key := DocKey(path)
+		if key == "" || st.Keys[key] {
+			return ProjectDoc{}, false
+		}
+		doc, ok := readProjectDoc(path, "")
+		if !ok {
+			return ProjectDoc{}, false
+		}
+		st.Keys[key] = true
+		return doc, true
+	}
 	if strings.TrimSpace(home) != "" {
 		for _, file := range preambleFiles {
 			p := filepath.Join(home, file)
-			if doc, ok := readProjectDoc(p, homeDocLabel(p)); ok {
-				out = append(out, doc)
+			if doc, ok := take(p); ok {
+				doc.Label = homeDocLabel(p)
+				st.Docs = append(st.Docs, doc)
 			}
 		}
 	}
-	for _, file := range preambleFiles {
-		p := filepath.Join(cwd, file)
-		if doc, ok := readProjectDoc(p, file); ok {
-			out = append(out, doc)
+	if strings.TrimSpace(cwd) != "" {
+		for _, file := range preambleFiles {
+			if doc, ok := take(filepath.Join(cwd, file)); ok {
+				doc.Label = file
+				st.Docs = append(st.Docs, doc)
+			}
 		}
 	}
-	return out
+	for _, p := range userPaths {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		if doc, ok := take(p); ok {
+			doc.Label = userDocLabel(cwd, p)
+			st.User = append(st.User, doc)
+		}
+	}
+	return st
+}
+
+// RenderDocs renders the preamble documents as the sections of the rules
+// block: "### <label>" and the document, one after the other.
+func RenderDocs(docs []ProjectDoc) string {
+	parts := make([]string, 0, len(docs))
+	for _, d := range docs {
+		parts = append(parts, "### "+d.Label+"\n\n"+d.Content)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// RenderUserDocs renders the files of instructions.files the way the
+// instructions block has always carried them: their text, one after the other.
+func RenderUserDocs(docs []ProjectDoc) string {
+	parts := make([]string, 0, len(docs))
+	for _, d := range docs {
+		parts = append(parts, d.Content)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // readProjectDoc reads one preamble document, reporting false for a file that
@@ -62,6 +124,19 @@ func readProjectDoc(path, label string) (ProjectDoc, bool) {
 		content = content[:projectDocMaxBytes] + "\n\n...(truncated)"
 	}
 	return ProjectDoc{Label: label, Path: path, Content: content}, true
+}
+
+// userDocLabel names a file of instructions.files for a reader: relative to
+// the session folder when it lives there, else the way homeDocLabel names it.
+// The prompt carries the text of such a file without a heading, so the label
+// is for surfaces that list what a session reads (the console header).
+func userDocLabel(cwd, path string) string {
+	if strings.TrimSpace(cwd) != "" {
+		if rel, err := filepath.Rel(cwd, path); err == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return homeDocLabel(path)
 }
 
 // homeDocLabel names the operator's file the way they would write it, with the

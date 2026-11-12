@@ -168,6 +168,10 @@ type Agent struct {
 	// memoryRun is the memory subagent this turn started, or nil
 	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
 	memoryRun *memoryTurnRun
+	// docKeys are the keys of the documents the system prompt this turn froze
+	// carries (documentKeys, rules_prompt.go).
+	docKeysMu sync.Mutex
+	docKeys   map[string]bool
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -1956,6 +1960,8 @@ func (a *Agent) runReActLoop(
 		var observations []string
 		// Execute all tool calls.
 		executedThisRound, quarantinedThisRound := 0, 0
+		seenInResponse := make(map[string]bool, len(response.ToolCalls))
+		blockedInResponse := make(map[string]bool, len(response.ToolCalls))
 		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolCallInterruptedResult)
@@ -1981,8 +1987,20 @@ func (a *Agent) runReActLoop(
 			// Both detectors observe every requested call before either branch runs, so
 			// a call the repeat detector skips still lands in the cycle history. The
 			// repeat detector goes first: period one is its shape, and it trips sooner.
-			_, repeatTripped := toolRepeats.Observe(tc.Name, tc.InputJSON)
-			cyclePeriod, cycleUnit, cycleTripped := toolCycles.Observe(tc.Name, tc.InputJSON)
+			key := canonicalToolCallKey(tc.Name, tc.InputJSON)
+			if blockedInResponse[key] {
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
+				continue
+			}
+			var repeatTripped, cycleTripped bool
+			var cyclePeriod int
+			var cycleUnit []string
+			if !seenInResponse[key] {
+				seenInResponse[key] = true
+				_, repeatTripped = toolRepeats.Observe(tc.Name, tc.InputJSON)
+				cyclePeriod, cycleUnit, cycleTripped = toolCycles.Observe(tc.Name, tc.InputJSON)
+			}
+
 			switch {
 			case repeatTripped && loopNudges >= loopNudgeBudget:
 				if stuckAction == config.AgentLoopStuckActionStop {
@@ -1999,6 +2017,7 @@ func (a *Agent) runReActLoop(
 				// read/grep fall through: one last execution, pinned, so the model
 				// finally holds stable content instead of being told no.
 			case repeatTripped:
+				blockedInResponse[key] = true
 				loopNudges++
 				// The counter deliberately keeps running: clearing it here (as Roo does,
 				// where the trip is a blocking question to the user) would let the model
@@ -2023,6 +2042,7 @@ func (a *Agent) runReActLoop(
 					continue
 				}
 			case cycleTripped:
+				blockedInResponse[key] = true
 				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
 					"tool": tc.Name, "period": cyclePeriod, "nudge": loopNudges,
 				})
@@ -2868,9 +2888,8 @@ func invokedSkillBlocks(text string, allSkills []*skills.Skill, managedDir strin
 // searching the disk for them. A skill read out of the binary has no folder.
 //
 // A skill served out of the binary has no folder of its own, but the standard
-// delivery writes the same skill into managedDir (skills.dirs may not list that
-// directory, and then the copy in the binary is the one loaded): when that copy
-// is on disk, its folder is the one named.
+// delivery writes the same skill into managedDir: when that copy is on disk,
+// its folder is the one named.
 func skillBodyForModel(sk *skills.Skill, managedDir string) string {
 	body := strings.TrimSpace(sk.Content)
 	if body == "" || !strings.EqualFold(filepath.Base(sk.FilePath), "SKILL.md") {

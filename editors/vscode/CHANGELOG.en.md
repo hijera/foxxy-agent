@@ -8,10 +8,26 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-10
+## Unreleased — 2026-11-12
 
 **Choose the compatible provider client identity.**
 OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
+
+## 0.3.45 — 2026-11-12
+
+**MCP startup diagnostics.** Connection errors mask configured credentials in backend logs and session notices, including tokens echoed in another letter case. HTTP status codes remain readable, and timeout/retry handling is preserved.
+
+**Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors. Aliases of the `skills` section preserve its sources; quoted `<<` keys do not activate nested servers or sources.
+
+**Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
+
+**History and Tasks.** Selecting another chat in History keeps the desktop Tasks panel open. The folder browser fits a phone better, with New folder and Show hidden in its footer.
+
+**Agent loop protection.** Turns default to 165 steps; explicit `max_turns: 0` disables the cap. Repeated calls are detected sooner while identical calls within one response still execute. AGENTS.md and DESIGN.md from the agent home, project and nested folders are read independently of template settings.
+
+**Review fixes.** MCP servers and skill sources inherited through YAML merges and anchors now migrate to JSON instead of being dropped. The project MCP TLS control preserves secrets and checks the declaration shown. Installed skills stay scoped to the chat while its folder loads, and project sources cannot be approved or removed against the wrong workspace before a session exists.
+
+## 0.3.44 — 2026-11-10
 
 **Notices fit narrow panels.**
 Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.

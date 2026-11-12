@@ -414,20 +414,24 @@ export function SettingsSection(props: {
         schema={sub}
         value={asObject(doc.skills)}
         onChange={(v) => setKey("skills", v)}
+        workspacePath={props.workspacePath}
+        {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})}
       />
     );
   }
 
-  // The MCP tab is API-driven (/foxxycode/mcp*): toggles and project entries
-  // persist into config.yaml / .foxxycode/mcp.json immediately, so it does not
-  // edit the settings document at all.
+  // The MCP tab is API-driven (/foxxycode/mcp*): servers and their switches live
+  // in the two mcp.json files (project switches in mcp-overrides.json) and
+  // apply at once, so it does not edit the settings document at all.
   if (section.kind === "mcp") {
     return <MCPSection {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})} />;
   }
 
-  // Subagents edits the config section like any object tab, and additionally
-  // lists the definitions of the viewed session's workspace so a project-scope
-  // one can be approved here instead of from a terminal.
+  // Subagents edits its config section like any object tab, and additionally
+  // lists the definitions of the viewed session's workspace: under ask a
+  // project-scope one carries the shield that approves it for that
+  // workspace (POST /foxxycode/subagents/{name}/trust), as foxxycode agents trust
+  // does in a terminal.
   if (section.kind === "subagents") {
     const sub = props_.subagents;
     if (!sub) {

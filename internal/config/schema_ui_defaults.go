@@ -56,7 +56,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Agent: AgentJSON{
 			Model:                         "openai/gpt-5.6-terra",
-			MaxTurns:                      AgentDefaultMaxTurns,
+			MaxTurns:                      intPtr(AgentDefaultMaxTurns),
 			LLMRetryMax:                   &llmRetryMax,
 			LLMRetryBaseMS:                AgentDefaultLLMRetryBaseMS,
 			LLMFirstTokenTimeoutMS:        &llmFirstTokenTimeoutMS,
@@ -100,20 +100,19 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			AskPrompt:   "ask.md",
 			PerProvider: &PerProviderPromptsJSON{Enabled: &perProviderEnabled},
 		},
+		// instructions.files only adds files after the AGENTS.md and
+		// DESIGN.md documents, which are read without being listed.
 		Instructions: InstructionsJSON{
 			Files: DefaultInstructionFiles(),
 		},
+		// skills.dirs only adds directories to the default folders
+		// (DefaultSkillDirs), which are read beside it and never written in.
 		Skills: SkillsJSON{
-			Dirs: []string{
-				"~/.agents/skills",
-				"${FOXXYCODE_HOME}/skills",
-				"${CWD}/.foxxycode/skills",
-			},
-			Sources:       []string{},
+			Dirs:          []string{},
+			ProjectTrust:  ProjectTrustAsk,
 			AutoDiscovery: &skillsAutoDiscovery,
 		},
-		MCPServers: []MCPServerJSON{},
-		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
+		MCP: MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
 		Tools: ToolsJSON{
 			PermissionMode:   PermModeAsk,
 			CommandAllowlist: nil,
@@ -121,7 +120,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Subagents: SubagentsJSON{
 			Enabled:               &subagentsEnabled,
-			Dirs:                  DefaultSubagentDirs(),
+			Dirs:                  []string{},
 			ProjectTrust:          SubagentsProjectTrustAsk,
 			MaxConcurrent:         SubagentsDefaultMaxConcurrent,
 			MaxDepth:              &subagentsMaxDepth,
