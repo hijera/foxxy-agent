@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "foxxycode.miniapp",
+  "id": "mp4-to-mp3",
+  "state": "draft",
+  "metadata": {
+    "name": "MP4 \u2192 MP3",
+    "goal": "Extract an MP3 audio track from an MP4 video",
+    "description": "Real ffmpeg smoke test for PR #45"
+  },
+  "requirements": {
+    "commands": [
+      {
+        "name": "extract_audio",
+        "binary": "ffmpeg",
+        "permission": "allow",
+        "template": [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-y",
+          "-i",
+          "{input_path}",
+          "-vn",
+          "-codec:a",
+          "libmp3lame",
+          "-q:a",
+          "2",
+          "{output_path}"
+        ],
+        "params": [
+          {
+            "name": "input_path",
+            "type": "file"
+          },
+          {
+            "name": "output_path",
+            "type": "file"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "tools": [
+      "cmd_extract_audio"
+    ]
+  },
+  "inputs": [
+    {
+      "id": "input_path",
+      "type": "file",
+      "title": "MP4 video",
+      "required": true,
+      "ui": {
+        "control": "file"
+      }
+    },
+    {
+      "id": "output_path",
+      "type": "string",
+      "title": "MP3 output",
+      "default": "audio.mp3",
+      "ui": {
+        "control": "text"
+      }
+    }
+  ],
+  "workflow": [
+    {
+      "id": "extract",
+      "kind": "tool",
+      "title": "Extract audio with ffmpeg",
+      "tool": "cmd_extract_audio",
+      "arguments": {
+        "input_path": {
+          "$ref": "inputs.input_path"
+        },
+        "output_path": {
+          "$ref": "inputs.output_path"
+        }
+      }
+    }
+  ],
+  "success": {
+    "mode": "all",
+    "checks": [
+      {
+        "kind": "step",
+        "step": "extract",
+        "status": "succeeded"
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "id": "result",
+      "type": "string",
+      "value": {
+        "$ref": "steps.extract.outputs.result"
+      }
+    }
+  ],
+  "runtime": {
+    "log_scope": "global",
+    "operator_event_level": "status",
+    "diagnostic_tool_events": "sanitized",
+    "persist_agent_reasoning": false
+  }
+}

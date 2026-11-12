@@ -1,0 +1,41 @@
+{
+  "id": "run-c8d36c55c83fbc97",
+  "app_id": "mp4-to-mp3",
+  "test": true,
+  "status": "succeeded",
+  "inputs": {
+    "input_path": "video sample.mp4",
+    "output_path": "audio.mp3"
+  },
+  "outputs": {
+    "result": ""
+  },
+  "steps": {
+    "extract": {
+      "id": "extract",
+      "status": "succeeded",
+      "outputs": {
+        "result": ""
+      },
+      "attempts": 1,
+      "started_at": "2026-11-12T18:05:06.243324128Z",
+      "finished_at": "2026-11-12T18:05:06.383543987Z"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "audio.mp3",
+      "sha256": "c04851e1d0fb23cdd7734dc01a69f9fffc9f0ba0e8f817b2c7d5142da55f887c",
+      "size_bytes": 11146
+    },
+    {
+      "path": "video sample.mp4",
+      "sha256": "9316e365bf4bd6e2cb9c014f169a3a23dc9e9971e1c294b718e1ae699f66169e",
+      "size_bytes": 26363
+    }
+  ],
+  "started_at": "2026-11-12T18:05:06.235597485Z",
+  "finished_at": "2026-11-12T18:05:06.385146477Z",
+  "log_path": "/tmp/pr45-demo/engine-runs/mp4-to-mp3/runs/run-c8d36c55c83fbc97/execution.log",
+  "events_path": "/tmp/pr45-demo/engine-runs/mp4-to-mp3/runs/run-c8d36c55c83fbc97/events.jsonl"
+}
