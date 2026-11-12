@@ -215,19 +215,31 @@ packs from
 .B add
 takes an
 .IR owner/repo ,
-a git URL, or a marketplace URL.
+a git URL, or a marketplace URL and declares it in
+.IR ~/.foxxycode/marketplaces.json ,
+or with
+.B \-\-project
+in the workspace's
+.IR .foxxycode/marketplaces.json .
 .TP
 .B "plugin list"
   Lists installed skills with their versions and origin.
   .TP
-.B "plugin marketplace add | list | update | remove"
+.B "plugin marketplace add | list | update | remove | trust | untrust"
   Manage skill marketplaces.
 .B add
 reads a marketplace and installs none of its plugins;
 .B update
 refreshes it and the plugins installed from it
 .RB ( sync
-is an alias).
+is an alias);
+.B trust
+and
+.B untrust
+approve or withdraw an entry of the workspace's
+.I .foxxycode/marketplaces.json
+under
+.BR skills.project_trust " ask".
 .TP
 .B "plugin install | remove | enable | disable"
 Manage installed plugins.

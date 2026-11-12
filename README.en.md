@@ -80,7 +80,8 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Five operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), `ask` (read-only answers and investigation), and `debug` (systematic root-cause diagnosis before a fix)
 - **Rules** - reads the first populated project rules root: FoxxyCode, its legacy roots, **`.agents/rules/`**, Cursor, Claude Code or Codex. Nested **`AGENTS.md`** ([agents.md](https://agents.md/)) files are read on demand for the folders a tool enters; your own **`~/.foxxycode/AGENTS.md`**, **`~/.foxxycode/DESIGN.md`** and **`~/.foxxycode/rules/`** apply in every workspace - see [Rules and instructions](docs/features/rules.md)
-- **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier), installable from any repository or marketplace with version tracking (**`skills.sources`**, **`/plugin`**, Settings → Skills) - see [Skills](docs/features/skills.md)
+- **Mandatory instructions** - `AGENTS.md` and `DESIGN.md` from the agent home, workspace root and nested folders apply independently of rules settings and prompt templates; `instructions.files` appends other documents - see [Rules and instructions](docs/features/rules.md)
+- **Skills** - slash commands and **`SKILL.md`** packs from four always-read folders (**`~/.agents/skills`**, **`${CWD}/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**), followed by additive **`skills.dirs`** (later dirs override earlier), installable from any repository or marketplace with version tracking (**`marketplaces.json`**, project trust, **`/plugin`**, Settings → Skills) - see [Skills](docs/features/skills.md)
 - **Hooks** - your own commands at lifecycle points of a session: a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, rewrite its arguments or add context; `PostToolUse` / `PostToolUseFailure` see the result; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` and `Notification` cover the rest of the turn. Definitions are JSON files in Claude Code's shape (**`~/.foxxycode/hooks.json`**, the workspace's **`.foxxycode/hooks.json`** and **`.claude/settings*.json`**); a file found inside the workspace runs nothing until it is approved there (**`foxxycode hooks trust <file>`**) - see [Hooks](docs/features/hooks.md)
 - **Session export** - the built-in `/export [md|html|json|jsonl|pdf|docx] [path]` writes the conversation to a file in the workspace, and the panel's download button renders the same document; `--no-tools` / `--no-thinking` trim it (the panel exports the conversation alone by default, the command keeps the tool calls) - see [Session export](docs/features/session-export.md)
 - **MCP server integration** - connect any MCP server for additional tools
@@ -91,10 +92,10 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Background tasks** - `run_command` can detach from the turn (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, the **Background tasks** panel shows what is still running, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a series of similar calls asks once - see [Background tasks](docs/features/background-tasks.md)
 - **Message queue** - steer a running turn or send a separate prompt after its answer, including attached images. Choose a default on first use; Tab switches the mode for one submission. Every browser, editor panel and console (`/queue`) shares the same queue - see [Message queue](docs/features/message-queue.md)
-- **Subagents** - the model delegates a bounded, self-contained task to a child agent with its own context window and session (`spawn_agent`, foreground or detached); definitions are markdown files with YAML frontmatter under **`~/.foxxycode/agents`** and **`.foxxycode/agents`** (Claude Code's **`.claude/agents`** load too), two built-ins (**`general`**, **`explore`**) ship embedded, project files need a one-time approval (**`foxxycode agents trust <name>`**), tools and permission mode can only narrow, and every run is a background task with a read-only child transcript reachable from the **Tasks** panel - see [Subagents](docs/features/subagents.md)
+- **Subagents** - the model delegates a bounded, self-contained task to a child agent with its own context window and session (`spawn_agent`, foreground or detached); definitions are markdown files with YAML frontmatter under **`~/.agents/agents`**, **`.agents/agents`**, **`~/.foxxycode/agents`** and **`.foxxycode/agents`**, plus **`subagents.dirs`** (**`.claude/agents`** requires an explicit entry there), two built-ins (**`general`**, **`explore`**) ship embedded, project files need a one-time approval (**`foxxycode agents trust <name>`**), tools and permission mode can only narrow, and every run is a background task with a read-only child transcript reachable from the **Tasks** panel - see [Subagents](docs/features/subagents.md)
 - **Transcript export** - any session downloads as **PDF**, **DOCX**, **HTML**, or **JSON**. Markdown in the messages is really rendered: tables, syntax-highlighted code, nested and task lists, blockquotes, links that stay clickable, and images from the session's own `assets/`; a remote `http(s)` image is deliberately never fetched at export time. Editor panels that cannot accept a download get a separate route that writes the document to disk and reveals it in the OS file manager - see [HTTP API](docs/reference/http-api.md)
 - **Reasoning level** - for reasoning models (gpt-5, o-series, gpt-oss, qwen3, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/getting-started/configuration.md)
-- **Agent self-configuration** - the agent can change FoxxyCode's own configuration on request, but never behind your back: `config_get` reads a dotted path (secrets come back as `<redacted>`), `config_set` **stages** uci-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file, `config_changes` shows what is staged, `config_commit` applies the batch in one transaction - schema-validated, snapshotted to `config.yaml.prev`, hot-reloading skills, rules, tools and MCP servers, and always behind a permission dialog - while `config_revert` and `config_rollback` undo the staged or the applied batch. The bundled `/configure-foxxycode` skill teaches the syntax - see [Configuration reference](docs/reference/config.md#agent-self-configuration)
+- **Agent self-configuration** - the agent can change FoxxyCode's own configuration on request, but never behind your back: `config_get` reads a dotted path (secrets come back as `<redacted>`), `config_set` **stages** uci-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file, `config_changes` shows what is staged, `config_commit` applies the batch in one transaction - schema-validated, snapshotted to `config.yaml.prev`, hot-reloading skills, rules, tools and MCP policy, and always behind a permission dialog - while `config_revert` and `config_rollback` undo the staged or the applied batch. The bundled `/configure-foxxycode` skill teaches the syntax - see [Configuration reference](docs/reference/config.md#agent-self-configuration)
 - **Improve prompt** - a wand button on the composer's context row rewrites the draft through the model (`POST /foxxycode/enhance-prompt`); **Ctrl+Z** restores the original and a failure leaves the draft untouched - see [Embedded UI](docs/surfaces/web-ui.md)
 - **ACP protocol** - FoxxyCode is an **ACP server** (`foxxycode acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 - **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/getting-started/configuration.md#ssh-remote-execution)
@@ -271,7 +272,7 @@ If **`$FOXXYCODE_HOME/config.yaml`** is absent, the loader may use **`config.yam
 
 - **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, selected with **`api_base`**, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores) and optionally **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`foxxycode providers login codex`** in a terminal (**`foxxycode codex login`** remains a deprecated alias that prints a warning); `api_key` and `api_base` are ignored and credentials live under **`$FOXXYCODE_HOME/providers/<name>/`**. The terminal login also adds the provider, the subscription models Codex lists, and an **`agent.model`** to **`config.yaml`** when they are missing (**`--no-config`** skips that). Codex is only a model backend - the agent keeps FoxxyCode's own prompt, tools and permissions - and an existing Codex CLI login at **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment: **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror); any other value falls back to the default. Instead of pasting a key you can sign in with your hub account: **`foxxycode providers login neuraldeep`** prints a short code and the hub page to confirm it on (the device flow, RFC 8628 - the browser can be on any machine, which is what a server reached over SSH needs; **`--browser`** asks for the loopback callback instead, which only completes in a browser running on this machine; **`--api-base`** picks the deployment and moves an existing row to it), stores the hub-issued key under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`foxxycode providers list`** shows every provider with the credential source requests actually use, and **`foxxycode providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
 - **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
-- **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn.
+- **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** (165 by default; explicit 0 disables the cap) and **`max_tokens_per_turn`** bound one user turn.
 
 Example (**`openai`** provider and **`gpt-5.4-mini`**; store secrets in the environment, not in git):
 
@@ -458,7 +459,7 @@ Later directories override earlier ones when the same skill name appears in mult
 
 - **[skills.sh](https://skills.sh)** — community registry, install with `npx skills add <owner/repo@skill>`
 - **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — skillsbd registry curated for FoxxyCode, install with `npx skillsbd install <name>`
-- **Marketplaces** — FoxxyCode installs skills itself from a GitHub repo (`owner/repo[@ref]`), a git URL or an agents-standard `marketplace.json` (Claude Code plugin marketplaces included), no Node.js needed. List sources under **`skills.sources`** and install on demand from **Settings → Skills** (web UI and the IntelliJ and VS Code panels), the **`/plugin`** chat command or **`foxxycode plugin …`**; installed versions and updates are tracked
+- **Marketplaces** — FoxxyCode installs skills itself from a GitHub repo (`owner/repo[@ref]`), a git URL or an agents-standard `marketplace.json` (Claude Code plugin marketplaces included), no Node.js needed. Declare sources in the global and project **`marketplaces.json`** files, with project entries requiring trust, and install on demand from **Settings → Skills** (web UI and the IntelliJ and VS Code panels), the **`/plugin`** chat command or **`foxxycode plugin …`**; installed versions and updates are tracked
 
 **CLI:**
 
@@ -476,31 +477,24 @@ See **[`docs/features/skills.md`](docs/features/skills.md)** for the full refere
 ## MCP Server Integration
 
 Connect external tools over MCP via `stdio` (a local command), `http` (Streamable HTTP with
-an automatic fallback to legacy SSE), or `sse`. Servers can be declared globally in
-`config.yaml` (`mcp_servers`) or in a Cursor-compatible `~/.foxxycode/mcp.json`, per project
-in `./.foxxycode/mcp.json` (a later level overrides a server by name), or passed per session
-by the ACP client. Whole servers and individual tools can be disabled in the configuration,
-through the `/foxxycode/mcp*` REST API, or in **Settings -> MCP servers** in the web UI.
+an automatic fallback to legacy SSE), or `sse`. Declare servers in the global
+Cursor-compatible `~/.foxxycode/mcp.json` or the project's `./.foxxycode/mcp.json`
+(project entries override names and require workspace trust), or pass them per
+session through ACP. Manage servers and individual tools through `/foxxycode/mcp*`
+or **Settings → MCP servers**. Legacy `config.yaml` declarations migrate to the
+global file on load, keeping a `config.yaml.bak-<time>` backup.
 
-Example adding a GitHub MCP server in config:
-
-```yaml
-mcp_servers:
-  - name: "github"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
-        value: "${GITHUB_TOKEN}"
-```
-
-The same server in `.foxxycode/mcp.json`, next to a remote one:
+Example `mcp.json` with a GitHub server and a remote server:
 
 ```json
 {
   "mcpServers": {
-    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
-    "remote-tools": { "url": "https://mcp.example.com/mcp" }
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+    },
+    "remote-tools": {"url": "https://mcp.example.com/mcp"}
   }
 }
 ```

@@ -1324,7 +1324,7 @@ func TestForgettingASessionDropsItsRememberedHistory(t *testing.T) {
 		t.Fatal("a save left nothing remembered to splice onto")
 	}
 
-	m := NewManager(reloadTestConfig(), nil, nil, slog.Default(), "", fs)
+	m := NewManager(reloadTestConfig(t), nil, nil, slog.Default(), "", fs)
 	m.mu.Lock()
 	m.sessions[st.ID] = st
 	m.mu.Unlock()
@@ -1353,7 +1353,7 @@ func TestForgettingASessionDropsItsRememberedHistory(t *testing.T) {
 func TestDeletingASessionTreeDropsItsRememberedHistory(t *testing.T) {
 	fs, st := savedState(t, "sess_deleted", 3)
 	msgPath := filepath.Join(st.SessionDir, messagesFile)
-	m := NewManager(reloadTestConfig(), nil, nil, slog.Default(), "", fs)
+	m := NewManager(reloadTestConfig(t), nil, nil, slog.Default(), "", fs)
 	if err := m.DeleteSessionTree(st.ID, nil); err != nil {
 		t.Fatal(err)
 	}

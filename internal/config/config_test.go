@@ -262,11 +262,61 @@ func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 	if cfg.Logger.Level != config.LogLevelInfo {
 		t.Fatalf("logger default level: %q", cfg.Logger.Level)
 	}
-	if len(cfg.Skills.Dirs) != 3 {
-		t.Fatalf("skills default dirs: len=%d", len(cfg.Skills.Dirs))
+	if len(cfg.Skills.Dirs) != 0 {
+		t.Fatalf("skills.dirs must stay empty without a config (the defaults are read beside it), got %q", cfg.Skills.Dirs)
+	}
+	if got := cfg.Skills.SearchDirs(); !reflect.DeepEqual(got, config.DefaultSkillDirs()) {
+		t.Fatalf("skills search dirs without a config: got %q, want the defaults", got)
 	}
 	if cfg.Sessions.Dir != "" {
 		t.Fatalf("sessions.dir default: %q", cfg.Sessions.Dir)
+	}
+}
+
+func TestLoadFromCLIWhenConfigMissing_UsesLoopSafetyDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvFOXXYCODEHome, home)
+	cfgPath := filepath.Join(home, "empty.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(config.EnvFOXXYCODEConfig, cfgPath)
+
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Agent.MaxTurns; got != 165 {
+		t.Fatalf("agent.max_turns = %d, want 165", got)
+	}
+	if got := cfg.Agent.EffectiveLLMRetryMax(); got != 10 {
+		t.Fatalf("agent.llm_retry_max = %d, want 10", got)
+	}
+	if got := cfg.Agent.EffectiveLoopToolRepeatLimit(); got != 2 {
+		t.Fatalf("agent.loop_tool_repeat_limit = %d, want 2", got)
+	}
+	if got := cfg.Agent.EffectiveLoopNudgeMax(); got != 1 {
+		t.Fatalf("agent.loop_nudge_max = %d, want 1", got)
+	}
+
+	path := filepath.Join(home, "unlimited.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  max_turns: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unlimited, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := unlimited.Agent.MaxTurns; got != 0 {
+		t.Fatalf("explicit YAML agent.max_turns = %d, want 0", got)
+	}
+
+	fromJSON, err := config.ParseAndValidateConfigJSON([]byte(`{"agent":{"max_turns":0}}`), config.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fromJSON.Agent.MaxTurns; got != 0 {
+		t.Fatalf("explicit JSON agent.max_turns = %d, want 0", got)
 	}
 }
 
@@ -1261,7 +1311,7 @@ func TestAgentStallRetryValidation(t *testing.T) {
 
 // Regression for hijera/foxxy-agent#146: ${CWD} is a session placeholder.
 // A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
-// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// prompts.dir) must keep it verbatim through load so every session
 // resolves it against its own workspace, while the process-scoped directories
 // (sessions, scheduler, memory, log file) still resolve it against the default
 // working directory at load time. An environment variable that happens to be
@@ -1302,20 +1352,6 @@ hooks:
 prompts:
   dir: "${CWD}/prompts"
 
-mcp_servers:
-  - name: fs
-    command: "${CWD}/bin/mcp-fs"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
-    env:
-      - name: PROJECT
-        value: "${CWD}"
-  - name: docs
-    type: http
-    url: "http://127.0.0.1:8080/mcp?root=${CWD}"
-    headers:
-      - name: X-Workspace
-        value: "${CWD}"
-
 sessions:
   dir: "${CWD}/sessions"
 
@@ -1346,11 +1382,6 @@ logger:
 		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.foxxycode/agents"},
 		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.foxxycode/hooks.json"},
 		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
-		{"mcp_servers[0].command", cfg.MCPServers[0].Command, "${CWD}/bin/mcp-fs"},
-		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
-		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
-		{"mcp_servers[1].url", cfg.MCPServers[1].URL, "http://127.0.0.1:8080/mcp?root=${CWD}"},
-		{"mcp_servers[1].headers[0].value", cfg.MCPServers[1].Headers[0].Value, "${CWD}"},
 	}
 	for _, tc := range perSession {
 		// ${FOXXYCODE_HOME} is substituted with forward slashes; compare slash-normalised.
@@ -1363,14 +1394,6 @@ logger:
 	sessionCWD := filepath.Join(dir, "project")
 	if got, want := cfg.Prompts.ResolvedDir(sessionCWD), filepath.Join(sessionCWD, "prompts"); got != want {
 		t.Errorf("prompts.ResolvedDir(session): got %q want %q", got, want)
-	}
-	// internal/mcp resolves command, args, env, url and headers with the same
-	// config.ExpandCWD at connect time (see stdioSpec and expandHeaders there).
-	if got, want := config.ExpandCWD(cfg.MCPServers[0].Args[2], sessionCWD), sessionCWD; got != want {
-		t.Errorf("mcp arg ExpandCWD(session): got %q want %q", got, want)
-	}
-	if got, want := config.ExpandCWD(cfg.MCPServers[1].URL, sessionCWD), "http://127.0.0.1:8080/mcp?root="+sessionCWD; got != want {
-		t.Errorf("mcp url ExpandCWD(session): got %q want %q", got, want)
 	}
 
 	processScoped := []struct {
@@ -1392,19 +1415,15 @@ logger:
 
 // TestInstructionsDefaultMatchesTheSchema is the guard against the drift this
 // test was written for: the loader, the UI defaults and the embedded schema all
-// have to name the same pair, or a config.yaml validates against a default the
-// binary does not apply.
+// have to name the same default, or a config.yaml validates against a default
+// the binary does not apply. Since issue #425 that default is nothing: the
+// AGENTS.md and DESIGN.md documents are read without being listed, and the
+// list only adds.
 func TestInstructionsDefaultMatchesTheSchema(t *testing.T) {
-	want := []string{"AGENTS.md", "DESIGN.md"}
 	assertFiles := func(what string, got []string) {
 		t.Helper()
-		if len(got) != len(want) {
-			t.Fatalf("%s = %v, want %v", what, got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("%s = %v, want %v", what, got, want)
-			}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("%s = %#v, want an empty list", what, got)
 		}
 	}
 
@@ -1497,5 +1516,112 @@ func TestLoadAgentModelOptional(t *testing.T) {
 	}
 	if cfg.Agent.Model != "" {
 		t.Fatalf("agent.model materialized: %q", cfg.Agent.Model)
+	}
+}
+
+// Every workspace reads four folders, lowest priority first: the user's agents
+// skills, the project's agents skills, FoxxyCode's own, the project's FoxxyCode
+// skills. skills.dirs only adds directories after them, which win a name over
+// the defaults; an absent key adds none.
+func TestSkillsDirsAddToTheFourDefaults(t *testing.T) {
+	want := []string{
+		"${HOME}/.agents/skills",
+		"${CWD}/.agents/skills",
+		"${FOXXYCODE_HOME}/skills",
+		"${CWD}/.foxxycode/skills",
+	}
+	if got := config.DefaultSkillDirs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DefaultSkillDirs() = %q, want %q", got, want)
+	}
+	var unset config.Skills
+	unset.ApplyDefaults("/home/dev/.foxxycode", func(s string) string { return s })
+	if len(unset.Dirs) != 0 {
+		t.Fatalf("an absent skills.dirs must stay empty, got %q", unset.Dirs)
+	}
+	if got := unset.SearchDirs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("absent skills.dirs reads %q, want the defaults %q", got, want)
+	}
+	set := config.Skills{Dirs: []string{"/srv/team-skills"}}
+	set.ApplyDefaults("/home/dev/.foxxycode", func(s string) string { return s })
+	if got := set.SearchDirs(); !reflect.DeepEqual(got, append(append([]string(nil), want...), "/srv/team-skills")) {
+		t.Fatalf("a set skills.dirs must come after the defaults, got %q", got)
+	}
+}
+
+// Skill marketplaces are declared in two files of one shape: the operator's
+// <home>/marketplaces.json and the project's .foxxycode/marketplaces.json. A
+// missing file declares nothing; one that does not parse is an error, so
+// nothing writes over what it holds.
+func TestMarketplacesFileReadAndWrite(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	if got := config.GlobalMarketplacesPath(home); got != filepath.Join(home, "marketplaces.json") {
+		t.Fatalf("GlobalMarketplacesPath = %q", got)
+	}
+	if got := config.ProjectMarketplacesPath(cwd); got != filepath.Join(cwd, ".foxxycode", "marketplaces.json") {
+		t.Fatalf("ProjectMarketplacesPath = %q", got)
+	}
+	empty, err := config.ReadMarketplacesFile(config.ProjectMarketplacesPath(cwd))
+	if err != nil || len(empty.Sources) != 0 || len(empty.Marketplaces) != 0 {
+		t.Fatalf("a missing file = %+v, %v", empty, err)
+	}
+	want := config.MarketplacesFile{
+		Sources:      []string{"owner/whole"},
+		Marketplaces: []config.DeclaredMarketplace{{Name: "catalog", Source: "owner/catalog"}},
+	}
+	path := config.ProjectMarketplacesPath(cwd)
+	if err := config.WriteMarketplacesFile(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.ReadMarketplacesFile(path)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("read back %+v, %v; want %+v", got, err, want)
+	}
+	if err := os.WriteFile(path, []byte(`{"sources": [`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.ReadMarketplacesFile(path); err == nil {
+		t.Fatal("a file that does not parse must be an error")
+	}
+}
+
+// skills.sources left config.yaml: a config that still has it hands the list
+// to <home>/marketplaces.json on load (a source the file has already, in any
+// case, and the system source are not repeated), the key and its comment
+// leave the file, the rest of the section stays, and one backup of the old
+// file covers this move and the mcp_servers one.
+func TestLegacySkillsSourcesMoveIntoHomeMarketplacesJSON(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(home), config.MarketplacesFile{Sources: []string{"Owner/Kept"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := "agent:\n  model: local/m\nskills:\n  dirs:\n    - /opt/team-skills\n  # Remote marketplaces\n  sources:\n    - owner/kept\n    - owner/new\n    - " + config.SystemSkillsSource + "\n  auto_discovery: false\nmcp_servers: []\nrules:\n  enable: true\n"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Skills.AutoDiscoveryEnabled() || len(cfg.Skills.Dirs) != 1 {
+		t.Fatalf("the rest of the skills section was lost: %+v", cfg.Skills)
+	}
+	got, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Sources, []string{"Owner/Kept", "owner/new"}) {
+		t.Fatalf("home marketplaces.json sources = %v", got.Sources)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent:\n  model: local/m\nskills:\n  dirs:\n    - /opt/team-skills\n  auto_discovery: false\nrules:\n  enable: true\n"; string(after) != want {
+		t.Fatalf("config.yaml after the moves:\n%s\nwant:\n%s", after, want)
+	}
+	if backups, _ := filepath.Glob(path + ".bak-*"); len(backups) != 1 {
+		t.Fatalf("want one backup for both moves, got %v", backups)
 	}
 }

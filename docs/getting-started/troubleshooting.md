@@ -145,7 +145,23 @@ foxxycode agents list [--cwd DIR]
 foxxycode agents trust <name>
 ```
 
-Both `trust` commands print what they are about to approve and record the receipt (`~/.foxxycode/hooks-trust.json`, `~/.foxxycode/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and marks the ones awaiting approval, but records none. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+Both `trust` commands print what they are about to approve and record the receipt (`~/.foxxycode/hooks-trust.json`, `~/.foxxycode/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and approves a project one with the shield of its row, which records the receipt on the server for the workspace of the chat on screen. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+
+## A project marketplace is not synced
+
+**Symptom.** A source or marketplace the project declares in `.foxxycode/marketplaces.json` installs nothing: `foxxycode skills sync` ends with a line like `? team/skills: declared by <workspace>/.foxxycode/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its **Sync** button disabled.
+
+**Cause.** That file arrives with the checkout and decides what is installed into `${FOXXYCODE_HOME}/skills`, so its entries follow `skills.project_trust`: under the default `ask` an entry takes effect only once you approve it for that workspace, and an approval is bound to the entry, so a checkout that rewrites it asks again. Under `deny` the entries are listed as switched off and never used.
+
+**Fix.** Approve it in a terminal in the workspace, or with the shield of its row in Settings > Skills:
+
+```bash
+foxxycode plugin marketplace list            # what is declared, and what waits for approval
+foxxycode plugin marketplace trust <name>    # a marketplace by name, a source by its address
+foxxycode skills sync
+```
+
+`/plugin` in a chat cannot approve one. A checkout you already trust can run under `skills.project_trust: allow`. Guide: [Skills](../features/skills.md#project-marketplaces-and-trust).
 
 ## A turn stops with a usage limit
 
@@ -257,17 +273,19 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `foxxycode -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/hijera/foxxy-agent/issues/255)).
 
-**Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn. It is off by default (`0`), so this notice appears only when the configuration sets it; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
+**Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn at 165 by default. Set it to `0` only to explicitly disable the cap; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
 
 **Fix.** Send a message to let the agent continue, or raise the limit that the notice names:
 
 ```yaml
 agent:
-  max_turns: 0          # no step limit
+  max_turns: 240        # a larger step limit for this task
 models:
   - model: openai/gpt-5.6-terra
     max_tokens: 32000
 ```
+
+Set `max_turns: 0` only when deliberately disabling the step cap.
 
 ## `foxxycode update` refuses to overwrite a packaged binary
 

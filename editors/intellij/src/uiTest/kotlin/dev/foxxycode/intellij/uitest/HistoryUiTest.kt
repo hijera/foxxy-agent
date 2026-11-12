@@ -93,6 +93,10 @@ class HistoryUiTest {
                 waitUntil("history scope control", "!!document.querySelector('[data-testid=sessions-project-only]')")
             }
             fun assertBothRows() {
+                // A developer's sandbox may already contain more than one page of history.
+                chat.click("[data-testid='sessions-search']")
+                chat.eval("document.querySelector('[data-testid=sessions-search]').select()")
+                chat.insertText("Plain history $stamp")
                 val selectors = ids.map { "a[href='#/s/$it']" }
                 val encoded = gson.toJson(selectors)
                 try {

@@ -189,11 +189,11 @@ type State struct {
 	// RulesCatalog is discovered project rules for the session CWD.
 	RulesCatalog []*rules.Rule
 	// rulesGeneration counts the catalogs this session has had: every
-	// ReplaceRulesCatalog starts a new generation. rulesPrompts are the
-	// standing part of the system prompt rendered for the current one, one per
-	// kind of template: with {{.Rules}} and without (rules_load.go).
+	// ReplaceRulesCatalog starts a new generation. rulesPrompt is the standing
+	// part of the system prompt rendered for the current one, whatever template
+	// a turn runs on (rules_load.go).
 	rulesGeneration uint64
-	rulesPrompts    [2]*RulesPrompt
+	rulesPrompt     *RulesPrompt
 	// deliveredFold is DeliveredRuleBodies' walk of the history, kept between
 	// calls and extended over what was appended since (rules_delivered.go).
 	// Guarded by deliveredMu, which is taken around the walk alone.
@@ -1917,7 +1917,7 @@ func (s *State) ReplaceRulesCatalog(cat []*rules.Rule) {
 	s.mu.Lock()
 	s.RulesCatalog = cat
 	s.rulesGeneration++
-	s.rulesPrompts = [2]*RulesPrompt{}
+	s.rulesPrompt = nil
 	s.mu.Unlock()
 }
 

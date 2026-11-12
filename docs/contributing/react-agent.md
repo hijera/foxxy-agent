@@ -123,7 +123,7 @@ would have taken it in. A rule the model can already read with the same text - i
 or message it is still sent - is not attached again; one a compaction folded away, or whose file has
 changed since, comes back with the next matching call, and a call on the rule document itself does
 not get it back as a rule. The rules and instructions blocks of the system prompt themselves are rendered once per rules
-generation of the session (**`standingPrompt`**, **`session.RulesPrompt`**), so an **`AGENTS.md`**
+generation of the session (**`standingParts`**, **`session.RulesPrompt`**), so an **`AGENTS.md`**
 edited mid-session does not move **`messages[0]`** either; a compaction starts the next generation.
 See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache).
 
@@ -240,9 +240,9 @@ messages: [
 
 6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
-   - If max_turns is set and turn_count >= max_turns -> DONE (stopReason: max_turns;
-     the turn's stop notice names the key that set the limit). max_turns 0, the
-     default, is no step limit
+   - If turn_count >= max_turns -> DONE (stopReason: max_turns;
+     the turn's stop notice names the key that set the limit). max_turns defaults
+     to 165; an explicit 0 disables the step limit
    - Otherwise -> back to step 2
 
    Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
@@ -401,7 +401,7 @@ turn says something:
   per-turn budget as a stall and the same repeat detector watches it. A refusal (4xx) and a
   limit (429) are not recovered. A failure before any text uses the shared
   **`llm_retry_max`** allowance; a stall wait cannot start a new allowance.
-- **The step limit.** A turn that reaches **`agent.max_turns`** (0 or unset means no step limit) ends with a notice naming the limit, streamed and stored the
+- **The step limit.** A turn that reaches **`agent.max_turns`** (165 by default; an explicit 0 disables the cap) ends with a notice naming the limit, streamed and stored the
   way the output-cap notice is (`internal/agent/stop_notice.go`). The session manager also
   hands the text back as **`SessionPromptResult.StopNotice`**, which the HTTP API passes on
   as **`meta.stop_notice`**; the surfaces that show the stream do not print it again.
