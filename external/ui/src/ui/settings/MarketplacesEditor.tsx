@@ -307,7 +307,7 @@ export function MarketplacesEditor(props: {
                   <button
                     type="button"
                     className={`settings-btn settings-btn-icon${e.trusted ? " is-trusted" : " settings-btn-approve"}`}
-                    disabled={!!busy[key]}
+                    disabled={!projectScopeAvailable || !!busy[key]}
                     onClick={() => onToggleTrust(e)}
                     title={
                       e.trusted
@@ -349,7 +349,11 @@ export function MarketplacesEditor(props: {
                 <button
                   type="button"
                   className="settings-btn settings-btn-icon settings-btn-danger"
-                  disabled={e.origin === "system" || !!busy[key]}
+                  disabled={
+                    e.origin === "system" ||
+                    (e.origin === "project" && !projectScopeAvailable) ||
+                    !!busy[key]
+                  }
                   onClick={() => onRemove(e)}
                   title={
                     e.origin === "system"

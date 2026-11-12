@@ -51,12 +51,12 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 	}
 	root := doc.Content[0]
 	var moves []legacyMove
-	if k, v := mappingEntry(root, "mcp_servers"); k != nil {
+	if k, v := mappingEntryEffective(root, "mcp_servers"); k != nil {
 		moves = append(moves, legacyMove{path: "mcp_servers", key: k, value: v,
 			move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacyMCPServers(paths, v) }})
 	}
-	if _, skills := mappingEntry(root, "skills"); skills != nil && skills.Kind == yaml.MappingNode {
-		if k, v := mappingEntry(skills, "sources"); k != nil {
+	if _, skills := mappingEntryEffective(root, "skills"); skills != nil && skills.Kind == yaml.MappingNode {
+		if k, v := mappingEntryEffective(skills, "sources"); k != nil {
 			moves = append(moves, legacyMove{path: "skills.sources", key: k, value: v,
 				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacySkillSources(paths, v) }})
 		}
@@ -104,7 +104,7 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 		// block of lines: cutting it would take its neighbours along or leave
 		// a bracket behind. What it held is moved all the same (a repeat is
 		// kept as it is the next time); the key stays for the operator.
-		if !cutKeepsTheRest(data, cutKeyBlocks(data, root, m.key), [][]string{strings.Split(m.path, ".")}) {
+		if !cutKeepsTheRest(data, cutKeyBlocks(data, root, m.key), root, [][]string{strings.Split(m.path, ".")}, m.key) {
 			log.Warn("config: moved a key out of config.yaml but it cannot be cut out of the file without touching its neighbours; delete it by hand", "key", m.path, "config", paths.ConfigPath)
 			continue
 		}
@@ -122,7 +122,7 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 		cut = append(cut, strings.Split(m.path, "."))
 	}
 	next := cutKeyBlocks(data, root, keys...)
-	if !cutKeepsTheRest(data, next, cut) {
+	if !cutKeepsTheRest(data, next, root, cut, keys...) {
 		log.Warn("config: keys moved but config.yaml would not read the same without them; left as it is", "config", paths.ConfigPath)
 		return data
 	}
@@ -134,15 +134,20 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 }
 
 // cutKeepsTheRest reports whether next, data with the keys at paths cut out
-// of its text, reads as exactly the document data reads as without them. A
-// mapping left without keys reads as an empty one either way.
-func cutKeepsTheRest(data, next []byte, paths [][]string) bool {
+// of its text, reads as exactly the document data reads as without them. The
+// declaration nodes locate those keys inside an anchor as well as at the root:
+// a merged declaration lives in both views of the document. A mapping left
+// without keys reads as an empty one either way.
+func cutKeepsTheRest(data, next []byte, root *yaml.Node, paths [][]string, declarations ...*yaml.Node) bool {
 	var want, got any
 	if yaml.Unmarshal(data, &want) != nil || yaml.Unmarshal(next, &got) != nil {
 		return false
 	}
 	for _, path := range paths {
 		dropYAMLPath(want, path)
+	}
+	for _, key := range declarations {
+		dropYAMLDeclaration(want, root, key)
 	}
 	return reflect.DeepEqual(emptyMapsAsNil(want), emptyMapsAsNil(got))
 }
@@ -158,6 +163,71 @@ func dropYAMLPath(doc any, path []string) {
 		return
 	}
 	dropYAMLPath(m[path[0]], path[1:])
+}
+
+// dropYAMLDeclaration removes from the decoded document the mapping key that
+// key names in the syntax tree, wherever an anchor declares it.
+func dropYAMLDeclaration(doc any, root, key *yaml.Node) {
+	path, ok := yamlKeyPath(root, key, nil)
+	if !ok {
+		return
+	}
+	for i := 0; i+1 < len(path); i++ {
+		switch step := path[i].(type) {
+		case string:
+			m, ok := doc.(map[string]any)
+			if !ok {
+				return
+			}
+			doc = m[step]
+		case int:
+			items, ok := doc.([]any)
+			if !ok || step < 0 || step >= len(items) {
+				return
+			}
+			doc = items[step]
+		}
+	}
+	name, ok := path[len(path)-1].(string)
+	if !ok {
+		return
+	}
+	if m, ok := doc.(map[string]any); ok {
+		delete(m, name)
+	}
+}
+
+// yamlKeyPath returns the mapping keys and sequence indices that reach key in
+// the syntax tree. The last step is the declaration's own mapping key.
+func yamlKeyPath(n, key *yaml.Node, prefix []any) ([]any, bool) {
+	if n == nil {
+		return nil, false
+	}
+	switch n.Kind {
+	case yaml.DocumentNode:
+		for _, child := range n.Content {
+			if path, ok := yamlKeyPath(child, key, prefix); ok {
+				return path, true
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			if k == key {
+				return append(prefix, k.Value), true
+			}
+			if path, ok := yamlKeyPath(v, key, append(prefix, k.Value)); ok {
+				return path, true
+			}
+		}
+	case yaml.SequenceNode:
+		for i, child := range n.Content {
+			if path, ok := yamlKeyPath(child, key, append(prefix, i)); ok {
+				return path, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // emptyMapsAsNil makes a mapping with no keys and an empty value the same,
@@ -192,6 +262,47 @@ func mappingEntry(m *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
 		}
 	}
 	return nil, nil
+}
+
+// mappingEntryEffective finds key where the YAML merge keys make it effective,
+// returning the node that declares it so the migration can cut that declaration.
+// A direct key wins over an inherited one; entries of a merge sequence keep
+// YAML's first-one-wins order.
+func mappingEntryEffective(m *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
+	seen := map[*yaml.Node]bool{}
+	var find func(*yaml.Node) (*yaml.Node, *yaml.Node)
+	find = func(m *yaml.Node) (*yaml.Node, *yaml.Node) {
+		m = resolveAlias(m)
+		if m == nil || m.Kind != yaml.MappingNode || seen[m] {
+			return nil, nil
+		}
+		seen[m] = true
+		if k, v := mappingEntry(m, key); k != nil {
+			return k, v
+		}
+		for i := 0; i+1 < len(m.Content); i += 2 {
+			if m.Content[i].Value != "<<" {
+				continue
+			}
+			merged := resolveAlias(m.Content[i+1])
+			if merged == nil {
+				continue
+			}
+			if merged.Kind == yaml.SequenceNode {
+				for _, item := range merged.Content {
+					if k, v := find(item); k != nil {
+						return k, v
+					}
+				}
+				continue
+			}
+			if k, v := find(merged); k != nil {
+				return k, v
+			}
+		}
+		return nil, nil
+	}
+	return find(m)
 }
 
 // moveLegacyMCPServers writes the servers of an old mcp_servers list into

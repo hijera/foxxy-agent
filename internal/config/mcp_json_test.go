@@ -445,6 +445,44 @@ func TestLegacyMCPServersMoveIntoHomeMCPJSON(t *testing.T) {
 	}
 }
 
+func TestLegacyDeclarationsMoveFromYAMLMerge(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	path := filepath.Join(dir, "config.yaml")
+	body := "common: &common\n  mcp_servers:\n    - name: merged\n      command: merged-server\n  skills:\n    sources:\n      - example/merged-skills\n<<: *common\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := Paths{Home: home, CWD: dir, ConfigPath: path}
+	if _, err := LoadWithPaths(paths); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := ReadMCPJSONFile(GlobalMCPJSONPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := servers["merged"]; got.Command != "merged-server" {
+		t.Errorf("merged mcp_servers declaration was not migrated: %+v", servers)
+	}
+	marketplaces, err := ReadMarketplacesFile(GlobalMarketplacesPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marketplaces.Sources) != 1 || marketplaces.Sources[0] != "example/merged-skills" {
+		t.Errorf("merged skills.sources declaration was not migrated: %v", marketplaces.Sources)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(after), "mcp_servers") || strings.Contains(string(after), "sources") {
+		t.Fatalf("migrated declarations remain in config.yaml:\n%s", after)
+	}
+	if _, err := LoadWithPaths(paths); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // An empty mcp_servers (the old example config had one) is just dropped.
 func TestLegacyEmptyMCPServersKeyIsDropped(t *testing.T) {
 	dir := t.TempDir()

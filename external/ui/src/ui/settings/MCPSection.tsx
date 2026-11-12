@@ -295,9 +295,11 @@ export function MCPSection(props: { activeSessionId?: string }) {
       if (row.insecure_skip_verify) delete entry.insecureSkipVerify;
       else entry.insecureSkipVerify = true;
       const scope = row.origin === "home" ? "global" : "local";
+      const query = new URLSearchParams({ scope });
+      if (row.fingerprint) query.set("fingerprint", row.fingerprint);
       const res = await apiSend(
         activeSessionId,
-        `/foxxycode/mcp/${encodeURIComponent(row.name)}?scope=${scope}`,
+        `/foxxycode/mcp/${encodeURIComponent(row.name)}?${query.toString()}`,
         "PUT",
         entry,
       );

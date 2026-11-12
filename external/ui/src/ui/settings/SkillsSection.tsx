@@ -34,11 +34,12 @@ type SkillUpdate = {
 // workspacePath names the folder ${CWD} in skills.dirs resolves against, so the
 // project skills listed are those of the chat's workspace, like Subagents.
 async function fetchInstalled(
+  sessionId: string | undefined,
   workspacePath: string | undefined,
 ): Promise<InstalledSkill[]> {
-  const path = (workspacePath || "").trim();
   const res = await fetch(
-    path ? `/foxxycode/skills?cwd=${encodeURIComponent(path)}` : "/foxxycode/skills",
+    withMarketplaceWorkspace("/foxxycode/skills", workspacePath),
+    { headers: sessionHeaders(sessionId) },
   );
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: InstalledSkill[] };
@@ -178,17 +179,17 @@ export function SkillsSection(props: {
   // A list asked for a workspace left since (Settings open while another
   // folder is picked) must not paint over the list of the current one.
   const installedGenRef = useRef(0);
+  const sessionId = props.activeSessionId;
   const loadInstalled = useCallback(async (firstLoad = false) => {
     const gen = ++installedGenRef.current;
     if (firstLoad) setLoading(true);
-    const rows = await fetchInstalled(workspacePath);
+    const rows = await fetchInstalled(sessionId, workspacePath);
     if (gen !== installedGenRef.current) return;
     setInstalled(rows);
     // The latest load ends the placeholder, whichever call started it.
     setLoading(false);
-  }, [workspacePath]);
+  }, [sessionId, workspacePath]);
 
-  const sessionId = props.activeSessionId;
   const updatesGenRef = useRef(0);
   const refreshUpdates = useCallback(async () => {
     const gen = ++updatesGenRef.current;
@@ -236,9 +237,15 @@ export function SkillsSection(props: {
     void (async () => {
       // The same workspace the list was read for: a project skill of the
       // chat's folder is found there, not in the server's default cwd.
-      const path = (workspacePath || "").trim();
-      const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}` +
-          (path ? `?cwd=${encodeURIComponent(path)}` : ""), "DELETE");
+      const res = await apiSend(
+        withMarketplaceWorkspace(
+          `/foxxycode/skills/${encodeURIComponent(skill.name)}`,
+          workspacePath,
+        ),
+        "DELETE",
+        undefined,
+        sessionId,
+      );
       if (!res.ok) {
         setError(res.error || t("settings.skills.deleteFailed"));
       } else {

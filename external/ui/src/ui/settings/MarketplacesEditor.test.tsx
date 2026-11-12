@@ -452,6 +452,10 @@ test("a folder picked before the session scopes the list and sync", async () => 
   expect(calls[0]?.url).toBe(
     "/foxxycode/skills/sources?cwd=%2Fwork%2Fpicked",
   );
+  // Mutations stay session-scoped: without one the server would take its
+  // default workspace, not the folder whose declaration is on screen.
+  expect(screen.getByTestId("skills-marketplace-trust-team/data-skills")).toBeDisabled();
+  expect(screen.getByTestId("skills-marketplace-remove-team/data-skills")).toBeDisabled();
   fireEvent.click(screen.getByTestId("skills-sync-all"));
   await waitFor(() =>
     expect(calls.find((c) => c.method === "POST")?.url).toBe(

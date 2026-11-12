@@ -671,6 +671,36 @@ test("ticking the checkbox PUTs the whole entry with insecureSkipVerify", async 
   });
 });
 
+test("a project TLS toggle sends the fingerprint of the declaration shown", async () => {
+  const calls: Array<{ url: string; method: string }> = [];
+  const projectRemote = {
+    ...remoteListResponse,
+    items: [{
+      ...remoteListResponse.items[0],
+      source: "local",
+      origin: "project",
+      headers: { Authorization: "<redacted>" },
+      fingerprint: "sha256:shown",
+      trusted: true,
+      gated: true,
+    }],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? "GET" });
+      return Promise.resolve({ ok: true, json: async () => projectRemote });
+    }),
+  );
+  render(<MCPSection activeSessionId="sess_repo" />);
+  fireEvent.click(await screen.findByTestId("mcp-insecure-selfsigned"));
+
+  await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+  expect(calls.find((c) => c.method === "PUT")?.url).toBe(
+    "/foxxycode/mcp/selfsigned?scope=local&fingerprint=sha256%3Ashown",
+  );
+});
+
 test("unticking it removes the key instead of writing an explicit false", async () => {
   const calls: Array<{ url: string; method: string; body?: string | undefined }> = [];
   vi.stubGlobal(

@@ -234,3 +234,39 @@ test("marketplace actions follow a folder picked before the session", async () =
   fireEvent.click(await screen.findByTestId("skills-update-dat-report"));
   await waitFor(() => expect(seen).toContain("/foxxycode/skills/dat-report/update?cwd=%2Fprojects%2Fdata"));
 });
+
+test("the installed list and delete use the live session while workspace context is pending", async () => {
+  const seen: Array<{ url: string; method: string; session: string | null }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      seen.push({
+        url,
+        method: init?.method ?? "GET",
+        session: new Headers(init?.headers).get("X-FoxxyCode-Session-ID"),
+      });
+      if (url === "/foxxycode/skills") {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ name: "dat-report", file_path: "/projects/data/.foxxycode/skills/dat-report/SKILL.md", enabled: true }],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ items: [], entries: [] }) };
+    }),
+  );
+  render(
+    <SkillsSection
+      schema={schema}
+      value={{}}
+      onChange={() => {}}
+      activeSessionId="sess_data"
+    />,
+  );
+  fireEvent.click(await screen.findByTestId("skills-delete-dat-report"));
+  await waitFor(() => expect(seen.some((c) => c.method === "DELETE")).toBe(true));
+  expect(seen.find((c) => c.url === "/foxxycode/skills")?.session).toBe("sess_data");
+  expect(seen.find((c) => c.method === "DELETE")?.session).toBe("sess_data");
+});
