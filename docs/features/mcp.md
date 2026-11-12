@@ -253,9 +253,16 @@ variables of the FoxxyCode process the values take. The command, its arguments a
 listed as written, since they are what an approval is about, so a secret belongs in `env` or
 `headers`, or better in the environment as `${NAME}`. A probe error is cleaned the same way
 before it is listed: the URL appears as written, `${NAME}` references included, and a value
-the declaration resolves to (an env or header value, a variable it reads, eight characters or
-longer) reads `<redacted>` even when the server echoed it back. The console's and Telegram's
-`/mcp` show the same cleaned error.
+the declaration resolves to reads `<redacted>` even when the server echoed it back in a
+different ASCII letter case. Whole env/header values are masked at any length; words within
+a longer value are masked from eight characters, and short values match only whole tokens
+so a value of `1` leaves `HTTP 401` readable. The console's and Telegram's `/mcp` show the
+same cleaned error.
+
+Configured connection failures are cleaned before returning to their caller, so pool and
+session startup warnings, including the backend output captured by an IDE, use the same
+masked message. Transport diagnostics, including a successful fallback to legacy SSE,
+use the same filtering. The original error cause remains available to timeout and retry checks.
 
 The editor starts from the listed entry, placeholders included. A value left as `<redacted>`
 keeps what the file stores, a new value replaces it, and a key removed from the JSON is

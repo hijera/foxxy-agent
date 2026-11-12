@@ -15,6 +15,28 @@ import (
 // keeps an ordinary word of a longer value from mangling unrelated text.
 const redactMinLength = 8
 
+// redactError masks a configured server's failure before the pool or a session
+// can log or display it. Keep the cause so timeout and retry classification
+// through errors.Is and errors.As still sees the transport's original error.
+func redactError(srv config.MCPServerConfig, cwd string, err error) error {
+	if err == nil {
+		return nil
+	}
+	message := RedactValues(srv, cwd, err.Error())
+	if message == err.Error() {
+		return err
+	}
+	return &redactedError{cause: err, message: message}
+}
+
+type redactedError struct {
+	cause   error
+	message string
+}
+
+func (e *redactedError) Error() string { return e.message }
+func (e *redactedError) Unwrap() error { return e.cause }
+
 // RedactValues takes out of a message about srv - the probe or connect error a
 // surface shows next to the server - what its declaration resolves to and the
 // list never shows. The URL as contacted becomes the URL as written, since a

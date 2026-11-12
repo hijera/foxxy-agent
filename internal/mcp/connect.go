@@ -51,7 +51,11 @@ var connectTimeout = 30 * time.Second
 // The bound applies to the handshake only. A stdio server's *process* is deliberately
 // detached from ctx (see newStdioTransport), and a handshake that times out closes the client,
 // which kills and reaps that process.
-func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *slog.Logger) (*Client, error) {
+func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *slog.Logger) (client *Client, err error) {
+	defer func() { err = redactError(srv, cwd, err) }()
+	if log != nil {
+		log = slog.New(redactingHandler{Handler: log.Handler(), server: srv, cwd: cwd})
+	}
 	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 	switch EffectiveTransport(srv) {
