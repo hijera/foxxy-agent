@@ -58,8 +58,8 @@ fork-specific structure rather than merging upstream schema strings into it.
 
 ## Validation and evidence
 
-- `make test-agent-rules`: 15 cross-adapter tests pass, including concurrent
-  delivery, lifecycle state and Kimi Code; seven legacy Kimi tests also pass.
+- `make test-agent-rules`: 15 cross-adapter and ten OpenCode tests pass,
+  including concurrent delivery, lifecycle state and Kimi Code.
 - Focused Go tests pass for agent, session, config, dry-run, rules and all
   gateway packages, including Pachca and Telegram. The full shipped-tag tree
   compiles. `internal/forkguard` and every behavioral guard of the touched
@@ -77,5 +77,6 @@ fork-specific structure rather than merging upstream schema strings into it.
   18 VS Code changelog tests pass. `make lint`, `make check-windows` and
   `make lint-windows` pass.
 
-The final express `make test`, lint and ledger recording are completed in the
-closing commit; CI's tag matrix and race detector remain PR checks.
+The final express `GOFLAGS='-count=1 -p=2 -timeout=20m' make test` passes:
+all 342 SPA files / 3,370 tests and the complete shipped-tag Go tree. The ledger
+records all 58 upstream commits. CI's tag matrix and race detector remain PR checks.
