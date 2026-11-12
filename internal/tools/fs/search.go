@@ -30,7 +30,7 @@ var errStopSearch = errors.New("search result limit reached")
 // ripgrep is available and whenever the pattern is encoding-sensitive. It walks
 // regular files under root, skips binaries, and emits path:line:content records
 // up to maxResults.
-func nativeGrepSearch(ctx context.Context, root, glob, storeRoot string, matcher *regexp.Regexp, maxResults int) (string, error) {
+func nativeGrepSearch(ctx context.Context, root, glob, storeRoot string, matcher *regexp.Regexp, maxResults int, allowPath func(string) bool) (string, error) {
 	var output strings.Builder
 	matchCount := 0
 	emit := func(filePath string, lineNumber int, line string) error {
@@ -44,7 +44,7 @@ func nativeGrepSearch(ctx context.Context, root, glob, storeRoot string, matcher
 		}
 		return nil
 	}
-	err := walkSearchFiles(ctx, root, glob, storeRoot, func(filePath string) error {
+	err := walkSearchFiles(ctx, root, glob, storeRoot, allowPath, func(filePath string) error {
 		return searchFileLines(ctx, filePath, matcher, emit)
 	})
 	if errors.Is(err, errStopSearch) {
@@ -137,7 +137,7 @@ func nativeGlob(ctx context.Context, root, pattern, storeRoot string) ([]string,
 		return nil, err
 	}
 	var paths []string
-	err := walkSearchFiles(ctx, root, pattern, storeRoot, func(filePath string) error {
+	err := walkSearchFiles(ctx, root, pattern, storeRoot, nil, func(filePath string) error {
 		paths = append(paths, filePath)
 		return nil
 	})
@@ -147,8 +147,11 @@ func nativeGlob(ctx context.Context, root, pattern, storeRoot string) ([]string,
 // walkSearchFiles visits regular files under root that match pattern, skipping
 // dotfiles, symlinks, and the FoxxyCode session store. Unlike ripgrep it does not
 // honor .gitignore, so fallback results may include vendored trees.
-func walkSearchFiles(ctx context.Context, root, pattern, storeRoot string, visit func(string) error) error {
+func walkSearchFiles(ctx context.Context, root, pattern, storeRoot string, allowPath func(string) bool, visit func(string) error) error {
 	root = filepath.Clean(root)
+	if allowPath != nil && !allowPath(root) {
+		return nil
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		return err
@@ -174,6 +177,12 @@ func walkSearchFiles(ctx context.Context, root, pattern, storeRoot string, visit
 			return nil
 		}
 		if filePath == root {
+			return nil
+		}
+		if allowPath != nil && !allowPath(filePath) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if isWithinDir(filePath, storeRoot) {

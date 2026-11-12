@@ -2359,11 +2359,16 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// call's dialog, and the rest of the batch runs under that.
 	env.PermissionMode = effectivePermMode(a.state, a.cfg)
 	env.Confined = false
+	env.ReadPathAllowed = nil
 	if st := sessionStatePtr(a.state); st != nil {
 		if r := st.GetTurnRestriction(); r != nil {
 			env.Confined = r.ConfineToWorkspace
 			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
 				return "", err
+			}
+			if env.Confined {
+				cwd, home := env.CWD, a.cfg.Paths.Home
+				env.ReadPathAllowed = func(p string) bool { return session.PathInWorkspace(p, cwd, home) }
 			}
 		}
 	}

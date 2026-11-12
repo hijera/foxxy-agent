@@ -582,6 +582,8 @@ The bot sees who wrote every message, and its admins (`gateways.telegram.admins`
 
 The tool definitions the model sees stay the same, so the provider's prompt cache holds across admins and everybody else in one shared session. A bot with an empty `admins` list therefore lets everybody only chat; `foxxycode serve --dry-run` warns about it.
 
+Restricted `grep` checks every directory and file before reading it, including when `path` is omitted. An agent home nested inside the workspace is skipped before matches count toward the result limit. These turns use the built-in search walker to enforce that boundary; ordinary unrestricted searches keep their existing backend selection.
+
 What changes the settings is the admins' in a group: the settings commands (`/agent`, `/plan`, `/ask`, `/think`, `/nothink`, `/reasoning`, `/model <id>`), the `/model` menu and its taps, `/clear` and `/resume`. Anybody else gets *Only the bot's admins can change settings in this chat.* and nothing changes; in a private chat each person still changes their own session. The `/mcp` switches change the whole agent's configuration, so a tap on them is the admins' in every chat, and so is `/resume`, which reaches every session the server keeps, the operator's own included.
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
