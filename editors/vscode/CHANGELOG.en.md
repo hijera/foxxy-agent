@@ -10,7 +10,7 @@
 
 ## Unreleased — 2026-11-12
 
-**Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors.
+**Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors. Aliases of the `skills` section preserve its sources; quoted `<<` keys do not activate nested servers or sources.
 
 **Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
 

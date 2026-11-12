@@ -55,7 +55,7 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 		moves = append(moves, legacyMove{path: "mcp_servers", key: k, value: v,
 			move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacyMCPServers(paths, v) }})
 	}
-	if _, skills := mappingEntryEffective(root, "skills"); skills != nil && skills.Kind == yaml.MappingNode {
+	if _, skills := mappingEntryEffective(root, "skills"); skills != nil {
 		if k, v := mappingEntryEffective(skills, "sources"); k != nil {
 			moves = append(moves, legacyMove{path: "skills.sources", key: k, value: v,
 				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacySkillSources(paths, v) }})
@@ -281,7 +281,7 @@ func mappingEntryEffective(m *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
 			return k, v
 		}
 		for i := 0; i+1 < len(m.Content); i += 2 {
-			if m.Content[i].Value != "<<" {
+			if m.Content[i].Value != "<<" || m.Content[i].ShortTag() != "!!merge" {
 				continue
 			}
 			merged := resolveAlias(m.Content[i+1])

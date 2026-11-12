@@ -112,6 +112,10 @@ load of such a file moves the list into `~/.foxxycode/mcp.json` and takes the ke
   with it, the old file is kept beside it as `config.yaml.bak-<time>`, and the log names
   the servers that moved and the ones the file already had.
 
+Declarations inherited through YAML merges and aliases move with their effective values.
+A quoted `"<<"` key or one explicitly tagged `!!str` is an ordinary string key, not a merge:
+servers or sources nested under it are not activated or migrated.
+
 When `~/.foxxycode/mcp.json` cannot be read, nothing moves: the log says why, and the old list
 stays in `config.yaml`, unused, until the file is repaired; a save from Settings keeps it there
 as it is. The block ends where the parser puts the next key, so a comment at column 0 among

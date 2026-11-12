@@ -288,6 +288,10 @@ themselves:
   file unless it declares that name or source already. `.marketplaces.json` stays, holding only the
   plugin lists FoxxyCode read from each marketplace.
 
+Sources inherited through YAML merges or a reference to the whole skills section
+(`skills: *skill_defaults`) move too. Other settings in that section and its aliases remain
+effective, and loading the rewritten file again does not add the sources a second time.
+
 The move follows the rules of the `mcp_servers` one ([MCP](mcp.md#moving-from-configyaml)): a
 file it moves into that does not read moves nothing and a save keeps the key, a key inside a
 flow mapping (`skills: {sources: [...], ...}`) has its sources moved and stays for you to delete,
