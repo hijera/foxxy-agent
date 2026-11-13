@@ -17,7 +17,7 @@ locally and requires no external model or user data.
 - Reload the browser and reopen the persisted player/download.
 - Release version 1.0.0, upload a different video and complete a second run.
 - Upload a video without audio: the run fails and no old confirmation is shown.
-- Open a previous successful result from history.
+- Open a previous successful result from history. Saved success remains at 100% even without live progress events.
 - Capture Dark at 1280/390 px and Light at 1280 px, checking horizontal overflow.
 
 The HTTP BDD suite also restarts the service and downloads the same file again,
@@ -36,3 +36,5 @@ installed ffmpeg executable (or the profile's explicitly approved installer).
 Uploads are limited to 256 MiB/file, 16 files/input and 512 MiB staged/app.
 Staging expires after 24 hours; passing-test source fixtures remain private and
 are invalidated when the draft is saved. Declared output files persist per run.
+
+`audio-history-after-restart.png` captures the final `a8d645f2f` build after a real server restart: persisted audio, download action and completed progress remain available.
