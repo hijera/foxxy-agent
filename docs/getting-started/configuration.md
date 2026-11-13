@@ -9,7 +9,7 @@ This page is the narrative guide. Two companion artifacts cover the full key lis
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
-**FoxxyCode writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /foxxycode/config`), `foxxycode mcp add`, a skill source, a provider login, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, the order the keys are already in and the way you wrote every value they do not change (see [Environment variable references](#environment-variable-references)). A save writes the keys the file already has plus whatever actually differs from the built-in defaults - optional fields that were never set are left out entirely rather than written as `null`, so a file that keeps whole sections commented out stays that way, and a provider or a model entry keeps only the fields it named. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
+**FoxxyCode writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /foxxycode/config`), a skill source, a provider login, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, the order the keys are already in and the way you wrote every value they do not change (see [Environment variable references](#environment-variable-references)). A save writes the keys the file already has plus whatever actually differs from the built-in defaults - optional fields that were never set are left out entirely rather than written as `null`, so a file that keeps whole sections commented out stays that way, and a provider or a model entry keeps only the fields it named. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
 
 ```json
 "yaml.schemas": { "https://hijera.github.io/foxxy-agent/config.schema.json": ["**/.foxxycode/config.yaml"] }
@@ -76,7 +76,7 @@ Every on/off switch is spelled `enable` (`httpserver.enable`, `memory.enable`, `
 - **memory** - `memory.additional_prompt` longer than `memory.additional_prompt_max_chars` is a warning at the key: the memory subagent reads the cut text;
 - **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
 - **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`foxxycode providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
-- **MCP servers** from `config.yaml` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.foxxycode/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
+- **MCP servers** of `~/.foxxycode/mcp.json` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.foxxycode/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
 - **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
 - **remotes** - each `httpserver.remotes[]` URL is asked for an answer (a warning when down, since it is used only on request), and the `--remote` target of a console or `acp` run has to accept the token;
 - **listen addresses** - `foxxycode http` binds the address `-H`/`-P` select (`httpserver.host` and `httpserver.port` when the flags are left alone) once and releases it; `foxxycode serve` does the same for every subsystem the configuration and the typed flags enable, resolved as a start would resolve them (a surface this binary was not built with is an error, not a silent skip). A port another process holds is named together with the line that set it;
@@ -99,9 +99,8 @@ warning  skills.dirs[0]: /home/me/.foxxycode/skills does not exist
 warning  skills.dirs[1]: /opt/team-skills does not exist
          at /home/me/.foxxycode/config.yaml:22:34
          fix: create it or remove the entry; a ${CWD} entry is resolved per session, so a folder missing here may exist in another workspace
-error    mcp_servers[tickets]: command "ticket-mcp" not found in PATH
-         at /home/me/.foxxycode/config.yaml:20:14
-         fix: install it or write an absolute path in mcp_servers[tickets].command
+error    mcp.json[tickets]: command "ticket-mcp" not found in PATH
+         fix: install it or write an absolute path as the command of tickets in /home/me/.foxxycode/mcp.json
 warning  models[local/llama-4]: not in the model list of provider local (the server may still serve it)
          at /home/me/.foxxycode/config.yaml:11:5
          fix: check the model id; the provider lists gpt-oss-20b, qwen3.6-35b
@@ -124,11 +123,9 @@ warning  skills.dirs[0]: /home/me/.foxxycode/skills does not exist
 warning  skills.dirs[1]: /opt/team-skills does not exist
          at /home/me/.foxxycode/config.yaml:22:34
          fix: create it or remove the entry; a ${CWD} entry is resolved per session, so a folder missing here may exist in another workspace
-ok       mcp_servers[context7]: command "npx" resolves to /usr/bin/npx
-         at /home/me/.foxxycode/config.yaml:17:14
-error    mcp_servers[tickets]: command "ticket-mcp" not found in PATH
-         at /home/me/.foxxycode/config.yaml:20:14
-         fix: install it or write an absolute path in mcp_servers[tickets].command
+ok       mcp.json[context7]: command "npx" resolves to /usr/bin/npx
+error    mcp.json[tickets]: command "ticket-mcp" not found in PATH
+         fix: install it or write an absolute path as the command of tickets in /home/me/.foxxycode/mcp.json
 ok       providers[local]: openai at http://127.0.0.1:18731/v1 lists 2 models
          at /home/me/.foxxycode/config.yaml:3:5
 ok       models[local/qwen3.6-35b]: listed by provider local
@@ -237,7 +234,7 @@ agent:
                                # starts a prompt of its own after the answer. Unset (the
                                # default), the browser and the console ask on the first such
                                # message; Tab sends the other way for one submission.
-  max_turns: 0                 # ReAct iterations per prompt, unanswered retries and continuations excluded; 0 (default) = no limit
+  max_turns: 165               # ReAct iterations per prompt, unanswered retries and continuations excluded; 0 explicitly disables the limit
   llm_retry_max: 10             # shared per-step budget: transport retries + no-answer recoveries
                                # (default 10; 0 disables these retries, not separately configured continuations)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
@@ -261,10 +258,10 @@ agent:
                                # repeats, so this is 1min, 3min, then every 5min
   llm_stall_retry_max_wait_ms: 3600000  # total time spent waiting between retries before giving up (0 = unbounded)
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
-  loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
+  loop_tool_repeat_limit: 2    # identical calls in successive ReAct responses before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
   loop_tool_cycle_repeats: 3   # repeats of the same sequence of calls before intervening (0 disables)
-  loop_nudge_max: 2            # nudges before the guard acts on a loop
+  loop_nudge_max: 1            # nudges before the guard acts on a loop
   loop_stuck_action: quarantine # then: block the looping calls and finish the turn, or "stop" it
 
 # System prompt templates
@@ -275,6 +272,9 @@ prompts:
   #   {{.CWD}}      - session working directory
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
+  #   {{.Rules}}    - the AGENTS.md and DESIGN.md of the agent home and of the workspace, then the always-on rules
+  #   {{.Instructions}} - the files of instructions.files. A template that prints neither block still gets the
+  #                   documents and those files: in {{.Instructions}} when it has it, otherwise appended after it
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until foxxycode todo tools update state)
   #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
@@ -326,49 +326,37 @@ memory:
 
 # Skills directories (Go: config.Skills, internal/config/skills.go)
 skills:
-  # Directories to search for SKILL.md and optional root .md/.mdc skill files.
-  # Later entries have HIGHER priority: if the same skill name appears in multiple
-  # directories, the version from the last matching directory wins.
-  # Default dirs (lowest → highest priority):
-  #   ~/.agents/skills          - global skills, shared with npx skills / npx skillsbd
-  #   ${FOXXYCODE_HOME}/skills      - foxxycode-specific; may contain symlinks to ~/.agents/skills
-  #   ${CWD}/.foxxycode/skills      - project-local; overrides everything above
-  # ${FOXXYCODE_HOME} and ${CWD} expand at runtime (per-session cwd for ${CWD}).
+  # Four folders are always read, lowest -> highest priority, whatever this
+  # key says (a lower folder wins a skill name over the ones above it):
+  #   ${HOME}/.agents/skills    - your skills shared with every agent (npx skills / npx skillsbd)
+  #   .agents/skills            - the project's skills shared with every agent
+  #   ${FOXXYCODE_HOME}/skills      - FoxxyCode's own: the standard delivery, installed skills
+  #   .foxxycode/skills             - the project's skills for FoxxyCode
+  # dirs only ADDS directories, read after the four and stronger than them.
+  # ${HOME} and ~ are your home, ${CWD} and a relative path the session's workspace.
   dirs:
-    - "~/.agents/skills"
-    - "${FOXXYCODE_HOME}/skills"
-    - "${CWD}/.foxxycode/skills"
+    - "~/my-team-skills"
 
 # Rules (Go: config.Rules, internal/config/rules.go)
 # One project folder is read under the session CWD: the first of .foxxycode/rules,
 # the legacy .foxxyrules / .foxyrules, the shared .agents/rules, .cursor/rules,
 # .claude/rules and .codex/rules that
 # holds a rule file, so another agent's mirror of the same rules is not loaded
-# twice. Your own ~/.foxxycode/rules joins it in every workspace, and nested
-# **/AGENTS.md are read for the folders a tool enters. Your own
-# ~/.foxxycode/AGENTS.md is read too, ahead of the project's, and has no key here.
-# .mdc files are read as Cursor rules, .md files as Claude Code rules.
+# twice. Your own ~/.foxxycode/rules joins it in every workspace. The AGENTS.md and
+# DESIGN.md documents - yours in ~/.foxxycode, the workspace's, and the nested ones
+# of the folders a tool enters - are read whatever these keys say and have no
+# key here. .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # The rules that always apply go into {{.Rules}} in the system prompt (separate
 # from skills); a rule scoped to paths arrives with the tool result or message
 # that touches a matching path. See docs/features/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: user, foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional: user, foxxycode, agents-dir, cursor, claude, codex ("agents" no longer affects the AGENTS.md files; alone it loads no rule folder)
 
-# MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
-mcp_servers:
-  - name: "filesystem"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
-    env: []
-
-  # HTTP MCP server example
-  # - type: "http"
-  #   name: "my-api"
-  #   url: "https://my-mcp-server.example.com/mcp"
-  #   headers:
-  #     - name: "Authorization"
-  #       value: "Bearer ${MY_API_TOKEN}"
+# MCP servers are not declared here: they live in ~/.foxxycode/mcp.json (every
+# session) and <workspace>/.foxxycode/mcp.json (that project, once approved), a
+# Cursor-compatible "mcpServers" object. An old mcp_servers list is moved into
+# ~/.foxxycode/mcp.json on the next start. See docs/features/mcp.md.
 
 # Tool configuration (Go: config.Tools, internal/config/tools.go)
 tools:
@@ -391,7 +379,8 @@ tools:
 # from markdown definitions; each run is a background task with its own child session. See docs/features/subagents.md.
 # subagents:
 #   enable: true
-#   dirs: ["${FOXXYCODE_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.foxxycode/agents"]
+#   dirs: []                      # extra folders after ~/.agents/agents, .agents/agents,
+#                                 # ${FOXXYCODE_HOME}/agents and .foxxycode/agents, which are always read
 #   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
 #   max_concurrent: 4             # subagent runs in flight across the whole process
 #   max_depth: 1                  # 1 = children cannot spawn further; 0 = nobody spawns
@@ -741,6 +730,9 @@ Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL t
 
 With the default 10 extra attempts, a streamed model that stays completely silent gets about 55 minutes 30 seconds: 11 requests capped at 90 seconds each, plus 39 minutes of stall pauses (1 minute, 3 minutes, then seven 5-minute pauses). Network failures can exhaust the same allowance sooner. The one-hour `llm_stall_retry_max_wait_ms` bounds pauses, not the time spent inside requests. A retry count explicitly saved in an existing config still overrides the default.
 
+An explicit `agent.max_turns: 0` also disables the step limit when inherited through a YAML
+merge (`<<`) or anchor; an explicit value on `agent` overrides the merged value.
+
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Both the immediate first-token replay and later reissues after a stall wait spend this allowance; `llm_stall_retry_max_wait_ms` also limits the time spent waiting. Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
 
 `/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: foxxycode` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
@@ -754,3 +746,16 @@ Provider account usage sources are `neuraldeep`, `codex` and `devin`. `usage_lim
 `mcp.idle_timeout_seconds` defaults to 300; 0 stops an unheld server immediately. Long-running surfaces keep global servers alive until process exit. Project and `${CWD}` declarations share a connection only within their canonical workspace.
 
 `httpserver.remotes[]` may specify `name`, `url` and an optional `token`, usually `${ENV}`. The configuration API returns that token to browsers; the console uses it unless `--remote-token` overrides it. A relay exposes only its `swarm` and `logger` settings and uses `swarm.cors` for browser origins.
+
+### Compatible provider client identity
+
+For OpenAI-compatible and Anthropic-compatible providers, omit
+`providers[].user_agent` or leave it empty to keep the provider SDK identity
+(`OpenAI/Go` or `Anthropic/Go`). The explicit `openai` and `anthropic` values also
+keep the current protocol's SDK identity, including after switching provider type.
+Select `foxxycode` to send
+`Foxxycode/<running version>`, using `dev` in an unstamped build. It applies to
+completion requests and model listing, including the unsaved provider preview.
+Other provider types ignore this setting. In Settings, open an OpenAI-compatible
+or Anthropic-compatible provider, expand **Advanced settings** and choose
+**User-Agent**; save the provider to apply it to new calls.

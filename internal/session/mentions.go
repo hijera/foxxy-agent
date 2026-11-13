@@ -105,7 +105,7 @@ func (m *Manager) mentionAgents(cwd string, askMode bool) ([]MentionAgent, strin
 	if cfg == nil || !cfg.Subagents.ResolvedEnabled() {
 		return nil, ""
 	}
-	loader := subagents.NewLoader(cfg.Subagents.Dirs, cfg.Subagents.ResolvedProjectTrust())
+	loader := subagents.NewLoader(cfg.Subagents.SearchDirs(), cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = m.log
 	entries := subagents.BuildCatalog(loader.Load(cwd, cfg.Paths.Home), cfg.Subagents.ResolvedProjectTrust(),
 		subagents.CanonicalWorkspace(cwd), subagents.NewTrustStore(cfg.Paths.Home))

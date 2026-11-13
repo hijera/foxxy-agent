@@ -1,5 +1,8 @@
 /** English UI strings for the FoxxyCode SPA. Keys use dot notation grouped by area. */
 export const messagesEn: Record<string, string> = {
+  "settings.userAgent.anthropic": "Anthropic/Go (default)",
+  "settings.userAgent.openai": "OpenAI/Go (default)",
+  "settings.userAgent.foxxycode": "Foxxycode/version",
   "messages.svn.card": "Subversion operation",
   "messages.svn.paths": "Paths",
   "messages.svn.target": "Target",
@@ -828,6 +831,7 @@ export const messagesEn: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "contacts",
   "settings.mcp.trust.fact.env": "env",
   "settings.mcp.trust.fact.headers": "headers",
+  "settings.mcp.trust.fact.reads": "reads",
   "settings.mcp.trust.fact.tls": "tls",
   "settings.mcp.trust.factValue.insecure": "certificate verification disabled",
   "settings.mcp.insecureTls.label": "Ignore SSL certificate errors",
@@ -1697,7 +1701,7 @@ export const messagesEn: Record<string, string> = {
   // Settings -> Subagents: the definition catalog
   "subagents.catalog.legend": "Definitions",
   "subagents.catalog.description":
-    'Every definition a session in this workspace can spawn: built-ins, your files under ~/.foxxycode/agents, and project files under .foxxycode/agents or .claude/agents. Under "ask", approve a project file for this workspace here or with foxxycode agents trust <name>.',
+    "Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.agents/agents and ~/.foxxycode/agents, and the .agents/agents and .foxxycode/agents files that came with the checkout. Under \"ask\" a project file runs only once it is approved for this workspace: with its shield here, or with foxxycode agents trust <name> on the machine running foxxycode. Rewriting an approved file asks again.",
   "subagents.catalog.workspace": "Workspace",
   "subagents.catalog.loading": "Loading definitions…",
   "subagents.catalog.empty":
@@ -1711,7 +1715,7 @@ export const messagesEn: Record<string, string> = {
   "subagents.badge.hidden": "hidden",
   "subagents.badge.needsApproval": "needs approval",
   "subagents.badge.needsApprovalTitle":
-    "Spawning it is refused until it is approved for this workspace: foxxycode agents trust {name}",
+    "Spawning it is refused until it is approved for this workspace: the shield, or foxxycode agents trust {name}",
   "subagents.fact.file": "file",
   "subagents.fact.model": "model",
   "subagents.fact.modelInherits": "the parent's model",
@@ -2203,9 +2207,72 @@ export const messagesEn: Record<string, string> = {
   "mcp.switch.disabledTitle": "Disabled — click to enable",
   "mcp.switch.disableAria": "Disable MCP server {name}",
   "mcp.switch.enableAria": "Enable MCP server {name}",
-  "mcp.discovery.description": "The project-local ./.foxxycode/mcp.json arrives with the checkout, so the repository — not you — picks the command a session would start. On Ask its servers are neither started nor contacted until you approve that exact declaration for this workspace (shield button in the list below); rewriting an approved entry asks again. Servers you add here are approved by the act of writing them. Entries from config.yaml and ~/.foxxycode/mcp.json are yours and are never gated.",
+  "mcp.discovery.description":
+    "The project-local ./.foxxycode/mcp.json arrives with the checkout, so the repository — not you — picks the command a session would start. On Ask its servers are neither started nor contacted until you approve that exact declaration for this workspace (shield button in the list below); rewriting an approved entry asks again. Servers you add here are approved by the act of writing them. Entries from ~/.foxxycode/mcp.json are yours and are never gated.",
   "messages.spawnAgentPrompt": "Agent prompt",
   "messages.spawnAgentTimeout": "Timeout {seconds}s",
   "messages.spawnAgentTimeoutHint": "Maximum agent execution time",
   "workspace.noBranches": "No branches",
+  "mcp.error.saveChanged":
+    "The entry changed in its file since this editor opened. Cancel and open it again to see what it holds now.",
+  "mcp.edit.title": "Edit entry ({origin})",
+  "mcp.edit.aria": "Edit {name}",
+  "mcp.delete.title": "Delete from {origin}",
+  "mcp.delete.aria": "Delete {name}",
+  "mcp.editor.valuesHint":
+    "Env and header values are never shown. {placeholder} keeps the saved value, a new value replaces it, and a key you remove is deleted from the entry.",
+  "subagents.trust.approveTitle": "Approve spawning {name} in this workspace",
+  "subagents.trust.approvedTitle":
+    "Approved for this workspace, click to withdraw",
+  "subagents.trust.approveAria": "Approve subagent {name}",
+  "subagents.trust.withdrawAria": "Withdraw the approval of subagent {name}",
+  "subagents.error.trust": "Could not change the approval of {name}.",
+  "skills.error.sync": "Sync failed",
+  "skills.error.install": "Failed to install {name}",
+  "skills.trust.legend": "Marketplace discovery",
+  "skills.trust.description":
+    "The project's .foxxycode/marketplaces.json arrives with the checkout, so the repository - not you - picks what a sync installs into ~/.foxxycode/skills. On ask its entries are neither synced nor offered until you approve each one for this workspace (the shield in the list below); rewriting an approved entry asks again. Entries you add to the project here are approved as you write them, and ~/.foxxycode/marketplaces.json is yours and never gated. Saved with the rest of the settings.",
+  "skills.sources.legend": "Marketplaces",
+  "skills.sources.add": "Add",
+  "skills.sources.addAria": "Source to add",
+  "skills.sources.scopeAria": "Where to declare it",
+  "skills.sources.scope.global": "Yours (~/.foxxycode)",
+  "skills.sources.scope.local": "This project",
+  "skills.sources.syncAll": "Sync all",
+  "skills.sources.syncAllTitle": "Fetch every source and marketplace in effect",
+  "skills.sources.completed": "Completed",
+  "skills.sources.syncedTitle": "Synced",
+  "skills.sources.syncTitle": "Sync {source}",
+  "skills.sources.heldSyncTitle": "Approve it for this workspace first",
+  "skills.sources.deniedSyncTitle":
+    "Project marketplaces are switched off by skills.project_trust: deny",
+  "skills.sources.scope.noSessionTitle":
+    "Send the first message of a chat in the project to declare a marketplace for it; until then this adds to yours",
+  "skills.sources.syncAria": "Sync this marketplace",
+  "skills.sources.removeTitle": "Remove from {path}",
+  "skills.sources.systemTitle":
+    "Built into FoxxyCode: always in effect, always trusted, not removable",
+  "skills.sources.removeAria": "Remove marketplace",
+  "skills.sources.kind.source": "all plugins",
+  "skills.sources.kind.marketplace": "catalog",
+  "skills.sources.origin.system": "built in",
+  "skills.sources.origin.home": "yours",
+  "skills.sources.origin.project": "from the project",
+  "skills.sources.trust.systemAria": "{source} is built into FoxxyCode and always trusted",
+  "skills.sources.trust.approveTitle": "Approve syncing {source} in this workspace",
+  "skills.sources.trust.approvedTitle":
+    "Approved for this workspace, click to withdraw",
+  "skills.sources.trust.approveAria": "Approve {source} for this workspace",
+  "skills.sources.trust.withdrawAria": "Withdraw the approval of {source}",
+  "skills.sources.note.held":
+    "Declared by {path}, which travels with the checkout, so it is not synced until you approve it for this workspace with the shield.",
+  "skills.sources.note.denied":
+    "Project marketplaces are switched off by skills.project_trust: deny.",
+  "skills.sources.error.load": "Could not load the marketplaces.",
+  "skills.sources.error.add": "Could not add {source}.",
+  "skills.sources.error.remove": "Could not remove {source}.",
+  "skills.sources.error.trust": "Could not change the approval of {source}.",
+  "skills.sources.description":
+    "Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (foxxycode plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.foxxycode/marketplaces.json, the project's in its .foxxycode/marketplaces.json, which travels with the checkout: under \"ask\" a project entry is synced only once you approve it with the shield. Everything installs into ~/.foxxycode/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.",
+  "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
 };

@@ -16,6 +16,9 @@
 
 # api_key must be the provider secret string (often starts with sk-...), a "${ENV}" reference, or empty to use NAME_API_KEY at runtime; never a web page URL.
 providers:
+  # OpenAI/Anthropic-compatible rows: user_agent: foxxycode identifies this app.
+  # Omit for the provider SDK identity, or select openai / anthropic explicitly.
+  # foxxycode sends Foxxycode/<running version> to completions and model listing.
   - name: openai
     type: openai
     api_key: "${OPENAI_API_KEY}"
@@ -128,7 +131,7 @@ models:
 
 agent:
   model: "openai/gpt-4o"
-  max_turns: 0
+  max_turns: 165           # ReAct steps per prompt; explicit 0 disables the cap
   # queue_mode: steer       # Send during a turn: steer or after_turn; unset asks on first use
   # LLM retry and pacing. Transport retries and consecutive empty-answer or
   # first-token recoveries share llm_retry_max extra attempts per model step.
@@ -167,10 +170,10 @@ agent:
   # survives every nudge is taken away for the rest of the turn while the turn
   # runs on to a real answer (loop_stuck_action: stop ends it instead).
   # loop_guard: true
-  # loop_tool_repeat_limit: 3     # identical tool calls in a row before intervening (0 disables)
+  # loop_tool_repeat_limit: 2     # identical calls in successive ReAct responses before intervening (0 disables)
   # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
   # loop_tool_cycle_repeats: 3    # repeats of the same sequence of calls before intervening (0 disables)
-  # loop_nudge_max: 2             # nudges before the guard acts on a loop
+  # loop_nudge_max: 1             # nudges before the guard acts on a loop
   # wait_for_limit_reset: when the provider names the moment a hit usage limit
   # lifts (a Retry-After header or a "limit resets at" body), the turn instead
   # waits for the reset, tells its client "Usage limit reached / resuming at
@@ -215,7 +218,9 @@ sessions:
 prompts:
   # Directory containing prompt templates (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${CWD} (session cwd at render time).
-  # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
+  # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.Rules}} (the AGENTS.md and DESIGN.md of
+  # the agent home and the workspace, then the always-on rules), {{.Instructions}} (the files of
+  # instructions.files), {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
   # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/getting-started/configuration.md)
   dir: ""
   # File names inside prompts.dir (defaults: agent.md, plan.md)
@@ -231,55 +236,68 @@ prompts:
   # Enabled by default; set to false to always use the shared agent.md.
   per_provider:
     enable: true
+  # ask_prompt: "ask.md"
+  # A template that does not print the AGENTS.md and DESIGN.md documents still
+  # gets them: in {{.Instructions}} when it has that slot, otherwise appended
+  # right after it together with the files below.
+
+# AGENTS.md and DESIGN.md are always read, in three layers, and are not named
+# here: ${FOXXYCODE_HOME}/AGENTS.md and DESIGN.md, then the session folder's pair,
+# then the pair of every folder on the way down to a file the agent works with.
+# No setting turns them off. instructions.files only ADDS files after them, in
+# the order listed; ${FOXXYCODE_HOME}, ${CWD} and ~ expand, a relative entry is read
+# from the session folder, and a file already in the prompt is not read twice.
+# instructions:
+#   files:
+#     - "${FOXXYCODE_HOME}/team.md"
+#     - "/srv/agents/house-style.md"
 
 skills:
-  # dirs is the list of directories scanned for skills. Searched in order,
-  # later entries win on name conflicts. When empty, defaults are
-  # ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills.
-  # ${CWD} is the session workspace, resolved when a session loads its
-  # skills, so it is safe to write here even for a shared foxxycode http server.
+  # Four folders are always read, lowest -> highest priority (a later one
+  # wins a skill name): ${HOME}/.agents/skills, the project's .agents/skills,
+  # ${FOXXYCODE_HOME}/skills, the project's .foxxycode/skills. dirs only ADDS
+  # directories, read after the four and stronger than them. ${CWD} and a
+  # relative entry are the session workspace, resolved when a session loads
+  # its skills, so they are safe here even for a shared foxxycode http server.
   dirs: []
-  # sources are remote skill sources installed on demand (foxxycode skills sync / /plugin /
-  # Settings → Skills, never automatically): owner/repo[@ref], a git URL, or an http(s)
-  # marketplace.json. Materialized into ${FOXXYCODE_HOME}/skills.
-  # "EvilFreelancer/rpa-skills", the catalogue the bundled rpa-* skills are published from,
-  # is always in effect as a system source and does not belong here: it is listed and synced
-  # beside this key and cannot be removed.
-  # sources: []
-  # auto_discovery offers the model-driven load_skill tool (agent pulls a catalogued skill's
-  # instructions on its own). Default true.
-  # auto_discovery: true
+  # Remote skill sources and marketplaces are not declared here: they live in
+  # ${FOXXYCODE_HOME}/marketplaces.json (yours) and the project's
+  # .foxxycode/marketplaces.json, {"sources": [...], "marketplaces": [{"name", "source"}]},
+  # written by `foxxycode skills add [--project]`, `foxxycode plugin marketplace add`
+  # and Settings -> Skills. Nothing is fetched until `foxxycode skills sync`.
+  # An old skills.sources list moves into the home file on the first load.
+  # "EvilFreelancer/rpa-skills", the catalogue the bundled rpa-* skills are
+  # published from, is always in effect and always trusted beside both files.
+  #
+  # project_trust decides the project's marketplaces.json, which travels with
+  # the checkout: "ask" (default) syncs an entry only once it is approved for
+  # the workspace (`foxxycode plugin marketplace trust <name>` or the shield in
+  # Settings -> Skills), "allow" treats it like your own file, "deny" never
+  # uses it. Whatever any entry installs goes to ${FOXXYCODE_HOME}/skills.
+  project_trust: ask
+  # auto_discovery offers the model-driven load_skill tool so the agent can pull a
+  # catalogued skill's full instructions into a turn on its own when the request
+  # matches (like Codex / Claude Code / Cursor), instead of only when you type /name.
+  # Defaults to true; set false to keep skills manual-only. Also settable via the
+  # `--skills-auto-discovery=false` CLI flag on `foxxycode acp` / `foxxycode serve`.
+  auto_discovery: true
 
-# MCP servers connected for every new session (the "global" scope, together with
-# ~/.foxxycode/mcp.json - a Cursor-compatible "mcpServers" object like Cursor's
-# ~/.cursor/mcp.json). Project-local servers live in <workspace>/.foxxycode/mcp.json
-# (the "local" scope). Later levels override same-named servers from earlier ones.
-# Remove the [] below when uncommenting an example entry.
-mcp_servers: []
-  # Example: filesystem MCP server
-  # - name: "filesystem"
-  #   command: "npx"
-  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
-  #   env: []
-  #   # Optional switches, also togglable from Settings -> MCP in the web UI:
-  #   disabled: false
-  #   disabled_tools: ["write_file"]
-
-  # Example: remote MCP server behind a self-signed certificate. Skipping the
-  # certificate check also removes the protection against a man in the middle,
-  # so turn it on only for a server you trust on a network you trust.
-  # - name: "internal"
-  #   type: "http"
-  #   url: "https://mcp.internal.lan/mcp"
-  #   insecure_skip_verify: true
-
-  # Example: GitHub MCP server
-  # - name: "github"
-  #   command: "npx"
-  #   args: ["-y", "@modelcontextprotocol/server-github"]
-  #   env:
-  #     - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
-  #       value: "${GITHUB_TOKEN}"
+# MCP servers are not declared in this file. They live in two Cursor-compatible
+# files, a "mcpServers" object keyed by server name like Cursor's
+# ~/.cursor/mcp.json:
+#   ${FOXXYCODE_HOME}/mcp.json       the global servers, started for every session;
+#   <workspace>/.foxxycode/mcp.json  the project's, which win a name over the global
+#                                ones and run only once approved (mcp.project_trust).
+# A value may name an environment variable as ${NAME} (or ${NAME:-default}),
+# resolved when the server starts, the same in both files, so a token stays
+# out of the file:
+#   {"mcpServers": {"github": {"command": "npx",
+#     "args": ["-y", "@modelcontextprotocol/server-github"],
+#     "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}}}}
+# Add and edit them in Settings -> MCP servers or in the files themselves,
+# switch them there or with /mcp in a chat or the console. An old mcp_servers
+# list in this file is moved into ${FOXXYCODE_HOME}/mcp.json on the next start
+# (config.yaml.bak-<time> keeps the old file).
 
 # MCP settings that are not tied to a single server entry.
 mcp:
@@ -424,13 +442,14 @@ tools:
 # the parent session with its own child session and transcript. Definitions found inside
 # the workspace travel with the checkout, so "ask" refuses to spawn one until you approve
 # that file for that workspace on the machine running foxxycode (`foxxycode agents trust <name>`
-# there, or `POST /foxxycode/subagents/{name}/trust`). See docs/features/subagents.md.
+# there, or `POST /foxxycode/subagents/{name}/trust`). Four folders are always read, the
+# later winning a name: ~/.agents/agents, the project's .agents/agents,
+# ${FOXXYCODE_HOME}/agents and the project's .foxxycode/agents; dirs only adds folders after
+# them. See docs/features/subagents.md.
 # subagents:
 #   enable: true
 #   dirs:
-#     - "${FOXXYCODE_HOME}/agents"       # your own definitions (user scope)
 #     - "${CWD}/.claude/agents"      # project scope, Claude Code compatible
-#     - "${CWD}/.foxxycode/agents"       # project scope
 #   project_trust: ask              # ask | allow | deny
 #   max_concurrent: 4               # subagent runs in flight across the whole process
 #   max_depth: 1                    # 1 = children cannot spawn further (a definition's

@@ -70,6 +70,20 @@ requires explicit approval and streams job output. Batch files are refused, the
 binary must resolve outside the run workspace, and file arguments stay confined
 to it.
 
+## File conversion limitations
+
+Command profiles can run converters such as `ffmpeg`, but the current browser
+runner does not upload files or copy a path entered in the form into the run
+workspace. Each run starts in its own isolated directory; command file parameters
+must stay inside it. An absolute path to a video elsewhere on the server is
+rejected, and a relative filename alone does not supply its contents.
+
+Consequently, an ordinary **choose an MP4 → download an MP3** workflow is not yet
+supported end to end. The command engine can convert a video materialized as a
+verification fixture or produced by an earlier step, but the runner still needs
+file ingestion and an artifact download surface for an operator-facing converter.
+Do not widen command-path permissions to work around the missing file transfer.
+
 ## Source evidence
 
 Current sessions retain tool arguments and results rather than workspace snapshots.

@@ -130,7 +130,7 @@
           "type": "boolean"
         },
         "loop_nudge_max": {
-          "default": 2,
+          "default": 1,
           "description": "How many times one turn may be nudged back on track before the loop guard stops it.",
           "title": "Loop nudge max",
           "type": "integer"
@@ -158,13 +158,14 @@
           "type": "integer"
         },
         "loop_tool_repeat_limit": {
-          "default": 3,
-          "description": "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+          "default": 2,
+          "description": "Consecutive identical tool calls across successive ReAct responses before the loop guard steps in. Duplicates within one response count once; 0 disables the check.",
           "title": "Loop tool repeat limit",
           "type": "integer"
         },
         "max_turns": {
-          "description": "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.",
+          "default": 165,
+          "description": "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. Defaults to 165; explicit 0 disables the cap.",
           "title": "Max turns",
           "type": "integer"
         },
@@ -903,14 +904,11 @@
     },
     "instructions": {
       "additionalProperties": false,
-      "description": "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
+      "description": "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.",
       "properties": {
         "files": {
-          "default": [
-            "AGENTS.md",
-            "DESIGN.md"
-          ],
-          "description": "Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to [\"AGENTS.md\", \"DESIGN.md\"]; the agent home has its own pair, read ahead of this list whenever it exists.",
+          "default": [],
+          "description": "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.",
           "items": {
             "type": "string"
           },
@@ -1004,129 +1002,6 @@
         "format",
         "rotation"
       ]
-    },
-    "mcp_servers": {
-      "default": [],
-      "description": "Model Context Protocol servers started or contacted for new sessions.",
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "args": {
-            "description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Arguments",
-            "type": "array"
-          },
-          "command": {
-            "description": "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd.",
-            "title": "Command",
-            "type": "string"
-          },
-          "disabled": {
-            "description": "Skip connecting this server without removing its definition.",
-            "title": "Disabled",
-            "type": "boolean"
-          },
-          "disabled_tools": {
-            "description": "Tool names of this server hidden from the agent.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Disabled tools",
-            "type": "array"
-          },
-          "env": {
-            "description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "description": "Environment variable name passed to the MCP process.",
-                  "title": "Variable name",
-                  "type": "string"
-                },
-                "value": {
-                  "description": "Variable value.",
-                  "title": "Value",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "name",
-                "value"
-              ],
-              "type": "object"
-            },
-            "title": "Environment",
-            "type": "array"
-          },
-          "headers": {
-            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "description": "HTTP header name for MCP HTTP transports.",
-                  "title": "Header name",
-                  "type": "string"
-                },
-                "value": {
-                  "description": "HTTP header value.",
-                  "title": "Header value",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "name",
-                "value"
-              ],
-              "type": "object"
-            },
-            "title": "HTTP headers",
-            "type": "array"
-          },
-          "insecure_skip_verify": {
-            "description": "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
-            "title": "Ignore SSL certificate errors",
-            "type": "boolean"
-          },
-          "name": {
-            "description": "Stable id referenced by the agent; must be unique in this list.",
-            "title": "Server name",
-            "type": "string"
-          },
-          "type": {
-            "description": "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport.",
-            "title": "Server type",
-            "type": "string"
-          },
-          "url": {
-            "description": "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd.",
-            "title": "MCP URL",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "type": "object",
-        "x-foxxycode-property-order": [
-          "type",
-          "name",
-          "command",
-          "args",
-          "env",
-          "url",
-          "headers",
-          "insecure_skip_verify",
-          "disabled",
-          "disabled_tools"
-        ]
-      },
-      "title": "MCP servers",
-      "type": "array"
     },
     "memory": {
       "additionalProperties": false,
@@ -1424,6 +1299,18 @@
             "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
             "title": "Usage limits panel",
             "type": "boolean"
+          },
+          "user_agent": {
+            "default": "",
+            "description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.",
+            "enum": [
+              "",
+              "openai",
+              "anthropic",
+              "foxxycode"
+            ],
+            "title": "User-Agent",
+            "type": "string"
           }
         },
         "required": [
@@ -1435,6 +1322,7 @@
           "name",
           "type",
           "api_base",
+          "user_agent",
           "api_key",
           "api_key_command",
           "proxy",
@@ -1516,33 +1404,31 @@
           "type": "boolean"
         },
         "dirs": {
-          "default": [
-            "~/.agents/skills",
-            "${FOXXYCODE_HOME}/skills",
-            "${CWD}/.foxxycode/skills"
-          ],
-          "description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
+          "default": [],
+          "description": "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).",
           "items": {
             "type": "string"
           },
           "title": "Skill directories",
           "type": "array"
         },
-        "sources": {
-          "default": [],
-          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Remote skill sources",
-          "type": "array"
+        "project_trust": {
+          "default": "ask",
+          "description": "The project's .foxxycode/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). \"allow\": treat them like your own ~/.foxxycode/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project's skill folders are not affected.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project marketplaces",
+          "type": "string"
         }
       },
       "title": "Skills",
       "type": "object",
       "x-foxxycode-property-order": [
         "dirs",
-        "sources",
+        "project_trust",
         "auto_discovery"
       ]
     },
@@ -1557,12 +1443,8 @@
           "type": "integer"
         },
         "dirs": {
-          "default": [
-            "${FOXXYCODE_HOME}/agents",
-            "${CWD}/.claude/agents",
-            "${CWD}/.foxxycode/agents"
-          ],
-          "description": "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+          "default": [],
+          "description": "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.",
           "items": {
             "type": "string"
           },
@@ -1594,7 +1476,7 @@
         },
         "project_trust": {
           "default": "ask",
-          "description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+          "description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
           "enum": [
             "ask",
             "allow",
@@ -2038,7 +1920,6 @@
     "title",
     "tools",
     "commands",
-    "mcp_servers",
     "skills",
     "subagents",
     "hooks",

@@ -28,7 +28,7 @@ func TestWrappedStreamCancelIsCanceled(t *testing.T) {
 // ImageParts is serialised as an array of content parts (text + image_url)
 // rather than a plain string.
 func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
-	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "")
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "", "")
 	msgs := []Message{
 		{Role: RoleUser, Content: "describe this", ImageParts: []ImagePart{
 			{DataURL: "data:image/png;base64,abc123", Name: "test.png"},
@@ -196,7 +196,7 @@ func streamStubProvider(t *testing.T, sse string) (*openAIProvider, func()) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse)
 	}))
-	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, ""), srv.Close
+	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "", ""), srv.Close
 }
 
 // TestOpenAIStreamUndecodableFrameFails verifies that a data frame whose JSON
@@ -417,7 +417,7 @@ func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 
-	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "")
+	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "", "")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -439,7 +439,7 @@ func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
 // TestOpenAITextOnlyMessageIsString verifies that a user Message without
 // ImageParts still results in a plain string content field.
 func TestOpenAITextOnlyMessageIsString(t *testing.T) {
-	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "")
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "", "")
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}
@@ -650,7 +650,7 @@ func anthropicStreamStub(t *testing.T, sse string) (*anthropicProvider, func()) 
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse)
 	}))
-	return newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), srv.Close
+	return newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), srv.Close
 }
 
 const anthropicStreamPrefix = "event: message_start\n" +

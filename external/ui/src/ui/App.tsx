@@ -1,4 +1,9 @@
 import {
+  chatWorkspacePath,
+  withWorkspaceQuery,
+  workspaceScope,
+} from "./chat/workspaceScope";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -339,6 +344,7 @@ import { t, tp } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
+import { MCP_SECTION_ID } from "./settings/settingsSections";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-FoxxyCode-Session-ID";
@@ -563,6 +569,31 @@ export function App() {
     worktree?: boolean;
     vcs?: "git" | "svn";
   } | null>(null);
+  // The folder of pendingWorkspaceRef as state, set the moment it is picked:
+  // what a new chat lists and highlights (skills, mentions, subagents) follows
+  // the pick at once, never a preview answer that may still be in flight.
+  const [pendingWorkspacePath, setPendingWorkspacePath] = useState("");
+  const setPendingWorkspace = useCallback(
+    (next: {
+      path?: string;
+      branch?: string;
+      worktree?: boolean;
+      vcs?: "git" | "svn";
+    } | null) => {
+      pendingWorkspaceRef.current = next;
+      setPendingWorkspacePath(next?.path ?? "");
+    },
+    [],
+  );
+  // Every answer that sets workspaceCtx takes a ticket; only the latest one
+  // applies, so a slow preview of a folder picked earlier never paints over
+  // the folder picked after it.
+  const workspaceCtxGenRef = useRef(0);
+  const chatWorkspace = chatWorkspacePath(
+    sessionId,
+    pendingWorkspacePath,
+    workspaceCtx?.path,
+  );
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -2156,12 +2187,16 @@ export function App() {
 
   const refreshWorkspaceContext = useCallback(
     async (sid: string) => {
+      const gen = ++workspaceCtxGenRef.current;
       try {
         const res = await fetch("/foxxycode/workspace/context", {
           headers: sid ? { [HDR]: sid } : {},
         });
         if (res.ok) {
           const ctx = (await res.json()) as WorkspaceContext;
+          if (gen !== workspaceCtxGenRef.current) {
+            return;
+          }
           setWorkspaceCtx(ctx);
           // Host fact, not a workspace one: the tool cards name the interpreter.
           // An answer from the environment the app was switched away from is
@@ -2196,9 +2231,14 @@ export function App() {
     if (!sessionId && pendingWorkspaceRef.current?.path) {
       return;
     }
-    pendingWorkspaceRef.current = null;
+    setPendingWorkspace(null);
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
+  }, [
+    sessionId,
+    refreshWorkspaceContext,
+    newChatWorkspaceEpoch,
+    setPendingWorkspace,
+  ]);
 
   // Host project root, once. Without a session header the endpoint reports the
   // server's own cwd, which is the project an editor plugin launched it for.
@@ -2246,17 +2286,21 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
-      pendingWorkspaceRef.current = {
+      setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
-      };
+      });
       if (payload.path) {
+        const gen = ++workspaceCtxGenRef.current;
         try {
           const res = await fetch(
             "/foxxycode/workspace/context?path=" + encodeURIComponent(payload.path),
           );
           if (res.ok) {
-            setWorkspaceCtx((await res.json()) as WorkspaceContext);
+            const ctx = (await res.json()) as WorkspaceContext;
+            if (gen === workspaceCtxGenRef.current) {
+              setWorkspaceCtx(ctx);
+            }
           }
         } catch {
           // ignore
@@ -2292,7 +2336,11 @@ export function App() {
         },
       );
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
       } else {
         await refreshWorkspaceContext(sid);
       }
@@ -2305,21 +2353,38 @@ export function App() {
   // right before the first send.
   async function applyPendingWorkspace(sid: string) {
     const pending = pendingWorkspaceRef.current;
-    pendingWorkspaceRef.current = null;
     if (!pending || (!pending.path && !pending.branch)) {
+      setPendingWorkspace(null);
       return;
     }
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
+      // The answer is the new session's workspace context: taking it here
+      // keeps the chips and everything scoped by chatWorkspace on the picked
+      // folder from the moment the pending pick is cleared, instead of on a
+      // preview that may not have answered yet.
+      const applied = async (res: Response) => {
+        if (!res.ok) {
+          return;
+        }
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
+      };
       if (pending.path) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
-        });
+          }),
+        );
       }
       if (pending.branch) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({
@@ -2327,10 +2392,15 @@ export function App() {
               worktree: Boolean(pending.worktree),
               vcs: pending.vcs ?? "git",
             }),
-        });
+          }),
+        );
       }
     } catch {
       // ignore: the session still starts in the default workspace
+    } finally {
+      // Cleared once the session holds the pick, so the folder the chat is
+      // scoped to never falls back to a stale preview in between.
+      setPendingWorkspace(null);
     }
   }
 
@@ -2677,7 +2747,11 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    // On desktop Tasks is the side panel of the chat on screen, not a screen of
+    // the rail: the backdrop that takes History down after a pick there leaves
+    // it open on the chat picked. The stacked shell shows it full screen, so
+    // there the backdrop closes it with the rest.
+    if (isStackedShell()) setTasksOpen(false);
     setDocsRoute(null);
     // The chat's address that follows does not take the swarm screen down by
     // itself (applyLocationHash leaves it on a session), so it goes here.
@@ -2846,17 +2920,42 @@ export function App() {
     recordLastProjectSession(sid);
   }, [sessionId]);
 
+  // The known skill names describe the workspace of the chat: the session's
+  // own, or before the first message the folder picked on the start screen.
+  // They are asked again for every other folder and every other session, and
+  // an answer for a scope left since is thrown away. The names held are
+  // dropped at once unless the chat stays in the same folder on its way from
+  // no session to its first one (the first send of a new chat), so a skill of
+  // another workspace is never highlighted while the next answer is on its way
+  // and a new chat does not blank its own chips.
+  const knownSkillsGenRef = useRef(0);
+  const knownSkillsScopeRef = useRef({ sid: "", path: "" });
   useEffect(() => {
+    const gen = ++knownSkillsGenRef.current;
+    const sid = sessionId.trim();
+    const held = knownSkillsScopeRef.current;
+    knownSkillsScopeRef.current = { sid, path: chatWorkspace };
+    const keep =
+      held.path === chatWorkspace && (held.sid === sid || held.sid === "");
+    if (!keep) {
+      setKnownSkillNames((prev) => (prev.size === 0 ? prev : new Set()));
+    }
+    const scope = workspaceScope(sid, chatWorkspace);
     void (async () => {
       const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
-        "/foxxycode/slash-commands?page=1&page_size=200",
+        withWorkspaceQuery("/foxxycode/slash-commands?page=1&page_size=200", scope),
+        { headers: scope.headers },
       );
+      if (gen !== knownSkillsGenRef.current) {
+        return;
+      }
       if (res.ok && res.data?.items) {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-    // Slash commands are derived from skills.dirs, so a config swap moves them too.
-  }, [configEpoch]);
+    // Slash commands are derived from skills.dirs, so a config swap moves them
+    // too.
+  }, [configEpoch, chatWorkspace, sessionId]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -4132,7 +4231,7 @@ export function App() {
   function goHome() {
     persistComposerDraftBeforeLeave();
     if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
-      pendingWorkspaceRef.current = { path: workspaceCtx.path };
+      setPendingWorkspace({ path: workspaceCtx.path });
     }
     setSessionsOpen(false);
     setSchedulerOpen(false);
@@ -7863,11 +7962,14 @@ export function App() {
               // is the one the tab must ask about. Falls back to the host
               // project root, which is the cwd an editor plugin launched the
               // server for.
-              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
               initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               sessionsScope={sessionsScopeForSettings}
+              // spawn_agent resolves definitions against the session's own
+              // cwd: the viewed session's workspace (or the folder a new chat
+              // picked) is the one the Subagents and Skills tabs list.
+              workspacePath={chatWorkspace || undefined}
               onSessionTagsChanged={(id: string, tags: string[]) =>
                 setSessions((prev) =>
                   prev.map((s) => (s.id === id ? { ...s, tags } : s)),
@@ -7935,6 +8037,7 @@ export function App() {
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
+            chatWorkspacePath={chatWorkspace}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}
             workspaceLocked={items.length > 0}
@@ -8128,7 +8231,7 @@ export function App() {
               setSchedulerEditor(null);
               setTasksOpen(false);
               setSessionsOpen(false);
-              setSettingsSectionHash("mcp_servers");
+              setSettingsSectionHash(MCP_SECTION_ID);
             }}
             attachedFiles={composerFiles}
             onAttachedFilesChange={setComposerFiles}

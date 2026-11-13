@@ -3472,10 +3472,16 @@ a.rail-brand {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 .msg-system {
   align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: rgba(40, 18, 18, 0.55);
   border: 1px solid rgba(255, 120, 120, 0.25);
   margin-bottom: 2px;
@@ -3512,6 +3518,8 @@ a.rail-brand {
 .msg-system-details {
   margin: 0;
   padding-inline: 0;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Closed <details> must not reserve space for the body in any engine. */
@@ -3538,6 +3546,7 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   padding-left: 18px;
 }
@@ -3581,8 +3590,11 @@ a.rail-brand {
 
 .msg-system-body {
   margin: 8px 0 0;
+  max-width: 100%;
+  box-sizing: border-box;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -6087,7 +6099,7 @@ textarea#composer {
 .workspace-modal {
   display: flex;
   flex-direction: column;
-  width: min(720px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
   /* Roomy body for a folder with few children: 262px is the 140px of head,
      path row and actions plus the 120px of list the body used to claim through
      the list's own min-height. Stated on the dialog, the floor leaves the list
@@ -6107,15 +6119,7 @@ textarea#composer {
 }
 
 .workspace-modal-head {
-  display: flex;
   flex: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  font-size: inherit;
-  font-weight: inherit;
-  color: inherit;
-  border-bottom: 1px solid color-mix(in srgb, var(--muted) 20%, transparent);
 }
 
 /* Editable path row: type or paste a path (a Windows user needs it to jump to
@@ -6131,17 +6135,18 @@ textarea#composer {
   border: 1px solid var(--foxxycode-glass-panel-border);
   background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   color: var(--text);
-  font-size: 11.5px;
+  font-size: 12px;
   outline: none;
+  font: inherit;
 }
 .workspace-modal-show-hidden {
   display: flex;
   flex: none;
   align-items: center;
   gap: 6px;
-  margin-right: 6px;
+  margin-right: auto;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -6202,7 +6207,7 @@ textarea#composer {
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   text-align: left;
   padding: 7px 8px;
   border-radius: 8px;
@@ -6210,6 +6215,7 @@ textarea#composer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font: inherit;
 }
 
 .workspace-modal-row:hover {
@@ -6225,14 +6231,15 @@ textarea#composer {
 }
 
 .workspace-modal-row-name {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 70%;
 }
 
 .workspace-modal-row-target {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   color: var(--muted);
   font-size: 11px;
@@ -6272,8 +6279,9 @@ textarea#composer {
   border: 1px solid var(--foxxycode-glass-panel-border);
   background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   outline: none;
+  font: inherit;
 }
 
 .workspace-modal-new-name::placeholder {
@@ -6294,9 +6302,6 @@ textarea#composer {
 }
 
 /* New folder leads the footer, opposite the Cancel / Open pair. */
-.workspace-modal-btn--lead {
-  margin-right: auto;
-}
 
 .workspace-modal-btn--inline {
   flex: 0 0 auto;
@@ -6312,6 +6317,7 @@ textarea#composer {
   padding: 6px 14px;
   border-radius: 9px;
   cursor: pointer;
+  font: inherit;
 }
 
 .workspace-modal-btn--primary {
@@ -7212,9 +7218,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
     z-index: 70;
   }
   .shell {
-    --foxxycode-mobile-top-inset: calc(
-      var(--foxxycode-mobile-bar-h) + var(--foxxycode-env-banner-h, 0px)
-    );
     /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
     --foxxycode-mobile-chat-stack-gap: 12px;
     --foxxycode-mobile-title-sticky-top: calc(
@@ -7230,7 +7233,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
     overflow: visible;
     grid-template-columns: unset;
     grid-template-rows: unset;
-    --foxxycode-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
   }
   /* Fixed: sticky was ineffective here while the shell/document chain still offset the rail on scroll (overflow/extra ancestors). */
   .rail-column {
@@ -7493,11 +7495,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   flex-shrink: 0;
 }
 
-.scheduler-btn-primary {
-  border-color: rgba(147, 51, 234, 0.45);
-  background: rgba(147, 51, 234, 0.2);
-}
-
 .scheduler-btn-stop {
   border-color: rgba(248, 113, 113, 0.35);
   background: rgba(248, 113, 113, 0.12);
@@ -7513,11 +7510,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
    read as muddy grey boxes with washed-out icons, so re-tint them here. */
 [data-theme="light"] .scheduler-btn {
   background: var(--foxxycode-surface-raised);
-}
-
-[data-theme="light"] .scheduler-btn-primary {
-  border-color: rgba(124, 58, 237, 0.4);
-  background: rgba(124, 58, 237, 0.12);
 }
 
 [data-theme="light"] .scheduler-btn-stop {
@@ -12642,6 +12634,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   justify-content: space-between;
   gap: 8px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .skills-sync-all-btn {
@@ -16185,18 +16178,6 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 @media (max-width: 1199px) {
-  .workspace-modal {
-    width: calc(100vw - 28px);
-    min-height: 0;
-    max-height: none;
-    /* A body-mounted dialog may not inherit the shell's top inset. */
-    height: calc(100vh - var(--foxxycode-mobile-top-inset, 0px) - 28px);
-    height: calc(100dvh - var(--foxxycode-mobile-top-inset, 0px) - 28px);
-  }
-
-  .workspace-modal-head {
-    padding-inline: 14px;
-  }
 }
 
 @media (max-width: 599px) {
@@ -17141,4 +17122,172 @@ html:not([data-theme="light"]) .context-breakdown-error {
 .miniapps-commands-confirmation dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.workspace-modal-btn--add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* Stated, not derived: aspect-ratio on a stretched flex item left it 18px
+     wide in Chromium. The row stretches Cancel / Open to the same 32px. */
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+}
+
+.workspace-modal-btn--add svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 599px) {
+  .workspace-modal {
+    position: fixed;
+    top: calc(var(--foxxycode-mobile-top-inset) + 6px);
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: 14px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border-radius: var(--foxxycode-glass-panel-radius);
+    border: 1px solid var(--foxxycode-glass-panel-border);
+    background: var(--foxxycode-glass-panel-bg);
+    backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+    -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+    box-shadow: var(--foxxycode-glass-panel-shadow);
+  }
+}
+
+@media (max-width: 1199px) {
+  :root {
+    --foxxycode-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
+    --foxxycode-mobile-top-inset: calc(
+      var(--foxxycode-mobile-bar-h) + var(--foxxycode-env-banner-h, 0px)
+    );
+  }
+}
+
+.scheduler-btn-primary,
+.workspace-modal-btn--add {
+  border-color: rgba(147, 51, 234, 0.45);
+  background: rgba(147, 51, 234, 0.2);
+}
+
+[data-theme="light"] .scheduler-btn-primary,
+[data-theme="light"] .workspace-modal-btn--add {
+  border-color: rgba(124, 58, 237, 0.4);
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.skills-marketplace-add {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skills-marketplace-add > .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-marketplace-add > .skills-marketplace-scope {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.skills-marketplace-add > button {
+  flex: 0 0 auto;
+}
+
+.skills-marketplaces-box {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+.skills-marketplaces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.skills-marketplace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.skills-marketplace-head > button {
+  flex: 0 0 auto;
+}
+
+.skills-marketplace-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-marketplace-key {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.skills-marketplace-source {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.skills-marketplace.is-held .skills-marketplace-text {
+  opacity: 0.65;
+}
+
+.skills-marketplace-note {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.subagents-item-head > .subagents-trust {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+@media (max-width: 599px) {
+  .skills-marketplace-head {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+}
+
+@media (max-width: 599px) {
+
+  .skills-marketplace-text {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 599px) {
+
+  .skills-marketplace-add {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 599px) {
+
+  .skills-marketplace-add > .settings-input:first-child {
+    flex-basis: 100%;
+  }
 }

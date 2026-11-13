@@ -126,6 +126,9 @@ func TestWorkspaceFoldersDriveSentinelIsAPlainPathWithoutDrives(t *testing.T) {
 
 func TestWorkspaceFoldersDriveRootOffersDriveLevelAsParent(t *testing.T) {
 	dir := t.TempDir()
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "child"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

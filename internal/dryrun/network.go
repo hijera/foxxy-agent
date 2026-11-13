@@ -103,32 +103,37 @@ func (r *runner) telegramProbes() []probe {
 	}}
 }
 
-// mcpRemoteProbes asks every remote MCP server of config.yaml for any HTTP
-// answer. Project-local .foxxycode/mcp.json declarations are not contacted: they
-// sit behind the workspace trust gate, and a dry run must not be the thing
-// that reaches out to them.
+// mcpRemoteProbes asks every remote MCP server of <home>/mcp.json for any
+// HTTP answer. Project-local .foxxycode/mcp.json declarations are not contacted:
+// they sit behind the workspace trust gate, and a dry run must not be the
+// thing that reaches out to them.
 func (r *runner) mcpRemoteProbes() []probe {
+	file, servers, err := r.globalMCPServers()
+	if err != nil {
+		// mcpCommands reports the file that does not read.
+		return nil
+	}
 	var out []probe
-	for i := range r.req.Cfg.MCPServers {
-		srv := &r.req.Cfg.MCPServers[i]
+	for i := range servers {
+		srv := &servers[i]
 		if srv.Disabled || strings.TrimSpace(srv.URL) == "" {
 			continue
 		}
 		out = append(out, func(ctx context.Context) []Check {
-			path := "mcp_servers[" + srv.Name + "]"
-			raw := strings.TrimSpace(srv.URL)
+			path := mcpCheckPath(srv.Name)
+			raw := strings.TrimSpace(config.ExpandMCPValue(srv.URL, r.req.Paths.CWD))
 			if u, err := url.Parse(raw); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-				return []Check{r.check(StatusError, path, path+".url", fmt.Sprintf("url %q is not an http(s) address", raw), "write the server's full URL, for example https://host/mcp")}
+				return []Check{r.check(StatusError, path, path, fmt.Sprintf("url %q is not an http(s) address", raw), "write the server's full URL, for example https://host/mcp, as the url of "+srv.Name+" in "+file)}
 			}
 			headers := map[string]string{}
 			for _, h := range srv.Headers {
-				headers[h.Name] = h.Value
+				headers[h.Name] = config.ExpandMCPValue(h.Value, r.req.Paths.CWD)
 			}
 			status, _, err := r.get(ctx, &http.Client{}, raw, headers, "")
 			if err != nil {
-				return []Check{r.check(StatusError, path, path+".url", fmt.Sprintf("cannot reach %s: %s", raw, shortErr(err)), "check the url and that the server is running")}
+				return []Check{r.check(StatusError, path, path, fmt.Sprintf("cannot reach %s: %s", raw, shortErr(err)), "check the url of "+srv.Name+" in "+file+" and that the server is running")}
 			}
-			return []Check{r.check(StatusOK, path, path+".url", fmt.Sprintf("%s answers (HTTP %d)", raw, status), "")}
+			return []Check{r.check(StatusOK, path, path, fmt.Sprintf("%s answers (HTTP %d)", raw, status), "")}
 		})
 	}
 	return out
