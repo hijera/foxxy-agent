@@ -26,6 +26,7 @@ ALL_TAGS = (
     "ui",
     "scheduler",
     "memory",
+    "miniapps",
     "cli",
     "browser",
     "desktop",
@@ -38,9 +39,18 @@ ALL_TAGS = (
 # or `browser` produces an archive whose console TUI and browser tools are missing.
 PRESETS: dict[str, list[str]] = {
     "lean": [],
-    "full": ["http", "ui", "scheduler", "memory", "cli", "browser", "gateway"],
-    "gateway": ["http", "ui", "scheduler", "memory", "cli", "browser", "gateway.telegram"],
-    "desktop": ["http", "ui", "scheduler", "memory", "browser", "desktop"],
+    "full": ["http", "ui", "scheduler", "memory", "miniapps", "cli", "browser", "gateway"],
+    "gateway": [
+        "http",
+        "ui",
+        "scheduler",
+        "memory",
+        "miniapps",
+        "cli",
+        "browser",
+        "gateway.telegram",
+    ],
+    "desktop": ["http", "ui", "scheduler", "memory", "miniapps", "browser", "desktop"],
 }
 
 RELEASE_TARGETS: list[tuple[str, str]] = [
@@ -946,9 +956,9 @@ def prompt_tags(ui: UI) -> list[str]:
         "Теги/плагины (пресеты):",
         [
             ("1", "Lean — только ACP, без http/UI/scheduler/memory"),
-            ("2", "Full — http ui scheduler memory cli browser gateway (как релизы)"),
+            ("2", "Full — http ui scheduler memory miniapps cli browser gateway (как релизы)"),
             ("3", "Gateway — как Full, но только Telegram-адаптер (gateway.telegram)"),
-            ("5", "Desktop — Windows WebView2 exe (http ui scheduler memory desktop)"),
+            ("5", "Desktop — Windows WebView2 exe (http ui scheduler memory miniapps desktop)"),
             ("4", "Свои теги — выбрать вручную"),
         ],
         default="2",

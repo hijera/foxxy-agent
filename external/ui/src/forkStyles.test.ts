@@ -162,6 +162,7 @@ describe("the real stylesheet composition", () => {
    */
   const signatures: Record<string, string> = {
     "ide-embed": '[data-embed="intellij"]',
+    "miniapps-files": ".miniapps-file-field",
     onboarding: ".tour-overlay",
     "provider-transfer": ".provider-import",
     svn: ".svn-status-row",

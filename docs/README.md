@@ -45,6 +45,7 @@ Running FoxxyCode as a service, reaching it from elsewhere and bounding what it 
 
 What the agent can do and how each capability is configured.
 
+- [Mini Apps](features/mini-apps.md) - Distill sessions into reviewed workflows with generated forms, file uploads, media results, versioned runs and portable command trust.
 - [Operating modes](features/modes.md) - agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.

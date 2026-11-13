@@ -60,7 +60,9 @@ All tools require permission (except `screenshot` and `close`) — in an editor 
 that arrives as the usual ACP permission card — and act on one browser
 session per agent session (cookies/storage persist under
 `<sessionDir>/browser-profile/`). A screenshot is captured after each action and shown
-to the model.
+to the model. Closing the browser first asks Chrome to finish writing its profile,
+then releases its processes with bounded cleanup. Repeated close requests share
+one shutdown, so profile cleanup does not race Chrome's background writers.
 
 | Tool | Arguments | Purpose |
 |---|---|---|

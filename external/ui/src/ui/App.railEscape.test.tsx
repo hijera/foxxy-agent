@@ -10,6 +10,7 @@ import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import {
   appNavHrefDocs,
   appNavHrefHistory,
+  appNavHrefMiniApps,
   appNavHrefScheduler,
   appNavHrefSettings,
   appNavHrefSwarm,
@@ -123,6 +124,8 @@ let relay = false;
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const path = String(input);
   if (path === "/foxxycode/events") return heldStream();
+  if (path === "/foxxycode/capabilities") return json({ miniapps: true });
+  if (path === "/foxxycode/miniapps") return json({ apps: [] });
   if (path === "/swarm/info" && relay) {
     return json({
       swarm: true,
@@ -281,6 +284,7 @@ test("on desktop Tasks stays open across rail screens and uses local panel state
     ["nav-history", "sessions"],
     ["nav-settings", "settings-screen"],
     ["nav-scheduler", "scheduler-drawer"],
+    ["nav-miniapps", "miniapps-page"],
     ["nav-docs", "docs-view"],
   ] as const) {
     fireEvent.click(await screen.findByTestId(trigger));
@@ -370,11 +374,20 @@ test("an Escape the documentation search takes clears it and leaves the reader o
  */
 const RAIL_SCREEN_PAGES: Record<RailScreenId, { href: string; testId: string }> = {
   history: { href: appNavHrefHistory(), testId: "sessions" },
+  miniapps: { href: appNavHrefMiniApps(), testId: "miniapps-page" },
   scheduler: { href: appNavHrefScheduler(), testId: "scheduler-drawer" },
   swarm: { href: appNavHrefSwarm(), testId: "swarm-view" },
   docs: { href: appNavHrefDocs(), testId: "docs-view" },
   settings: { href: appNavHrefSettings(), testId: "settings-screen" },
 };
+
+test("Escape closes Mini Apps and returns to the viewed chat", async () => {
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("nav-miniapps"));
+  await screen.findByTestId("miniapps-page");
+  pressEscape();
+  await backInChat("miniapps-page");
+});
 
 test("every screen of the rail closes on Escape and gives the address back to the chat", async () => {
   for (const id of RAIL_SCREENS) {

@@ -8,7 +8,51 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-12
+
+## Unreleased — 2026-11-13
+
+**The browser shuts down gracefully.**
+Chrome finishes writing its profile before its processes are released. Repeated closes share one shutdown, preventing temporary-profile cleanup from racing background writes.
+
+**Mini Apps process uploaded files and display their results.**
+In web/desktop, choose or drop a file, run a workflow and download the generated result. Audio, video and images preview inside the app; results survive reload and reopen from history. The agent declares fields, groups, ordering and the launch label, while command profiles preserve parameter types. An MP4-to-MP3 example is included. Command trust continues the same run, and verification inputs stay private to the host.
+
+**Turn a completed task into a Mini App.**
+The web and desktop workspace distills successful tool-backed sessions into reviewed,
+versioned workflows, verifies the result on the source data, and generates a form for
+future runs. Progress, confirmations, cancellation and run history are persisted.
+The workspace remains hidden in IDE embeds.
+
+**Run external programs through command profiles.**
+A profile fixes one binary, an argument template and typed parameters. Execution uses
+argv without a shell; only profiles with allow permission run in Mini Apps. Matching
+shell commands can be distilled into portable profiles. A new machine asks for trust
+bound to the profile hash and resolved binary, and offers supported package managers
+when the binary is missing.
+
+**Mini App confirmations and forms are more reliable.**
+Confirmations redact secret inputs. Command trust is checked before side effects and works
+when confirmed by run id. Integer fields submit numbers, cancelling distillation leaves
+scenario review, and editing the visible expected result updates the enforced criterion.
+Drafts created through the API without a source session can pass their own checks and release.
+
+**Mini Apps follow live settings.**
+Provider, key, model and MCP changes apply to the next step without a restart.
+
+**Release checks recognize Windows paths.**
+Local drive and network paths are rejected in portable documents alongside Unix paths.
+
+**Browser tools stay outside unattended runs.**
+The whole registered browser tool family, including screenshots, is excluded.
+
+**An assistant helps edit the workflow.**
+Ask for a change in plain language, inspect the proposed patch and apply it explicitly.
+Applying a patch invalidates the checks for the previous draft revision.
+
+**Live progress works with tokens and remote servers.**
+Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.47 — 2026-11-12
 
 **Guidance for Kimi models.**
 Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.
