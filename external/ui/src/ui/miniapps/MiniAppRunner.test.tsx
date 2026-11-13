@@ -23,6 +23,21 @@ const app: MiniAppDocument = {
   metadata: { name: "Greeting", goal: "Write a greeting" },
 };
 
+test("a successful history entry shows completed progress without live events", () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("unavailable", { status: 404 }),
+  );
+  render(
+    <MiniAppRunner
+      app={app}
+      released={false}
+      initialRun={{ id: "persisted-run", status: "succeeded" }}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+});
+
 // A start that never produces a run leaves runId empty, so anything rendered
 // only in the running branch stays invisible: the operator pressed the button
 // and saw nothing happen.

@@ -142,6 +142,7 @@ export function MiniAppRunner(props: {
     !!runId &&
     !["succeeded", "failed", "cancelled", "interrupted"].includes(status);
   const progress = useMemo(() => {
+    if (status === "succeeded") return 1;
     const candidate = Number(
       run?.progress ?? events[events.length - 1]?.progress ?? 0,
     );
@@ -150,7 +151,7 @@ export function MiniAppRunner(props: {
       0,
       Math.min(1, candidate > 1 ? candidate / 100 : candidate),
     );
-  }, [events, run?.progress]);
+  }, [events, run?.progress, status]);
 
   const visibleEvents = events.reduce<string[]>((labels, event) => {
     const known = [
